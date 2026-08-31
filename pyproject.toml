@@ -1,0 +1,15 @@
+[project]
+name = "sarathi"
+version = "2.0.0"
+description = "Local, plugin-first document intelligence system"
+requires-python = "==3.13.15"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
