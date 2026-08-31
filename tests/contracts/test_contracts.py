@@ -125,14 +125,31 @@ class TestArtifactContracts:
         )
         assert intent2.relative_path == Path("summary.json")
 
-    def test_artifact_intent_path_safety_rejections(self) -> None:
-        # Absolute paths
+        intent3 = ArtifactIntent(
+            name="output.bin",
+            role="data",
+            media_type="application/octet-stream",
+            relative_path=r"nested\dir\output.bin",
+        )
+        assert intent3.relative_path == Path(r"nested\dir\output.bin")
+
+    def test_artifact_intent_cross_platform_path_safety(self) -> None:
+        # POSIX absolute paths
         with pytest.raises(ValueError, match="genuinely relative"):
             ArtifactIntent(
                 name="out.bin",
                 role="data",
                 media_type="application/octet-stream",
-                relative_path=Path("/etc/passwd"),
+                relative_path="/etc/passwd",
+            )
+
+        # Windows absolute / drive-rooted paths
+        with pytest.raises(ValueError, match="genuinely relative|drive specifier"):
+            ArtifactIntent(
+                name="out.bin",
+                role="data",
+                media_type="application/octet-stream",
+                relative_path=r"C:\Windows\out.bin",
             )
 
         with pytest.raises(ValueError, match="genuinely relative"):
@@ -140,16 +157,24 @@ class TestArtifactContracts:
                 name="out.bin",
                 role="data",
                 media_type="application/octet-stream",
-                relative_path=Path("C:/Windows/out.bin"),
+                relative_path=r"\Windows\out.bin",
             )
 
-        # Traversal '..' parts
+        # Traversal '..' parts under POSIX and Windows syntax
         with pytest.raises(ValueError, match="directory traversal"):
             ArtifactIntent(
                 name="out.bin",
                 role="data",
                 media_type="application/octet-stream",
-                relative_path=Path("../escape.bin"),
+                relative_path="../escape.bin",
+            )
+
+        with pytest.raises(ValueError, match="directory traversal"):
+            ArtifactIntent(
+                name="out.bin",
+                role="data",
+                media_type="application/octet-stream",
+                relative_path=r"sub\..\escape.bin",
             )
 
         with pytest.raises(ValueError, match="directory traversal"):
@@ -166,7 +191,7 @@ class TestArtifactContracts:
                 name="out.bin",
                 role="data",
                 media_type="application/octet-stream",
-                relative_path=Path("."),
+                relative_path=".",
             )
 
     def test_artifact_ref(self) -> None:
@@ -504,6 +529,25 @@ class TestDocumentContracts:
         with pytest.raises(ValueError, match="confidence must be a ratio"):
             TextSpan(text="test", confidence=-0.05)
 
+    def test_textspan_confidence_rejects_bool_and_non_numeric(self) -> None:
+        with pytest.raises(TypeError, match="cannot be a boolean"):
+            TextSpan(text="test", confidence=True)
+
+        with pytest.raises(TypeError, match="cannot be a boolean"):
+            TextSpan(text="test", confidence=False)
+
+        with pytest.raises(TypeError, match="must be numeric"):
+            TextSpan(text="test", confidence="0.95")  # type: ignore
+
+        # Int converted to float
+        span1 = TextSpan(text="test", confidence=1)
+        assert span1.confidence == 1.0
+        assert isinstance(span1.confidence, float)
+
+        span0 = TextSpan(text="test", confidence=0)
+        assert span0.confidence == 0.0
+        assert isinstance(span0.confidence, float)
+
 
 class TestResultContracts:
     def test_confidence_unavailable_by_default(self) -> None:
@@ -528,6 +572,21 @@ class TestResultContracts:
 
         with pytest.raises(TypeError):
             conf.evidence["word_count"] = 50  # type: ignore
+
+    def test_confidence_value_rejects_bool_and_non_numeric(self) -> None:
+        with pytest.raises(TypeError, match="cannot be a boolean"):
+            ConfidenceValue(score=True, method="ocr", evidence={"k": 1})
+
+        with pytest.raises(TypeError, match="cannot be a boolean"):
+            ConfidenceValue(score=False, method="ocr", evidence={"k": 1})
+
+        with pytest.raises(TypeError, match="must be numeric"):
+            ConfidenceValue(score="0.95", method="ocr", evidence={"k": 1})  # type: ignore
+
+        # Numeric int normalized to float
+        conf_int = ConfidenceValue(score=1, method="exact_match", evidence={"rule": "crc"})
+        assert conf_int.score == 1.0
+        assert isinstance(conf_int.score, float)
 
     def test_confidence_validation_failures(self) -> None:
         # Rejection of percentage values

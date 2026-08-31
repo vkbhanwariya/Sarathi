@@ -12,18 +12,40 @@ staging, commit, or artifact management.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 from typing import Any, Mapping
 
 
-def _validate_safe_relative_path(path: Path) -> Path:
-    """Validate that path is genuinely relative, non-empty, and free of directory traversal."""
-    if path.is_absolute() or path.drive or path.root:
+def _validate_safe_relative_path(path: Path | str) -> Path:
+    """Validate that path is genuinely relative, non-empty, and free of traversal under both Windows and POSIX rules."""
+    raw_str = str(path).strip()
+    if not raw_str:
+        raise ValueError("relative_path cannot be empty.")
+
+    win_path = PureWindowsPath(raw_str)
+    posix_path = PurePosixPath(raw_str)
+
+    # Reject Windows drive letters, roots, and absolute paths
+    if win_path.is_absolute() or win_path.drive or win_path.root:
         raise ValueError(f"relative_path must be genuinely relative, got absolute or rooted path: {path!r}")
 
-    parts = path.parts
-    if not parts or parts == (".",) or all(p == "." for p in parts):
+    # Reject POSIX roots and absolute paths
+    if posix_path.is_absolute() or posix_path.root:
+        raise ValueError(f"relative_path must be genuinely relative, got absolute or rooted path: {path!r}")
+
+    # Reject leading slashes/backslashes or drive letters
+    if raw_str.startswith("/") or raw_str.startswith("\\"):
+        raise ValueError(f"relative_path must be genuinely relative, got rooted path: {path!r}")
+
+    if len(raw_str) >= 2 and raw_str[1] == ":" and raw_str[0].isalpha():
+        raise ValueError(f"relative_path cannot contain a drive specifier: {path!r}")
+
+    # Normalized split check for directory traversal '..' across both slash styles
+    normalized_slash = raw_str.replace("\\", "/")
+    parts = [p for p in normalized_slash.split("/") if p != ""]
+
+    if not parts or all(p == "." for p in parts):
         raise ValueError(f"relative_path cannot be empty or dot: {path!r}")
 
     if ".." in parts:
@@ -33,7 +55,7 @@ def _validate_safe_relative_path(path: Path) -> Path:
         if p in (".", "..") or not p.strip():
             raise ValueError(f"relative_path contains invalid path component: {p!r}")
 
-    return path
+    return Path(path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,8 +104,7 @@ class ArtifactIntent:
         if self.relative_path is not None:
             if not isinstance(self.relative_path, (Path, str)):
                 raise TypeError(f"relative_path must be a Path or str, got {type(self.relative_path)}.")
-            rel_path = Path(self.relative_path) if isinstance(self.relative_path, str) else self.relative_path
-            object.__setattr__(self, "relative_path", _validate_safe_relative_path(rel_path))
+            object.__setattr__(self, "relative_path", _validate_safe_relative_path(self.relative_path))
         if isinstance(self.metadata, Mapping):
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         else:

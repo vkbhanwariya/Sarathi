@@ -9,6 +9,7 @@ Defines:
 Confidence Rules:
 - Lock one internal canonical scale: ratio 0.0 <= score <= 1.0.
 - Percentage-style scores (e.g. 95.0) are strictly rejected.
+- Booleans (True/False) and non-numeric types are strictly rejected.
 - Confidence is unavailable (None) by default unless calculated with evidence.
 - ConfidenceValue requires a non-empty method and a non-empty evidence mapping.
 - Provenance records the exact method and evidence.
@@ -33,10 +34,18 @@ class ConfidenceValue:
     evidence: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        if math.isnan(self.score) or math.isinf(self.score):
-            raise ValueError(f"Confidence score cannot be NaN or Inf, got {self.score}.")
-        if not (0.0 <= self.score <= 1.0):
-            raise ValueError(f"Confidence score must be a ratio in range [0.0, 1.0], got {self.score}.")
+        if isinstance(self.score, bool):
+            raise TypeError("Confidence score cannot be a boolean (True/False).")
+        if not isinstance(self.score, (int, float)):
+            raise TypeError(f"Confidence score must be numeric (float or int), got {type(self.score).__name__}.")
+
+        score_float = float(self.score)
+        if math.isnan(score_float) or math.isinf(score_float):
+            raise ValueError(f"Confidence score cannot be NaN or Inf, got {score_float}.")
+        if not (0.0 <= score_float <= 1.0):
+            raise ValueError(f"Confidence score must be a ratio in range [0.0, 1.0], got {score_float}.")
+        object.__setattr__(self, "score", score_float)
+
         if not self.method or not self.method.strip():
             raise ValueError("Confidence method must be a non-empty string describing the calculation.")
         if not isinstance(self.evidence, Mapping):

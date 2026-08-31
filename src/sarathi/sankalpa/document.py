@@ -30,10 +30,17 @@ class TextSpan:
 
     def __post_init__(self) -> None:
         if self.confidence is not None:
-            if math.isnan(self.confidence) or math.isinf(self.confidence):
-                raise ValueError(f"confidence cannot be NaN or Inf, got {self.confidence}.")
-            if not (0.0 <= self.confidence <= 1.0):
-                raise ValueError(f"confidence must be a ratio in range [0.0, 1.0], got {self.confidence}.")
+            if isinstance(self.confidence, bool):
+                raise TypeError("confidence cannot be a boolean (True/False).")
+            if not isinstance(self.confidence, (int, float)):
+                raise TypeError(f"confidence must be numeric (float or int), got {type(self.confidence).__name__}.")
+            conf_float = float(self.confidence)
+            if math.isnan(conf_float) or math.isinf(conf_float):
+                raise ValueError(f"confidence cannot be NaN or Inf, got {conf_float}.")
+            if not (0.0 <= conf_float <= 1.0):
+                raise ValueError(f"confidence must be a ratio in range [0.0, 1.0], got {conf_float}.")
+            object.__setattr__(self, "confidence", conf_float)
+
         if self.bounding_box is not None:
             if len(self.bounding_box) != 4:
                 raise ValueError("bounding_box must be a 4-tuple of floats (x0, y0, x1, y1).")
