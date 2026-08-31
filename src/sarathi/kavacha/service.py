@@ -1,6 +1,6 @@
 """Kavacha — Security & Privacy Service for Sarathi V2.
 
-Evaluates Sankalpa SecurityDeclarations against an explicit SecurityPolicy.
+Delegates authorization decisions to SecurityPolicy.
 Contains no filesystem I/O, secret storage, PII scanning, network clients,
 logging, or telemetry.
 """
@@ -8,7 +8,7 @@ logging, or telemetry.
 from __future__ import annotations
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.kavacha.policy import SecurityPolicy
+from sarathi.kavacha.policy import SecurityDecision, SecurityPolicy
 from sarathi.sankalpa import SecurityDeclaration
 
 
@@ -37,39 +37,9 @@ class Kavacha:
                 f"declaration must be a SecurityDeclaration instance, got {type(declaration).__name__}."
             )
 
-        # 1. PII access check
-        if declaration.pii_access and not self._policy.allow_pii_access:
+        decision = self._policy.evaluate(declaration)
+        if not decision.allowed:
             raise DoshError(
                 code=FailureCode.SECURITY_DENIED,
-                message="PII access is not permitted by security policy.",
+                message=decision.message or "Security policy denied authorization.",
             )
-
-        # 2. Network access check
-        if declaration.network_access and not self._policy.allow_network_access:
-            raise DoshError(
-                code=FailureCode.SECURITY_DENIED,
-                message="Network access is not permitted by security policy.",
-            )
-
-        # 3. External processing check (requires external permission AND network permission)
-        if declaration.external_processing:
-            if not self._policy.allow_external_processing:
-                raise DoshError(
-                    code=FailureCode.SECURITY_DENIED,
-                    message="External processing is not permitted by security policy.",
-                )
-            if not self._policy.allow_network_access:
-                raise DoshError(
-                    code=FailureCode.SECURITY_DENIED,
-                    message="External processing requires network access, which is not permitted by policy.",
-                )
-
-        # 4. Secret access check
-        if declaration.required_secrets:
-            allowed_set = set(self._policy.allowed_secrets)
-            for secret_name in declaration.required_secrets:
-                if secret_name not in allowed_set:
-                    raise DoshError(
-                        code=FailureCode.SECURITY_DENIED,
-                        message="One or more required secrets are not permitted by security policy.",
-                    )

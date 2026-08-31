@@ -3,7 +3,7 @@
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.kavacha import Kavacha, SecurityPolicy
+from sarathi.kavacha import Kavacha, SecurityDecision, SecurityPolicy
 import sarathi.kavacha as kavacha_module
 from sarathi.sankalpa import SecurityDeclaration
 
@@ -24,6 +24,15 @@ class TestSecurityPolicy:
         # Immutability
         with pytest.raises(AttributeError):
             policy.allow_pii_access = True  # type: ignore
+
+    def test_policy_consistency_rejects_external_without_network(self) -> None:
+        with pytest.raises(ValueError, match="allow_external_processing=True requires allow_network_access=True"):
+            SecurityPolicy(
+                allow_pii_access=False,
+                allow_network_access=False,
+                allow_external_processing=True,
+                allowed_secrets=(),
+            )
 
     def test_policy_rejects_non_bool_types(self) -> None:
         with pytest.raises(TypeError, match="allow_pii_access must be a bool"):
@@ -88,15 +97,14 @@ class TestSecurityPolicy:
             )
 
 
-class TestKavachaAuthorization:
-    def test_local_default_declaration_allowed(self) -> None:
+class TestSecurityPolicyEvaluation:
+    def test_evaluate_local_allowed(self) -> None:
         policy = SecurityPolicy(
             allow_pii_access=False,
             allow_network_access=False,
             allow_external_processing=False,
             allowed_secrets=(),
         )
-        kavacha = Kavacha(policy)
         decl = SecurityDeclaration(
             pii_access=False,
             local_processing_only=True,
@@ -104,46 +112,115 @@ class TestKavachaAuthorization:
             external_processing=False,
             required_secrets=(),
         )
-        # Should succeed without error
-        kavacha.authorize(decl)
+        decision = policy.evaluate(decl)
+        assert isinstance(decision, SecurityDecision)
+        assert decision.allowed is True
+        assert decision.message is None
 
-    def test_pii_access_denial(self) -> None:
+    def test_evaluate_fully_permissive_allowed(self) -> None:
+        policy = SecurityPolicy(
+            allow_pii_access=True,
+            allow_network_access=True,
+            allow_external_processing=True,
+            allowed_secrets=("TRANSLATION_API_KEY", "OCR_KEY"),
+        )
+        decl = SecurityDeclaration(
+            pii_access=True,
+            network_access=True,
+            external_processing=True,
+            local_processing_only=False,
+            required_secrets=("TRANSLATION_API_KEY",),
+        )
+        decision = policy.evaluate(decl)
+        assert decision.allowed is True
+        assert decision.message is None
+
+    def test_evaluate_pii_denial(self) -> None:
         policy = SecurityPolicy(
             allow_pii_access=False,
             allow_network_access=True,
             allow_external_processing=True,
             allowed_secrets=(),
         )
-        kavacha = Kavacha(policy)
-        decl = SecurityDeclaration(pii_access=True)
+        decl = SecurityDeclaration(pii_access=True, network_access=False)
+        decision = policy.evaluate(decl)
+        assert decision.allowed is False
+        assert decision.message is not None
+        assert "PII access is not permitted" in decision.message
 
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize(decl)
-
-        err = exc_info.value
-        assert err.code is FailureCode.SECURITY_DENIED
-        assert "PII access is not permitted" in err.message
-
-    def test_network_access_denial(self) -> None:
+    def test_evaluate_network_denial(self) -> None:
         policy = SecurityPolicy(
             allow_pii_access=True,
             allow_network_access=False,
             allow_external_processing=False,
             allowed_secrets=(),
         )
-        kavacha = Kavacha(policy)
         decl = SecurityDeclaration(network_access=True)
+        decision = policy.evaluate(decl)
+        assert decision.allowed is False
+        assert decision.message is not None
+        assert "Network access is not permitted" in decision.message
 
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize(decl)
-
-        err = exc_info.value
-        assert err.code is FailureCode.SECURITY_DENIED
-        assert "Network access is not permitted" in err.message
-
-    def test_external_processing_denial(self) -> None:
+    def test_evaluate_external_processing_denial(self) -> None:
         policy = SecurityPolicy(
             allow_pii_access=True,
+            allow_network_access=True,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        decl = SecurityDeclaration(
+            network_access=True,
+            external_processing=True,
+            local_processing_only=False,
+        )
+        decision = policy.evaluate(decl)
+        assert decision.allowed is False
+        assert decision.message is not None
+        assert "External processing is not permitted" in decision.message
+
+    def test_evaluate_disallowed_secret_denial(self) -> None:
+        policy = SecurityPolicy(
+            allow_pii_access=False,
+            allow_network_access=True,
+            allow_external_processing=True,
+            allowed_secrets=("KEY_A",),
+        )
+        decl = SecurityDeclaration(
+            network_access=True,
+            external_processing=True,
+            local_processing_only=False,
+            required_secrets=("UNAPPROVED_KEY",),
+        )
+        decision = policy.evaluate(decl)
+        assert decision.allowed is False
+        assert decision.message is not None
+        assert "One or more required secrets are not permitted" in decision.message
+
+
+class TestKavachaService:
+    def test_kavacha_delegates_to_policy_and_allows(self) -> None:
+        policy = SecurityPolicy(
+            allow_pii_access=True,
+            allow_network_access=True,
+            allow_external_processing=True,
+            allowed_secrets=("APPROVED_SECRET",),
+        )
+        kavacha = Kavacha(policy)
+        assert kavacha.policy is policy
+
+        decl = SecurityDeclaration(
+            pii_access=True,
+            network_access=True,
+            external_processing=True,
+            local_processing_only=False,
+            required_secrets=("APPROVED_SECRET",),
+        )
+        # Should succeed without exception
+        kavacha.authorize(decl)
+
+    def test_kavacha_denial_raises_dosh_error_without_leaking_secrets(self) -> None:
+        policy = SecurityPolicy(
+            allow_pii_access=False,
             allow_network_access=True,
             allow_external_processing=False,
             allowed_secrets=(),
@@ -153,6 +230,7 @@ class TestKavachaAuthorization:
             network_access=True,
             external_processing=True,
             local_processing_only=False,
+            required_secrets=("SECRET_TOKEN_XYZ",),
         )
 
         with pytest.raises(DoshError) as exc_info:
@@ -160,67 +238,8 @@ class TestKavachaAuthorization:
 
         err = exc_info.value
         assert err.code is FailureCode.SECURITY_DENIED
-        assert "External processing is not permitted" in err.message
-
-    def test_external_processing_denied_if_network_disallowed_in_policy(self) -> None:
-        policy = SecurityPolicy(
-            allow_pii_access=True,
-            allow_network_access=False,  # Network disallowed
-            allow_external_processing=True,  # External allowed
-            allowed_secrets=(),
-        )
-        kavacha = Kavacha(policy)
-        decl = SecurityDeclaration(
-            network_access=True,
-            external_processing=True,
-            local_processing_only=False,
-        )
-
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize(decl)
-
-        err = exc_info.value
-        assert err.code is FailureCode.SECURITY_DENIED
-
-    def test_disallowed_secret_denial_without_leaking_secret_name(self) -> None:
-        policy = SecurityPolicy(
-            allow_pii_access=False,
-            allow_network_access=True,
-            allow_external_processing=True,
-            allowed_secrets=("APPROVED_KEY",),
-        )
-        kavacha = Kavacha(policy)
-        decl = SecurityDeclaration(
-            network_access=True,
-            external_processing=True,
-            local_processing_only=False,
-            required_secrets=("FORBIDDEN_PROPRIETARY_SECRET_XYZ",),
-        )
-
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize(decl)
-
-        err = exc_info.value
-        assert err.code is FailureCode.SECURITY_DENIED
-        # Verify secret names and sensitive content are not leaked in message or context
-        assert "FORBIDDEN_PROPRIETARY_SECRET_XYZ" not in str(err)
-        assert "FORBIDDEN_PROPRIETARY_SECRET_XYZ" not in str(dict(err.context))
-
-    def test_allowed_secret_succeeds(self) -> None:
-        policy = SecurityPolicy(
-            allow_pii_access=False,
-            allow_network_access=True,
-            allow_external_processing=True,
-            allowed_secrets=("APPROVED_KEY", "ANOTHER_KEY"),
-        )
-        kavacha = Kavacha(policy)
-        decl = SecurityDeclaration(
-            network_access=True,
-            external_processing=True,
-            local_processing_only=False,
-            required_secrets=("APPROVED_KEY",),
-        )
-        kavacha.authorize(decl)
+        assert "SECRET_TOKEN_XYZ" not in str(err)
+        assert "SECRET_TOKEN_XYZ" not in str(dict(err.context))
 
     def test_invalid_arguments_to_kavacha(self) -> None:
         with pytest.raises(TypeError, match="policy must be a SecurityPolicy instance"):
@@ -237,7 +256,7 @@ class TestKavachaAuthorization:
             kavacha.authorize("not_a_declaration")  # type: ignore
 
     def test_kavacha_exports(self) -> None:
-        expected = {"Kavacha", "SecurityPolicy"}
+        expected = {"Kavacha", "SecurityDecision", "SecurityPolicy"}
         assert set(kavacha_module.__all__) == expected
         for name in expected:
             assert hasattr(kavacha_module, name)
