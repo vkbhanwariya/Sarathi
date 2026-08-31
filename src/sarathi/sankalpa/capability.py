@@ -49,23 +49,46 @@ class DeviceRequirement:
     priority: int = 0
 
     def __post_init__(self) -> None:
-        if isinstance(self.preferred_devices, (list, tuple, set)):
-            preferred = tuple(
-                d if isinstance(d, DeviceType) else DeviceType.from_string(str(d))
-                for d in self.preferred_devices
-            )
-            object.__setattr__(self, "preferred_devices", preferred)
-        else:
+        if isinstance(self.preferred_devices, set):
+            raise TypeError("preferred_devices must be an ordered sequence (list or tuple), not a set.")
+        if not isinstance(self.preferred_devices, (list, tuple)):
             raise TypeError(f"preferred_devices must be a sequence of DeviceType, got {type(self.preferred_devices)}.")
 
-        if isinstance(self.supported_devices, (list, tuple, set)):
-            supported = tuple(
-                d if isinstance(d, DeviceType) else DeviceType.from_string(str(d))
-                for d in self.supported_devices
-            )
-            object.__setattr__(self, "supported_devices", supported)
-        else:
+        if isinstance(self.supported_devices, set):
+            raise TypeError("supported_devices must be an ordered sequence (list or tuple), not a set.")
+        if not isinstance(self.supported_devices, (list, tuple)):
             raise TypeError(f"supported_devices must be a sequence of DeviceType, got {type(self.supported_devices)}.")
+
+        if not self.preferred_devices:
+            raise ValueError("preferred_devices cannot be empty.")
+        if not self.supported_devices:
+            raise ValueError("supported_devices cannot be empty.")
+
+        # Parse & validate supported devices
+        supported: list[DeviceType] = []
+        seen_supported: set[DeviceType] = set()
+        for d in self.supported_devices:
+            dev = d if isinstance(d, DeviceType) else DeviceType.from_string(str(d))
+            if dev in seen_supported:
+                raise ValueError(f"Duplicate device in supported_devices: {dev.value}")
+            seen_supported.add(dev)
+            supported.append(dev)
+        object.__setattr__(self, "supported_devices", tuple(supported))
+
+        # Parse & validate preferred devices
+        preferred: list[DeviceType] = []
+        seen_preferred: set[DeviceType] = set()
+        for d in self.preferred_devices:
+            dev = d if isinstance(d, DeviceType) else DeviceType.from_string(str(d))
+            if dev in seen_preferred:
+                raise ValueError(f"Duplicate device in preferred_devices: {dev.value}")
+            if dev not in seen_supported:
+                raise ValueError(
+                    f"Preferred device {dev.value!r} must also be in supported_devices: {[s.value for s in supported]}"
+                )
+            seen_preferred.add(dev)
+            preferred.append(dev)
+        object.__setattr__(self, "preferred_devices", tuple(preferred))
 
         if self.estimated_memory_bytes is not None and self.estimated_memory_bytes < 0:
             raise ValueError(
@@ -80,13 +103,8 @@ class CapabilityDeclaration:
     capability_id: str
     plugin_id: str
     version: str
+    supported_profiles: tuple[ExecutionProfile, ...]
     description: str = ""
-    supported_profiles: tuple[ExecutionProfile, ...] = (
-        ExecutionProfile.INSTANT,
-        ExecutionProfile.ACCURATE,
-        ExecutionProfile.LAYOUT_PRESERVING,
-        ExecutionProfile.CUSTOM,
-    )
     device_requirement: DeviceRequirement = field(default_factory=DeviceRequirement)
     supported_input_types: tuple[str, ...] = ()
     produces_artifacts: bool = False
@@ -101,18 +119,25 @@ class CapabilityDeclaration:
             raise ValueError("version must be a non-empty string.")
         if not isinstance(self.device_requirement, DeviceRequirement):
             raise TypeError(f"device_requirement must be a DeviceRequirement, got {type(self.device_requirement)}.")
-        if isinstance(self.supported_profiles, (list, tuple, set)):
-            profiles = tuple(
-                p if isinstance(p, ExecutionProfile) else ExecutionProfile.from_string(str(p))
-                for p in self.supported_profiles
-            )
-            if not profiles:
-                raise ValueError("supported_profiles cannot be empty.")
-            object.__setattr__(self, "supported_profiles", profiles)
-        else:
-            raise TypeError(f"supported_profiles must be a sequence of ExecutionProfile, got {type(self.supported_profiles)}.")
 
-        if isinstance(self.supported_input_types, (list, tuple, set)):
+        if isinstance(self.supported_profiles, set):
+            raise TypeError("supported_profiles must be an ordered sequence (list or tuple), not a set.")
+        if not isinstance(self.supported_profiles, (list, tuple)):
+            raise TypeError(f"supported_profiles must be a sequence of ExecutionProfile, got {type(self.supported_profiles)}.")
+        if not self.supported_profiles:
+            raise ValueError("supported_profiles cannot be empty; capabilities must explicitly declare their supported profiles.")
+
+        profiles: list[ExecutionProfile] = []
+        seen_profiles: set[ExecutionProfile] = set()
+        for p in self.supported_profiles:
+            prof = p if isinstance(p, ExecutionProfile) else ExecutionProfile.from_string(str(p))
+            if prof in seen_profiles:
+                raise ValueError(f"Duplicate profile in supported_profiles: {prof.value}")
+            seen_profiles.add(prof)
+            profiles.append(prof)
+        object.__setattr__(self, "supported_profiles", tuple(profiles))
+
+        if isinstance(self.supported_input_types, (list, tuple)):
             cleaned_inputs = tuple(
                 t.strip().lower() for t in self.supported_input_types if t and t.strip()
             )

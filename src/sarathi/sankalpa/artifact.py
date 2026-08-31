@@ -17,6 +17,25 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 
+def _validate_safe_relative_path(path: Path) -> Path:
+    """Validate that path is genuinely relative, non-empty, and free of directory traversal."""
+    if path.is_absolute() or path.drive or path.root:
+        raise ValueError(f"relative_path must be genuinely relative, got absolute or rooted path: {path!r}")
+
+    parts = path.parts
+    if not parts or parts == (".",) or all(p == "." for p in parts):
+        raise ValueError(f"relative_path cannot be empty or dot: {path!r}")
+
+    if ".." in parts:
+        raise ValueError(f"relative_path cannot contain '..' directory traversal parts: {path!r}")
+
+    for p in parts:
+        if p in (".", "..") or not p.strip():
+            raise ValueError(f"relative_path contains invalid path component: {p!r}")
+
+    return path
+
+
 @dataclass(frozen=True, slots=True)
 class InputRef:
     """Normalized typed reference to an input document or file."""
@@ -60,8 +79,11 @@ class ArtifactIntent:
             raise ValueError("role must be a non-empty string.")
         if not self.media_type or not self.media_type.strip():
             raise ValueError("media_type must be a non-empty string.")
-        if self.relative_path is not None and not isinstance(self.relative_path, Path):
-            object.__setattr__(self, "relative_path", Path(self.relative_path))
+        if self.relative_path is not None:
+            if not isinstance(self.relative_path, (Path, str)):
+                raise TypeError(f"relative_path must be a Path or str, got {type(self.relative_path)}.")
+            rel_path = Path(self.relative_path) if isinstance(self.relative_path, str) else self.relative_path
+            object.__setattr__(self, "relative_path", _validate_safe_relative_path(rel_path))
         if isinstance(self.metadata, Mapping):
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         else:

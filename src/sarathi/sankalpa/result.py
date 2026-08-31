@@ -7,8 +7,10 @@ Defines:
 - Result: Canonical result contract returned across capability boundaries.
 
 Confidence Rules:
-- Never default confidence to 1.0, 100%, or any fabricated value.
+- Lock one internal canonical scale: ratio 0.0 <= score <= 1.0.
+- Percentage-style scores (e.g. 95.0) are strictly rejected.
 - Confidence is unavailable (None) by default unless calculated with evidence.
+- ConfidenceValue requires a non-empty method and a non-empty evidence mapping.
 - Provenance records the exact method and evidence.
 """
 
@@ -28,29 +30,30 @@ class ConfidenceValue:
 
     score: float
     method: str
-    evidence: Mapping[str, Any] = field(default_factory=dict)
+    evidence: Mapping[str, Any]
 
     def __post_init__(self) -> None:
         if math.isnan(self.score) or math.isinf(self.score):
             raise ValueError(f"Confidence score cannot be NaN or Inf, got {self.score}.")
-        if not (0.0 <= self.score <= 1.0 or 0.0 <= self.score <= 100.0):
-            raise ValueError(f"Confidence score must be in range [0.0, 1.0] or [0, 100], got {self.score}.")
+        if not (0.0 <= self.score <= 1.0):
+            raise ValueError(f"Confidence score must be a ratio in range [0.0, 1.0], got {self.score}.")
         if not self.method or not self.method.strip():
             raise ValueError("Confidence method must be a non-empty string describing the calculation.")
-        if isinstance(self.evidence, Mapping):
-            object.__setattr__(self, "evidence", MappingProxyType(dict(self.evidence)))
-        else:
+        if not isinstance(self.evidence, Mapping):
             raise TypeError(f"evidence must be a Mapping, got {type(self.evidence)}.")
+        if len(self.evidence) == 0:
+            raise ValueError("evidence must be a non-empty mapping containing factual computation details.")
+        object.__setattr__(self, "evidence", MappingProxyType(dict(self.evidence)))
 
     @property
     def as_ratio(self) -> float:
-        """Return confidence normalized to [0.0, 1.0]."""
-        return self.score / 100.0 if self.score > 1.0 else self.score
+        """Return confidence ratio [0.0, 1.0]."""
+        return self.score
 
     @property
     def as_percent(self) -> float:
-        """Return confidence normalized to [0.0, 100.0]."""
-        return self.score if self.score > 1.0 else self.score * 100.0
+        """Return confidence formatted as a percentage [0.0, 100.0]."""
+        return self.score * 100.0
 
 
 @dataclass(frozen=True, slots=True)

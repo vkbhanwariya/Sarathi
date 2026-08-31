@@ -32,8 +32,8 @@ class TextSpan:
         if self.confidence is not None:
             if math.isnan(self.confidence) or math.isinf(self.confidence):
                 raise ValueError(f"confidence cannot be NaN or Inf, got {self.confidence}.")
-            if not (0.0 <= self.confidence <= 1.0 or 0.0 <= self.confidence <= 100.0):
-                raise ValueError(f"confidence must be between 0.0 and 1.0 (or 0..100), got {self.confidence}.")
+            if not (0.0 <= self.confidence <= 1.0):
+                raise ValueError(f"confidence must be a ratio in range [0.0, 1.0], got {self.confidence}.")
         if self.bounding_box is not None:
             if len(self.bounding_box) != 4:
                 raise ValueError("bounding_box must be a 4-tuple of floats (x0, y0, x1, y1).")

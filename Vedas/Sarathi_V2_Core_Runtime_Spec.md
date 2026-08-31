@@ -93,16 +93,17 @@ Confidence is common as a result concept, but each capability remains
 responsible for calculating confidence according to its own semantics.
 
 **Confidence integrity is mandatory.** Confidence must never be a
-hard-coded success default or fabricated fallback value. If confidence
-is reported, provenance must identify the actual computation/evidence
-that produced it. If meaningful confidence cannot be computed, report it
-as unavailable rather than inventing a number.
+hard-coded success default or fabricated fallback value. It is stored on a
+canonical ratio scale (`0.0 <= score <= 1.0`); percentage formats are presentation-only.
+If confidence is reported, `ConfidenceValue` requires a non-empty calculation `method`
+and a non-empty `evidence` mapping. If meaningful confidence cannot be computed, report it
+as unavailable (`None`) rather than inventing a number.
 
 ``` text
 Confidence reported
       ↓
-Actual computation / evidence exists?
-   ├── NO  → confidence unavailable
+Actual computation + non-empty evidence exist?
+   ├── NO  → confidence unavailable (None)
    └── YES → method + evidence recorded in provenance
 ```
 
@@ -261,8 +262,9 @@ Canonical rules:
 - Successful commits remove their staging data. On failure or cancellation,
   uncommitted temporary data is removed unless explicit partial-preservation or
   quarantine policy moves it to its canonical destination.
-- `<requirement>` is a validated stable requirement/capability identifier, not
-  raw user-entered text; the run suffix prevents normal cross-run collisions.
+- `<requirement>` is a validated safe stable requirement/capability identifier
+  (lowercase letters, digits, `_` and `-` only; matching `^[a-z0-9_-]+$`), not
+  raw user-entered text or paths; the run suffix prevents normal cross-run collisions.
 - `run-manifest.json` records only confirmed artifacts and safe provenance. It
   never invents confidence/quality values or exposes raw sensitive source paths.
 - `Runtime/Quarantine`, `Runtime/Telemetry`, and `Runtime/Cache` retain their

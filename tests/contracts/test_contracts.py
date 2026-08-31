@@ -1,6 +1,5 @@
 """Comprehensive unit tests for Sankalpa — Canonical Contracts."""
 
-import math
 from pathlib import Path
 import pytest
 
@@ -109,15 +108,68 @@ class TestArtifactContracts:
                 size_bytes=-5,
             )
 
-    def test_artifact_intent_and_ref(self) -> None:
-        intent = ArtifactIntent(
+    def test_artifact_intent_valid_relative_paths(self) -> None:
+        intent1 = ArtifactIntent(
             name="consolidated.parquet",
             role="primary_dataset",
             media_type="application/vnd.apache.parquet",
+            relative_path=Path("nested/dir/consolidated.parquet"),
         )
-        assert intent.name == "consolidated.parquet"
-        assert intent.role == "primary_dataset"
+        assert intent1.relative_path == Path("nested/dir/consolidated.parquet")
 
+        intent2 = ArtifactIntent(
+            name="summary.json",
+            role="summary",
+            media_type="application/json",
+            relative_path="summary.json",
+        )
+        assert intent2.relative_path == Path("summary.json")
+
+    def test_artifact_intent_path_safety_rejections(self) -> None:
+        # Absolute paths
+        with pytest.raises(ValueError, match="genuinely relative"):
+            ArtifactIntent(
+                name="out.bin",
+                role="data",
+                media_type="application/octet-stream",
+                relative_path=Path("/etc/passwd"),
+            )
+
+        with pytest.raises(ValueError, match="genuinely relative"):
+            ArtifactIntent(
+                name="out.bin",
+                role="data",
+                media_type="application/octet-stream",
+                relative_path=Path("C:/Windows/out.bin"),
+            )
+
+        # Traversal '..' parts
+        with pytest.raises(ValueError, match="directory traversal"):
+            ArtifactIntent(
+                name="out.bin",
+                role="data",
+                media_type="application/octet-stream",
+                relative_path=Path("../escape.bin"),
+            )
+
+        with pytest.raises(ValueError, match="directory traversal"):
+            ArtifactIntent(
+                name="out.bin",
+                role="data",
+                media_type="application/octet-stream",
+                relative_path=Path("sub/../../escape.bin"),
+            )
+
+        # Empty / dot paths
+        with pytest.raises(ValueError, match="empty or dot"):
+            ArtifactIntent(
+                name="out.bin",
+                role="data",
+                media_type="application/octet-stream",
+                relative_path=Path("."),
+            )
+
+    def test_artifact_ref(self) -> None:
         ref = ArtifactRef(
             artifact_id="art-001",
             role="primary_dataset",
@@ -142,6 +194,34 @@ class TestPluginAndSecurityContracts:
         assert sec.network_access is False
         assert sec.external_processing is False
         assert sec.required_secrets == ()
+
+    def test_security_declaration_consistency_rules(self) -> None:
+        # Valid external declaration
+        valid_external = SecurityDeclaration(
+            network_access=True,
+            external_processing=True,
+            local_processing_only=False,
+            required_secrets=("OPENAI_KEY",),
+        )
+        assert valid_external.external_processing is True
+        assert valid_external.network_access is True
+        assert valid_external.local_processing_only is False
+
+        # External processing requires network_access=True
+        with pytest.raises(ValueError, match="external_processing=True requires network_access=True"):
+            SecurityDeclaration(
+                external_processing=True,
+                network_access=False,
+                local_processing_only=False,
+            )
+
+        # External processing cannot coexist with local_processing_only=True
+        with pytest.raises(ValueError, match="cannot coexist with local_processing_only=True"):
+            SecurityDeclaration(
+                external_processing=True,
+                network_access=True,
+                local_processing_only=True,
+            )
 
     def test_security_declaration_secrets_cleaning(self) -> None:
         sec = SecurityDeclaration(
@@ -186,18 +266,52 @@ class TestCapabilityContracts:
         with pytest.raises(ValueError, match="Invalid device type"):
             DeviceType.from_string("tpu")
 
-    def test_device_requirement(self) -> None:
+    def test_device_requirement_ordering_and_validation(self) -> None:
         req = DeviceRequirement(
-            preferred_devices=(DeviceType.GPU, DeviceType.NPU),
-            supported_devices=(DeviceType.GPU, DeviceType.NPU, DeviceType.CPU),
+            preferred_devices=[DeviceType.GPU, DeviceType.NPU],
+            supported_devices=[DeviceType.GPU, DeviceType.NPU, DeviceType.CPU],
             parallelizable=True,
             estimated_memory_bytes=512 * 1024 * 1024,
             priority=10,
         )
         assert req.preferred_devices == (DeviceType.GPU, DeviceType.NPU)
-        assert req.estimated_memory_bytes == 512 * 1024 * 1024
+        assert req.supported_devices == (DeviceType.GPU, DeviceType.NPU, DeviceType.CPU)
 
-    def test_capability_declaration_valid(self) -> None:
+        # Reject sets
+        with pytest.raises(TypeError, match="ordered sequence"):
+            DeviceRequirement(preferred_devices={DeviceType.CPU})  # type: ignore
+
+        with pytest.raises(TypeError, match="ordered sequence"):
+            DeviceRequirement(supported_devices={DeviceType.CPU})  # type: ignore
+
+        # Reject empty
+        with pytest.raises(ValueError, match="cannot be empty"):
+            DeviceRequirement(preferred_devices=())
+
+        with pytest.raises(ValueError, match="cannot be empty"):
+            DeviceRequirement(supported_devices=())
+
+        # Reject duplicates
+        with pytest.raises(ValueError, match="Duplicate device"):
+            DeviceRequirement(
+                preferred_devices=(DeviceType.CPU, DeviceType.CPU),
+                supported_devices=(DeviceType.CPU,),
+            )
+
+        with pytest.raises(ValueError, match="Duplicate device"):
+            DeviceRequirement(
+                preferred_devices=(DeviceType.CPU,),
+                supported_devices=(DeviceType.CPU, DeviceType.CPU),
+            )
+
+        # Preferred must be subset of supported
+        with pytest.raises(ValueError, match="must also be in supported_devices"):
+            DeviceRequirement(
+                preferred_devices=(DeviceType.GPU,),
+                supported_devices=(DeviceType.CPU,),
+            )
+
+    def test_capability_declaration_profiles_must_be_explicit(self) -> None:
         decl = CapabilityDeclaration(
             capability_id="ocr",
             plugin_id="shakti.ocr",
@@ -208,7 +322,33 @@ class TestCapabilityContracts:
         )
         assert decl.capability_id == "ocr"
         assert decl.supported_profiles == (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE)
-        assert "image/png" in decl.supported_input_types
+
+        # Reject sets for supported_profiles
+        with pytest.raises(TypeError, match="ordered sequence"):
+            CapabilityDeclaration(
+                capability_id="ocr",
+                plugin_id="shakti.ocr",
+                version="2.0.0",
+                supported_profiles={ExecutionProfile.INSTANT},  # type: ignore
+            )
+
+        # Reject empty profiles
+        with pytest.raises(ValueError, match="cannot be empty"):
+            CapabilityDeclaration(
+                capability_id="ocr",
+                plugin_id="shakti.ocr",
+                version="2.0.0",
+                supported_profiles=(),
+            )
+
+        # Reject duplicate profiles
+        with pytest.raises(ValueError, match="Duplicate profile"):
+            CapabilityDeclaration(
+                capability_id="ocr",
+                plugin_id="shakti.ocr",
+                version="2.0.0",
+                supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.INSTANT),
+            )
 
 
 class TestRequestContracts:
@@ -222,7 +362,7 @@ class TestRequestContracts:
         req = Request(
             request_id="req-123",
             requirement="bank_statements",
-            inputs=(inp,),
+            inputs=[inp],
             profile=ExecutionProfile.ACCURATE,
             custom_options={"engine": "polars"},
             metadata={"origin": "cli"},
@@ -237,26 +377,39 @@ class TestRequestContracts:
         with pytest.raises(TypeError):
             req.metadata["origin"] = "gui"  # type: ignore
 
-    def test_request_validation_failures(self) -> None:
-        with pytest.raises(ValueError, match="inputs cannot be empty"):
-            Request(
-                request_id="req-1",
-                requirement="bank_statements",
-                inputs=(),
-            )
+    def test_request_safe_requirement_identifier(self) -> None:
+        inp = InputRef(input_id="i1", source_path=Path("a.pdf"), display_name="a.pdf", size_bytes=10)
 
-        with pytest.raises(ValueError, match="request_id must be a non-empty string"):
-            inp = InputRef(
-                input_id="inp-1",
-                source_path=Path("Input/stmt.pdf"),
-                display_name="stmt.pdf",
-                size_bytes=100,
-            )
-            Request(
-                request_id="",
-                requirement="bank_statements",
-                inputs=(inp,),
-            )
+        # Valid requirement identifiers
+        for valid_req in ("bank_statements", "ocr", "font-conversion", "extract_v2_data", "task1"):
+            req = Request(request_id="r1", requirement=valid_req, inputs=(inp,))
+            assert req.requirement == valid_req
+
+        # Invalid requirement identifiers
+        for invalid_req in (
+            "Bank_Statements",     # uppercase
+            "bank statements",     # space
+            "bank/statement",      # slash
+            "bank\\statement",     # backslash
+            "bank.statement",      # dot
+            "../bank",             # path traversal
+            "",                    # empty
+            "   ",                 # whitespace
+        ):
+            with pytest.raises(ValueError, match="safe stable identifier"):
+                Request(request_id="r1", requirement=invalid_req, inputs=(inp,))
+
+    def test_request_rejects_sets_and_duplicate_input_ids(self) -> None:
+        inp1 = InputRef(input_id="inp-1", source_path=Path("1.pdf"), display_name="1.pdf", size_bytes=10)
+        inp1_dup = InputRef(input_id="inp-1", source_path=Path("1_dup.pdf"), display_name="1_dup.pdf", size_bytes=20)
+
+        # Reject sets
+        with pytest.raises(TypeError, match="ordered sequence"):
+            Request(request_id="r1", requirement="ocr", inputs={"inp1", "inp2"})  # type: ignore
+
+        # Reject duplicate input_id
+        with pytest.raises(ValueError, match="Duplicate input_id"):
+            Request(request_id="r1", requirement="ocr", inputs=(inp1, inp1_dup))
 
 
 class TestContextContracts:
@@ -341,8 +494,15 @@ class TestDocumentContracts:
         with pytest.raises(ValueError, match="bounding_box must be a 4-tuple"):
             TextSpan(text="test", bounding_box=(0.0, 0.0, 1.0))  # type: ignore
 
+        # TextSpan ratio confidence validation
         with pytest.raises(ValueError, match="confidence cannot be NaN or Inf"):
             TextSpan(text="test", confidence=float("nan"))
+
+        with pytest.raises(ValueError, match="confidence must be a ratio"):
+            TextSpan(text="test", confidence=95.0)
+
+        with pytest.raises(ValueError, match="confidence must be a ratio"):
+            TextSpan(text="test", confidence=-0.05)
 
 
 class TestResultContracts:
@@ -354,7 +514,7 @@ class TestResultContracts:
         assert res.warnings == ()
         assert res.provenance == ()
 
-    def test_confidence_value_with_evidence_and_immutability(self) -> None:
+    def test_confidence_value_ratio_only_with_evidence(self) -> None:
         conf = ConfidenceValue(
             score=0.95,
             method="ocr_char_probabilities_mean",
@@ -369,29 +529,33 @@ class TestResultContracts:
         with pytest.raises(TypeError):
             conf.evidence["word_count"] = 50  # type: ignore
 
-        # Scale 0..100
-        conf100 = ConfidenceValue(score=95.0, method="model_confidence")
-        assert conf100.as_ratio == 0.95
-        assert conf100.as_percent == 95.0
-
     def test_confidence_validation_failures(self) -> None:
-        with pytest.raises(ValueError, match="Confidence score must be in range"):
-            ConfidenceValue(score=150.0, method="invalid")
+        # Rejection of percentage values
+        with pytest.raises(ValueError, match="ratio in range"):
+            ConfidenceValue(score=95.0, method="ocr", evidence={"cnt": 1})
 
-        with pytest.raises(ValueError, match="Confidence score must be in range"):
-            ConfidenceValue(score=-0.1, method="invalid")
+        with pytest.raises(ValueError, match="ratio in range"):
+            ConfidenceValue(score=1.05, method="ocr", evidence={"cnt": 1})
 
-        with pytest.raises(ValueError, match="Confidence score cannot be NaN or Inf"):
-            ConfidenceValue(score=float("nan"), method="invalid")
+        with pytest.raises(ValueError, match="ratio in range"):
+            ConfidenceValue(score=-0.01, method="ocr", evidence={"cnt": 1})
 
-        with pytest.raises(ValueError, match="Confidence score cannot be NaN or Inf"):
-            ConfidenceValue(score=float("inf"), method="invalid")
+        with pytest.raises(ValueError, match="cannot be NaN or Inf"):
+            ConfidenceValue(score=float("nan"), method="ocr", evidence={"cnt": 1})
 
-        with pytest.raises(ValueError, match="Confidence method must be a non-empty string"):
-            ConfidenceValue(score=0.9, method="")
+        with pytest.raises(ValueError, match="cannot be NaN or Inf"):
+            ConfidenceValue(score=float("inf"), method="ocr", evidence={"cnt": 1})
 
-        with pytest.raises(ValueError, match="Confidence method must be a non-empty string"):
-            ConfidenceValue(score=0.9, method="   ")
+        # Rejection of empty/whitespace method
+        with pytest.raises(ValueError, match="non-empty string"):
+            ConfidenceValue(score=0.9, method="", evidence={"cnt": 1})
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            ConfidenceValue(score=0.9, method="   ", evidence={"cnt": 1})
+
+        # Rejection of empty evidence mapping
+        with pytest.raises(ValueError, match="non-empty mapping"):
+            ConfidenceValue(score=0.9, method="valid_method", evidence={})
 
     def test_provenance_and_warning_records(self) -> None:
         prov = ProvenanceRecord(

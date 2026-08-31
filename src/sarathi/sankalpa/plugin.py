@@ -26,6 +26,12 @@ class SecurityDeclaration:
     required_secrets: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.external_processing:
+            if not self.network_access:
+                raise ValueError("external_processing=True requires network_access=True in SecurityDeclaration.")
+            if self.local_processing_only:
+                raise ValueError("external_processing=True cannot coexist with local_processing_only=True in SecurityDeclaration.")
+
         if isinstance(self.required_secrets, (list, tuple, set)):
             # Ensure unique sorted tuple of non-empty secret names
             cleaned = tuple(sorted({s.strip() for s in self.required_secrets if s and s.strip()}))
