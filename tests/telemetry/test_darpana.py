@@ -145,6 +145,53 @@ class TestMarutiTelemetry:
         assert "Confidential sensitive error details" not in rec.error_type
         assert "Confidential sensitive error details" not in str(rec.attributes)
 
+    def test_time_scope_records_keyboard_interrupt_and_reraises(self, execution_context: ExecutionContext) -> None:
+        darpana = Darpana(capacity=10)
+
+        with pytest.raises(KeyboardInterrupt):
+            with darpana.time_scope(
+                execution_context,
+                phase_name="process",
+                component="shakti.bank_statements",
+            ):
+                raise KeyboardInterrupt()
+
+        records = darpana.maruti_records()
+        assert len(records) == 1
+        rec = records[0]
+        assert rec.outcome == "failure"
+        assert rec.error_type == "KeyboardInterrupt"
+        assert rec.duration_ns >= 0
+
+    def test_time_scope_validates_before_executing_wrapped_work(self, execution_context: ExecutionContext) -> None:
+        darpana = Darpana(capacity=10)
+        executed = False
+
+        # Invalid attributes type must raise TypeError before entering work block
+        with pytest.raises(TypeError, match="attributes must be a Mapping or None"):
+            with darpana.time_scope(
+                execution_context,
+                phase_name="extract",
+                component="shakti.native_extraction",
+                attributes="invalid_string_attributes",  # type: ignore
+            ):
+                executed = True
+
+        assert executed is False
+        assert len(darpana.maruti_records()) == 0
+
+        # Invalid empty phase_name
+        with pytest.raises(ValueError, match="phase_name must be a non-empty string"):
+            with darpana.time_scope(
+                execution_context,
+                phase_name="  ",
+                component="comp",
+            ):
+                executed = True
+
+        assert executed is False
+        assert len(darpana.maruti_records()) == 0
+
 
 class TestPramanaTelemetry:
     def test_accuracy_value_ratio_and_evidence(self) -> None:
@@ -271,7 +318,11 @@ class TestDarpanaService:
         assert pramana_recs[0] == rec
         assert isinstance(pramana_recs, tuple)
 
-    def test_darpana_invalid_capacity(self) -> None:
+    def test_darpana_explicit_capacity_required(self) -> None:
+        # Default capacity removed: constructor must reject no arguments
+        with pytest.raises(TypeError):
+            Darpana()  # type: ignore
+
         with pytest.raises(TypeError, match="capacity must be an integer"):
             Darpana(capacity="100")  # type: ignore
 

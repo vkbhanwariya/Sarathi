@@ -24,7 +24,7 @@ from sarathi.sankalpa import ExecutionContext
 class Darpana:
     """Thread-safe bounded in-memory telemetry service."""
 
-    def __init__(self, capacity: int = 1000) -> None:
+    def __init__(self, capacity: int) -> None:
         if not isinstance(capacity, int) or isinstance(capacity, bool):
             raise TypeError(f"capacity must be an integer, got {type(capacity).__name__}.")
         if capacity <= 0:
@@ -65,12 +65,24 @@ class Darpana:
     ) -> Iterator[None]:
         """Context manager timing a block of execution and recording a MarutiRecord.
 
+        Validates all instrumentation arguments before execution begins.
         Records outcome='success' on normal exit.
-        Records outcome='failure' and exception type name if an exception occurs,
-        then re-raises the original exception without leaking raw message text.
+        Records outcome='failure' and exception type name if any BaseException occurs,
+        then re-raises without leaking raw exception message text.
         """
         if not isinstance(context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance, got {type(context).__name__}.")
+
+        if not isinstance(phase_name, str) or not phase_name.strip():
+            raise ValueError("phase_name must be a non-empty string.")
+
+        if not isinstance(component, str) or not component.strip():
+            raise ValueError("component must be a non-empty string.")
+
+        if attributes is not None and not isinstance(attributes, Mapping):
+            raise TypeError(f"attributes must be a Mapping or None, got {type(attributes).__name__}.")
+
+        safe_attributes = dict(attributes) if attributes else {}
 
         start_time_utc = datetime.now(timezone.utc).isoformat()
         start_ns = time.perf_counter_ns()
@@ -82,29 +94,29 @@ class Darpana:
                 request_id=context.request_id,
                 trace_id=context.trace_id,
                 span_id=context.span_id,
-                phase_name=phase_name,
-                component=component,
+                phase_name=phase_name.strip(),
+                component=component.strip(),
                 timestamp_utc=start_time_utc,
                 duration_ns=duration_ns,
                 outcome="success",
                 error_type=None,
-                attributes=attributes or {},
+                attributes=safe_attributes,
             )
             self.record_maruti(record)
-        except Exception as exc:
+        except BaseException as exc:
             duration_ns = max(0, time.perf_counter_ns() - start_ns)
             record = MarutiRecord(
                 run_id=context.run_id,
                 request_id=context.request_id,
                 trace_id=context.trace_id,
                 span_id=context.span_id,
-                phase_name=phase_name,
-                component=component,
+                phase_name=phase_name.strip(),
+                component=component.strip(),
                 timestamp_utc=start_time_utc,
                 duration_ns=duration_ns,
                 outcome="failure",
                 error_type=type(exc).__name__,
-                attributes=attributes or {},
+                attributes=safe_attributes,
             )
             self.record_maruti(record)
             raise
