@@ -51,10 +51,6 @@ class Settings:
         """Alias for get_section."""
         return self.get_section(name)
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get a top-level configuration value or return default."""
-        return self._data.get(key, default)
-
     def __getitem__(self, key: str) -> Any:
         """Get a top-level configuration value by key."""
         return self._data[key]

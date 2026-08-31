@@ -37,14 +37,13 @@ def load_settings(path: Union[str, Path]) -> Settings:
         raise DoshError(
             code=FailureCode.INVALID_CONFIGURATION,
             message=f"Configuration file must have a .toml extension, got {file_path.name!r}.",
-            context={"path": str(file_path)},
         )
 
     try:
         if not file_path.exists():
-            raise FileNotFoundError(f"Configuration file does not exist: {file_path}")
+            raise FileNotFoundError(f"Configuration file does not exist: {file_path.name}")
         if not file_path.is_file():
-            raise IsADirectoryError(f"Configuration path is not a regular file: {file_path}")
+            raise IsADirectoryError(f"Configuration path is not a regular file: {file_path.name}")
 
         with file_path.open("rb") as f:
             raw_data = tomllib.load(f)
@@ -53,26 +52,22 @@ def load_settings(path: Union[str, Path]) -> Settings:
         raise DoshError(
             code=FailureCode.INVALID_CONFIGURATION,
             message=f"Configuration file could not be opened: {file_path.name}.",
-            context={"path": str(file_path)},
         ) from err
     except tomllib.TOMLDecodeError as err:
         raise DoshError(
             code=FailureCode.INVALID_CONFIGURATION,
             message=f"Failed to parse TOML configuration in {file_path.name}.",
-            context={"path": str(file_path)},
         ) from err
     except OSError as err:
         raise DoshError(
             code=FailureCode.INVALID_CONFIGURATION,
             message=f"I/O error reading configuration file: {file_path.name}.",
-            context={"path": str(file_path)},
         ) from err
 
     if not isinstance(raw_data, dict):
         raise DoshError(
             code=FailureCode.INVALID_CONFIGURATION,
             message=f"Configuration root in {file_path.name} must be a TOML table.",
-            context={"path": str(file_path)},
         )
 
     return Settings(raw_data)

@@ -16,9 +16,9 @@ class TestSettings:
         assert s.sections == ()
         assert s.get_section("telemetry") is None
         assert s.section("telemetry") is None
-        assert s.get("input_root") is None
-        assert s.get("input_root", "default_val") == "default_val"
         assert "input_root" not in s
+        with pytest.raises(KeyError):
+            _ = s["input_root"]
 
     def test_valid_settings_and_recursive_immutability(self) -> None:
         raw = {
@@ -157,25 +157,36 @@ output_root = "Output"
 
         err = exc_info.value
         assert err.code is FailureCode.INVALID_CONFIGURATION
-        assert "Failed to parse TOML configuration" in err.message
+        assert "Failed to parse TOML configuration in bad.toml" in err.message
         assert isinstance(err.__cause__, tomllib.TOMLDecodeError)
 
     def test_invalid_path_argument_type(self) -> None:
         with pytest.raises(TypeError, match="path must be a str or Path"):
             load_settings(12345)  # type: ignore
 
-    def test_error_context_contains_no_raw_file_content(self, tmp_path: Path) -> None:
-        bad_toml = tmp_path / "secret.toml"
-        bad_toml.write_text("secret_password = unclosed", encoding="utf-8")
+    def test_error_context_and_message_do_not_expose_full_path_or_toml_content(self, tmp_path: Path) -> None:
+        nested_dir = tmp_path / "secret_parent_directory" / "sub"
+        nested_dir.mkdir(parents=True)
+        secret_toml = nested_dir / "app_config.toml"
+        secret_toml.write_text("super_secret_token_12345 = unclosed_value\n", encoding="utf-8")
 
         with pytest.raises(DoshError) as exc_info:
-            load_settings(bad_toml)
+            load_settings(secret_toml)
 
         err = exc_info.value
-        assert "secret_password" not in str(err)
-        assert "unclosed" not in str(err)
-        for val in err.context.values():
-            assert "secret_password" not in str(val)
+        err_msg = str(err)
+        err_context_str = str(dict(err.context))
+
+        # Check that file basename only is used, and parent paths are not leaked
+        assert "app_config.toml" in err_msg
+        assert "secret_parent_directory" not in err_msg
+        assert "secret_parent_directory" not in err_context_str
+        assert str(secret_toml) not in err_msg
+        assert str(secret_toml) not in err_context_str
+
+        # Check that TOML content is not leaked
+        assert "super_secret_token_12345" not in err_msg
+        assert "super_secret_token_12345" not in err_context_str
 
     def test_sutra_exports(self) -> None:
         expected = {"Settings", "load_settings"}
