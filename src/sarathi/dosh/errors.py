@@ -27,31 +27,21 @@ class FailureCode(StrEnum):
     RESOURCE_UNAVAILABLE = "resource_unavailable"
     SECURITY_DENIED = "security_denied"
 
-    @classmethod
-    def from_string(cls, value: str) -> FailureCode:
-        """Parse string to FailureCode safely, case-insensitively."""
-        normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
-        for member in cls:
-            if member.value == normalized:
-                return member
-        raise ValueError(
-            f"Invalid failure code: {value!r}. "
-            f"Allowed codes: {[c.value for c in cls]}"
-        )
-
 
 class DoshError(Exception):
     """Canonical typed Sarathi exception for classified operational failures."""
 
     def __init__(
         self,
-        code: FailureCode | str,
+        code: FailureCode,
         message: str,
         *,
         context: Mapping[str, Any] | None = None,
     ) -> None:
         if not isinstance(code, FailureCode):
-            code = FailureCode.from_string(str(code))
+            raise TypeError(
+                f"code must be a FailureCode enum instance, got {type(code).__name__} ({code!r})."
+            )
 
         if not isinstance(message, str):
             raise TypeError(f"message must be a string, got {type(message).__name__}.")
@@ -67,10 +57,3 @@ class DoshError(Exception):
         self.message: str = cleaned_msg
         self.context: Mapping[str, Any] = MappingProxyType(dict(context) if context else {})
         super().__init__(f"[{self.code.value}] {self.message}")
-
-    def __repr__(self) -> str:
-        return (
-            f"DoshError(code={self.code!r}, "
-            f"message={self.message!r}, "
-            f"context={dict(self.context)!r})"
-        )

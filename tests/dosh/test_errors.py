@@ -21,41 +21,50 @@ class TestFailureCode:
         for val, enum_member in expected_codes.items():
             assert enum_member.value == val
 
-    def test_from_string_parsing(self) -> None:
-        assert FailureCode.from_string("unsupported") == FailureCode.UNSUPPORTED
-        assert FailureCode.from_string("DEPENDENCY_UNAVAILABLE") == FailureCode.DEPENDENCY_UNAVAILABLE
-        assert FailureCode.from_string("execution-failed") == FailureCode.EXECUTION_FAILED
-        assert FailureCode.from_string("invalid_configuration") == FailureCode.INVALID_CONFIGURATION
-        assert FailureCode.from_string("validation_failed") == FailureCode.VALIDATION_FAILED
-        assert FailureCode.from_string("resource-unavailable") == FailureCode.RESOURCE_UNAVAILABLE
-        assert FailureCode.from_string("security_denied") == FailureCode.SECURITY_DENIED
-
-    def test_invalid_failure_code(self) -> None:
-        with pytest.raises(ValueError, match="Invalid failure code"):
-            FailureCode.from_string("unknown_error")
-
 
 class TestDoshError:
     def test_valid_construction_with_enum(self) -> None:
         err = DoshError(
             code=FailureCode.UNSUPPORTED,
             message="Document format is not supported.",
-            context={"format": "unknown_binary"},
+            context={"format": "unknown_binary", "secret_key": "sensitive_data"},
         )
-        assert err.code == FailureCode.UNSUPPORTED
+        assert err.code is FailureCode.UNSUPPORTED
         assert err.message == "Document format is not supported."
         assert err.context["format"] == "unknown_binary"
         assert str(err) == "[unsupported] Document format is not supported."
-        assert "DoshError" in repr(err)
 
-    def test_valid_construction_with_string_code(self) -> None:
-        err = DoshError(
-            code="dependency-unavailable",
-            message="Tesseract 5 binary was not found in PATH.",
-        )
-        assert err.code == FailureCode.DEPENDENCY_UNAVAILABLE
-        assert err.message == "Tesseract 5 binary was not found in PATH."
-        assert err.context == {}
+        # Verify repr does not expose context values
+        error_repr = repr(err)
+        assert "sensitive_data" not in error_repr
+        assert "unknown_binary" not in error_repr
+
+    def test_string_code_rejected_with_type_error(self) -> None:
+        # Strict typing: callers must explicitly supply FailureCode enum, not raw strings
+        with pytest.raises(TypeError, match="code must be a FailureCode enum instance"):
+            DoshError(
+                code="execution_failed",  # type: ignore
+                message="Execution failed unexpectedly.",
+            )
+
+        with pytest.raises(TypeError, match="code must be a FailureCode enum instance"):
+            DoshError(
+                code="unsupported",  # type: ignore
+                message="Unsupported format.",
+            )
+
+    def test_non_enum_object_code_rejected_with_type_error(self) -> None:
+        with pytest.raises(TypeError, match="code must be a FailureCode enum instance"):
+            DoshError(
+                code=123,  # type: ignore
+                message="Some failure.",
+            )
+
+        with pytest.raises(TypeError, match="code must be a FailureCode enum instance"):
+            DoshError(
+                code=None,  # type: ignore
+                message="Some failure.",
+            )
 
     def test_context_immutability(self) -> None:
         err = DoshError(
@@ -77,10 +86,6 @@ class TestDoshError:
         with pytest.raises(TypeError, match="message must be a string"):
             DoshError(code=FailureCode.EXECUTION_FAILED, message=12345)  # type: ignore
 
-    def test_invalid_code_rejected(self) -> None:
-        with pytest.raises(ValueError, match="Invalid failure code"):
-            DoshError(code="non_existent_code", message="Some failure.")
-
     def test_invalid_context_type_rejected(self) -> None:
         with pytest.raises(TypeError, match="context must be a Mapping or None"):
             DoshError(code=FailureCode.SECURITY_DENIED, message="Denied", context=["not", "a", "mapping"])  # type: ignore
@@ -98,7 +103,7 @@ class TestDoshError:
         except DoshError as captured:
             assert isinstance(captured.__cause__, FileNotFoundError)
             assert str(captured.__cause__) == "Missing model weights file"
-            assert captured.code == FailureCode.DEPENDENCY_UNAVAILABLE
+            assert captured.code is FailureCode.DEPENDENCY_UNAVAILABLE
 
     def test_dosh_exports(self) -> None:
         expected = {"DoshError", "FailureCode"}
