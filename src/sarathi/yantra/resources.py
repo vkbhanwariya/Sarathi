@@ -2,7 +2,7 @@
 
 Defines:
 - Allocation: Immutable record of an allocated hardware slot.
-- ResourceAllocator: Thread-safe slot allocator and releaser.
+- _ResourceAllocator: Internal thread-safe slot allocator and releaser.
 
 Contains reservation and capacity logic only; performs no queuing, priority scheduling,
 benchmarking, or execution.
@@ -43,8 +43,8 @@ class Allocation:
             raise ValueError("allocator_id must be a non-empty string.")
 
 
-class ResourceAllocator:
-    """Thread-safe hardware resource allocator managing capacity across a DeviceInventory."""
+class _ResourceAllocator:
+    """Internal thread-safe hardware resource allocator managing capacity across a DeviceInventory."""
 
     def __init__(self, inventory: DeviceInventory) -> None:
         if not isinstance(inventory, DeviceInventory):
@@ -99,30 +99,34 @@ class ResourceAllocator:
             )
 
     def release(self, allocation: Allocation) -> None:
-        """Release a previously acquired allocation back to the inventory.
+        """Release a previously acquired allocation back to the inventory safely.
 
         Raises:
-            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If allocation is foreign, unknown, or already released.
+            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If allocation is unknown, tampered, foreign, or already released.
             TypeError: If allocation is not an Allocation instance.
         """
         if not isinstance(allocation, Allocation):
             raise TypeError(f"allocation must be an Allocation instance, got {type(allocation).__name__}.")
 
         with self._lock:
-            if allocation.allocator_id != self._allocator_id:
-                raise DoshError(
-                    code=FailureCode.RESOURCE_UNAVAILABLE,
-                    message="Cannot release foreign allocation created by a different allocator.",
-                )
-
-            if allocation.allocation_id not in self._active_allocations:
+            # Look up the registered active allocation by allocation_id
+            registered = self._active_allocations.get(allocation.allocation_id)
+            if registered is None:
                 raise DoshError(
                     code=FailureCode.RESOURCE_UNAVAILABLE,
                     message="Allocation not found or already released.",
                 )
 
-            self._used_slots[allocation.device_id] -= 1
-            del self._active_allocations[allocation.allocation_id]
+            # Reject if the supplied Allocation differs from the registered record (integrity check)
+            if allocation != registered:
+                raise DoshError(
+                    code=FailureCode.RESOURCE_UNAVAILABLE,
+                    message="Allocation integrity verification failed; record does not match registered allocation.",
+                )
+
+            # Decrement capacity using registered record's device_id only
+            self._used_slots[registered.device_id] -= 1
+            del self._active_allocations[registered.allocation_id]
 
     def _create_allocation(self, device_id: str, device_type: DeviceType, *, is_spillover: bool) -> Allocation:
         self._used_slots[device_id] += 1

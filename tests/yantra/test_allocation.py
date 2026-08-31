@@ -8,7 +8,6 @@ from sarathi.yantra import (
     Allocation,
     DeviceInfo,
     DeviceInventory,
-    ResourceAllocator,
     Yantra,
 )
 import sarathi.yantra as yantra_module
@@ -162,6 +161,54 @@ class TestResourceAllocation:
         assert alloc_gpu_again.device_id == "gpu-0"
         assert alloc_gpu_again.is_spillover is False
 
+    def test_tampered_allocation_release_rejected_and_state_preserved(self, inventory: DeviceInventory) -> None:
+        yantra = Yantra(inventory)
+        req_gpu = DeviceRequirement(
+            preferred_devices=(DeviceType.GPU,),
+            supported_devices=(DeviceType.GPU,),
+        )
+        req_cpu = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,),
+            supported_devices=(DeviceType.CPU,),
+        )
+
+        # Allocate 1 GPU slot and 1 CPU slot
+        real_gpu_alloc = yantra.allocate(req_gpu)
+        real_cpu_alloc = yantra.allocate(req_cpu)
+        assert real_gpu_alloc.device_id == "gpu-0"
+        assert real_cpu_alloc.device_id == "cpu-0"
+
+        # Forge an allocation with real GPU allocation_id and allocator_id, but claiming to be CPU
+        forged_alloc = Allocation(
+            allocation_id=real_gpu_alloc.allocation_id,
+            device_id="cpu-0",  # Claiming CPU instead of GPU
+            device_type=DeviceType.CPU,
+            is_spillover=real_gpu_alloc.is_spillover,
+            allocator_id=real_gpu_alloc.allocator_id,
+        )
+
+        # Releasing forged allocation must fail
+        with pytest.raises(DoshError) as exc_info:
+            yantra.release(forged_alloc)
+
+        err = exc_info.value
+        assert err.code is FailureCode.RESOURCE_UNAVAILABLE
+        assert "integrity verification failed" in err.message
+
+        # GPU capacity must NOT be released, so a new GPU allocation still fails
+        with pytest.raises(DoshError) as exc_info_gpu:
+            yantra.allocate(req_gpu)
+        assert exc_info_gpu.value.code is FailureCode.RESOURCE_UNAVAILABLE
+
+        # CPU capacity must NOT be corrupted (still 1 CPU slot remaining of 2 total)
+        second_cpu_alloc = yantra.allocate(req_cpu)
+        assert second_cpu_alloc.device_id == "cpu-0"
+
+        # Authentic release still works normally
+        yantra.release(real_gpu_alloc)
+        yantra.release(real_cpu_alloc)
+        yantra.release(second_cpu_alloc)
+
     def test_double_release_rejected(self, inventory: DeviceInventory) -> None:
         yantra = Yantra(inventory)
         req = DeviceRequirement(
@@ -190,13 +237,13 @@ class TestResourceAllocation:
 
         alloc_from_1 = yantra1.allocate(req)
 
-        # Attempting to release an allocation with a different allocator instance
+        # Attempting to release an allocation with a different Yantra manager instance
         with pytest.raises(DoshError) as exc_info:
             yantra2.release(alloc_from_1)
 
         err = exc_info.value
         assert err.code is FailureCode.RESOURCE_UNAVAILABLE
-        assert "Cannot release foreign allocation" in err.message
+        assert "not found or already released" in err.message
 
     def test_invalid_arguments_to_yantra(self) -> None:
         with pytest.raises(TypeError, match="inventory must be a DeviceInventory instance"):
@@ -213,8 +260,9 @@ class TestResourceAllocation:
         with pytest.raises(TypeError, match="allocation must be an Allocation instance"):
             yantra.release("not_an_allocation")  # type: ignore
 
-    def test_yantra_exports(self) -> None:
-        expected = {"Allocation", "DeviceInfo", "DeviceInventory", "ResourceAllocator", "Yantra"}
+    def test_yantra_exports_only_public_symbols(self) -> None:
+        expected = {"Allocation", "DeviceInfo", "DeviceInventory", "Yantra"}
         assert set(yantra_module.__all__) == expected
+        assert "ResourceAllocator" not in yantra_module.__all__
         for name in expected:
             assert hasattr(yantra_module, name)

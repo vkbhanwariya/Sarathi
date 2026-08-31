@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from sarathi.sankalpa import DeviceRequirement
 from sarathi.yantra.devices import DeviceInventory
-from sarathi.yantra.resources import Allocation, ResourceAllocator
+from sarathi.yantra.resources import Allocation, _ResourceAllocator
 
 
 class Yantra:
@@ -19,7 +19,7 @@ class Yantra:
     def __init__(self, inventory: DeviceInventory) -> None:
         if not isinstance(inventory, DeviceInventory):
             raise TypeError(f"inventory must be a DeviceInventory instance, got {type(inventory).__name__}.")
-        self._allocator = ResourceAllocator(inventory)
+        self._allocator = _ResourceAllocator(inventory)
 
     @property
     def inventory(self) -> DeviceInventory:
@@ -39,7 +39,7 @@ class Yantra:
         """Release an allocated device slot back to the manager.
 
         Raises:
-            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If allocation is unknown/foreign/double-released.
+            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If allocation is unknown/foreign/tampered/double-released.
             TypeError: If allocation is not an Allocation instance.
         """
         self._allocator.release(allocation)
