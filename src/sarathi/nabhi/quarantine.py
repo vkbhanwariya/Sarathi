@@ -19,11 +19,15 @@ import json
 from pathlib import Path
 import re
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 import uuid
 
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.sankalpa import ExecutionContext, Request
 from sarathi.sutra import Settings
+
+if TYPE_CHECKING:
+    from sarathi.nabhi.manthan import CapabilityPlan
 
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -52,6 +56,9 @@ class LifecycleAction:
     action: LifecycleActionType
     item_id: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    request: Request | None = None
+    plan: CapabilityPlan | None = None
+    context: ExecutionContext | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.action, LifecycleActionType):
@@ -63,8 +70,8 @@ class LifecycleAction:
             else:
                 raise TypeError(f"action must be a LifecycleActionType instance, got {type(self.action).__name__}.")
 
-        if not isinstance(self.item_id, str) or not self.item_id.strip():
-            raise ValueError("item_id must be a non-empty string.")
+        if not isinstance(self.item_id, str) or not _SAFE_ID_PATTERN.match(self.item_id):
+            raise ValueError(f"item_id must be a safe non-empty identifier, got {self.item_id!r}.")
         object.__setattr__(self, "item_id", self.item_id.strip())
 
         if isinstance(self.metadata, Mapping):
@@ -72,12 +79,24 @@ class LifecycleAction:
         else:
             raise TypeError(f"metadata must be a Mapping, got {type(self.metadata).__name__}.")
 
+        if self.request is not None and not isinstance(self.request, Request):
+            raise TypeError(f"request must be a Request instance or None, got {type(self.request).__name__}.")
+
+        if self.plan is not None:
+            from sarathi.nabhi.manthan import CapabilityPlan as _PlanClass
+
+            if not isinstance(self.plan, _PlanClass):
+                raise TypeError(f"plan must be a CapabilityPlan instance or None, got {type(self.plan).__name__}.")
+
+        if self.context is not None and not isinstance(self.context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance or None, got {type(self.context).__name__}.")
+
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     """Explicit bounded retry policy for pipeline execution."""
 
-    max_retries: int = 2
+    max_retries: int = 0
     retryable_codes: tuple[FailureCode, ...] = (
         FailureCode.EXECUTION_FAILED,
         FailureCode.DEPENDENCY_UNAVAILABLE,
@@ -108,14 +127,14 @@ class RetryPolicy:
 
     @classmethod
     def from_settings(cls, settings: Settings | None) -> RetryPolicy:
-        """Derive a RetryPolicy from Sutra settings if present, or return default."""
+        """Derive a RetryPolicy from Sutra settings if present, or return zero retries."""
         if settings is None:
-            return cls()
+            return cls(max_retries=0)
         if not isinstance(settings, Settings):
             raise TypeError(f"settings must be a Settings instance or None, got {type(settings).__name__}.")
 
         pipeline_sec = settings.get_section("pipeline") or {}
-        max_retries = pipeline_sec.get("max_retries", 2)
+        max_retries = pipeline_sec.get("max_retries", 0)
         return cls(max_retries=int(max_retries))
 
 
@@ -335,27 +354,38 @@ class QuarantineStore:
 
         Raises:
             TypeError: On invalid input types.
-            DoshError(FailureCode.NOT_FOUND): If item does not exist.
-            DoshError(FailureCode.VALIDATION_FAILED): On invalid state transition.
+            DoshError(FailureCode.VALIDATION_FAILED): If item does not exist or transition is invalid.
         """
         if not isinstance(new_status, QuarantineStatus):
             raise TypeError(f"new_status must be a QuarantineStatus instance, got {type(new_status).__name__}.")
+        if not isinstance(quarantine_id, str):
+            raise TypeError(f"quarantine_id must be a string, got {type(quarantine_id).__name__}.")
+        cleaned_id = quarantine_id.strip()
+        if not cleaned_id or not _SAFE_ID_PATTERN.match(cleaned_id):
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Invalid quarantine item identifier format.",
+            )
 
-        existing = self.get_record(quarantine_id)
+        existing = self.get_record(cleaned_id)
         if existing is None:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=f"Quarantine item '{quarantine_id}' does not exist.",
+                message=f"Quarantine item '{cleaned_id}' does not exist.",
             )
 
-        # Terminal state cannot be transitioned to retried or released
-        if existing.status == QuarantineStatus.TERMINAL and new_status in (
-            QuarantineStatus.RETRIED,
-            QuarantineStatus.RELEASED,
-        ):
+        # Terminal state cannot be transitioned to any state (terminal is completed)
+        if existing.status == QuarantineStatus.TERMINAL:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=f"Quarantine item '{quarantine_id}' is in terminal state and cannot transition to '{new_status.value}'.",
+                message=f"Quarantine item '{cleaned_id}' is in terminal state and cannot transition to '{new_status.value}'.",
+            )
+
+        # Released state cannot be transitioned to any state (released is completed)
+        if existing.status == QuarantineStatus.RELEASED:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Quarantine item '{cleaned_id}' is in released state and cannot transition to '{new_status.value}'.",
             )
 
         from datetime import datetime, timezone
