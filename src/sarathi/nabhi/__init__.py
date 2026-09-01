@@ -12,6 +12,7 @@ Exposes:
 from __future__ import annotations
 
 from sarathi.nabhi.artifacts import ArtifactBoundary
+from sarathi.nabhi.dvara import Dvara
 from sarathi.nabhi.kosh import Kosh
 from sarathi.nabhi.manthan import CapabilityPlan, Manthan
 from sarathi.nabhi.prana import Prana
@@ -20,6 +21,7 @@ from sarathi.nabhi.pravaha import Pravaha
 __all__ = [
     "ArtifactBoundary",
     "CapabilityPlan",
+    "Dvara",
     "Kosh",
     "Manthan",
     "Prana",

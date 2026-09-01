@@ -246,7 +246,7 @@ class TestKoshRegistry:
             kosh.get_capabilities_for_plugin(None)  # type: ignore
 
     def test_nabhi_exports(self) -> None:
-        expected = {"ArtifactBoundary", "CapabilityPlan", "Kosh", "Manthan", "Prana", "Pravaha"}
+        expected = {"ArtifactBoundary", "CapabilityPlan", "Dvara", "Kosh", "Manthan", "Prana", "Pravaha"}
         assert set(nabhi_module.__all__) == expected
         for name in expected:
             assert hasattr(nabhi_module, name)
