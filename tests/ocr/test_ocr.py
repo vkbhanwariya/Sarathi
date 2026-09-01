@@ -7,17 +7,19 @@ _OCR_AVAILABLE = (
     importlib.util.find_spec("rapidocr") is not None
     and importlib.util.find_spec("openvino") is not None
     and importlib.util.find_spec("PIL") is not None
+    and importlib.util.find_spec("numpy") is not None
 )
 
 if not _OCR_AVAILABLE:
     pytest.skip(
-        "OCR optional dependencies (rapidocr, openvino, pillow) not installed. Run with --extra ocr to enable.",
+        "OCR optional dependencies (rapidocr, openvino, pillow, numpy) not installed. Run with --extra ocr to enable.",
         allow_module_level=True,
     )
 
 import json
 from pathlib import Path
 import shutil
+from typing import Any
 from unittest.mock import MagicMock, patch
 from PIL import Image, ImageDraw
 import pymupdf
@@ -189,31 +191,138 @@ class TestOCRPhase1Instant:
         assert isinstance(res, Result)
         assert "INJECTED-ROOT-123" in res.data.pages[0].text
 
-    def test_missing_local_model_asset_raises_safe_dosherror(
+    def test_missing_manifest_file_raises_safe_dosherror(
         self, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        empty_data_dir = tmp_path / "empty_ocr_data"
-        empty_data_dir.mkdir()
-        (empty_data_dir / "models").mkdir()
-        manifest_file = empty_data_dir / "manifest.json"
-        manifest_file.write_text(
-            json.dumps({
-                "models": {
-                    "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
-                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
-                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
-                }
-            }),
-            encoding="utf-8",
-        )
-
-        engine = RapidOCREngine(data_root=empty_data_dir)
+        empty_dir = tmp_path / "no_manifest_dir"
+        empty_dir.mkdir()
+        engine = RapidOCREngine(data_root=empty_dir)
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test.png"
         _create_sample_image("TEXT", img_path)
         req = Request(
-            request_id="req-missing-model",
+            request_id="req-no-manifest",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+        err = exc_info.value
+        assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "Required local OCR model manifest is missing." in err.message
+        assert str(empty_dir) not in err.message
+
+    def test_malformed_manifest_json_raises_safe_dosherror(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        bad_json_dir = tmp_path / "bad_json_dir"
+        bad_json_dir.mkdir()
+        (bad_json_dir / "manifest.json").write_text("{not-valid-json", encoding="utf-8")
+        engine = RapidOCREngine(data_root=bad_json_dir)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-bad-json",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+        err = exc_info.value
+        assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "Failed to read or parse local OCR model manifest." in err.message
+        assert str(bad_json_dir) not in err.message
+
+    def test_manifest_invalid_structure_raises_safe_dosherror(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        bad_struct_dir = tmp_path / "bad_struct_dir"
+        bad_struct_dir.mkdir()
+        (bad_struct_dir / "manifest.json").write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
+        engine = RapidOCREngine(data_root=bad_struct_dir)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-bad-struct",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+        assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "Local OCR model manifest has an invalid structure." in exc_info.value.message
+
+    @pytest.mark.parametrize("missing_key", ["det", "rec", "cls"])
+    def test_manifest_missing_individual_model_key_raises_safe_dosherror(
+        self, missing_key: str, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        data_dir = tmp_path / f"missing_key_{missing_key}"
+        data_dir.mkdir()
+        (data_dir / "models").mkdir()
+        models = {
+            "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
+            "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
+            "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+        }
+        del models[missing_key]
+        (data_dir / "manifest.json").write_text(json.dumps({"models": models}), encoding="utf-8")
+
+        engine = RapidOCREngine(data_root=data_dir)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-missing-key",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+        assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "is missing required model entry." in exc_info.value.message
+
+    @pytest.mark.parametrize("missing_model", ["det", "rec", "cls"])
+    def test_missing_each_model_file_individually_raises_safe_dosherror(
+        self, missing_model: str, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        partial_data = tmp_path / f"partial_data_{missing_model}"
+        shutil.copytree(src_data, partial_data)
+
+        # Remove specific model
+        manifest = json.loads((partial_data / "manifest.json").read_text(encoding="utf-8"))
+        filename = manifest["models"][missing_model]["filename"]
+        (partial_data / "models" / filename).unlink()
+
+        engine = RapidOCREngine(data_root=partial_data)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id=f"req-missing-{missing_model}",
             requirement="ocr",
             inputs=(
                 InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
@@ -228,19 +337,56 @@ class TestOCRPhase1Instant:
 
         err = exc_info.value
         assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
-        assert "is missing" in err.message
-        assert str(empty_data_dir) not in err.message
+        assert "Required local OCR model asset is missing." in err.message
+        assert str(partial_data) not in err.message
 
-    def test_altered_model_checksum_is_rejected_before_engine_creation(
+    def test_model_asset_is_directory_raises_safe_dosherror(
         self, context: ExecutionContext, tmp_path: Path
     ) -> None:
         src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        tampered_data = tmp_path / "tampered_ocr_data"
+        dir_data = tmp_path / "dir_model_data"
+        shutil.copytree(src_data, dir_data)
+
+        # Replace det file with a directory
+        det_file = dir_data / "models" / "ch_PP-OCRv5_det_mobile.onnx"
+        det_file.unlink()
+        det_file.mkdir()
+
+        engine = RapidOCREngine(data_root=dir_data)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-dir-model",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            with pytest.raises(DoshError) as exc_info:
+                cap.execute(req, context)
+            mock_rapidocr.assert_not_called()
+
+        assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "Required local OCR model asset is missing." in exc_info.value.message
+        assert str(dir_data) not in exc_info.value.message
+
+    @pytest.mark.parametrize("tampered_model", ["det", "rec", "cls"])
+    def test_tampered_model_checksum_for_all_models_raises_safe_dosherror(
+        self, tampered_model: str, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        tampered_data = tmp_path / f"tampered_{tampered_model}"
         shutil.copytree(src_data, tampered_data)
 
-        # Tamper with det model
-        det_file = tampered_data / "models" / "ch_PP-OCRv5_det_mobile.onnx"
-        det_file.write_bytes(b"tampered_corrupt_content")
+        manifest = json.loads((tampered_data / "manifest.json").read_text(encoding="utf-8"))
+        filename = manifest["models"][tampered_model]["filename"]
+        target_file = tampered_data / "models" / filename
+        target_file.write_bytes(b"tampered_corrupt_content_for_test")
 
         engine = RapidOCREngine(data_root=tampered_data)
         cap = OCRCapability(engine=engine)
@@ -248,7 +394,7 @@ class TestOCRPhase1Instant:
         img_path = tmp_path / "test.png"
         _create_sample_image("TEXT", img_path)
         req = Request(
-            request_id="req-tampered-model",
+            request_id="req-tampered",
             requirement="ocr",
             inputs=(
                 InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
@@ -263,8 +409,47 @@ class TestOCRPhase1Instant:
 
         err = exc_info.value
         assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
-        assert "invalid checksum" in err.message
+        assert "Local OCR model asset has invalid checksum." in err.message
         assert str(tampered_data) not in err.message
+
+    def test_rapidocr_constructor_called_with_all_three_explicit_paths(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        engine = RapidOCREngine(data_root=canonical_src)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-explicit-paths",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            mock_instance = MagicMock()
+            mock_output = MagicMock()
+            mock_output.txts = ("TEXT",)
+            mock_output.boxes = ([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],)
+            mock_output.scores = (0.99,)
+            mock_instance.return_value = mock_output
+            mock_rapidocr.return_value = mock_instance
+
+            res = cap.execute(req, context)
+            assert isinstance(res, Result)
+            mock_rapidocr.assert_called_once()
+            _, kwargs = mock_rapidocr.call_args
+            params = kwargs.get("params", {})
+            assert "Det.model_path" in params
+            assert "Rec.model_path" in params
+            assert "Cls.model_path" in params
+            assert params["Det.model_path"].endswith("ch_PP-OCRv5_det_mobile.onnx")
+            assert params["Rec.model_path"].endswith("ch_PP-OCRv5_rec_mobile.onnx")
+            assert params["Cls.model_path"].endswith("ch_ppocr_mobile_v2.0_cls_mobile.onnx")
 
     def test_traversal_filename_in_manifest_rejected_safely(
         self, context: ExecutionContext, tmp_path: Path
@@ -378,8 +563,24 @@ class TestOCRPhase1Instant:
         assert "contains invalid model entry" in err.message
         assert "INVALID_CHECKSUM_NOT_64_HEX" not in err.message
 
-    def test_malformed_geometry_yields_factual_warning(
-        self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("bad_box", "expected_warning_substr"),
+        [
+            ([[10.0, 10.0]], "fewer than 4 points"),
+            ([[10.0], [20.0], [30.0], [40.0]], "malformed or non-numeric"),
+            ([["not_a_num", 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]], "malformed or non-numeric"),
+            ([[float("nan"), 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]], "non-finite"),
+            ([[float("inf"), 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]], "non-finite"),
+            (12345, "malformed or non-numeric"),
+        ],
+    )
+    def test_malformed_geometry_types_yield_factual_warning(
+        self,
+        bad_box: Any,
+        expected_warning_substr: str,
+        ocr_capability: OCRCapability,
+        context: ExecutionContext,
+        tmp_path: Path,
     ) -> None:
         img_path = tmp_path / "test.png"
         _create_sample_image("GEOM-TEXT", img_path)
@@ -393,10 +594,9 @@ class TestOCRPhase1Instant:
             profile=ExecutionProfile.INSTANT,
         )
 
-        # Mock engine output returning malformed box with fewer than 4 points
         mock_output = MagicMock()
         mock_output.txts = ("GEOM-TEXT",)
-        mock_output.boxes = ([ [10.0, 10.0] ],) # Only 1 point instead of 4
+        mock_output.boxes = (bad_box,)
         mock_output.scores = (0.95,)
 
         mock_rapidocr = MagicMock()
@@ -409,7 +609,32 @@ class TestOCRPhase1Instant:
         assert isinstance(doc, CanonicalDocument)
         assert len(doc.pages[0].spans) == 1
         assert doc.pages[0].spans[0].bounding_box is None
-        assert any(w.code == "OCR_INVALID_GEOMETRY" for w in res.warnings)
+        assert any(w.code == "OCR_INVALID_GEOMETRY" and expected_warning_substr in w.message for w in res.warnings)
+
+    def test_unexpected_defect_in_engine_propagates(
+        self,
+        ocr_capability: OCRCapability,
+        context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        img_path = tmp_path / "test.png"
+        _create_sample_image("CRASH-TEXT", img_path)
+
+        req = Request(
+            request_id="req-crash",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        mock_rapidocr = MagicMock()
+        mock_rapidocr.side_effect = RuntimeError("OpenVINO internal pipeline failure")
+        ocr_capability._engine._engine = mock_rapidocr
+
+        with pytest.raises(RuntimeError, match="OpenVINO internal pipeline failure"):
+            ocr_capability.execute(req, context)
 
     def test_real_scanned_pdf_ocr_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
@@ -676,3 +901,14 @@ class TestOCRPhase1Instant:
         stages = [p.stage for p in final_result.provenance]
         assert "read_native" in stages
         assert "ocr" in stages
+
+    def test_ocr_extra_absence_skips_module(self) -> None:
+        """Verify that when any OCR optional dependency is absent, find_spec returns None and skips."""
+        with patch("importlib.util.find_spec", return_value=None):
+            specs = [
+                importlib.util.find_spec("rapidocr"),
+                importlib.util.find_spec("openvino"),
+                importlib.util.find_spec("PIL"),
+                importlib.util.find_spec("numpy"),
+            ]
+            assert all(s is None for s in specs)
