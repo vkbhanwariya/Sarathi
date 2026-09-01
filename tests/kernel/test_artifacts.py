@@ -1093,3 +1093,125 @@ class TestNestedArtifactsAndManifestLastBoundary:
             )
 
         assert not custom_output.exists()
+
+    def test_begin_run_overlap_with_custom_output_root_leaves_root_absent(
+        self, tmp_path: Path
+    ) -> None:
+        from sarathi.kavacha import Kavacha, SecurityPolicy
+
+        policy = SecurityPolicy(
+            allow_pii_access=False,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        kavacha = Kavacha(policy)
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+        boundary = ArtifactBoundary(runtime_root=runtime_root, output_root=output_root, kavacha=kavacha)
+
+        custom_output = tmp_path / "candidate_custom_output"
+        assert not custom_output.exists()
+
+        # Input source path is nested inside the candidate custom output root
+        nested_input = custom_output / "nested" / "input.pdf"
+
+        with pytest.raises(DoshError) as exc_info:
+            boundary.begin_run(
+                run_id="run-overlap-custom",
+                requirement="ocr",
+                output_root=custom_output,
+                input_sources=[nested_input],
+            )
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert "Unsafe source and destination overlap" in exc_info.value.message
+        # Candidate custom output root MUST NOT have been created
+        assert not custom_output.exists()
+
+    def test_stage_and_commit_artifact_reject_non_bytes_content_before_filesystem_mutation(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-type-validation", requirement="ocr")
+        intent = ArtifactIntent(name="test.txt", role="text", media_type="text/plain")
+
+        # Non-bytes content in stage_artifact
+        with pytest.raises(TypeError, match="content must be bytes or bytearray"):
+            ws.stage_artifact(intent, 12345)  # type: ignore
+
+        # Staging directory must remain empty
+        assert not (ws.staging_dir / "test.txt").exists()
+
+        # Non-bytes content in commit_artifact
+        with pytest.raises(TypeError, match="content must be bytes or bytearray"):
+            ws.commit_artifact(intent, "invalid_string_payload")  # type: ignore
+
+        # Output directory must remain empty
+        assert not (ws.output_dir / "test.txt").exists()
+        assert len(ws.committed_artifacts) == 0
+
+    def test_finalize_rejects_non_bool_success_before_mutation(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-finalize-type", requirement="ocr")
+        staged_file = ws.stage_artifact(
+            ArtifactIntent(name="temp.txt", role="temp", media_type="text/plain"),
+            b"data",
+        )
+
+        with pytest.raises(TypeError, match="success must be a bool"):
+            ws.finalize(success=1)  # type: ignore
+
+        with pytest.raises(TypeError, match="success must be a bool"):
+            ws.finalize(success="true")  # type: ignore
+
+        # Staging file remains intact because validation happened before mutation
+        assert staged_file.exists()
+        assert not ws.is_finalized
+
+    def test_write_failure_and_temp_unlink_failure_attaches_causes_safely(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-dual-fail", requirement="ocr")
+        intent = ArtifactIntent(name="test.txt", role="text", media_type="text/plain")
+        secret_path = tmp_path / "secret_locked_file"
+
+        with patch.object(Path, "replace", side_effect=OSError("Replace disk error")):
+            with patch.object(Path, "unlink", side_effect=PermissionError(f"Locked {secret_path}")):
+                with pytest.raises(DoshError) as exc_info:
+                    ws.commit_artifact(intent, b"payload")
+
+        err = exc_info.value
+        assert err.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to atomically write artifact file and failed to clean up temporary file." in err.message
+        assert str(secret_path) not in err.message
+        assert "Locked" not in err.message
+        assert err.__cause__ is not None
+        assert hasattr(err, "__cleanup_cause__")
+
+    def test_preserve_partial_foreign_path_rejected(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-foreign-part", requirement="ocr", preserve_partial=True)
+        foreign_file = tmp_path / "foreign_data.txt"
+        foreign_file.write_text("outside data")
+
+        intent = ArtifactIntent(name="part.json", role="partial", media_type="application/json")
+
+        with pytest.raises(DoshError) as exc_info:
+            ws.preserve_partial_artifact(intent, foreign_file)
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert "Partial artifact source path must reside strictly within this run's staging directory." in exc_info.value.message
+        assert not (ws.output_dir / "partial" / "part.json").exists()
+
+    def test_begin_run_timestamp_validation(self, boundary: ArtifactBoundary) -> None:
+        with pytest.raises(TypeError, match="timestamp must be a datetime instance or None"):
+            boundary.begin_run(run_id="run-ts-1", requirement="ocr", timestamp="2026-09-01")  # type: ignore
+
+        from datetime import datetime as dt
+        naive_dt = dt(2026, 9, 1, 12, 0, 0)
+        with pytest.raises(DoshError) as exc_info:
+            boundary.begin_run(run_id="run-ts-2", requirement="ocr", timestamp=naive_dt)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "timestamp must be timezone-aware" in exc_info.value.message

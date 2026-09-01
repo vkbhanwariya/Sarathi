@@ -1,8 +1,7 @@
 """Kavacha — Security & Privacy Service for Sarathi V2.
 
-Delegates authorization decisions to SecurityPolicy.
-Contains no filesystem I/O, secret storage, PII scanning, network clients,
-logging, or telemetry.
+Delegates authorization decisions to SecurityPolicy and performs path containment and overlap verification.
+Contains no secret storage, PII scanning, network clients, logging, or telemetry.
 """
 
 from pathlib import Path
@@ -64,12 +63,18 @@ class Kavacha:
             raise TypeError(f"source_paths must be a sequence, got {type(source_paths).__name__}.")
 
         dest_list: list[Path] = []
-        if isinstance(destination_roots, (Path, str)):
-            dest_list = [Path(destination_roots).resolve()]
-        elif isinstance(destination_roots, (list, tuple)):
-            dest_list = [Path(d).resolve() for d in destination_roots]
-        else:
-            raise TypeError(f"destination_roots must be a Path, str, or sequence, got {type(destination_roots).__name__}.")
+        try:
+            if isinstance(destination_roots, (Path, str)):
+                dest_list = [Path(destination_roots).resolve()]
+            elif isinstance(destination_roots, (list, tuple)):
+                dest_list = [Path(d).resolve() for d in destination_roots]
+            else:
+                raise TypeError(f"destination_roots must be a Path, str, or sequence, got {type(destination_roots).__name__}.")
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to inspect destination root path.",
+            ) from err
 
         for i, src in enumerate(source_paths):
             if isinstance(src, InputRef):

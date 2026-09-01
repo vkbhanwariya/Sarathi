@@ -231,32 +231,44 @@ class RunWorkspace:
                 f.flush()
                 os.fsync(f.fileno())
             temp_file.replace(target_path)
-        except OSError as err:
+        except Exception as err:
             if temp_file.exists():
                 try:
                     temp_file.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                except OSError as cleanup_err:
+                    dosh_err = DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message="Failed to atomically write artifact file and failed to clean up temporary file.",
+                    )
+                    dosh_err.__cause__ = err
+                    dosh_err.__cleanup_cause__ = cleanup_err  # type: ignore[attr-defined]
+                    raise dosh_err
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to atomically write artifact file.",
             ) from err
 
-    def stage_artifact(self, intent: ArtifactIntent, content: bytes) -> Path:
+    def stage_artifact(self, intent: ArtifactIntent, content: bytes | bytearray) -> Path:
         """Stage an artifact byte payload under Runtime/Work/<run-id>/<relative_path>.
 
         Args:
             intent: Declared artifact intent.
-            content: Raw byte payload.
+            content: Raw byte payload (bytes or bytearray).
 
         Returns:
             Path to the staged file.
 
         Raises:
+            TypeError: If intent or content is not of expected type.
             DoshError(FailureCode.VALIDATION_FAILED): If workspace is finalized, duplicate destination, or exists.
             DoshError(FailureCode.SECURITY_DENIED): On traversal, escape, or symlink violations.
             DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
         """
+        if not isinstance(intent, ArtifactIntent):
+            raise TypeError(f"intent must be an ArtifactIntent instance, got {type(intent).__name__}.")
+        if not isinstance(content, (bytes, bytearray)):
+            raise TypeError(f"content must be bytes or bytearray, got {type(content).__name__}.")
+
         if self._is_finalized:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
@@ -306,10 +318,14 @@ class RunWorkspace:
             Confirmed ArtifactRef.
 
         Raises:
+            TypeError: If intent or staged_path is not of expected type.
             DoshError(FailureCode.VALIDATION_FAILED): On duplicate destination or missing staged file.
             DoshError(FailureCode.SECURITY_DENIED): On traversal or root escape.
             DoshError(FailureCode.EXECUTION_FAILED): On I/O failure.
         """
+        if not isinstance(intent, ArtifactIntent):
+            raise TypeError(f"intent must be an ArtifactIntent instance, got {type(intent).__name__}.")
+
         if self._is_finalized:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
@@ -384,12 +400,18 @@ class RunWorkspace:
                 dst.flush()
                 os.fsync(dst.fileno())
             temp_file.replace(dest_path)
-        except OSError as err:
+        except Exception as err:
             if temp_file.exists():
                 try:
                     temp_file.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                except OSError as cleanup_err:
+                    dosh_err = DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message="Failed to atomically write artifact file and failed to clean up temporary file.",
+                    )
+                    dosh_err.__cause__ = err
+                    dosh_err.__cleanup_cause__ = cleanup_err  # type: ignore[attr-defined]
+                    raise dosh_err
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to atomically write artifact file.",
@@ -433,25 +455,31 @@ class RunWorkspace:
         self._committed_relative_paths.add(path_key)
         return ref
 
-    def commit_artifact(self, intent: ArtifactIntent, content: bytes) -> ArtifactRef:
+    def commit_artifact(self, intent: ArtifactIntent, content: bytes | bytearray) -> ArtifactRef:
         """Directly commit an artifact byte payload to the final run output directory.
 
         Writes atomically through a temporary file in the destination filesystem,
-        verifies that the final file exists, measures its actual size and SHA-256 checksum,
-        and returns a confirmed ArtifactRef.
+        computes actual size and SHA-256 checksum from the exact byte payload,
+        and immediately registers the confirmed ArtifactRef without a post-promotion stat window.
 
         Args:
             intent: Declared artifact intent.
-            content: Raw byte payload.
+            content: Raw byte payload (bytes or bytearray).
 
         Returns:
             Confirmed ArtifactRef.
 
         Raises:
+            TypeError: If intent or content is not of expected type.
             DoshError(FailureCode.VALIDATION_FAILED): If already committed or destination exists.
             DoshError(FailureCode.SECURITY_DENIED): On traversal, root escape, or symlink violations.
             DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
         """
+        if not isinstance(intent, ArtifactIntent):
+            raise TypeError(f"intent must be an ArtifactIntent instance, got {type(intent).__name__}.")
+        if not isinstance(content, (bytes, bytearray)):
+            raise TypeError(f"content must be bytes or bytearray, got {type(content).__name__}.")
+
         if self._is_finalized:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
@@ -484,20 +512,12 @@ class RunWorkspace:
             )
 
         byte_payload = bytes(content)
+        actual_size = len(byte_payload)
+        sha256_hash = hashlib.sha256(byte_payload).hexdigest()
+
         self._write_bytes_atomically(dest_path, byte_payload)
 
-        # Measure actual facts on committed file
-        try:
-            actual_size = dest_path.stat().st_size
-        except OSError as err:
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message="Failed to measure committed artifact.",
-            ) from err
-
-        sha256_hash = hashlib.sha256(byte_payload).hexdigest()
         artifact_id = f"art-{uuid.uuid4().hex[:12]}"
-
         ref = ArtifactRef(
             artifact_id=artifact_id,
             role=intent.role,
@@ -515,11 +535,13 @@ class RunWorkspace:
     def preserve_partial_artifact(
         self,
         intent: ArtifactIntent,
-        content: bytes | Path,
+        content: bytes | bytearray | Path,
     ) -> Path | None:
         """Preserve an incomplete/partial artifact under Output/.../partial/<relative_path>
 
         only when preserve_partial is True.
+
+        When content is a Path, it must reside strictly within this run's staging directory.
 
         Args:
             intent: Declared artifact intent.
@@ -529,10 +551,14 @@ class RunWorkspace:
             Path to the preserved partial artifact, or None if preserve_partial is False.
 
         Raises:
+            TypeError: If intent or content is of invalid type.
             DoshError(FailureCode.VALIDATION_FAILED): If workspace is finalized, duplicate destination, or exists.
-            DoshError(FailureCode.SECURITY_DENIED): On traversal, escape, or symlink violations.
+            DoshError(FailureCode.SECURITY_DENIED): On traversal, escape, symlink violations, or foreign source path.
             DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
         """
+        if not isinstance(intent, ArtifactIntent):
+            raise TypeError(f"intent must be an ArtifactIntent instance, got {type(intent).__name__}.")
+
         if self._is_finalized:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
@@ -569,11 +595,22 @@ class RunWorkspace:
             )
 
         if isinstance(content, Path):
-            if not content.exists():
+            try:
+                real_staging = self._staging_dir.resolve()
+                real_content = content.resolve()
+                real_content.relative_to(real_staging)
+            except (ValueError, OSError) as err:
+                raise DoshError(
+                    code=FailureCode.SECURITY_DENIED,
+                    message="Partial artifact source path must reside strictly within this run's staging directory.",
+                ) from err
+
+            if not real_content.is_file():
                 raise DoshError(
                     code=FailureCode.VALIDATION_FAILED,
-                    message="Source partial file does not exist.",
+                    message="Source partial file is not a regular file.",
                 )
+
             dest_dir = dest_path.parent
             try:
                 dest_dir.mkdir(parents=True, exist_ok=True)
@@ -585,7 +622,7 @@ class RunWorkspace:
 
             temp_file = dest_dir / f".tmp_{uuid.uuid4().hex}_{dest_path.name}"
             try:
-                with content.open("rb") as src, temp_file.open("wb") as dst:
+                with real_content.open("rb") as src, temp_file.open("wb") as dst:
                     while True:
                         chunk = src.read(_CHUNK_SIZE)
                         if not chunk:
@@ -594,12 +631,18 @@ class RunWorkspace:
                     dst.flush()
                     os.fsync(dst.fileno())
                 temp_file.replace(dest_path)
-            except OSError as err:
+            except Exception as err:
                 if temp_file.exists():
                     try:
                         temp_file.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    except OSError as cleanup_err:
+                        dosh_err = DoshError(
+                            code=FailureCode.EXECUTION_FAILED,
+                            message="Failed to preserve partial artifact and failed to clean up temporary file.",
+                        )
+                        dosh_err.__cause__ = err
+                        dosh_err.__cleanup_cause__ = cleanup_err  # type: ignore[attr-defined]
+                        raise dosh_err
                 raise DoshError(
                     code=FailureCode.EXECUTION_FAILED,
                     message="Failed to atomically write artifact file.",
@@ -680,6 +723,9 @@ class RunWorkspace:
             DoshError(FailureCode.EXECUTION_FAILED): If manifest write or cleanup fails.
             TypeError: If input sequences contain invalid record types.
         """
+        if not isinstance(success, bool):
+            raise TypeError(f"success must be a bool, got {type(success).__name__}.")
+
         if self._is_finalized:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
@@ -983,6 +1029,15 @@ class ArtifactBoundary:
         if not isinstance(preserve_partial, bool):
             raise TypeError(f"preserve_partial must be a bool, got {type(preserve_partial).__name__}.")
 
+        if timestamp is not None:
+            if not isinstance(timestamp, datetime):
+                raise TypeError(f"timestamp must be a datetime instance or None, got {type(timestamp).__name__}.")
+            if timestamp.tzinfo is None:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message="timestamp must be timezone-aware.",
+                )
+
         if input_sources is None:
             raise TypeError("input_sources cannot be None; pass a sequence or omit.")
         if not isinstance(input_sources, (list, tuple)):
@@ -1000,21 +1055,14 @@ class ArtifactBoundary:
                 message="Kavacha security service must be injected to validate input source containment.",
             )
 
-        # Active output root determination (validated and created only after parameter validation)
+        # Active output root determination (validated first without mutating filesystem)
         if output_root is not None:
             active_output_root = _validate_root_directory(output_root, "output_root")
             _validate_root_separation(self._runtime_root, active_output_root)
-            try:
-                active_output_root.mkdir(parents=True, exist_ok=True)
-            except OSError as err:
-                raise DoshError(
-                    code=FailureCode.INVALID_CONFIGURATION,
-                    message="Failed to create custom output root.",
-                ) from err
         else:
             active_output_root = self._output_root
 
-        # Staging directory: Runtime/Work/<run-id>/
+        # Candidate staging directory: Runtime/Work/<run-id>/
         staging_dir = self._runtime_root / "Work" / cleaned_run_id
 
         # Unique run directory: Output/<requirement>/Run-<timestamp>-<short-id>/
@@ -1030,9 +1078,19 @@ class ArtifactBoundary:
                 break
 
         # Validate input/output overlap via constructor-injected Kavacha if input_sources are provided
+        # MUST execute BEFORE creating active_output_root or any run directories
         if input_sources:
             dest_roots_to_check = [self._runtime_root, active_output_root, staging_dir, run_output_dir]
             self._kavacha.validate_source_destination_overlap(input_sources, dest_roots_to_check)
+
+        if output_root is not None:
+            try:
+                active_output_root.mkdir(parents=True, exist_ok=True)
+            except OSError as err:
+                raise DoshError(
+                    code=FailureCode.INVALID_CONFIGURATION,
+                    message="Failed to create custom output root.",
+                ) from err
 
         return RunWorkspace(
             run_id=cleaned_run_id,
