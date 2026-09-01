@@ -14,6 +14,7 @@ import uuid
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.screen import Screen
+from textual.timer import Timer
 from textual.widgets import (
     Button,
     DataTable,
@@ -24,7 +25,8 @@ from textual.widgets import (
     TabPane,
 )
 
-from sarathi.dosh import DoshError, FailureCode
+from sarathi.darpana import Darpana, MarutiRecord, PramanaRecord
+from sarathi.dosh import DoshError
 from sarathi.mukha.components import (
     format_bytes,
     format_confidence,
@@ -38,12 +40,26 @@ from sarathi.mukha.state import (
     RunSummaryView,
     RunViewState,
 )
-from sarathi.nabhi.quarantine import QuarantineStatus
 from sarathi.sankalpa import ExecutionContext
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
     from sarathi.sankalpa import Request, Result
+
+
+def _filter_run_telemetry(
+    darpana: Darpana | None, run_id: str | None
+) -> tuple[tuple[MarutiRecord, ...], tuple[PramanaRecord, ...]]:
+    """Small private helper to filter parameterless Darpana snapshots by run_id."""
+    if darpana is None or not run_id:
+        return (), ()
+    maruti = tuple(r for r in darpana.maruti_records() if r.run_id == run_id)
+    pramana = tuple(r for r in darpana.pramana_records() if r.run_id == run_id)
+    return maruti, pramana
+
+
+def _fmt_count(val: int | None) -> str:
+    return str(val) if val is not None else "-"
 
 
 class HomeScreen(Screen):
@@ -104,32 +120,43 @@ class MonitorScreen(Screen):
             yield Label(f"Run ID: {self.state.run_id} | Status: {status_badge(self.state.status)} | Elapsed: {format_duration_ns(self.state.elapsed_ns)}", id="monitor-header")
             yield Label(f"Files Progress: {self.state.terminal_files}/{self.state.total_files} completed", id="monitor-files-progress")
 
-            if self.state.current_focus:
-                f = self.state.current_focus
-                yield Label(f"Current Operation: {f.operation_name} ({f.stage}) on {f.device_type} - {format_duration_ns(f.elapsed_ns)}", id="monitor-focus")
+            f_text = f"Current Operation: {self.state.current_focus.operation_name} ({self.state.current_focus.stage}) on {self.state.current_focus.device_type} - {format_duration_ns(self.state.current_focus.elapsed_ns)}" if self.state.current_focus else "Current Operation: -"
+            yield Label(f_text, id="monitor-focus")
 
-            if self.state.long_running:
-                yield Label("Long-running Operations (>5s):", id="long-running-title")
-                lr_table = DataTable(id="long-running-table")
-                lr_table.add_columns("Operation", "Stage", "Device", "Elapsed")
-                for op in self.state.long_running:
-                    lr_table.add_row(op.operation_name, op.stage, op.device_type, format_duration_ns(op.elapsed_ns))
-                yield lr_table
+            yield Label("Long-running Operations (>5s):", id="long-running-title")
+            lr_table = DataTable(id="long-running-table")
+            lr_table.add_columns("Operation", "Stage", "Device", "Elapsed")
+            for op in self.state.long_running:
+                lr_table.add_row(op.operation_name, op.stage, op.device_type, format_duration_ns(op.elapsed_ns))
+            yield lr_table
 
-            if self.state.device_progress:
-                yield Label("Device Execution Progress:", id="device-progress-title")
-                dev_table = DataTable(id="device-table")
-                dev_table.add_columns("Device", "Executions", "Avg Duration", "Avg Confidence")
-                for dp in self.state.device_progress:
-                    avg_dur = format_duration_ns(dp.avg_duration_ns) + "/exec" if dp.avg_duration_ns else "-"
-                    dev_table.add_row(dp.device_type, str(dp.execution_count), avg_dur, format_confidence(dp.avg_confidence))
-                yield dev_table
+            yield Label("Device Execution Progress:", id="device-progress-title")
+            dev_table = DataTable(id="device-table")
+            dev_table.add_columns("Device", "Executions", "Avg Duration", "Avg Confidence")
+            for dp in self.state.device_progress:
+                avg_dur = format_duration_ns(dp.avg_duration_ns) + "/exec" if dp.avg_duration_ns else "-"
+                dev_table.add_row(dp.device_type, str(dp.execution_count), avg_dur, format_confidence(dp.avg_confidence))
+            yield dev_table
 
             with Horizontal(id="monitor-actions"):
-                # Cancellation is disabled as it is not supported in the pipeline
                 yield Button("Cancel", id="btn-cancel-run", disabled=True)
                 yield Button("Summary", id="btn-goto-summary")
         yield Footer()
+
+    def update_state(self, state: RunViewState) -> None:
+        """Dynamically update monitor widgets on timer tick."""
+        self.state = state
+        try:
+            hdr = self.query_one("#monitor-header", Label)
+            hdr.update(f"Run ID: {self.state.run_id} | Status: {status_badge(self.state.status)} | Elapsed: {format_duration_ns(self.state.elapsed_ns)}")
+            focus = self.query_one("#monitor-focus", Label)
+            if self.state.current_focus:
+                f = self.state.current_focus
+                focus.update(f"Current Operation: {f.operation_name} ({f.stage}) on {f.device_type} - {format_duration_ns(f.elapsed_ns)}")
+            else:
+                focus.update("Current Operation: -")
+        except Exception:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-goto-summary":
@@ -147,8 +174,8 @@ class SummaryScreen(Screen):
         yield Header()
         with Container(id="summary-container"):
             yield Label(f"Run ID: {self.state.run_id} | Status: {status_badge(self.state.status)} | Wall Time: {format_duration_ns(self.state.wall_time_ns)}", id="summary-header")
-            yield Label(f"Files: {self.state.successful_files} success, {self.state.warning_files} warning, {self.state.failed_files} failed", id="summary-files-count")
-            yield Label(f"Outcome: {self.state.total_inputs} inputs, {self.state.retry_count} retries, {self.state.quarantined_count} quarantined", id="summary-outcome")
+            yield Label(f"Files: {_fmt_count(self.state.successful_files)} success, {_fmt_count(self.state.warning_files)} warning, {_fmt_count(self.state.failed_files)} failed", id="summary-files-count")
+            yield Label(f"Outcome: {self.state.total_inputs} inputs, {_fmt_count(self.state.retry_count)} retries, {_fmt_count(self.state.quarantined_count)} quarantined", id="summary-outcome")
 
             acc_str = f"{self.state.accuracy * 100:.1f}%" if self.state.accuracy is not None else "-"
             yield Label(f"Average Speed: {format_duration_ns(self.state.avg_duration_per_input_ns)}/input | Average Confidence: {format_confidence(self.state.avg_confidence)} | Verified Accuracy: {acc_str}", id="summary-metrics")
@@ -273,6 +300,7 @@ class MukhaApp(App):
         self._active_context: ExecutionContext | None = None
         self._active_run_id: str | None = None
         self._start_time_ns: int = 0
+        self._monitor_timer: Timer | None = None
 
     def on_mount(self) -> None:
         self.push_screen(HomeScreen(self.app_state))
@@ -326,10 +354,48 @@ class MukhaApp(App):
             )
             self.switch_to_monitor()
 
+            # Start periodic Monitor refresh timer
+            self._monitor_timer = self.set_interval(0.1, self._refresh_monitor_state)
+
             # Run execution off the Textual UI event loop in a worker thread
             self.run_worker(self._run_agni_worker, thread=True, exclusive=True)
         elif self.app_state.active_run is not None:
             self.switch_to_monitor()
+
+    def _refresh_monitor_state(self) -> None:
+        """Periodic timer tick refreshing monitor presentation state."""
+        if self._active_run_id and self._start_time_ns > 0:
+            now_ns = time.perf_counter_ns()
+            darpana = getattr(self._agni, "darpana", None)
+            maruti, pramana = _filter_run_telemetry(darpana, self._active_run_id)
+            new_mon = MukhaPresenter.build_monitor_view(
+                run_id=self._active_run_id,
+                status="running",
+                started_at_ns=self._start_time_ns,
+                now_ns=now_ns,
+                files=(),
+                maruti_records=maruti,
+                pramana_records=pramana,
+                current_state=self.app_state.active_run,
+            )
+            self.app_state = ApplicationViewState(
+                current_screen=self.app_state.current_screen,
+                requirement=self.app_state.requirement,
+                policy_label=self.app_state.policy_label,
+                input_selection=self.app_state.input_selection,
+                preflight=self.app_state.preflight,
+                available_actions=self.app_state.available_actions,
+                active_run=new_mon,
+                terminal_summary=self.app_state.terminal_summary,
+                inspector=self.app_state.inspector,
+            )
+            if isinstance(self.screen, MonitorScreen):
+                self.screen.update_state(new_mon)
+
+    def _stop_monitor_timer(self) -> None:
+        if self._monitor_timer is not None:
+            self._monitor_timer.pause()
+            self._monitor_timer = None
 
     def _run_agni_worker(self) -> None:
         """Background thread execution of Agni runtime."""
@@ -354,11 +420,10 @@ class MukhaApp(App):
         elapsed_ns: int,
     ) -> None:
         """Main thread callback for successful Agni execution."""
-        maruti = self._agni.darpana.maruti_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
-        pramana = self._agni.darpana.pramana_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
-        q_recs = self._agni.quarantine_store.list_all() if hasattr(self._agni, "quarantine_store") else ()
-        q_count = sum(1 for q in q_recs if getattr(q, "status", None) == QuarantineStatus.QUARANTINED)
-        retry_count = sum(getattr(q, "attempt_count", 0) for q in q_recs)
+        self._stop_monitor_timer()
+
+        darpana = getattr(self._agni, "darpana", None)
+        maruti, pramana = _filter_run_telemetry(darpana, ctx.run_id)
 
         summary_view = MukhaPresenter.build_summary_view(
             run_id=ctx.run_id,
@@ -369,8 +434,8 @@ class MukhaApp(App):
             successful_files=len(req.inputs),
             warning_files=len(result.warnings),
             failed_files=0,
-            quarantined_count=q_count,
-            retry_count=retry_count,
+            quarantined_count=0,
+            retry_count=0,
             maruti_records=maruti,
             pramana_records=pramana,
         )
@@ -392,27 +457,31 @@ class MukhaApp(App):
         exc: Exception,
         elapsed_ns: int,
     ) -> None:
-        """Main thread callback for failed Agni execution."""
+        """Main thread callback for failed Agni execution with safe error messages."""
+        self._stop_monitor_timer()
+
+        if isinstance(exc, DoshError):
+            msg = f"[{exc.code.value}] {exc.message}"
+        else:
+            msg = f"Internal execution error ({type(exc).__name__})"
+
+        darpana = getattr(self._agni, "darpana", None)
+        maruti, pramana = _filter_run_telemetry(darpana, ctx.run_id)
+
         from sarathi.sankalpa import Result as SankalpaResult
-
-        is_quarantine = isinstance(exc, DoshError) and "quarantine" in exc.message.lower()
-        status = "QUARANTINED" if is_quarantine else "FAILED"
-        msg = f"[{exc.code.value}] {exc.message}" if isinstance(exc, DoshError) else str(exc)
-
-        maruti = self._agni.darpana.maruti_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
-        pramana = self._agni.darpana.pramana_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
 
         empty_res = SankalpaResult(data="", artifacts=(), warnings=())
         summary_view = MukhaPresenter.build_summary_view(
             run_id=ctx.run_id,
-            status=status,
+            status="FAILED",
             wall_time_ns=elapsed_ns,
             request=req,
             result=empty_res,
             successful_files=0,
             warning_files=0,
             failed_files=len(req.inputs),
-            quarantined_count=1 if is_quarantine else 0,
+            quarantined_count=0,
+            retry_count=0,
             failures=(msg,),
             maruti_records=maruti,
             pramana_records=pramana,
@@ -443,8 +512,8 @@ class MukhaApp(App):
         if self.app_state.inspector is not None:
             self.push_screen(InspectorScreen(self.app_state.inspector))
         elif self.app_state.terminal_summary is not None:
-            maruti = self._agni.darpana.maruti_records(run_id=self.app_state.terminal_summary.run_id) if hasattr(self._agni, "darpana") else ()
-            pramana = self._agni.darpana.pramana_records(run_id=self.app_state.terminal_summary.run_id) if hasattr(self._agni, "darpana") else ()
+            darpana = getattr(self._agni, "darpana", None)
+            maruti, pramana = _filter_run_telemetry(darpana, self.app_state.terminal_summary.run_id)
             insp = MukhaPresenter.build_inspector_view(
                 run_id=self.app_state.terminal_summary.run_id,
                 status=self.app_state.terminal_summary.status,

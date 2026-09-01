@@ -134,7 +134,6 @@ class MukhaPresenter:
 
         total_files = len(valid_refs) + len(issues)
 
-        # Groups are only built when detected media types exist (not from suffix)
         groups = tuple(
             InputGroupView(format_name=fmt, file_count=len(sizes), total_size_bytes=sum(sizes))
             for fmt, sizes in sorted(format_groups.items())
@@ -269,11 +268,11 @@ class MukhaPresenter:
         wall_time_ns: int,
         request: Request,
         result: Result,
-        successful_files: int,
-        warning_files: int,
-        failed_files: int,
-        quarantined_count: int = 0,
-        retry_count: int = 0,
+        successful_files: int | None = None,
+        warning_files: int | None = None,
+        failed_files: int | None = None,
+        quarantined_count: int | None = None,
+        retry_count: int | None = None,
         failures: Sequence[str] = (),
         maruti_records: Sequence[MarutiRecord] = (),
         pramana_records: Sequence[PramanaRecord] = (),
