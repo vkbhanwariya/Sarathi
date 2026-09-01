@@ -19,10 +19,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+from pathlib import Path
+import re
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from sarathi.sankalpa.artifact import ArtifactRef
+
+_REQUIREMENT_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +119,7 @@ class Result:
     confidence: ConfidenceValue | None = None
     warnings: tuple[WarningRecord, ...] = ()
     provenance: tuple[ProvenanceRecord, ...] = ()
+    next_requirement: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -144,6 +149,15 @@ class Result:
             object.__setattr__(self, "provenance", tuple(self.provenance))
         else:
             raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(self.provenance)}.")
+
+        if self.next_requirement is not None:
+            if not isinstance(self.next_requirement, str):
+                raise TypeError(f"next_requirement must be a string or None, got {type(self.next_requirement)}.")
+            if not _REQUIREMENT_IDENTIFIER_PATTERN.match(self.next_requirement):
+                raise ValueError(
+                    f"next_requirement must be a safe stable identifier (lowercase letters, digits, '_' and '-' only), "
+                    f"got {self.next_requirement!r}."
+                )
 
         if isinstance(self.metadata, Mapping):
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))

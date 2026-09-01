@@ -649,6 +649,30 @@ class TestResultContracts:
         with pytest.raises(TypeError):
             res.metadata["run"] = "test"  # type: ignore
 
+    def test_result_next_requirement_validation(self) -> None:
+        res_default = Result(data="test")
+        assert res_default.next_requirement is None
+
+        res_ocr = Result(data="test", next_requirement="ocr")
+        assert res_ocr.next_requirement == "ocr"
+
+        res_kebab = Result(data="test", next_requirement="native-extraction_v2")
+        assert res_kebab.next_requirement == "native-extraction_v2"
+
+        # Invalid type
+        with pytest.raises(TypeError, match="next_requirement must be a string or None"):
+            Result(data="test", next_requirement=123)  # type: ignore
+
+        # Invalid format / empty
+        with pytest.raises(ValueError, match="safe stable identifier"):
+            Result(data="test", next_requirement="")
+
+        with pytest.raises(ValueError, match="safe stable identifier"):
+            Result(data="test", next_requirement="OCR.CAPITAL")
+
+        with pytest.raises(ValueError, match="safe stable identifier"):
+            Result(data="test", next_requirement="has space")
+
 
 class TestDomainAgnosticContracts:
     def test_no_domain_specific_coupling_in_sankalpa(self) -> None:

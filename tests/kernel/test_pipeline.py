@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.nabhi import CapabilityPlan, Kosh, Pravaha
+from sarathi.nabhi import CapabilityPlan, Kosh, Manthan, Pravaha
 from sarathi.sankalpa import (
     Capability,
     CapabilityDeclaration,
@@ -38,6 +38,7 @@ class MockExecutableCapability:
         append_provenance: ProvenanceRecord | None = None,
         tracker: list[str] | None = None,
         return_invalid_type: Any = None,
+        next_requirement: str | None = None,
     ) -> None:
         self.declaration = declaration
         self.fail_error = fail_error
@@ -46,7 +47,9 @@ class MockExecutableCapability:
         self.append_provenance = append_provenance
         self.tracker = tracker
         self.return_invalid_type = return_invalid_type
+        self.next_requirement = next_requirement
         self.call_count = 0
+        self.received_requests: list[Request] = []
         self.received_prior_results: list[Result | None] = []
 
     def execute(
@@ -56,6 +59,7 @@ class MockExecutableCapability:
         prior_result: Result | None = None,
     ) -> Result:
         self.call_count += 1
+        self.received_requests.append(request)
         self.received_prior_results.append(prior_result)
         if self.tracker is not None:
             self.tracker.append(self.declaration.capability_id)
@@ -85,6 +89,7 @@ class MockExecutableCapability:
             data=new_data,
             warnings=tuple(new_warnings),
             provenance=tuple(new_prov),
+            next_requirement=self.next_requirement,
         )
 
 
@@ -95,34 +100,48 @@ def sample_plugin() -> PluginInfo:
         name="Pipeline Plugin",
         version="1.0.0",
         security=SecurityDeclaration(),
-        capabilities=("extract", "normalize", "export"),
+        capabilities=("extract", "normalize", "export", "ocr", "read_native"),
     )
 
 
 @pytest.fixture
-def cap_decls(sample_plugin: PluginInfo) -> tuple[CapabilityDeclaration, CapabilityDeclaration, CapabilityDeclaration]:
+def cap_decls(sample_plugin: PluginInfo) -> tuple[CapabilityDeclaration, ...]:
     c1 = CapabilityDeclaration(
         capability_id="extract",
         plugin_id="shakti.pipeline",
         version="1.0.0",
-        supported_profiles=(ExecutionProfile.INSTANT,),
+        supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
         device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
     )
     c2 = CapabilityDeclaration(
         capability_id="normalize",
         plugin_id="shakti.pipeline",
         version="1.0.0",
-        supported_profiles=(ExecutionProfile.INSTANT,),
+        supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
         device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
     )
     c3 = CapabilityDeclaration(
         capability_id="export",
         plugin_id="shakti.pipeline",
         version="1.0.0",
-        supported_profiles=(ExecutionProfile.INSTANT,),
+        supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
         device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
     )
-    return (c1, c2, c3)
+    c4 = CapabilityDeclaration(
+        capability_id="ocr",
+        plugin_id="shakti.pipeline",
+        version="1.0.0",
+        supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
+        device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
+    )
+    c5 = CapabilityDeclaration(
+        capability_id="read_native",
+        plugin_id="shakti.pipeline",
+        version="1.0.0",
+        supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
+        device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
+    )
+    return (c1, c2, c3, c4, c5)
 
 
 @pytest.fixture
@@ -132,6 +151,11 @@ def kosh(sample_plugin: PluginInfo, cap_decls: tuple[CapabilityDeclaration, ...]
     for c in cap_decls:
         registry.register_capability(c)
     return registry
+
+
+@pytest.fixture
+def manthan(kosh: Kosh) -> Manthan:
+    return Manthan(kosh)
 
 
 @pytest.fixture
@@ -172,12 +196,13 @@ class TestPravahaPipelineEngine:
     def test_ordered_execution_and_prior_result_handoff(
         self,
         kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
         sample_context: ExecutionContext,
     ) -> None:
-        c1_decl, c2_decl, c3_decl = cap_decls
+        c1_decl, c2_decl, c3_decl, _, _ = cap_decls
         events: list[str] = []
 
         warn1 = WarningRecord(code="W001", message="Warning stage 1", stage="extract")
@@ -201,7 +226,7 @@ class TestPravahaPipelineEngine:
 
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize", "export"))
 
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
         final_result = pravaha.execute(
             plan=plan,
             request=sample_request,
@@ -231,16 +256,18 @@ class TestPravahaPipelineEngine:
         assert final_result.data == "extract+normalize+export"
         assert final_result.warnings == (warn1, warn2, warn3)
         assert final_result.provenance == (prov1, prov2, prov3)
+        assert final_result.next_requirement is None
 
     def test_pravaha_invokes_capabilities_strictly_through_yantra(
         self,
         kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
         sample_context: ExecutionContext,
     ) -> None:
-        c1_decl, _, _ = cap_decls
+        c1_decl, _, _, _, _ = cap_decls
         cap1 = MockExecutableCapability(c1_decl)
         capabilities = {"extract": cap1}
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract",))
@@ -252,7 +279,7 @@ class TestPravahaPipelineEngine:
             yantra_execute_calls.append(capability.declaration.capability_id)
             return original_yantra_execute(capability, request, context, prior_result)
 
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
 
         with patch.object(yantra, "execute", side_effect=spy_execute):
             result = pravaha.execute(plan=plan, request=sample_request, context=sample_context)
@@ -261,22 +288,213 @@ class TestPravahaPipelineEngine:
         assert yantra_execute_calls == ["extract"]
         assert cap1.call_count == 1
 
-    def test_missing_executable_binding_rejects_before_execution(
+    def test_next_requirement_handoff_from_native_extraction_to_ocr(
         self,
         kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_context: ExecutionContext,
+    ) -> None:
+        _, _, _, ocr_decl, read_decl = cap_decls
+        events: list[str] = []
+
+        warn_native = WarningRecord(code="PARTIAL_NATIVE", message="Scan page detected", stage="read_native")
+        prov_native = ProvenanceRecord(stage="read_native", plugin_id="shakti.pipeline", capability_id="read_native")
+
+        # Native extractor discovers image/scan content and signals OCR requirement
+        read_native_cap = MockExecutableCapability(
+            read_decl,
+            append_warning=warn_native,
+            append_provenance=prov_native,
+            tracker=events,
+            next_requirement="ocr",
+        )
+
+        warn_ocr = WarningRecord(code="OCR_PASS", message="OCR completed", stage="ocr")
+        prov_ocr = ProvenanceRecord(stage="ocr", plugin_id="shakti.pipeline", capability_id="ocr")
+
+        ocr_cap = MockExecutableCapability(
+            ocr_decl,
+            append_warning=warn_ocr,
+            append_provenance=prov_ocr,
+            tracker=events,
+            next_requirement=None,
+        )
+
+        capabilities = {
+            "read_native": read_native_cap,
+            "ocr": ocr_cap,
+        }
+
+        initial_request = Request(
+            request_id="req-scan-1",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-scan",
+                    source_path=Path("mixed_doc.pdf"),
+                    display_name="mixed_doc.pdf",
+                    size_bytes=4096,
+                ),
+            ),
+        )
+
+        initial_plan = manthan.resolve(initial_request)
+        assert initial_plan.capability_ids == ("read_native",)
+
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        context = ExecutionContext(run_id="run-1", request_id="req-scan-1", trace_id="tr-1", span_id="sp-1")
+
+        final_result = pravaha.execute(plan=initial_plan, request=initial_request, context=context)
+
+        # Proves ordered sequencing: read_native executed first, then escalated to ocr
+        assert events == ["read_native", "ocr"]
+        assert read_native_cap.call_count == 1
+        assert ocr_cap.call_count == 1
+
+        # Proves OCR capability received Shruti's Result as prior_result
+        ocr_prior = ocr_cap.received_prior_results[0]
+        assert isinstance(ocr_prior, Result)
+        assert ocr_prior.data == "read_native"
+        assert ocr_prior.warnings == (warn_native,)
+        assert ocr_prior.provenance == (prov_native,)
+
+        # Proves final result accumulates both stages
+        assert final_result.data == "read_native+ocr"
+        assert final_result.warnings == (warn_native, warn_ocr)
+        assert final_result.provenance == (prov_native, prov_ocr)
+        assert final_result.next_requirement is None
+
+    def test_next_requirement_preserves_request_fields(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+    ) -> None:
+        _, _, _, ocr_decl, read_decl = cap_decls
+
+        read_cap = MockExecutableCapability(read_decl, next_requirement="ocr")
+        ocr_cap = MockExecutableCapability(ocr_decl)
+        capabilities = {"read_native": read_cap, "ocr": ocr_cap}
+
+        custom_opts = {"ocr_engine": "rapidocr", "dpi": 300}
+        custom_meta = {"department": "finance", "user": "auditor"}
+        initial_request = Request(
+            request_id="req-handoff-fields",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("input.pdf"),
+                    display_name="input.pdf",
+                    size_bytes=1000,
+                ),
+            ),
+            profile=ExecutionProfile.ACCURATE,
+            custom_options=custom_opts,
+            output_root=Path("out/handoff"),
+            preserve_partial=True,
+            metadata=custom_meta,
+        )
+
+        plan = manthan.resolve(initial_request)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        context = ExecutionContext(run_id="run-1", request_id="req-handoff-fields", trace_id="tr-1", span_id="sp-1")
+
+        pravaha.execute(plan=plan, request=initial_request, context=context)
+
+        # Verify OCR received identical request fields except for requirement
+        ocr_req = ocr_cap.received_requests[0]
+        assert ocr_req.request_id == "req-handoff-fields"
+        assert ocr_req.requirement == "ocr"
+        assert ocr_req.inputs == initial_request.inputs
+        assert ocr_req.profile == ExecutionProfile.ACCURATE
+        assert ocr_req.custom_options == custom_opts
+        assert ocr_req.output_root == Path("out/handoff")
+        assert ocr_req.preserve_partial is True
+        assert ocr_req.metadata == custom_meta
+
+    def test_repeated_requirement_handoff_rejected_before_repeat_execution(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
         sample_context: ExecutionContext,
     ) -> None:
-        c1_decl, _, _ = cap_decls
+        c1_decl, _, _, _, _ = cap_decls
+
+        # Capability returns next_requirement matching its own initial requirement
+        loop_cap = MockExecutableCapability(c1_decl, next_requirement="extract")
+        capabilities = {"extract": loop_cap}
+
+        plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract",))
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan=plan, request=sample_request, context=sample_context)
+
+        err = exc_info.value
+        assert err.code is FailureCode.VALIDATION_FAILED
+        assert "Repeated requirement 'extract'" in err.message
+
+        # Assert capability was executed only once, repeat was blocked
+        assert loop_cap.call_count == 1
+
+    def test_circular_requirement_handoff_rejected(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        c1_decl, c2_decl, _, _, _ = cap_decls
+
+        # 'extract' handoffs to 'normalize', and 'normalize' handoffs back to 'extract'
+        cap_extract = MockExecutableCapability(c1_decl, next_requirement="normalize")
+        cap_normalize = MockExecutableCapability(c2_decl, next_requirement="extract")
+
+        capabilities = {
+            "extract": cap_extract,
+            "normalize": cap_normalize,
+        }
+
+        plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract",))
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan=plan, request=sample_request, context=sample_context)
+
+        err = exc_info.value
+        assert err.code is FailureCode.VALIDATION_FAILED
+        assert "Repeated requirement 'extract'" in err.message
+
+        # Proves extract ran once, normalize ran once, repeat extract was blocked before invocation
+        assert cap_extract.call_count == 1
+        assert cap_normalize.call_count == 1
+
+    def test_missing_executable_binding_rejects_before_execution(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
         cap1 = MockExecutableCapability(c1_decl)
 
         # Plan requires 'extract' and 'normalize', but capabilities only provides 'extract'
         capabilities = {"extract": cap1}
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize"))
 
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -294,12 +512,13 @@ class TestPravahaPipelineEngine:
     def test_invalid_executable_contract_rejects_before_execution(
         self,
         kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
         sample_context: ExecutionContext,
     ) -> None:
-        c1_decl, _, _ = cap_decls
+        c1_decl, _, _, _, _ = cap_decls
         cap1 = MockExecutableCapability(c1_decl)
 
         class BadCapability:
@@ -308,7 +527,7 @@ class TestPravahaPipelineEngine:
         capabilities = {"extract": cap1, "normalize": BadCapability()}  # type: ignore
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize"))
 
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(TypeError, match="does not implement Capability protocol"):
             pravaha.execute(
                 plan=plan,
@@ -322,6 +541,7 @@ class TestPravahaPipelineEngine:
     def test_declaration_mismatch_with_kosh_rejects_before_execution(
         self,
         kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
@@ -338,7 +558,7 @@ class TestPravahaPipelineEngine:
         capabilities = {"extract": tampered_cap}
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract",))
 
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -354,18 +574,19 @@ class TestPravahaPipelineEngine:
     def test_unregistered_capability_in_plan_rejects_before_execution(
         self,
         kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
         sample_context: ExecutionContext,
     ) -> None:
-        c1_decl, _, _ = cap_decls
+        c1_decl, _, _, _, _ = cap_decls
         cap1 = MockExecutableCapability(c1_decl)
 
         capabilities = {"extract": cap1, "ghost_cap": cap1}
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "ghost_cap"))
 
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -381,12 +602,13 @@ class TestPravahaPipelineEngine:
     def test_capability_failure_stops_pipeline_and_preserves_error(
         self,
         kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
         sample_context: ExecutionContext,
     ) -> None:
-        c1_decl, c2_decl, c3_decl = cap_decls
+        c1_decl, c2_decl, c3_decl, _, _ = cap_decls
         events: list[str] = []
         original_error = RuntimeError("OCR engine crashed on page 2")
 
@@ -402,7 +624,7 @@ class TestPravahaPipelineEngine:
 
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize", "export"))
 
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(RuntimeError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -426,14 +648,15 @@ class TestPravahaPipelineEngine:
     def test_invalid_plan_request_or_context_rejects(
         self,
         kosh: Kosh,
+        manthan: Manthan,
         yantra: Yantra,
         cap_decls: tuple[CapabilityDeclaration, ...],
         sample_request: Request,
         sample_context: ExecutionContext,
     ) -> None:
-        c1_decl, _, _ = cap_decls
+        c1_decl, _, _, _, _ = cap_decls
         capabilities = {"extract": MockExecutableCapability(c1_decl)}
-        pravaha = Pravaha(registry=kosh, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
 
         # Mismatched request_id between plan and request
         bad_plan = CapabilityPlan(request_id="mismatched-req", capability_ids=("extract",))
@@ -473,10 +696,13 @@ class TestPravahaPipelineEngine:
 
         # Invalid constructor arguments
         with pytest.raises(TypeError, match="registry must be a Kosh instance"):
-            Pravaha(registry="bad_registry", yantra=yantra, capabilities=capabilities)  # type: ignore
+            Pravaha(registry="bad_registry", manthan=manthan, yantra=yantra, capabilities=capabilities)  # type: ignore
+
+        with pytest.raises(TypeError, match="manthan must be a Manthan instance"):
+            Pravaha(registry=kosh, manthan="bad_manthan", yantra=yantra, capabilities=capabilities)  # type: ignore
 
         with pytest.raises(TypeError, match="yantra must be a Yantra instance"):
-            Pravaha(registry=kosh, yantra="bad_yantra", capabilities=capabilities)  # type: ignore
+            Pravaha(registry=kosh, manthan=manthan, yantra="bad_yantra", capabilities=capabilities)  # type: ignore
 
         with pytest.raises(TypeError, match="capabilities must be a Mapping"):
-            Pravaha(registry=kosh, yantra=yantra, capabilities=["not_a_map"])  # type: ignore
+            Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=["not_a_map"])  # type: ignore

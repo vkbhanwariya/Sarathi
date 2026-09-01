@@ -1,9 +1,7 @@
 """Yantra — Resource & Execution Manager for Sarathi V2.
 
 Exposes:
-- Yantra: Single public interface managing hardware slot allocation and release.
-
-Does NOT contain executor or execution APIs yet.
+- Yantra: Single public interface managing hardware slot allocation, release, and capability execution.
 """
 
 from __future__ import annotations
