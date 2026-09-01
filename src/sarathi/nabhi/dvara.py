@@ -66,6 +66,13 @@ class Dvara:
 
         # 1. Preflight all built-ins against existing Kosh state
         for plugin, caps in builtins:
+            cap_ids = tuple(c.capability_id for c in caps)
+            if set(cap_ids) != set(plugin.capabilities) or len(cap_ids) != len(plugin.capabilities):
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Declared capabilities for plugin '{plugin.plugin_id}' do not exactly match PluginInfo.capabilities.",
+                )
+
             for cap in caps:
                 if cap.plugin_id != plugin.plugin_id:
                     raise DoshError(
