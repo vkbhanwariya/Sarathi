@@ -39,9 +39,10 @@ class OCRCapability:
         self,
         declaration: CapabilityDeclaration = CAPABILITY_DECLARATION,
         engine: RapidOCREngine | None = None,
+        data_root: Path | None = None,
     ) -> None:
         self.declaration: CapabilityDeclaration = declaration
-        self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine()
+        self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine(data_root=data_root)
 
     def execute(
         self,
