@@ -1,17 +1,18 @@
 """Mukha Presenter - Pure Presentation Logic and State Projection in Sarathi V2.
 
 Transforms canonical Request, Result, Darpana records, and Kavacha policy
-into typed presentation view models. Does not mutate runtime state or execute work.
+into typed presentation view models. Does not mutate runtime state, execute work,
+or fabricate metrics.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
-from sarathi.kavacha import SecurityPolicy
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.mukha.state import (
     ApplicationViewState,
     ArtifactOutcomeView,
@@ -33,88 +34,117 @@ from sarathi.mukha.state import (
     StageTimingView,
     WorkerPageView,
 )
-from sarathi.nabhi.quarantine import QuarantineRecord, QuarantineStatus
-from sarathi.sankalpa import ArtifactIntent, ArtifactRef, InputRef, Request, Result
+from sarathi.sankalpa import ArtifactRef, InputRef, Request, Result
 
 # Operations running for 5 or more seconds are promoted to the long-running section
 _FIVE_SECONDS_NS = 5_000_000_000
+_TERMINAL_STATUSES = {"SUCCESS", "FAILED", "CANCELLED", "QUARANTINED"}
 
 
 class MukhaPresenter:
     """Pure presenter projecting runtime facts into immutable presentation models."""
 
     @staticmethod
-    def build_home_view(
-        inputs: Sequence[InputRef | Path | str],
-        requirement: str = "read_native",
-        policy: SecurityPolicy | None = None,
-        ocr_evidence: Mapping[str, OCRProfileEvidenceView] | None = None,
-        available_actions: Sequence[AvailableActionView] | None = None,
-    ) -> ApplicationViewState:
-        """Build Screen 1: Griha - Home & Input Setup presentation state."""
+    def intake_from_paths(
+        paths: Sequence[Path | str],
+        kavacha: Kavacha | None = None,
+        runtime_root: Path | None = None,
+        output_root: Path | None = None,
+    ) -> tuple[tuple[InputRef, ...], InputSelectionView, PreflightView]:
+        """Convert selected filesystem paths into canonical InputRefs, selection view, and preflight view.
+
+        Enforces T6 canonical validation rules:
+        - Path normalization;
+        - Requires regular file;
+        - Factual stat().st_size (never zero fallback);
+        - Deduplication;
+        - Kavacha source-destination overlap validation when configured.
+        """
+        seen_paths: set[Path] = set()
+        valid_refs: list[InputRef] = []
         input_items: list[InputItemView] = []
-        format_groups: dict[str, list[int]] = {}  # format -> [sizes]
+        format_groups: dict[str, list[int]] = {}
+        issues: list[tuple[str, str]] = []
         total_size = 0
 
-        for i, raw_inp in enumerate(inputs):
-            if isinstance(raw_inp, InputRef):
-                path = raw_inp.source_path
-                display = raw_inp.display_name
-                size = raw_inp.size_bytes
-                media = raw_inp.media_type
-                inp_id = raw_inp.input_id
-            else:
-                path = Path(raw_inp)
-                display = path.name
-                inp_id = f"inp-{i+1}"
-                media = None
-                try:
-                    size = path.stat().st_size if path.exists() else 0
-                except OSError:
-                    size = 0
+        for i, raw in enumerate(paths):
+            if not isinstance(raw, (Path, str)) or not str(raw).strip():
+                issues.append(("<empty>", "empty input path"))
+                continue
 
-            # Preflight inspection
-            exists = path.exists() if isinstance(path, Path) else True
-            is_file = path.is_file() if isinstance(path, Path) and exists else True
-            eligible = exists and is_file
-            issue = None
-            if not exists:
-                issue = "unreadable (does not exist)"
-            elif not is_file:
-                issue = "unsupported (not a regular file)"
+            p = Path(raw)
+            try:
+                resolved = p.resolve()
+            except OSError:
+                issues.append((p.name, "cannot resolve path"))
+                continue
 
-            fmt = (path.suffix.upper().lstrip(".") if isinstance(path, Path) and path.suffix else "UNKNOWN")
-            format_groups.setdefault(fmt, []).append(size)
+            if not resolved.exists():
+                issues.append((p.name, "does not exist"))
+                continue
+
+            if not resolved.is_file():
+                issues.append((p.name, "not a regular file"))
+                continue
+
+            if resolved in seen_paths:
+                issues.append((p.name, "duplicate input path"))
+                continue
+
+            try:
+                st = resolved.stat()
+                size = st.st_size
+            except OSError:
+                issues.append((p.name, "failed to inspect file size"))
+                continue
+
+            seen_paths.add(resolved)
             total_size += size
+
+            inp_id = f"inp-{len(valid_refs) + 1}"
+            ref = InputRef(
+                input_id=inp_id,
+                source_path=resolved,
+                display_name=p.name,
+                size_bytes=size,
+            )
+            valid_refs.append(ref)
+
+            fmt = resolved.suffix.upper().lstrip(".") or "UNKNOWN"
+            format_groups.setdefault(fmt, []).append(size)
 
             input_items.append(
                 InputItemView(
                     input_id=inp_id,
-                    display_name=display,
+                    display_name=p.name,
                     size_bytes=size,
-                    media_type=media,
-                    is_eligible=eligible,
-                    issue_reason=issue,
+                    media_type=None,
+                    is_eligible=True,
                 )
             )
 
-        total_files = len(input_items)
+        # Validate path overlap via Kavacha if supplied
+        if kavacha is not None and valid_refs:
+            dest_roots: list[Path] = []
+            if runtime_root is not None:
+                dest_roots.append(runtime_root)
+            if output_root is not None:
+                dest_roots.append(output_root)
+            if dest_roots:
+                kavacha.validate_source_destination_overlap(valid_refs, dest_roots)
+
+        total_files = len(valid_refs) + len(issues)
         is_grouped = total_files > 10
 
         groups = tuple(
-            InputGroupView(
-                format_name=fmt,
-                file_count=len(sizes),
-                total_size_bytes=sum(sizes),
-            )
+            InputGroupView(format_name=fmt, file_count=len(sizes), total_size_bytes=sum(sizes))
             for fmt, sizes in sorted(format_groups.items())
         )
 
-        ineligible = [item for item in input_items if not item.is_eligible]
         preflight = PreflightView(
-            eligible_count=total_files - len(ineligible),
-            issue_count=len(ineligible),
-            issues=tuple((item.display_name, item.issue_reason or "unknown issue") for item in ineligible),
+            eligible_count=len(valid_refs),
+            issue_count=len(issues),
+            issues=tuple(issues),
         )
 
         selection = InputSelectionView(
@@ -125,22 +155,24 @@ class MukhaPresenter:
             items=tuple(input_items),
         )
 
-        policy_label = "Local only"
-        if policy is not None and (policy.allow_network_access or policy.allow_external_processing):
-            policy_label = "Network / External enabled"
+        return tuple(valid_refs), selection, preflight
 
-        actions = available_actions or (
-            AvailableActionView(action_id="start_run", label="Start Eligible Files", is_enabled=preflight.eligible_count > 0),
-            AvailableActionView(action_id="view_all", label="View All Files", is_enabled=total_files > 0),
-        )
-
+    @staticmethod
+    def build_home_view(
+        input_selection: InputSelectionView,
+        requirement: str = "read_native",
+        policy_label: str = "Local only",
+        preflight: PreflightView | None = None,
+        available_actions: Sequence[AvailableActionView] = (),
+    ) -> ApplicationViewState:
+        """Build Screen 1: Griha - Home & Input Setup presentation state purely from supplied facts."""
         return ApplicationViewState(
             current_screen="home",
             requirement=requirement,
             policy_label=policy_label,
-            input_selection=selection,
+            input_selection=input_selection,
             preflight=preflight,
-            available_actions=tuple(actions),
+            available_actions=tuple(available_actions),
         )
 
     @staticmethod
@@ -153,11 +185,16 @@ class MukhaPresenter:
         maruti_records: Sequence[MarutiRecord] = (),
         pramana_records: Sequence[PramanaRecord] = (),
         active_workers: Sequence[WorkerPageView] = (),
+        current_state: RunViewState | None = None,
     ) -> RunViewState:
         """Build Screen 2: Pravritti - Live Run Monitor presentation state."""
+        effective_status = status
+        if current_state is not None and current_state.status.upper() in _TERMINAL_STATUSES:
+            effective_status = current_state.status
+
         elapsed_ns = max(0, now_ns - started_at_ns)
 
-        # Factual device progress aggregation from recorded records
+        # Factual device execution aggregation: only when device_type is present in telemetry
         device_durations: dict[str, list[int]] = {}
         device_confidences: dict[str, list[float]] = {}
 
@@ -168,29 +205,29 @@ class MukhaPresenter:
                 device_durations.setdefault(dev_key, []).append(rec.duration_ns)
 
         for p_rec in pramana_records:
-            dev = p_rec.attributes.get("device_type", "CPU")
-            if p_rec.confidence is not None:
+            dev = p_rec.attributes.get("device_type")
+            if dev and p_rec.confidence is not None:
                 device_confidences.setdefault(str(dev).upper(), []).append(p_rec.confidence.score)
 
         device_progress: list[DeviceProgressView] = []
         for dev_type, durs in sorted(device_durations.items()):
-            unit_count = len(durs)
+            exec_count = len(durs)
             tot_dur = sum(durs)
-            avg_dur = int(tot_dur / unit_count) if unit_count > 0 else None
+            avg_dur = int(tot_dur / exec_count) if exec_count > 0 else None
             confs = device_confidences.get(dev_type, [])
             avg_conf = (sum(confs) / len(confs)) if confs else None
 
             device_progress.append(
                 DeviceProgressView(
                     device_type=dev_type,
-                    units_processed=unit_count,
+                    execution_count=exec_count,
                     total_duration_ns=tot_dur,
                     avg_duration_ns=avg_dur,
                     avg_confidence=avg_conf,
                 )
             )
 
-        # 5-second rule: filter long running operations
+        # 5-second rule: filter long running operations (elapsed_ns >= 5s)
         long_running: list[OperationView] = []
         current_focus: OperationView | None = None
 
@@ -202,18 +239,18 @@ class MukhaPresenter:
                 device_type=w.device_type,
                 elapsed_ns=w.elapsed_ns,
                 is_long_running=is_long,
-                last_activity=f"Processing {w.stage}",
+                last_activity=None,
             )
             if is_long:
                 long_running.append(op)
             if current_focus is None:
                 current_focus = op
 
-        terminal_files = sum(1 for f in files if f.status in ("success", "failed", "quarantined"))
+        terminal_files = sum(1 for f in files if f.status in ("success", "failed", "quarantined", "cancelled"))
 
         return RunViewState(
             run_id=run_id,
-            status=status,
+            status=effective_status,
             elapsed_ns=elapsed_ns,
             terminal_files=terminal_files,
             total_files=len(files),
@@ -227,20 +264,20 @@ class MukhaPresenter:
     @staticmethod
     def build_summary_view(
         run_id: str,
+        status: str,
+        wall_time_ns: int,
         request: Request,
         result: Result,
+        successful_files: int,
+        warning_files: int,
+        failed_files: int,
+        quarantined_count: int = 0,
+        retry_count: int = 0,
         maruti_records: Sequence[MarutiRecord] = (),
         pramana_records: Sequence[PramanaRecord] = (),
-        quarantine_records: Sequence[QuarantineRecord] = (),
     ) -> RunSummaryView:
-        """Build Screen 4: Samapti - Run Summary presentation state."""
-        # Calculate wall time from actual maruti records
-        if maruti_records:
-            tot_dur = sum(r.duration_ns for r in maruti_records if r.duration_ns >= 0)
-        else:
-            tot_dur = 0
-
-        # Stage timings aggregation
+        """Build Screen 4: Samapti - Run Summary presentation state purely from factual parameters."""
+        # Stage timings aggregation from telemetry
         stage_map: dict[str, list[int]] = {}
         for r in maruti_records:
             stage_map.setdefault(r.phase_name, []).append(r.duration_ns)
@@ -254,7 +291,7 @@ class MukhaPresenter:
             for stage, durs in sorted(stage_map.items())
         )
 
-        # Device execution summary (factual GPU/NPU/CPU facts only when measured)
+        # Device execution summary: strictly when device_type is present in telemetry
         device_map: dict[str, list[int]] = {}
         dev_confs: dict[str, list[float]] = {}
         for r in maruti_records:
@@ -264,14 +301,14 @@ class MukhaPresenter:
                 device_map.setdefault(dev_str, []).append(r.duration_ns)
 
         for pr in pramana_records:
-            dev = pr.attributes.get("device_type", "CPU")
-            if pr.confidence is not None:
+            dev = pr.attributes.get("device_type")
+            if dev and pr.confidence is not None:
                 dev_confs.setdefault(str(dev).upper(), []).append(pr.confidence.score)
 
         device_summaries: list[DeviceSummaryView] = []
         for dev_k, durs in sorted(device_map.items()):
-            unit_c = len(durs)
-            avg_d = int(sum(durs) / unit_c) if unit_c > 0 else None
+            exec_c = len(durs)
+            avg_d = int(sum(durs) / exec_c) if exec_c > 0 else None
             sorted_d = sorted(durs)
             p95_idx = int(0.95 * len(sorted_d))
             p95_d = sorted_d[min(p95_idx, len(sorted_d) - 1)] if sorted_d else None
@@ -281,69 +318,56 @@ class MukhaPresenter:
             device_summaries.append(
                 DeviceSummaryView(
                     device_type=dev_k,
-                    unit_count=unit_c,
-                    attempts=unit_c,
+                    execution_count=exec_c,
+                    attempts=exec_c,
                     avg_duration_ns=avg_d,
                     p95_duration_ns=p95_d,
                     avg_confidence=avg_c,
                 )
             )
 
-        # Artifacts from Result
-        artifacts: list[ArtifactOutcomeView] = []
+        # Confirmed artifacts only: only include committed ArtifactRef
+        confirmed_artifacts: list[ArtifactOutcomeView] = []
         for art in result.artifacts:
             if isinstance(art, ArtifactRef):
-                artifacts.append(
+                confirmed_artifacts.append(
                     ArtifactOutcomeView(
-                        artifact_type=art.role,
+                        role=art.role,
                         display_name=art.path.name,
                         size_bytes=art.size_bytes,
-                        sha256_hex=art.checksum_sha256 or "",
-                    )
-                )
-            elif isinstance(art, ArtifactIntent):
-                artifacts.append(
-                    ArtifactOutcomeView(
-                        artifact_type=art.role,
-                        display_name=art.name,
-                        size_bytes=int(art.metadata.get("size_bytes", 0)),
-                        sha256_hex=str(art.metadata.get("sha256", "")),
+                        sha256_hex=art.checksum_sha256,
                     )
                 )
 
-        # Confidence & Accuracy
+        # Confidence from result or pramana records
         all_confs = [pr.confidence.score for pr in pramana_records if pr.confidence is not None]
         avg_confidence = (sum(all_confs) / len(all_confs)) if all_confs else (result.confidence.score if result.confidence else None)
 
-        # Accuracy remains None unless verified in result metadata
+        # Accuracy remains None unless verified ground truth exists in metadata
         verified_acc = result.metadata.get("verified_accuracy") if isinstance(result.metadata.get("verified_accuracy"), float) else None
 
-        quarantined_count = sum(1 for q in quarantine_records if q.status == QuarantineStatus.QUARANTINED)
-        retry_count = sum(q.attempt_count for q in quarantine_records)
-
-        failed_records = [r for r in maruti_records if r.outcome == "failure"]
-        status = "SUCCESS" if not failed_records else ("PARTIAL" if len(failed_records) < len(maruti_records) else "FAILED")
+        avg_dur_per_input = int(wall_time_ns / max(1, len(request.inputs))) if wall_time_ns > 0 else None
 
         warnings = tuple(str(w.message) for w in result.warnings)
 
         return RunSummaryView(
             run_id=run_id,
             status=status,
-            wall_time_ns=tot_dur,
+            wall_time_ns=wall_time_ns,
             total_inputs=len(request.inputs),
-            successful_files=len(request.inputs) - len(failed_records),
-            warning_files=len(result.warnings),
-            failed_files=len(failed_records),
+            successful_files=successful_files,
+            warning_files=warning_files,
+            failed_files=failed_files,
             quarantined_count=quarantined_count,
             retry_count=retry_count,
-            avg_page_time_ns=int(tot_dur / max(1, len(request.inputs))),
+            avg_duration_per_input_ns=avg_dur_per_input,
             avg_confidence=avg_confidence,
             accuracy=verified_acc,
             stage_timings=stage_timings,
             device_summaries=tuple(device_summaries),
-            artifacts=tuple(artifacts),
+            artifacts=tuple(confirmed_artifacts),
             warnings=warnings,
-            failures=tuple(r.attributes.get("error_message", "execution failure") for r in failed_records),
+            failures=(),
         )
 
     @staticmethod
@@ -353,6 +377,7 @@ class MukhaPresenter:
         elapsed_ns: int,
         maruti_records: Sequence[MarutiRecord] = (),
         pramana_records: Sequence[PramanaRecord] = (),
+        system_facts: Sequence[tuple[str, str]] = (),
     ) -> InspectorViewState:
         """Build Screen 5: Nirikshana - Run Inspector presentation state."""
         logs: list[tuple[str, str, str, str]] = []
@@ -381,7 +406,7 @@ class MukhaPresenter:
         device_summaries = tuple(
             DeviceSummaryView(
                 device_type=dev_k,
-                unit_count=len(durs),
+                execution_count=len(durs),
                 attempts=len(durs),
                 avg_duration_ns=int(sum(durs) / len(durs)),
                 p95_duration_ns=sorted(durs)[int(0.95 * len(durs))] if durs else None,
@@ -405,11 +430,12 @@ class MukhaPresenter:
 
         conf_dist = tuple(conf_brackets.items())
 
-        system_facts = (
+        facts = list(system_facts)
+        facts.extend([
             ("Total Maruti Records", str(len(maruti_records))),
             ("Total Pramana Records", str(len(pramana_records))),
             ("Measured Stages", str(len(stage_map))),
-        )
+        ])
 
         return InspectorViewState(
             run_id=run_id,
@@ -419,5 +445,5 @@ class MukhaPresenter:
             stage_timings=stage_timings,
             device_summaries=device_summaries,
             confidence_distribution=conf_dist,
-            system_facts=system_facts,
+            system_facts=tuple(facts),
         )

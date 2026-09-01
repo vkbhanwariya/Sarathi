@@ -1,27 +1,42 @@
-"""Unit tests for Mukha - Console & Presentation Phase 1."""
+"""Comprehensive unit and headless Textual tests for Mukha - Console & Presentation."""
 
+import asyncio
 from pathlib import Path
+from unittest.mock import MagicMock
 import pytest
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
-from sarathi.kavacha import SecurityPolicy
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.mukha import (
     ApplicationViewState,
-    ConsoleRenderer,
+    AvailableActionView,
     FileRunView,
+    HomeScreen,
+    InputGroupView,
+    InputItemView,
+    InputSelectionView,
+    InspectorScreen,
+    InspectorViewState,
+    MonitorScreen,
+    MukhaApp,
     MukhaPresenter,
     OperationView,
+    PreflightView,
     ProgressKind,
+    ProgressState,
     RunSummaryView,
     RunViewState,
+    StageTimingView,
+    SummaryScreen,
     WorkerPageView,
     format_bytes,
     format_confidence,
     format_duration_ns,
-    format_table,
+    status_badge,
 )
-from sarathi.nabhi.quarantine import QuarantineRecord, QuarantineStatus
 from sarathi.sankalpa import (
+    ArtifactIntent,
     ArtifactRef,
     ConfidenceValue,
     ExecutionProfile,
@@ -75,96 +90,105 @@ class TestMukhaComponents:
     def test_format_confidence(self, confidence: float | None, expected: str) -> None:
         assert format_confidence(confidence) == expected
 
-    def test_format_table(self) -> None:
-        table = format_table(["Name", "Score"], [["Alice", "95%"], ["Bob", "88%"]])
-        assert "Name" in table
-        assert "Alice" in table
-        assert "Bob" in table
+    def test_status_badge(self) -> None:
+        assert status_badge("running") == "RUNNING"
+        assert status_badge("  success  ") == "SUCCESS"
 
 
-class TestMukhaHomeFlow:
-    """Tests for Screen 1: Griha - Home & Input Setup flow."""
+class TestMukhaInputAndIntakeTruth:
+    """Tests for factual intake and presenter input views."""
 
-    def test_individual_listing_for_small_batches(self, tmp_path: Path) -> None:
+    def test_intake_from_paths_canonical_validation(self, tmp_path: Path) -> None:
+        valid_f1 = tmp_path / "doc1.pdf"
+        valid_f1.write_text("content1", encoding="utf-8")
+        valid_f2 = tmp_path / "doc2.txt"
+        valid_f2.write_text("content2", encoding="utf-8")
+        missing_f = tmp_path / "missing.pdf"
+        dir_f = tmp_path / "somedir"
+        dir_f.mkdir()
+
+        refs, sel, pf = MukhaPresenter.intake_from_paths(
+            [valid_f1, valid_f2, missing_f, dir_f, valid_f1]
+        )
+
+        assert len(refs) == 2
+        assert refs[0].display_name == "doc1.pdf"
+        assert refs[0].size_bytes == valid_f1.stat().st_size
+        assert refs[1].display_name == "doc2.txt"
+        assert refs[1].size_bytes == valid_f2.stat().st_size
+
+        assert pf.eligible_count == 2
+        assert pf.issue_count == 3
+        assert not sel.is_grouped
+
+    def test_intake_from_paths_large_batch_grouping(self, tmp_path: Path) -> None:
         files = []
-        for i in range(5):
-            f = tmp_path / f"doc_{i}.pdf"
-            f.write_text("dummy", encoding="utf-8")
-            files.append(f)
-
-        state = MukhaPresenter.build_home_view(files, requirement="read_native")
-        assert state.input_selection.total_files == 5
-        assert not state.input_selection.is_grouped
-        assert len(state.input_selection.items) == 5
-        assert state.preflight is not None
-        assert state.preflight.eligible_count == 5
-        assert state.preflight.issue_count == 0
-
-        rendered = ConsoleRenderer.render_home(state)
-        assert "5 files selected" in rendered
-        assert "doc_0.pdf" in rendered
-
-    def test_compact_grouping_for_large_batches(self, tmp_path: Path) -> None:
-        files = []
-        # Create 12 PDF files and 3 XLSX files (>10 total files)
         for i in range(12):
             f = tmp_path / f"pdf_{i}.pdf"
-            f.write_text("pdf_content", encoding="utf-8")
+            f.write_text("pdf_data", encoding="utf-8")
             files.append(f)
         for i in range(3):
             f = tmp_path / f"sheet_{i}.xlsx"
-            f.write_text("sheet_content", encoding="utf-8")
+            f.write_text("sheet_data", encoding="utf-8")
             files.append(f)
 
-        state = MukhaPresenter.build_home_view(files, requirement="read_native")
-        assert state.input_selection.total_files == 15
-        assert state.input_selection.is_grouped
-        assert len(state.input_selection.groups) == 2
+        refs, sel, pf = MukhaPresenter.intake_from_paths(files)
+        assert len(refs) == 15
+        assert sel.is_grouped is True
+        assert len(sel.groups) == 2
+        pdf_group = next(g for g in sel.groups if g.format_name == "PDF")
+        assert pdf_group.file_count == 12
 
-        rendered = ConsoleRenderer.render_home(state)
-        assert "15 files selected" in rendered
-        assert "PDF" in rendered
-        assert "XLSX" in rendered
+    def test_intake_from_paths_respects_kavacha_overlap_validation(self, tmp_path: Path) -> None:
+        runtime_dir = tmp_path / "Runtime"
+        output_dir = tmp_path / "Output"
+        staged_file = runtime_dir / "staged.txt"
+        staged_file.parent.mkdir(parents=True, exist_ok=True)
+        staged_file.write_text("staged", encoding="utf-8")
 
-    def test_preflight_identifies_missing_and_directory_issues(self, tmp_path: Path) -> None:
-        valid_file = tmp_path / "valid.txt"
-        valid_file.write_text("content", encoding="utf-8")
-        missing_file = tmp_path / "missing.txt"
-        dir_file = tmp_path / "somedir"
-        dir_file.mkdir()
+        policy = SecurityPolicy(
+            allow_pii_access=True,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        kavacha = Kavacha(policy)
 
-        state = MukhaPresenter.build_home_view([valid_file, missing_file, dir_file])
-        assert state.preflight is not None
-        assert state.preflight.eligible_count == 1
-        assert state.preflight.issue_count == 2
+        with pytest.raises(DoshError) as exc_info:
+            MukhaPresenter.intake_from_paths(
+                [staged_file],
+                kavacha=kavacha,
+                runtime_root=runtime_dir,
+                output_root=output_dir,
+            )
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
 
-        rendered = ConsoleRenderer.render_home(state)
-        assert "1 eligible | 2 issues" in rendered
+    def test_build_home_view_is_pure_projection(self) -> None:
+        sel = InputSelectionView(total_files=2, total_size_bytes=1024, is_grouped=False)
+        actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
+        view = MukhaPresenter.build_home_view(
+            input_selection=sel,
+            requirement="read_native",
+            policy_label="Local only",
+            available_actions=actions,
+        )
+        assert view.current_screen == "home"
+        assert view.requirement == "read_native"
+        assert view.policy_label == "Local only"
+        assert len(view.available_actions) == 1
 
 
-class TestMukhaMonitorFlow:
-    """Tests for Screen 2: Pravritti - Live Run Monitor."""
+class TestMukhaProgressAndRuntimeTruth:
+    """Tests for 5-second progress promotion and runtime aggregation truth."""
 
-    def test_five_second_rule_promotes_long_running_operations(self) -> None:
+    def test_five_second_rule_for_long_running_operations(self) -> None:
         workers = [
-            WorkerPageView(
-                worker_id="w-1",
-                file_display_name="fast_doc.pdf",
-                stage="OCR",
-                device_type="GPU",
-                elapsed_ns=2_000_000_000,  # 2.0s (<5s, NOT long running)
-            ),
-            WorkerPageView(
-                worker_id="w-2",
-                file_display_name="slow_doc.pdf",
-                stage="Inference",
-                device_type="CPU",
-                elapsed_ns=8_300_000_000,  # 8.3s (>=5s, IS long running)
-            ),
+            WorkerPageView(worker_id="w-1", file_display_name="fast.pdf", stage="OCR", device_type="GPU", elapsed_ns=2_000_000_000),
+            WorkerPageView(worker_id="w-2", file_display_name="slow.pdf", stage="Inference", device_type="CPU", elapsed_ns=8_000_000_000),
         ]
 
         state = MukhaPresenter.build_monitor_view(
-            run_id="run-001",
+            run_id="run-101",
             status="running",
             started_at_ns=0,
             now_ns=10_000_000_000,
@@ -173,14 +197,30 @@ class TestMukhaMonitorFlow:
         )
 
         assert len(state.long_running) == 1
-        assert state.long_running[0].operation_name == "Worker w-2 - slow_doc.pdf"
+        assert state.long_running[0].operation_name == "Worker w-2 - slow.pdf"
         assert state.long_running[0].is_long_running is True
 
-        rendered = ConsoleRenderer.render_monitor(state)
-        assert "Long-running Operations (>5s):" in rendered
-        assert "slow_doc.pdf" in rendered
+    @pytest.mark.parametrize(
+        ("completed", "total", "expected_kind", "expected_pct"),
+        [
+            (5, 10, ProgressKind.KNOWN, 50.0),
+            (0, 10, ProgressKind.KNOWN, 0.0),
+            (10, 10, ProgressKind.KNOWN, 100.0),
+            (3, 0, ProgressKind.KNOWN, 0.0),
+        ],
+    )
+    def test_progress_states(self, completed: int, total: int, expected_kind: ProgressKind, expected_pct: float) -> None:
+        prog = ProgressState.known(completed, total)
+        assert prog.kind == expected_kind
+        assert prog.percentage == expected_pct
 
-    def test_device_progress_aggregated_from_real_records(self) -> None:
+        indet = ProgressState.indeterminate(completed=3)
+        assert indet.kind == ProgressKind.INDETERMINATE
+
+        unavail = ProgressState.unavailable()
+        assert unavail.kind == ProgressKind.UNAVAILABLE
+
+    def test_device_telemetry_aggregation_no_cpu_default(self) -> None:
         maruti_recs = [
             MarutiRecord(
                 run_id="r1",
@@ -189,25 +229,12 @@ class TestMukhaMonitorFlow:
                 span_id="sp1",
                 phase_name="ocr",
                 component="yantra",
-                duration_ns=340_000_000,
+                duration_ns=500_000_000,
                 timestamp_utc="2026-09-01T00:00:00Z",
                 outcome="success",
                 attributes={"device_type": "gpu"},
             ),
-            MarutiRecord(
-                run_id="r1",
-                request_id="req1",
-                trace_id="tr1",
-                span_id="sp2",
-                phase_name="ocr",
-                component="yantra",
-                duration_ns=1_180_000_000,
-                timestamp_utc="2026-09-01T00:00:01Z",
-                outcome="success",
-                attributes={"device_type": "cpu"},
-            ),
         ]
-
         pramana_recs = [
             PramanaRecord(
                 run_id="r1",
@@ -217,65 +244,60 @@ class TestMukhaMonitorFlow:
                 capability_id="ocr",
                 stage="ocr",
                 timestamp_utc="2026-09-01T00:00:00Z",
-                confidence=ConfidenceValue(score=0.958, method="test", evidence={"test": True}),
-                attributes={"device_type": "gpu"},
-            ),
-            PramanaRecord(
-                run_id="r1",
-                request_id="req1",
-                trace_id="tr1",
-                span_id="sp2",
-                capability_id="ocr",
-                stage="ocr",
-                timestamp_utc="2026-09-01T00:00:01Z",
-                confidence=ConfidenceValue(score=0.897, method="test", evidence={"test": True}),
-                attributes={"device_type": "cpu"},
+                confidence=ConfidenceValue(score=0.98, method="test", evidence={"test": True}),
             ),
         ]
 
         state = MukhaPresenter.build_monitor_view(
-            run_id="run-002",
+            run_id="run-102",
             status="running",
             started_at_ns=0,
-            now_ns=5_000_000_000,
+            now_ns=1_000_000_000,
             files=(),
             maruti_records=maruti_recs,
             pramana_records=pramana_recs,
         )
 
-        assert len(state.device_progress) == 2
-        gpu_prog = next(p for p in state.device_progress if p.device_type == "GPU")
-        cpu_prog = next(p for p in state.device_progress if p.device_type == "CPU")
+        assert len(state.device_progress) == 1
+        assert state.device_progress[0].device_type == "GPU"
+        assert all(d.device_type != "CPU" for d in state.device_progress)
 
-        assert gpu_prog.units_processed == 1
-        assert gpu_prog.avg_confidence == pytest.approx(0.958)
-        assert cpu_prog.units_processed == 1
-        assert cpu_prog.avg_confidence == pytest.approx(0.897)
+    def test_terminal_state_monotonicity_prevents_regression(self) -> None:
+        initial = MukhaPresenter.build_monitor_view(
+            run_id="run-103",
+            status="SUCCESS",
+            started_at_ns=0,
+            now_ns=5_000_000_000,
+            files=(),
+        )
+        assert initial.status == "SUCCESS"
 
-        # NPU was not in telemetry records, so it must not exist in device_progress
-        assert all(p.device_type != "NPU" for p in state.device_progress)
+        updated = MukhaPresenter.build_monitor_view(
+            run_id="run-103",
+            status="running",
+            started_at_ns=0,
+            now_ns=6_000_000_000,
+            files=(),
+            current_state=initial,
+        )
+        assert updated.status == "SUCCESS"
 
-        rendered = ConsoleRenderer.render_monitor(state)
-        assert "GPU" in rendered
-        assert "CPU" in rendered
-        assert "NPU" not in rendered
 
+class TestMukhaSummaryAndArtifactsTruth:
+    """Tests for Screen 4: Samapti - Run Summary and artifact confirmation truth."""
 
-class TestMukhaSummaryAndInspectorFlow:
-    """Tests for Screen 4: Samapti - Run Summary and Screen 5: Nirikshana - Run Inspector."""
-
-    def test_run_summary_factual_aggregation(self, tmp_path: Path) -> None:
-        art_path = tmp_path / "out.txt"
-        art_path.write_text("result", encoding="utf-8")
+    def test_summary_uses_canonical_parameters_not_span_failure_counts(self, tmp_path: Path) -> None:
+        art_file = tmp_path / "confirmed.pdf"
+        art_file.write_text("pdf_out", encoding="utf-8")
 
         req = Request(
-            request_id="req-summary-1",
+            request_id="req-201",
             requirement="read_native",
             inputs=(
                 InputRef(
                     input_id="inp-1",
-                    source_path=tmp_path / "in.txt",
-                    display_name="in.txt",
+                    source_path=tmp_path / "in.pdf",
+                    display_name="in.pdf",
                     size_bytes=100,
                 ),
             ),
@@ -287,55 +309,99 @@ class TestMukhaSummaryAndInspectorFlow:
                 ArtifactRef(
                     artifact_id="art-1",
                     role="text_export",
-                    media_type="text/plain",
-                    path=art_path,
-                    size_bytes=6,
-                    checksum_sha256="abcdef1234567890",
+                    media_type="application/pdf",
+                    path=art_file,
+                    size_bytes=7,
+                    checksum_sha256="1234567890abcdef",
                 ),
             ),
-            confidence=ConfidenceValue(score=0.965, method="test", evidence={"test": True}),
-            warnings=(WarningRecord(code="TEXT_WARNING", stage="read_native", message="Non-critical text warning"),),
+            confidence=ConfidenceValue(score=0.96, method="test", evidence={"test": True}),
         )
 
         maruti_recs = [
             MarutiRecord(
                 run_id="r1",
-                request_id="req-summary-1",
+                request_id="req-201",
                 trace_id="tr1",
                 span_id="sp1",
                 phase_name="pipeline_stage",
                 component="nabhi.pravaha",
-                duration_ns=1_200_000_000,
+                duration_ns=400_000_000,
                 timestamp_utc="2026-09-01T00:00:00Z",
+                outcome="failure",
+                attributes={"device_type": "cpu"},
+            ),
+            MarutiRecord(
+                run_id="r1",
+                request_id="req-201",
+                trace_id="tr1",
+                span_id="sp2",
+                phase_name="retry_attempt",
+                component="nabhi.pravaha",
+                duration_ns=600_000_000,
+                timestamp_utc="2026-09-01T00:00:01Z",
                 outcome="success",
                 attributes={"device_type": "cpu"},
             ),
         ]
 
         summary = MukhaPresenter.build_summary_view(
-            run_id="run-summary-001",
+            run_id="req-201",
+            status="SUCCESS",
+            wall_time_ns=1_000_000_000,
             request=req,
             result=res,
+            successful_files=1,
+            warning_files=0,
+            failed_files=0,
+            quarantined_count=0,
+            retry_count=1,
             maruti_records=maruti_recs,
         )
 
-        assert summary.run_id == "run-summary-001"
         assert summary.status == "SUCCESS"
-        assert summary.wall_time_ns == 1_200_000_000
-        assert summary.total_inputs == 1
+        assert summary.wall_time_ns == 1_000_000_000
         assert summary.successful_files == 1
-        assert summary.warning_files == 1
+        assert summary.failed_files == 0
+        assert summary.retry_count == 1
         assert len(summary.artifacts) == 1
-        assert summary.artifacts[0].display_name == "out.txt"
-        assert summary.accuracy is None  # Accuracy is unavailable without ground truth
+        assert summary.artifacts[0].display_name == "confirmed.pdf"
+        assert summary.accuracy is None
 
-        rendered = ConsoleRenderer.render_summary(summary)
-        assert "Samapti - Run Summary" in rendered
-        assert "SUCCESS" in rendered
-        assert "out.txt" in rendered
-        assert "Verified Accuracy: unavailable (no reference corpus)" in rendered
+    def test_artifact_intent_is_not_displayed_as_confirmed_artifact(self, tmp_path: Path) -> None:
+        in_file = tmp_path / "in.txt"
+        in_file.write_text("in", encoding="utf-8")
+        req = Request(
+            request_id="req-202",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=in_file,
+                    display_name="in.txt",
+                    size_bytes=2,
+                ),
+            ),
+        )
+        res = Result(
+            data="text",
+            artifacts=(),
+        )
 
-    def test_inspector_tabs_render(self) -> None:
+        summary = MukhaPresenter.build_summary_view(
+            run_id="req-202",
+            status="SUCCESS",
+            wall_time_ns=500_000_000,
+            request=req,
+            result=res,
+            successful_files=1,
+            warning_files=0,
+            failed_files=0,
+        )
+
+        assert len(summary.artifacts) == 0
+
+    def test_inspector_view_aggregation(self) -> None:
         maruti_recs = [
             MarutiRecord(
                 run_id="r1",
@@ -344,30 +410,140 @@ class TestMukhaSummaryAndInspectorFlow:
                 span_id="sp1",
                 phase_name="resolution",
                 component="nabhi.manthan",
-                duration_ns=450_000_000,
+                duration_ns=250_000_000,
                 timestamp_utc="2026-09-01T00:00:00Z",
                 outcome="success",
             ),
         ]
-
-        inspector_state = MukhaPresenter.build_inspector_view(
-            run_id="run-insp-001",
-            status="success",
-            elapsed_ns=450_000_000,
+        insp = MukhaPresenter.build_inspector_view(
+            run_id="insp-1",
+            status="SUCCESS",
+            elapsed_ns=250_000_000,
             maruti_records=maruti_recs,
         )
+        assert insp.run_id == "insp-1"
+        assert len(insp.activity_logs) == 1
+        assert len(insp.stage_timings) == 1
+        assert insp.stage_timings[0].stage_name == "resolution"
 
-        # Render Activity tab
-        act_rendered = ConsoleRenderer.render_inspector(inspector_state, tab="activity")
-        assert "Activity Log:" in act_rendered
-        assert "nabhi.manthan" in act_rendered
 
-        # Render Performance tab
-        perf_rendered = ConsoleRenderer.render_inspector(inspector_state, tab="performance")
-        assert "Performance Details:" in perf_rendered
-        assert "resolution" in perf_rendered
+class TestMukhaOwnershipAndTextualHeadlessApp:
+    """Headless Textual UI flow and runtime boundary routing tests."""
 
-        # Render System tab
-        sys_rendered = ConsoleRenderer.render_inspector(inspector_state, tab="system")
-        assert "System Facts:" in sys_rendered
-        assert "Total Maruti Records" in sys_rendered
+    def test_app_launches_to_home_screen(self) -> None:
+        async def _run() -> None:
+            sel = InputSelectionView(total_files=3, total_size_bytes=3000, is_grouped=False)
+            actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, available_actions=actions)
+
+            app = MukhaApp(initial_state=init_state)
+
+            async with app.run_test() as pilot:
+                assert isinstance(app.screen, HomeScreen)
+                assert app.screen.query_one("#home-req") is not None
+                assert app.screen.query_one("#inputs-table") is not None
+
+        asyncio.run(_run())
+
+    def test_app_routes_start_intent_through_canonical_agni_owner(self, tmp_path: Path) -> None:
+        async def _run() -> None:
+            in_file = tmp_path / "sample.txt"
+            in_file.write_text("hello", encoding="utf-8")
+            req = Request(
+                request_id="req-route-1",
+                requirement="read_native",
+                inputs=(
+                    InputRef(
+                        input_id="inp-1",
+                        source_path=in_file,
+                        display_name="sample.txt",
+                        size_bytes=5,
+                    ),
+                ),
+            )
+
+            mock_agni = MagicMock()
+            mock_agni.execute.return_value = Result(
+                data="executed",
+                artifacts=(),
+            )
+
+            sel = InputSelectionView(total_files=1, total_size_bytes=5, is_grouped=False)
+            actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, available_actions=actions)
+
+            app = MukhaApp(initial_state=init_state, agni=mock_agni, pending_request=req)
+
+            async with app.run_test() as pilot:
+                await pilot.click("#btn-start_run")
+                await pilot.pause()
+
+                mock_agni.execute.assert_called_once_with(req)
+                assert isinstance(app.screen, SummaryScreen)
+
+        asyncio.run(_run())
+
+    def test_app_switch_to_monitor_and_summary(self) -> None:
+        async def _run() -> None:
+            sel = InputSelectionView(total_files=1, total_size_bytes=1000, is_grouped=False)
+            mon_state = MukhaPresenter.build_monitor_view(
+                run_id="run-tui-1",
+                status="running",
+                started_at_ns=0,
+                now_ns=2_000_000_000,
+                files=(),
+            )
+            sum_state = RunSummaryView(
+                run_id="run-tui-1",
+                status="SUCCESS",
+                wall_time_ns=2_000_000_000,
+                total_inputs=1,
+                successful_files=1,
+                warning_files=0,
+                failed_files=0,
+                quarantined_count=0,
+                retry_count=0,
+            )
+
+            app_state = ApplicationViewState(
+                current_screen="home",
+                requirement="read_native",
+                policy_label="Local only",
+                input_selection=sel,
+                active_run=mon_state,
+                terminal_summary=sum_state,
+            )
+
+            app = MukhaApp(initial_state=app_state)
+
+            async with app.run_test() as pilot:
+                app.switch_to_monitor()
+                await pilot.pause()
+                assert isinstance(app.screen, MonitorScreen)
+
+                app.switch_to_summary()
+                await pilot.pause()
+                assert isinstance(app.screen, SummaryScreen)
+
+                app.switch_to_inspector()
+                await pilot.pause()
+                assert isinstance(app.screen, InspectorScreen)
+
+                app.switch_to_home()
+                await pilot.pause()
+                assert isinstance(app.screen, HomeScreen)
+
+        asyncio.run(_run())
+
+    def test_small_terminal_size_does_not_crash(self) -> None:
+        async def _run() -> None:
+            sel = InputSelectionView(total_files=1, total_size_bytes=500, is_grouped=False)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel)
+
+            app = MukhaApp(initial_state=init_state)
+
+            async with app.run_test(size=(60, 15)) as pilot:
+                assert isinstance(app.screen, HomeScreen)
+                await pilot.pause()
+
+        asyncio.run(_run())

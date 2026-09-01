@@ -1,12 +1,9 @@
 """Reusable Presentation Components and Formatters for Mukha.
 
-Provides pure functional formatters for durations, byte sizes, confidence metrics,
-and terminal table rendering without parallel Rich console side-effects.
+Provides pure functional formatters for durations, byte sizes, and confidence metrics.
 """
 
 from __future__ import annotations
-
-from typing import Sequence
 
 
 def format_duration_ns(duration_ns: int | None) -> str:
@@ -55,43 +52,6 @@ def format_confidence(confidence: float | None) -> str:
     return f"{pct:.1f}%"
 
 
-def format_table(
-    headers: Sequence[str],
-    rows: Sequence[Sequence[str]],
-    alignments: Sequence[str] | None = None,
-) -> str:
-    """Render a clean text table with aligned columns."""
-    if not headers and not rows:
-        return ""
-
-    col_count = len(headers) if headers else (len(rows[0]) if rows else 0)
-    col_widths = [len(h) for h in headers] if headers else [0] * col_count
-
-    for row in rows:
-        for i, cell in enumerate(row):
-            if i < len(col_widths):
-                col_widths[i] = max(col_widths[i], len(str(cell)))
-
-    align_list = alignments if alignments else ["<"] * col_count
-
-    lines: list[str] = []
-
-    if headers:
-        header_line = "  ".join(
-            f"{h:>{col_widths[i]}}" if align_list[i] == ">" else f"{h:<{col_widths[i]}}"
-            for i, h in enumerate(headers)
-        )
-        lines.append(header_line)
-        lines.append("  ".join("-" * col_widths[i] for i in range(col_count)))
-
-    for row in rows:
-        row_cells = []
-        for i in range(col_count):
-            val = str(row[i]) if i < len(row) else ""
-            align = align_list[i] if i < len(align_list) else "<"
-            cell_str = f"{val:>{col_widths[i]}}" if align == ">" else f"{val:<{col_widths[i]}}"
-            row_cells.append(cell_str)
-        lines.append("  ".join(row_cells))
-
-    sep = chr(10)
-    return sep.join(lines)
+def status_badge(status: str) -> str:
+    """Return normalized status badge label."""
+    return status.upper().strip()

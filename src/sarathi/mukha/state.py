@@ -28,11 +28,12 @@ class ProgressState:
     completed: int = 0
     total: int = 0
     percentage: float | None = None
-    eta_seconds: float | None = None
 
     @classmethod
     def known(cls, completed: int, total: int) -> ProgressState:
-        pct = (completed / total * 100.0) if total > 0 else 0.0
+        if total <= 0:
+            return cls(kind=ProgressKind.KNOWN, completed=completed, total=total, percentage=0.0)
+        pct = min(100.0, max(0.0, completed / total * 100.0))
         return cls(kind=ProgressKind.KNOWN, completed=completed, total=total, percentage=pct)
 
     @classmethod
@@ -46,7 +47,7 @@ class ProgressState:
 
 @dataclass(frozen=True, slots=True)
 class InputGroupView:
-    """Grouped view of multiple input files by format/type."""
+    """Grouped view of multiple input files by detected/declared format."""
 
     format_name: str
     file_count: int
@@ -151,7 +152,7 @@ class DeviceProgressView:
     """Factual device throughput and quality breakdown."""
 
     device_type: str
-    units_processed: int
+    execution_count: int
     total_duration_ns: int
     avg_duration_ns: int | None
     avg_confidence: float | None = None
@@ -187,7 +188,7 @@ class DeviceSummaryView:
     """Factual hardware execution summary for completed run."""
 
     device_type: str
-    unit_count: int
+    execution_count: int
     attempts: int
     avg_duration_ns: int | None
     p95_duration_ns: int | None
@@ -198,10 +199,10 @@ class DeviceSummaryView:
 class ArtifactOutcomeView:
     """Confirmed generated artifact presentation view."""
 
-    artifact_type: str
+    role: str
     display_name: str
-    size_bytes: int
-    sha256_hex: str
+    size_bytes: int | None = None
+    sha256_hex: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,9 +218,9 @@ class RunSummaryView:
     failed_files: int
     quarantined_count: int
     retry_count: int
-    avg_page_time_ns: int | None
-    avg_confidence: float | None
-    accuracy: float | None
+    avg_duration_per_input_ns: int | None = None
+    avg_confidence: float | None = None
+    accuracy: float | None = None
     stage_timings: tuple[StageTimingView, ...] = ()
     device_summaries: tuple[DeviceSummaryView, ...] = ()
     artifacts: tuple[ArtifactOutcomeView, ...] = ()
@@ -234,7 +235,7 @@ class InspectorViewState:
     run_id: str
     status: str
     elapsed_ns: int
-    activity_logs: tuple[tuple[str, str, str, str], ...] = ()  # timestamp, level, component, event
+    activity_logs: tuple[tuple[str, str, str, str], ...] = ()
     stage_timings: tuple[StageTimingView, ...] = ()
     device_summaries: tuple[DeviceSummaryView, ...] = ()
     confidence_distribution: tuple[tuple[str, int], ...] = ()
