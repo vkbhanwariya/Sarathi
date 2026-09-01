@@ -1,4 +1,4 @@
-"""Darpana — Telemetry & Tracing Service for Sarathi V2.
+"""Darpana - Telemetry & Tracing Service for Sarathi V2.
 
 Exposes:
 - Darpana: Injected telemetry service maintaining thread-safe bounded in-memory histories
@@ -67,7 +67,7 @@ class Darpana:
 
         Validates all instrumentation arguments before execution begins.
         Records outcome='success' on normal exit.
-        Records outcome='failure' and exception type name if any BaseException occurs,
+        Records outcome='failure', exception type name, and FailureCode (if DoshError) if any BaseException occurs,
         then re-raises without leaking raw exception message text.
         """
         if not isinstance(context, ExecutionContext):
@@ -100,11 +100,16 @@ class Darpana:
                 duration_ns=duration_ns,
                 outcome="success",
                 error_type=None,
+                failure_code=None,
                 attributes=safe_attributes,
             )
             self.record_maruti(record)
         except BaseException as exc:
             duration_ns = max(0, time.perf_counter_ns() - start_ns)
+            from sarathi.dosh import DoshError
+
+            f_code = exc.code if isinstance(exc, DoshError) else None
+
             record = MarutiRecord(
                 run_id=context.run_id,
                 request_id=context.request_id,
@@ -116,6 +121,7 @@ class Darpana:
                 duration_ns=duration_ns,
                 outcome="failure",
                 error_type=type(exc).__name__,
+                failure_code=f_code,
                 attributes=safe_attributes,
             )
             self.record_maruti(record)

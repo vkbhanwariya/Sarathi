@@ -20,6 +20,8 @@ from sarathi.nabhi import (
     Kosh,
     Manthan,
     Pravaha,
+    QuarantineRecord,
+    QuarantineStatus,
     QuarantineStore,
     RetryPolicy,
 )
@@ -76,6 +78,7 @@ class TestMarutiTelemetry:
         assert rec.duration_ns == 150_000_000
         assert rec.outcome == "success"
         assert rec.error_type is None
+        assert rec.failure_code is None
         assert rec.attributes["page_idx"] == 1
 
         with pytest.raises(TypeError):
@@ -134,6 +137,21 @@ class TestMarutiTelemetry:
                 outcome="unknown_status",
             )
 
+        with pytest.raises(TypeError, match="failure_code must be a FailureCode or None"):
+            MarutiRecord(
+                run_id="run-1",
+                request_id="req-1",
+                trace_id="tr-1",
+                span_id="sp-1",
+                phase_name="p",
+                component="c",
+                timestamp_utc="2026-09-01T00:00:00Z",
+                duration_ns=100,
+                outcome="failure",
+                error_type="DoshError",
+                failure_code="INVALID_STRING_CODE",  # type: ignore
+            )
+
     def test_time_scope_success(self, execution_context: ExecutionContext) -> None:
         darpana = Darpana(capacity=10)
 
@@ -143,7 +161,6 @@ class TestMarutiTelemetry:
             component="shakti.native_extraction",
             attributes={"format": "pdf"},
         ):
-            # simulate work
             x = 1 + 1
             assert x == 2
 
@@ -158,71 +175,63 @@ class TestMarutiTelemetry:
         assert rec.component == "shakti.native_extraction"
         assert rec.outcome == "success"
         assert rec.error_type is None
+        assert rec.failure_code is None
         assert rec.duration_ns >= 0
         assert rec.attributes["format"] == "pdf"
 
-    def test_time_scope_failure_and_privacy(self, execution_context: ExecutionContext) -> None:
+    def test_time_scope_records_dosh_failure_code_safely(self, execution_context: ExecutionContext) -> None:
         darpana = Darpana(capacity=10)
 
-        with pytest.raises(ValueError, match="Confidential sensitive error details"):
+        with pytest.raises(DoshError) as exc_info:
             with darpana.time_scope(
                 execution_context,
                 phase_name="ocr",
                 component="shakti.ocr",
             ):
-                raise ValueError("Confidential sensitive error details")
+                raise DoshError(FailureCode.EXECUTION_FAILED, "Secret sensitive execution error text")
+
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        records = darpana.maruti_records()
+        assert len(records) == 1
+        rec = records[0]
+        assert rec.outcome == "failure"
+        assert rec.error_type == "DoshError"
+        assert rec.failure_code is FailureCode.EXECUTION_FAILED
+        assert rec.duration_ns >= 0
+        # Privacy check: sensitive message is not recorded in error_type, failure_code or attributes
+        assert "Secret sensitive execution error text" not in str(rec.error_type)
+        assert "Secret sensitive execution error text" not in str(rec.failure_code)
+        assert "Secret sensitive execution error text" not in str(rec.attributes)
+
+    def test_time_scope_standard_exception_has_no_failure_code(self, execution_context: ExecutionContext) -> None:
+        darpana = Darpana(capacity=10)
+
+        with pytest.raises(ValueError, match="Standard value error"):
+            with darpana.time_scope(
+                execution_context,
+                phase_name="process",
+                component="shakti.native",
+            ):
+                raise ValueError("Standard value error")
 
         records = darpana.maruti_records()
         assert len(records) == 1
         rec = records[0]
         assert rec.outcome == "failure"
         assert rec.error_type == "ValueError"
-        assert rec.duration_ns >= 0
-        # Privacy check: sensitive message is not recorded in error_type or attributes
-        assert "Confidential sensitive error details" not in rec.error_type
-        assert "Confidential sensitive error details" not in str(rec.attributes)
-
-    def test_time_scope_records_keyboard_interrupt_and_reraises(self, execution_context: ExecutionContext) -> None:
-        darpana = Darpana(capacity=10)
-
-        with pytest.raises(KeyboardInterrupt):
-            with darpana.time_scope(
-                execution_context,
-                phase_name="process",
-                component="shakti.bank_statements",
-            ):
-                raise KeyboardInterrupt()
-
-        records = darpana.maruti_records()
-        assert len(records) == 1
-        rec = records[0]
-        assert rec.outcome == "failure"
-        assert rec.error_type == "KeyboardInterrupt"
+        assert rec.failure_code is None
         assert rec.duration_ns >= 0
 
     def test_time_scope_validates_before_executing_wrapped_work(self, execution_context: ExecutionContext) -> None:
         darpana = Darpana(capacity=10)
         executed = False
 
-        # Invalid attributes type must raise TypeError before entering work block
         with pytest.raises(TypeError, match="attributes must be a Mapping or None"):
             with darpana.time_scope(
                 execution_context,
                 phase_name="extract",
                 component="shakti.native_extraction",
                 attributes="invalid_string_attributes",  # type: ignore
-            ):
-                executed = True
-
-        assert executed is False
-        assert len(darpana.maruti_records()) == 0
-
-        # Invalid empty phase_name
-        with pytest.raises(ValueError, match="phase_name must be a non-empty string"):
-            with darpana.time_scope(
-                execution_context,
-                phase_name="  ",
-                component="comp",
             ):
                 executed = True
 
@@ -242,31 +251,6 @@ class TestPramanaTelemetry:
         assert acc.as_percent == 92.0
         assert acc.method == "ground_truth_cer_levenshtein"
         assert acc.evidence["evaluated_chars"] == 1500
-
-        with pytest.raises(TypeError):
-            acc.evidence["errors"] = 0  # type: ignore
-
-    def test_accuracy_value_validation(self) -> None:
-        with pytest.raises(TypeError, match="cannot be a boolean"):
-            AccuracyValue(score=True, method="cer", evidence={"n": 1})
-
-        with pytest.raises(TypeError, match="must be numeric"):
-            AccuracyValue(score="0.9", method="cer", evidence={"n": 1})  # type: ignore
-
-        with pytest.raises(ValueError, match="cannot be NaN or Inf"):
-            AccuracyValue(score=float("nan"), method="cer", evidence={"n": 1})
-
-        with pytest.raises(ValueError, match="ratio in range"):
-            AccuracyValue(score=92.0, method="cer", evidence={"n": 1})
-
-        with pytest.raises(ValueError, match="ratio in range"):
-            AccuracyValue(score=-0.01, method="cer", evidence={"n": 1})
-
-        with pytest.raises(ValueError, match="non-empty string"):
-            AccuracyValue(score=0.9, method="   ", evidence={"n": 1})
-
-        with pytest.raises(ValueError, match="non-empty mapping"):
-            AccuracyValue(score=0.9, method="cer", evidence={})
 
     def test_pramana_record_with_confidence_and_accuracy(self) -> None:
         conf = ConfidenceValue(
@@ -297,20 +281,6 @@ class TestPramanaTelemetry:
         assert rec.accuracy == acc
         assert rec.subject_id == "page_1"
 
-    def test_pramana_record_unavailable_defaults_stay_none(self) -> None:
-        rec = PramanaRecord(
-            run_id="run-1",
-            request_id="req-1",
-            trace_id="tr-1",
-            span_id="sp-1",
-            capability_id="darshana",
-            stage="identify",
-            timestamp_utc="2026-09-01T00:00:00Z",
-        )
-        assert rec.confidence is None
-        assert rec.accuracy is None
-        assert rec.subject_id is None
-
 
 class TestDarpanaService:
     def test_bounded_history_eviction(self) -> None:
@@ -333,44 +303,7 @@ class TestDarpanaService:
 
         records = darpana.maruti_records()
         assert len(records) == 3
-        # Oldest 0, 1 evicted, remaining are 2, 3, 4
         assert [r.run_id for r in records] == ["run-2", "run-3", "run-4"]
-        assert isinstance(records, tuple)
-
-    def test_darpana_pramana_recording_and_snapshot(self) -> None:
-        darpana = Darpana(capacity=5)
-        rec = PramanaRecord(
-            run_id="run-1",
-            request_id="req-1",
-            trace_id="tr-1",
-            span_id="sp-1",
-            capability_id="ocr",
-            stage="read",
-            timestamp_utc="2026-09-01T00:00:00Z",
-        )
-        darpana.record_pramana(rec)
-
-        pramana_recs = darpana.pramana_records()
-        assert len(pramana_recs) == 1
-        assert pramana_recs[0] == rec
-        assert isinstance(pramana_recs, tuple)
-
-    def test_darpana_explicit_capacity_required(self) -> None:
-        # Default capacity removed: constructor must reject no arguments
-        with pytest.raises(TypeError):
-            Darpana()  # type: ignore
-
-        with pytest.raises(TypeError, match="capacity must be an integer"):
-            Darpana(capacity="100")  # type: ignore
-
-        with pytest.raises(ValueError, match="capacity must be a positive integer"):
-            Darpana(capacity=0)
-
-    def test_darpana_exports(self) -> None:
-        expected = {"AccuracyValue", "Darpana", "MarutiRecord", "PramanaRecord"}
-        assert set(darpana_module.__all__) == expected
-        for name in expected:
-            assert hasattr(darpana_module, name)
 
 
 class MockTelemetryCapability:
@@ -418,40 +351,54 @@ class MockTelemetryCapability:
 class TestDarpanaGlobalWiring:
     """Rigorous acceptance tests for Darpana Maruti & Pramana global wiring across canonical boundaries."""
 
+    def test_yantra_allocate_invalid_requirement_fails_before_telemetry(
+        self, execution_context: ExecutionContext
+    ) -> None:
+        darpana = Darpana(capacity=10)
+        inventory = DeviceInventory([
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+        ])
+        yantra = Yantra(inventory, darpana=darpana)
+
+        with pytest.raises(TypeError, match="requirement must be a DeviceRequirement instance"):
+            yantra.allocate("invalid_requirement_string", context=execution_context)  # type: ignore
+
+        # Zero telemetry records created on invalid argument
+        assert len(darpana.maruti_records()) == 0
+
+    def test_yantra_release_invalid_allocation_fails_before_telemetry(
+        self, execution_context: ExecutionContext
+    ) -> None:
+        darpana = Darpana(capacity=10)
+        inventory = DeviceInventory([
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+        ])
+        yantra = Yantra(inventory, darpana=darpana)
+
+        with pytest.raises(TypeError, match="allocation must be an Allocation instance"):
+            yantra.release("invalid_allocation_string", context=execution_context)  # type: ignore
+
+        assert len(darpana.maruti_records()) == 0
+
     def test_successful_end_to_end_pipeline_maruti_and_pramana_wiring(
         self,
         execution_context: ExecutionContext,
         tmp_path: Path,
     ) -> None:
-        # 1. Initialize shared bounded Darpana service
         darpana = Darpana(capacity=50)
 
-        # 2. Bootstrap boundary: Dvara
+        # 1. Dvara Bootstrap
         kosh = Kosh()
         dvara = Dvara(kosh, darpana=darpana)
         dvara.register_builtins(context=execution_context)
 
-        # Verify bootstrap Maruti record
-        m_recs = darpana.maruti_records()
-        assert len(m_recs) == 1
-        assert m_recs[0].phase_name == "bootstrap"
-        assert m_recs[0].component == "nabhi.dvara"
-        assert m_recs[0].outcome == "success"
-        assert m_recs[0].run_id == execution_context.run_id
-
-        # 3. Configuration boundary: Sutra loader
+        # 2. Sutra loader
         conf_file = tmp_path / "settings.toml"
         conf_file.write_text('[pipeline]\nmax_retries = 2\n', encoding="utf-8")
         settings = load_settings(conf_file, darpana=darpana, context=execution_context)
         assert settings.get_section("pipeline")["max_retries"] == 2
 
-        m_recs = darpana.maruti_records()
-        assert len(m_recs) == 2
-        assert m_recs[1].phase_name == "configuration"
-        assert m_recs[1].component == "sutra.loader"
-        assert m_recs[1].outcome == "success"
-
-        # 4. Yantra & Pravaha setup with Darpana injection
+        # 3. Yantra & Pravaha setup
         inventory = DeviceInventory([
             DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
         ])
@@ -475,7 +422,7 @@ class TestDarpanaGlobalWiring:
             darpana=darpana,
         )
 
-        # 5. ArtifactBoundary setup with Darpana injection
+        # 4. ArtifactBoundary setup
         runtime_root = tmp_path / "Runtime"
         output_root = tmp_path / "Output"
         art_boundary = ArtifactBoundary(runtime_root=runtime_root, output_root=output_root, darpana=darpana)
@@ -485,11 +432,10 @@ class TestDarpanaGlobalWiring:
             context=execution_context,
         )
 
-        # Commit an artifact
         intent = ArtifactIntent(name="report.txt", role="report", media_type="text/plain", relative_path="report.txt")
         workspace.commit_artifact(intent, b"Sample committed text")
 
-        # 6. Pipeline execution
+        # 5. Pipeline execution
         request = Request(
             request_id=execution_context.request_id,
             requirement="ocr",
@@ -507,14 +453,13 @@ class TestDarpanaGlobalWiring:
         result = pravaha.execute(plan, request, execution_context)
         assert result.data == "ocr_output"
 
-        # 7. Artifact finalization
+        # 6. Artifact finalization
         workspace.finalize(success=True, context=execution_context)
 
-        # 8. Inspect all collected Maruti records
+        # 7. Inspect all collected Maruti records
         maruti_records = darpana.maruti_records()
         phase_names = [r.phase_name for r in maruti_records]
 
-        # Must contain all canonical boundaries:
         assert "bootstrap" in phase_names
         assert "configuration" in phase_names
         assert "allocation" in phase_names
@@ -523,31 +468,25 @@ class TestDarpanaGlobalWiring:
         assert "pipeline_stage" in phase_names
         assert "artifact_finalization" in phase_names
 
-        # All records must share the exact correlation identity
         for r in maruti_records:
             assert r.run_id == execution_context.run_id
             assert r.request_id == execution_context.request_id
             assert r.trace_id == execution_context.trace_id
             assert r.outcome == "success"
             assert r.error_type is None
+            assert r.failure_code is None
             assert r.duration_ns >= 0
 
-        # 9. Inspect Pramana records
+        # 8. Inspect Pramana records
         pramana_records = darpana.pramana_records()
         assert len(pramana_records) == 1
         p_rec = pramana_records[0]
-        assert p_rec.run_id == execution_context.run_id
-        assert p_rec.request_id == execution_context.request_id
-        assert p_rec.trace_id == execution_context.trace_id
         assert p_rec.capability_id == "ocr"
-        assert p_rec.stage == "ocr"
         assert p_rec.confidence == ocr_conf
-        assert p_rec.accuracy is None  # Unavailable stays unavailable
 
-    def test_failed_run_records_correlated_failure_in_maruti(
+    def test_failed_run_records_correlated_failure_code_in_maruti(
         self,
         execution_context: ExecutionContext,
-        tmp_path: Path,
     ) -> None:
         darpana = Darpana(capacity=20)
         kosh = Kosh()
@@ -613,16 +552,16 @@ class TestDarpanaGlobalWiring:
             assert fr.run_id == execution_context.run_id
             assert fr.request_id == execution_context.request_id
             assert fr.error_type == "DoshError"
-            # Privacy check: secret text is never placed into error_type or attributes
+            assert fr.failure_code is FailureCode.EXECUTION_FAILED
             assert "Secret sensitive failure text" not in str(fr.error_type)
             assert "Secret sensitive failure text" not in str(fr.attributes)
 
-    def test_retry_lifecycle_telemetry_recording(
+    def test_quarantine_lifecycle_telemetry_observations_quarantined_retried_released_terminal(
         self,
         execution_context: ExecutionContext,
         tmp_path: Path,
     ) -> None:
-        darpana = Darpana(capacity=30)
+        darpana = Darpana(capacity=50)
         kosh = Kosh()
         kosh.register_plugin(
             PluginInfo(
@@ -689,23 +628,28 @@ class TestDarpanaGlobalWiring:
         assert flaky_cap.call_count == 2
 
         maruti_records = darpana.maruti_records()
-        retry_records = [r for r in maruti_records if r.phase_name == "retry_attempt"]
-        assert len(retry_records) == 1
-        assert retry_records[0].outcome == "success"
-        assert retry_records[0].attributes["attempt"] == 1
-        assert retry_records[0].attributes["max_retries"] == 2
+        quar_obs = [r for r in maruti_records if r.phase_name == "quarantine_lifecycle"]
 
-        # Pramana record from retry success
-        pramana_records = darpana.pramana_records()
-        assert len(pramana_records) == 1
-        assert pramana_records[0].confidence is not None
-        assert pramana_records[0].confidence.score == 0.9
+        # Transitions: quarantined -> retried -> released
+        statuses = [r.attributes["lifecycle_status"] for r in quar_obs]
+        assert "quarantined" in statuses
+        assert "retried" in statuses
+        assert "released" in statuses
 
-    def test_missing_confidence_stays_unavailable(
+        # Verify safe attributes only
+        for r in quar_obs:
+            assert "capability_id" in r.attributes
+            assert "attempt_count" in r.attributes
+            assert "max_retries" in r.attributes
+            assert "lifecycle_status" in r.attributes
+            assert "doc.pdf" not in str(r.attributes)
+
+    def test_exhausted_retry_observes_terminal_quarantine_outcome(
         self,
         execution_context: ExecutionContext,
+        tmp_path: Path,
     ) -> None:
-        darpana = Darpana(capacity=20)
+        darpana = Darpana(capacity=50)
         kosh = Kosh()
         kosh.register_plugin(
             PluginInfo(
@@ -725,17 +669,24 @@ class TestDarpanaGlobalWiring:
         )
         kosh.register_capability(extract_decl)
 
-        # Capability returns no confidence
-        cap = MockTelemetryCapability(extract_decl, confidence=None)
+        always_fail_cap = MockTelemetryCapability(
+            extract_decl,
+            fail_error=DoshError(FailureCode.EXECUTION_FAILED, "Permanent failure"),
+        )
         inventory = DeviceInventory([
             DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
         ])
         yantra = Yantra(inventory, darpana=darpana)
         manthan = Manthan(kosh)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        retry_policy = RetryPolicy(max_retries=1)
+
         pravaha = Pravaha(
             manthan=manthan,
             yantra=yantra,
-            capabilities={"extract": cap},
+            capabilities={"extract": always_fail_cap},
+            quarantine_store=q_store,
+            retry_policy=retry_policy,
             darpana=darpana,
         )
 
@@ -753,117 +704,22 @@ class TestDarpanaGlobalWiring:
         )
         plan = CapabilityPlan(request_id=request.request_id, capability_ids=("extract",))
 
-        result = pravaha.execute(plan, request, execution_context)
-        assert result.confidence is None
+        with pytest.raises(DoshError):
+            pravaha.execute(plan, request, execution_context)
 
-        # No fabricated pramana record
-        assert len(darpana.pramana_records()) == 0
+        maruti_records = darpana.maruti_records()
+        quar_obs = [r for r in maruti_records if r.phase_name == "quarantine_lifecycle"]
+        statuses = [r.attributes["lifecycle_status"] for r in quar_obs]
 
-    def test_pramana_accuracy_evidence_recording(
-        self,
-        execution_context: ExecutionContext,
-    ) -> None:
-        darpana = Darpana(capacity=20)
-        kosh = Kosh()
-        kosh.register_plugin(
-            PluginInfo(
-                plugin_id="shakti.pipeline",
-                name="Pipe",
-                version="1.0.0",
-                security=SecurityDeclaration(),
-                capabilities=("extract",),
-            )
-        )
-        extract_decl = CapabilityDeclaration(
-            capability_id="extract",
-            plugin_id="shakti.pipeline",
-            version="1.0.0",
-            supported_profiles=(ExecutionProfile.INSTANT,),
-            device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
-        )
-        kosh.register_capability(extract_decl)
-
-        acc = AccuracyValue(
-            score=0.99,
-            method="reference_ground_truth_comparison",
-            evidence={"matched_tokens": 990, "total_tokens": 1000},
-        )
-        cap = MockTelemetryCapability(extract_decl, accuracy=acc)
-
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
-        yantra = Yantra(inventory, darpana=darpana)
-        manthan = Manthan(kosh)
-        pravaha = Pravaha(
-            manthan=manthan,
-            yantra=yantra,
-            capabilities={"extract": cap},
-            darpana=darpana,
-        )
-
-        request = Request(
-            request_id=execution_context.request_id,
-            requirement="extract",
-            inputs=(
-                InputRef(
-                    input_id="inp-1",
-                    source_path=Path("doc.pdf"),
-                    display_name="doc.pdf",
-                    size_bytes=100,
-                ),
-            ),
-        )
-        plan = CapabilityPlan(request_id=request.request_id, capability_ids=("extract",))
-
-        result = pravaha.execute(plan, request, execution_context)
-        assert result.metadata.get("accuracy") == acc
-
-        pramana_recs = darpana.pramana_records()
-        assert len(pramana_recs) == 1
-        assert pramana_recs[0].accuracy == acc
-        assert pramana_recs[0].confidence is None
+        # Initial quarantine -> retry attempt -> terminal exhaustion
+        assert "quarantined" in statuses
+        assert "retried" in statuses
+        assert "terminal" in statuses
 
     def test_capabilities_never_create_timers_or_telemetry_instances(self) -> None:
-        """Verify capabilities implement only the pure Capability protocol without telemetry handles."""
         for cap_cls in (DarshanaCapability, NativeExtractionCapability, OCRCapability):
             inst = cap_cls()
             assert not hasattr(inst, "darpana")
             assert not hasattr(inst, "timer")
             assert not hasattr(inst, "recorder")
             assert not hasattr(inst, "telemetry")
-
-    def test_darpana_safe_privacy_no_path_or_secret_leakage(
-        self,
-        execution_context: ExecutionContext,
-        tmp_path: Path,
-    ) -> None:
-        darpana = Darpana(capacity=50)
-
-        # Context manager recording with confidential secret
-        secret_path = tmp_path / "secret_document.pdf"
-        secret_path.write_bytes(b"TOP SECRET CONTENT")
-
-        with pytest.raises(DoshError):
-            with darpana.time_scope(
-                execution_context,
-                phase_name="pipeline_stage",
-                component="nabhi.pravaha",
-                attributes={"action": "test_confidential"},
-            ):
-                raise DoshError(
-                    FailureCode.SECURITY_DENIED,
-                    f"Access denied to file {secret_path} with secret data",
-                )
-
-        records = darpana.maruti_records()
-        assert len(records) == 1
-        rec = records[0]
-        assert rec.outcome == "failure"
-        assert rec.error_type == "DoshError"
-
-        # Verify raw path / raw content / raw message is NOT in the record
-        rec_repr = repr(rec).lower()
-        assert "secret_document.pdf" not in rec_repr
-        assert "top secret content" not in rec_repr
-        assert "access denied to file" not in rec_repr

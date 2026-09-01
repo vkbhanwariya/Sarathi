@@ -1,9 +1,9 @@
-"""Maruti — Runtime, Logging & Performance Telemetry for Darpana in Sarathi V2.
+"""Maruti - Runtime, Logging & Performance Telemetry for Darpana in Sarathi V2.
 
 Defines:
 - MarutiRecord: Immutable structured runtime and performance event record.
 
-Preserves ExecutionContext identity, monotonic duration, outcome, and safe attributes.
+Preserves ExecutionContext identity, monotonic duration, outcome, FailureCode, and safe attributes.
 Does NOT configure Python logging handlers or write log files.
 """
 
@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
+
+from sarathi.dosh import FailureCode
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +30,7 @@ class MarutiRecord:
     duration_ns: int
     outcome: str
     error_type: str | None = None
+    failure_code: FailureCode | None = None
     attributes: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -56,6 +59,9 @@ class MarutiRecord:
 
         if self.error_type is not None and not isinstance(self.error_type, str):
             raise TypeError(f"error_type must be a str or None, got {type(self.error_type).__name__}.")
+
+        if self.failure_code is not None and not isinstance(self.failure_code, FailureCode):
+            raise TypeError(f"failure_code must be a FailureCode or None, got {type(self.failure_code).__name__}.")
 
         if isinstance(self.attributes, Mapping):
             object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))

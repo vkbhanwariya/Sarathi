@@ -1023,6 +1023,12 @@ class ArtifactBoundary:
             DoshError(FailureCode.INVALID_CONFIGURATION): On empty paths, non-directory paths,
                 equal roots, or nested roots.
         """
+        if darpana is not None:
+            from sarathi.darpana import Darpana as DarpanaService
+
+            if not isinstance(darpana, DarpanaService):
+                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+
         if kavacha is not None:
             from sarathi.kavacha import Kavacha as KavachaService
             if not isinstance(kavacha, KavachaService):
@@ -1040,12 +1046,6 @@ class ArtifactBoundary:
                 code=FailureCode.INVALID_CONFIGURATION,
                 message="Failed to create root storage directories.",
             ) from err
-
-        if darpana is not None:
-            from sarathi.darpana import Darpana as DarpanaService
-
-            if not isinstance(darpana, DarpanaService):
-                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
 
         self._runtime_root: Path = validated_runtime
         self._output_root: Path = validated_output
@@ -1078,6 +1078,8 @@ class ArtifactBoundary:
         input_sources: Sequence[Path | str | InputRef] = (),
         context: ExecutionContext | None = None,
     ) -> RunWorkspace:
+        if context is not None and not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
         """Begin a run workspace for safe staging and atomic artifact commits.
 
         Args:
