@@ -636,6 +636,78 @@ class TestNativeExtraction:
         assert "Important statement body text" in doc.pages[0].text
         assert any(w.code == "PDF_TABLE_DETECTION_SKIPPED" for w in res.warnings)
 
+    def test_unexpected_error_during_pdf_table_conversion_propagates(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        pdf_path = tmp_path / "table_conv_err.pdf"
+        doc_pdf = pymupdf.open()
+        p = doc_pdf.new_page()
+        p.insert_text((50, 50), "PDF with table")
+        doc_pdf.save(str(pdf_path))
+        doc_pdf.close()
+
+        req = Request(
+            request_id="req-tab-conv",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-tab-conv",
+                    source_path=pdf_path,
+                    display_name="table_conv_err.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+        )
+
+        mock_tab = MagicMock()
+        mock_tab.extract.side_effect = ValueError("Unexpected table conversion bug")
+        mock_finder = MagicMock()
+        mock_finder.tables = [mock_tab]
+
+        # Force an unexpected ValueError during table row extraction/conversion
+        with patch.object(pymupdf.Page, "find_tables", return_value=mock_finder):
+            with pytest.raises(ValueError, match="Unexpected table conversion bug"):
+                capability.execute(req, context)
+
+    def test_unexpected_zip_detector_error_propagates(self) -> None:
+        from sarathi.shakti.native_extraction.detector import detect_content_format
+
+        zip_data = b"PK\x03\x04\x14\x00\x00\x00\x08\x00some_zip_data"
+        with patch("zipfile.ZipFile", side_effect=TypeError("Unexpected zipfile error")):
+            with pytest.raises(TypeError, match="Unexpected zipfile error"):
+                detect_content_format(zip_data)
+
+    def test_oserror_during_source_read_becomes_safe_dosh_error(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        file_path = tmp_path / "read_err.pdf"
+        file_path.write_bytes(b"%PDF-1.4\n")
+
+        req = Request(
+            request_id="req-io-err",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-io",
+                    source_path=file_path,
+                    display_name="read_err.pdf",
+                    size_bytes=file_path.stat().st_size,
+                ),
+            ),
+        )
+
+        with patch.object(Path, "read_bytes", side_effect=PermissionError("Access denied to file")):
+            with pytest.raises(DoshError) as exc_info:
+                capability.execute(req, context)
+
+        err = exc_info.value
+        assert err.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to read source input file." in err.message
+        assert "Access denied" not in err.message
+        assert str(file_path) not in err.message
+
     def test_unknown_binary_content_returns_controlled_unsupported_error(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:

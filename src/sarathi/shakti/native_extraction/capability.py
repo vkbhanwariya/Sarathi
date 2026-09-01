@@ -81,7 +81,7 @@ class NativeExtractionCapability:
             # Read input file bytes
             try:
                 data = inp.source_path.read_bytes()
-            except Exception as exc:
+            except OSError as exc:
                 # File I/O error or missing file
                 raise DoshError(
                     code=FailureCode.EXECUTION_FAILED,

@@ -67,23 +67,9 @@ def read_pdf(
 
             # Extract native vector tables if present
             page_tables: list[TableData] = []
+            tabs = None
             try:
                 tabs = page.find_tables()
-                if tabs and len(tabs.tables) > 0:
-                    for t_idx, tab in enumerate(tabs.tables, 1):
-                        extracted_rows = tab.extract()
-                        if extracted_rows and len(extracted_rows) > 0:
-                            headers = tuple(str(h or "") for h in extracted_rows[0])
-                            data_rows = tuple(
-                                tuple(val for val in row) for row in extracted_rows[1:]
-                            )
-                            t_obj = TableData(
-                                name=f"Page_{page_num}_Table_{t_idx}",
-                                headers=headers,
-                                rows=data_rows,
-                            )
-                            page_tables.append(t_obj)
-                            all_doc_tables.append(t_obj)
             except (pymupdf.FileDataError, ValueError):
                 warnings.append(
                     WarningRecord(
@@ -92,6 +78,22 @@ def read_pdf(
                         stage=_STAGE_NAME,
                     )
                 )
+
+            if tabs and len(tabs.tables) > 0:
+                for t_idx, tab in enumerate(tabs.tables, 1):
+                    extracted_rows = tab.extract()
+                    if extracted_rows and len(extracted_rows) > 0:
+                        headers = tuple(str(h or "") for h in extracted_rows[0])
+                        data_rows = tuple(
+                            tuple(val for val in row) for row in extracted_rows[1:]
+                        )
+                        t_obj = TableData(
+                            name=f"Page_{page_num}_Table_{t_idx}",
+                            headers=headers,
+                            rows=data_rows,
+                        )
+                        page_tables.append(t_obj)
+                        all_doc_tables.append(t_obj)
 
             pages.append(
                 PageData(

@@ -51,9 +51,9 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
 
     # 3. ZIP / XLSX / XLSM detection
     if data.startswith(_ZIP_MAGIC):
-        # Inspect zip contents to confirm it's an OpenXML spreadsheet
         try:
             import io
+
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 namelist = zf.namelist()
                 if (
@@ -62,7 +62,7 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
                 ):
                     return DetectedFormat.XLSX
                 # If it's a generic zip without spreadsheet structure, treat as unknown
-        except Exception:
+        except zipfile.BadZipFile:
             pass
 
     # 4. XML / HTML inspection on text-like signatures
