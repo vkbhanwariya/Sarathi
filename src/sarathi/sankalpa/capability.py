@@ -52,7 +52,7 @@ class Capability(Protocol):
             prior_result: Optional result from a preceding pipeline stage (None if first stage).
 
         Returns:
-            Canonical Result containing document data, artifact intents, confidence, and provenance.
+            Canonical Result containing document data, typed artifact payloads, confidence, and provenance.
         """
         ...
 
