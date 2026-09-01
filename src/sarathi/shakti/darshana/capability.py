@@ -7,7 +7,6 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ExecutionContext,
-    PageData,
     ProvenanceRecord,
     Request,
     Result,
@@ -82,7 +81,7 @@ class DarshanaCapability:
                 document_id=f"doc-ident-{inp.input_id}",
                 source_input_id=inp.input_id,
                 detected_type=facts.media_type,
-                pages=(PageData(page_number=1, text=""),),
+                pages=(),
                 text="",
                 metadata={
                     "darshana_facts": {

@@ -256,7 +256,38 @@ class TestDarshanaCapabilityExecution:
         assert isinstance(result.data, tuple)
         assert len(result.data) == 1
         assert result.data[0].detected_type == "application/pdf"
+        assert result.data[0].pages == ()
         assert len(result.provenance) == 1
         assert result.provenance[0].stage == "identify"
         assert result.provenance[0].plugin_id == "shakti.darshana"
         assert result.provenance[0].capability_id == "identify"
+
+    def test_darshana_does_not_fabricate_pages_for_unpaginated_input(
+        self, tmp_path: Path, context: ExecutionContext
+    ) -> None:
+        csv_path = tmp_path / "table.csv"
+        csv_path.write_text("a,b,c\n1,2,3\n4,5,6\n")
+
+        inp = InputRef(
+            input_id="inp-csv",
+            source_path=csv_path,
+            display_name="table.csv",
+            size_bytes=csv_path.stat().st_size,
+        )
+
+        req = Request(
+            request_id="req-csv",
+            requirement="identify",
+            inputs=(inp,),
+        )
+
+        cap = DarshanaCapability()
+        result = cap.execute(req, context)
+
+        assert isinstance(result.data, tuple)
+        assert len(result.data) == 1
+        doc = result.data[0]
+        assert doc.detected_type == "text/csv"
+        # Must NOT invent page 1; pagination remains unestablished by intake identification
+        assert doc.pages == ()
+        assert doc.text == ""
