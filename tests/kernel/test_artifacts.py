@@ -252,6 +252,65 @@ class TestStagingAndCommit:
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert "Duplicate artifact destination path." in exc_info.value.message
 
+    def test_duplicate_staging_and_existing_destination_rejected_preserving_bytes(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-dup-stage", requirement="ocr")
+        intent1 = ArtifactIntent(name="staged.txt", role="temp", media_type="text/plain", relative_path="sub/staged.txt")
+        intent2 = ArtifactIntent(name="staged2.txt", role="temp", media_type="text/plain", relative_path="sub/staged.txt")
+
+        # 1. Stage original file
+        path1 = ws.stage_artifact(intent1, b"original staging payload")
+        assert path1.exists()
+        assert path1.read_bytes() == b"original staging payload"
+
+        # 2. Duplicate staging attempt within session is rejected
+        with pytest.raises(DoshError) as exc_info:
+            ws.stage_artifact(intent2, b"tampered duplicate payload")
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Duplicate staged artifact destination path." in exc_info.value.message
+        # Original bytes remain intact
+        assert path1.read_bytes() == b"original staging payload"
+
+        # 3. Existing file on disk at staging destination is rejected
+        existing_file = ws.staging_dir / "already_on_disk.bin"
+        existing_file.write_bytes(b"existing staged bytes on disk")
+        intent3 = ArtifactIntent(name="already_on_disk.bin", role="temp", media_type="application/octet-stream")
+        with pytest.raises(DoshError) as exc_info2:
+            ws.stage_artifact(intent3, b"attempt overwrite")
+        assert exc_info2.value.code is FailureCode.VALIDATION_FAILED
+        assert "Staged artifact destination already exists on disk." in exc_info2.value.message
+        assert existing_file.read_bytes() == b"existing staged bytes on disk"
+
+    def test_duplicate_partial_and_existing_destination_rejected_preserving_bytes(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-dup-part", requirement="ocr", preserve_partial=True)
+        intent1 = ArtifactIntent(name="p1.json", role="partial", media_type="application/json", relative_path="p1.json")
+        intent2 = ArtifactIntent(name="p2.json", role="partial", media_type="application/json", relative_path="p1.json")
+
+        # 1. Preserve partial artifact
+        p1 = ws.preserve_partial_artifact(intent1, b'{"partial": 1}')
+        assert p1 is not None and p1.exists()
+        assert p1.read_bytes() == b'{"partial": 1}'
+
+        # 2. Duplicate partial attempt within session is rejected
+        with pytest.raises(DoshError) as exc_info:
+            ws.preserve_partial_artifact(intent2, b'{"partial": 2}')
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Duplicate partial artifact destination path." in exc_info.value.message
+        assert p1.read_bytes() == b'{"partial": 1}'
+
+        # 3. Existing file on disk at partial destination is rejected
+        existing_partial = ws.output_dir / "partial" / "on_disk.json"
+        existing_partial.write_bytes(b'{"on_disk": true}')
+        intent3 = ArtifactIntent(name="on_disk.json", role="partial", media_type="application/json")
+        with pytest.raises(DoshError) as exc_info2:
+            ws.preserve_partial_artifact(intent3, b'{"attempt": "overwrite"}')
+        assert exc_info2.value.code is FailureCode.VALIDATION_FAILED
+        assert "Partial artifact destination already exists on disk." in exc_info2.value.message
+        assert existing_partial.read_bytes() == b'{"on_disk": true}'
+
 
 class TestSecurityAndPathEscapeValidation:
     def test_path_traversal_attempts_rejected(self, boundary: ArtifactBoundary) -> None:
@@ -401,6 +460,119 @@ class TestCleanupAndPartialPreservation:
         committed_file = ws.output_dir / "test.txt"
         assert not committed_file.exists()
 
+    def test_cleanup_failure_during_manifest_serialization_is_observable_and_safe(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-ser-err", requirement="ocr")
+        ws.commit_artifact(ArtifactIntent(name="test.txt", role="text", media_type="text/plain"), b"data")
+
+        secret_path = tmp_path / "secret_serialization_dir"
+        with patch("json.dumps", side_effect=TypeError("Non-serializable object")):
+            with patch("shutil.rmtree", side_effect=PermissionError(f"Locked {secret_path}")):
+                with pytest.raises(DoshError) as exc_info:
+                    ws.finalize(success=True)
+
+        err = exc_info.value
+        assert err.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to clean up run workspace after manifest serialization failure." in err.message
+        assert str(secret_path) not in err.message
+        assert "Locked" not in err.message
+        assert err.__cause__ is not None
+        assert isinstance(err.__cause__, PermissionError)
+
+    def test_cleanup_failure_during_manifest_write_is_observable_and_safe(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-write-err", requirement="ocr")
+        ws.commit_artifact(ArtifactIntent(name="test.txt", role="text", media_type="text/plain"), b"data")
+
+        secret_path = tmp_path / "secret_write_dir"
+        with patch.object(RunWorkspace, "_write_bytes_atomically", side_effect=DoshError(FailureCode.EXECUTION_FAILED, "Disk write error")):
+            with patch("shutil.rmtree", side_effect=PermissionError(f"Locked {secret_path}")):
+                with pytest.raises(DoshError) as exc_info:
+                    ws.finalize(success=True)
+
+        err = exc_info.value
+        assert err.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to clean up run workspace after manifest write failure." in err.message
+        assert str(secret_path) not in err.message
+        assert "Locked" not in err.message
+        assert err.__cause__ is not None
+        assert isinstance(err.__cause__, PermissionError)
+
+    def test_normal_context_exit_without_finalize_removes_ordinary_output_and_staging(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        staging_dir = None
+        output_dir = None
+        with boundary.begin_run(run_id="run-no-fin-clean", requirement="ocr", preserve_partial=False) as ws:
+            staging_dir = ws.staging_dir
+            output_dir = ws.output_dir
+            ws.stage_artifact(
+                ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
+                b"temp data",
+            )
+            ws.commit_artifact(
+                ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
+                b"committed output",
+            )
+            assert staging_dir.exists()
+            assert (output_dir / "out.txt").exists()
+
+        # Normal exit without finalize(): staging and entire output directory must be removed
+        assert staging_dir is not None and not staging_dir.exists()
+        assert output_dir is not None and not output_dir.exists()
+
+    def test_normal_context_exit_without_finalize_with_preserve_partial_retains_only_partial(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        staging_dir = None
+        output_dir = None
+        partial_file = None
+        with boundary.begin_run(run_id="run-no-fin-part", requirement="ocr", preserve_partial=True) as ws:
+            staging_dir = ws.staging_dir
+            output_dir = ws.output_dir
+            ws.stage_artifact(
+                ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
+                b"temp data",
+            )
+            ws.commit_artifact(
+                ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
+                b"normal output",
+            )
+            partial_file = ws.preserve_partial_artifact(
+                ArtifactIntent(name="part.json", role="partial", media_type="application/json"),
+                b'{"preserved": true}',
+            )
+            assert staging_dir.exists()
+            assert (output_dir / "out.txt").exists()
+            assert partial_file is not None and partial_file.exists()
+
+        # Staging is removed
+        assert staging_dir is not None and not staging_dir.exists()
+        # Output directory exists and contains partial/, but normal committed output is removed
+        assert output_dir is not None and output_dir.exists()
+        assert not (output_dir / "out.txt").exists()
+        assert partial_file is not None and partial_file.exists()
+        assert (output_dir / "partial" / "part.json").exists()
+
+    def test_normal_context_exit_cleanup_failure_is_observable_and_safe(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        secret_path = tmp_path / "secret_exit_dir"
+        with patch("shutil.rmtree", side_effect=PermissionError(f"Locked {secret_path}")):
+            with pytest.raises(DoshError) as exc_info:
+                with boundary.begin_run(run_id="run-exit-clean-err", requirement="ocr") as ws:
+                    ws.stage_artifact(ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp")
+
+        err = exc_info.value
+        assert err.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to clean up unfinalized run workspace." in err.message
+        assert str(secret_path) not in err.message
+        assert "Locked" not in err.message
+        assert err.__cause__ is not None
+        assert isinstance(err.__cause__, PermissionError)
+
     def test_context_manager_cleans_staging_and_unfinalized_output_on_exception(
         self, boundary: ArtifactBoundary
     ) -> None:
@@ -458,9 +630,10 @@ class TestCleanupAndPartialPreservation:
         assert partial_file is not None and partial_file.exists()
 
     def test_cleanup_failure_during_active_exception_preserves_original_exception_and_is_observable(
-        self, boundary: ArtifactBoundary
+        self, boundary: ArtifactBoundary, tmp_path: Path
     ) -> None:
-        with patch("shutil.rmtree", side_effect=PermissionError("Staging dir locked")):
+        secret_leak_str = str(tmp_path / "secret_dir_xyz")
+        with patch("shutil.rmtree", side_effect=PermissionError(f"Staging dir locked in {secret_leak_str}")):
             with pytest.raises(RuntimeError) as exc_info:
                 with boundary.begin_run(run_id="run-ctx-clean-err", requirement="ocr") as ws:
                     ws.stage_artifact(ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp")
@@ -469,7 +642,12 @@ class TestCleanupAndPartialPreservation:
             primary_err = exc_info.value
             assert str(primary_err) == "Primary algorithm failure"
             # Cleanup failure is attached and observable
-            assert hasattr(primary_err, "__cleanup_error__") or hasattr(primary_err, "__notes__")
+            assert hasattr(primary_err, "__cleanup_failed__") or hasattr(primary_err, "__notes__")
+            if hasattr(primary_err, "__notes__"):
+                for note in primary_err.__notes__:
+                    assert secret_leak_str not in note
+                    assert "Staging dir locked" not in note
+            assert getattr(primary_err, "__cleanup_failed__", False) is True
 
     def test_cleanup_failure_is_observable_on_direct_call(
         self, boundary: ArtifactBoundary
