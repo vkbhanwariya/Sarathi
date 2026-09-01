@@ -74,28 +74,56 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help(sys.stderr)
         return 2
 
+    # 1. Strict profile parsing
     try:
         prof = ExecutionProfile.from_string(args.profile)
-    except Exception:
-        prof = ExecutionProfile.INSTANT
+    except ValueError:
+        print(
+            f"Validation error: Invalid profile '{args.profile}'. "
+            f"Allowed profiles: {[p.value for p in ExecutionProfile]}",
+            file=sys.stderr,
+        )
+        return 2
 
-    first_path = Path(args.inputs[0])
-    req_id = args.request_id or f"req-{first_path.stem or 'unnamed'}"
+    # 2. Strict factual input path inspection and validation
+    seen_paths: set[Path] = set()
     input_refs: list[InputRef] = []
     for i, inp_str in enumerate(args.inputs):
-        inp_path = Path(inp_str)
+        if not isinstance(inp_str, str) or not inp_str.strip():
+            print("Validation error: Input path cannot be empty.", file=sys.stderr)
+            return 2
+
+        raw_path = Path(inp_str)
         try:
-            size = inp_path.stat().st_size if inp_path.exists() else 0
+            resolved = raw_path.resolve()
+            if not resolved.exists():
+                print(f"Validation error: Input path does not exist: {raw_path.name}", file=sys.stderr)
+                return 2
+            if not resolved.is_file():
+                print(f"Validation error: Input path is not a regular file: {raw_path.name}", file=sys.stderr)
+                return 2
+            if resolved in seen_paths:
+                print(f"Validation error: Duplicate input file selected: {raw_path.name}", file=sys.stderr)
+                return 2
+
+            seen_paths.add(resolved)
+            st = resolved.stat()
+            size = st.st_size
         except OSError:
-            size = 0
+            print(f"Validation error: Failed to inspect input path: {raw_path.name}", file=sys.stderr)
+            return 2
+
         input_refs.append(
             InputRef(
                 input_id=f"inp-{i+1}",
-                source_path=inp_path,
-                display_name=inp_path.name,
+                source_path=resolved,
+                display_name=raw_path.name,
                 size_bytes=size,
             )
         )
+
+    first_display = input_refs[0].display_name
+    req_id = args.request_id or f"req-{Path(first_display).stem or 'unnamed'}"
 
     req = Request(
         request_id=req_id,

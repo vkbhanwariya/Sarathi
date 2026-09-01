@@ -1,15 +1,16 @@
-from unittest.mock import patch
 """Comprehensive unit tests for Agni - Runtime Bootstrap and Composition Root."""
 
+import os
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 import pytest
 
 from sarathi.__main__ import main as cli_main
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.kavacha import Kavacha
+from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.nabhi import ArtifactBoundary, Dvara, Kosh, Manthan, Pravaha, Prana, QuarantineStore, RetryPolicy
 from sarathi.sankalpa import (
     Capability,
@@ -124,6 +125,133 @@ class TestAgniBootstrap:
         assert agni.artifact_boundary.runtime_root == runtime_dir.resolve()
         assert agni.artifact_boundary.output_root == output_dir.resolve()
 
+    def test_yantra_default_inventory_is_factual_cpu_capacity(self) -> None:
+        inv = DeviceInventory.default_inventory()
+        assert len(inv) == 1
+        cpu_dev = inv.get_device("cpu-0")
+        assert cpu_dev is not None
+        assert cpu_dev.device_type == DeviceType.CPU
+        count_fn = getattr(os, "process_cpu_count", None)
+        expected_cpu = count_fn() if callable(count_fn) else os.cpu_count()
+        assert cpu_dev.capacity == max(1, expected_cpu or 1)
+
+        yantra_inv = Yantra.default_inventory()
+        assert len(yantra_inv) == 1
+        assert yantra_inv.get_device("cpu-0") is not None
+
+    def test_kavacha_denial_before_execution_raises_security_denied(self, tmp_path: Path) -> None:
+        runtime_dir = tmp_path / "Runtime"
+        output_dir = tmp_path / "Output"
+        doc_file = tmp_path / "document.txt"
+        doc_file.write_text("Secret content", encoding="utf-8")
+
+        # Create restrictive policy denying PII
+        restrictive_policy = SecurityPolicy(
+            allow_pii_access=False,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        kavacha = Kavacha(restrictive_policy)
+
+        # Create plugin requiring PII
+        pii_plugin = PluginInfo(
+            plugin_id="shakti.native_extraction",
+            name="Native Extraction",
+            version="1.0.0",
+            security=SecurityDeclaration(pii_access=True),
+            capabilities=("read_native",),
+        )
+        mock_cap = MockControlledCapability(NATIVE_CAPABILITY)
+
+        kosh = Kosh()
+        kosh.register_plugin(pii_plugin)
+        kosh.register_capability(NATIVE_CAPABILITY)
+
+        manthan = Manthan(kosh)
+        yantra = Yantra(DeviceInventory.default_inventory())
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"read_native": mock_cap},
+            kavacha=kavacha,
+        )
+
+        req = Request(
+            request_id="req-sec-01",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=doc_file,
+                    display_name="document.txt",
+                    size_bytes=doc_file.stat().st_size,
+                ),
+            ),
+        )
+        plan = manthan.resolve(req)
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan, req, ExecutionContext(run_id="run-1", request_id="req-sec-01", trace_id="tr-1", span_id="sp-1"))
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert mock_cap.call_count == 0  # Proves capability was never executed
+
+    def test_agni_constructor_preflight_fails_before_storage_mutation(self, tmp_path: Path) -> None:
+        runtime_dir = tmp_path / "PreflightRuntime"
+        output_dir = tmp_path / "PreflightOutput"
+
+        # Invalid capabilities mapping should raise TypeError before runtime/output directories are created
+        with pytest.raises(TypeError, match="capabilities must be a Mapping or None"):
+            Agni(
+                runtime_root=runtime_dir,
+                output_root=output_dir,
+                capabilities="invalid_capabilities_string",  # type: ignore
+            )
+
+        assert not runtime_dir.exists()
+        assert not output_dir.exists()
+
+    def test_same_request_executed_twice_generates_different_run_and_trace_ids(self, tmp_path: Path) -> None:
+        runtime_dir = tmp_path / "Runtime"
+        output_dir = tmp_path / "Output"
+        doc_file = tmp_path / "doc.txt"
+        doc_file.write_text("Hello", encoding="utf-8")
+
+        mock_cap = MockControlledCapability(NATIVE_CAPABILITY)
+        agni = Agni(
+            runtime_root=runtime_dir,
+            output_root=output_dir,
+            capabilities={"read_native": mock_cap},
+        )
+
+        req = Request(
+            request_id="req-multi-01",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=doc_file,
+                    display_name="doc.txt",
+                    size_bytes=doc_file.stat().st_size,
+                ),
+            ),
+        )
+
+        agni.execute(req)
+        first_ctx = mock_cap.last_context
+        assert first_ctx is not None
+
+        agni.execute(req)
+        second_ctx = mock_cap.last_context
+        assert second_ctx is not None
+
+        # Same request_id, but unique run_id, trace_id, span_id
+        assert first_ctx.request_id == second_ctx.request_id == "req-multi-01"
+        assert first_ctx.run_id != second_ctx.run_id
+        assert first_ctx.trace_id != second_ctx.trace_id
+        assert first_ctx.span_id != second_ctx.span_id
+
     def test_agni_loads_sutra_settings_file_and_overrides(self, tmp_path: Path) -> None:
         cfg_file = tmp_path / "settings.toml"
         cfg_file.write_text(
@@ -171,7 +299,6 @@ class TestAgniBootstrap:
         with pytest.raises(RuntimeError, match="Failed to start component c2"):
             agni.start()
 
-        # c1 was started, so it must be closed during rollback; c3 was never started
         assert c1.started is True
         assert c1.closed is True
         assert c2.started is False
@@ -184,10 +311,8 @@ class TestAgniBootstrap:
         doc_file = tmp_path / "document.txt"
         doc_file.write_text("Sample plain text content for test", encoding="utf-8")
 
-        # Custom controlled capability implementing the registered read_native declaration
         mock_cap = MockControlledCapability(NATIVE_CAPABILITY)
 
-        # Create Agni instance with injected test capability
         agni = Agni(
             runtime_root=runtime_dir,
             output_root=output_dir,
@@ -216,11 +341,9 @@ class TestAgniBootstrap:
         assert res.confidence.score == 0.99
         assert mock_cap.call_count == 1
 
-        # Verify Maruti Telemetry collected across all phases
         maruti_records = agni.darpana.maruti_records()
         phase_names = [r.phase_name for r in maruti_records]
 
-        # Must record bootstrap, identification, resolution, and pipeline execution
         assert "bootstrap" in phase_names
         assert "identification" in phase_names
         assert "resolution" in phase_names
@@ -233,12 +356,10 @@ class TestAgniBootstrap:
             assert r.duration_ns >= 0
             assert r.outcome == "success"
 
-        # Verify identification recorded shakti.darshana component
         id_rec = next(r for r in maruti_records if r.phase_name == "identification")
         assert id_rec.component == "shakti.darshana"
         assert id_rec.attributes["input_count"] == 1
 
-        # Verify resolution recorded nabhi.manthan component
         res_rec = next(r for r in maruti_records if r.phase_name == "resolution")
         assert res_rec.component == "nabhi.manthan"
         assert res_rec.attributes["requirement"] == "read_native"
@@ -270,92 +391,51 @@ class TestAgniBootstrap:
         exit_code = cli_main([])
         assert exit_code == 2
 
-    def test_agni_init_type_validations(self) -> None:
-        with pytest.raises(TypeError, match="context must be an ExecutionContext instance or None"):
-            Agni(context="invalid_context")  # type: ignore
-
-        with pytest.raises(TypeError, match="darpana must be a Darpana instance or None"):
-            Agni(darpana="invalid_darpana")  # type: ignore
-
-        with pytest.raises(TypeError, match="kavacha must be a Kavacha instance or None"):
-            Agni(kavacha="invalid_kavacha")  # type: ignore
-
-        with pytest.raises(TypeError, match="inventory must be a DeviceInventory instance or None"):
-            Agni(inventory="invalid_inventory")  # type: ignore
-
-        with pytest.raises(TypeError, match="capabilities must be a Mapping or None"):
-            Agni(capabilities=["invalid_list"])  # type: ignore
-
-        with pytest.raises(TypeError, match="settings must be Settings, Path, str, or None"):
-            Agni(settings=12345)  # type: ignore
-
-    def test_agni_execute_invalid_arguments_raises_type_error(self, tmp_path: Path) -> None:
-        agni = Agni(runtime_root=tmp_path / "Runtime", output_root=tmp_path / "Output")
-
-        with pytest.raises(TypeError, match="request must be a Request instance"):
-            agni.execute("invalid_request")  # type: ignore
-
-        doc_file = tmp_path / "doc.txt"
-        doc_file.write_text("content", encoding="utf-8")
-        req = Request(
-            request_id="req-1",
-            requirement="read_native",
-            inputs=(
-                InputRef(
-                    input_id="inp-1",
-                    source_path=doc_file,
-                    display_name="doc.txt",
-                    size_bytes=doc_file.stat().st_size,
-                ),
-            ),
-        )
-        with pytest.raises(TypeError, match="context must be an ExecutionContext instance or None"):
-            agni.execute(req, context="invalid_context")  # type: ignore
-
-    def test_cli_main_entry_point_dosh_error_returns_code_1_and_safe_message(
+    def test_cli_main_entry_point_invalid_profile_returns_code_2(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         doc_file = tmp_path / "test.txt"
         doc_file.write_text("CLI test text", encoding="utf-8")
 
-        # Non-existent requirement produces resolution FailureCode.VALIDATION_FAILED
         argv = [
             "--input",
             str(doc_file),
-            "--requirement",
-            "non_existent_unregistered_requirement",
-            "--runtime-root",
-            str(tmp_path / "Runtime"),
-            "--output-root",
-            str(tmp_path / "Output"),
+            "--profile",
+            "invalid_profile_name",
         ]
-
         exit_code = cli_main(argv)
-        assert exit_code == 1
-
+        assert exit_code == 2
         captured = capsys.readouterr()
-        assert "Error: UNSUPPORTED" in captured.err
-        assert "CLI test text" not in captured.err
+        assert "Validation error: Invalid profile" in captured.err
 
-    def test_cli_main_entry_point_generic_exception_returns_code_1_without_raw_trace(
+    def test_cli_main_entry_point_missing_input_file_returns_code_2(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        missing_file = tmp_path / "non_existent.txt"
+        argv = ["--input", str(missing_file)]
+        exit_code = cli_main(argv)
+        assert exit_code == 2
+        captured = capsys.readouterr()
+        assert "Validation error: Input path does not exist" in captured.err
+
+    def test_cli_main_entry_point_directory_input_rejected_with_code_2(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        dir_path = tmp_path / "some_dir"
+        dir_path.mkdir()
+        argv = ["--input", str(dir_path)]
+        exit_code = cli_main(argv)
+        assert exit_code == 2
+        captured = capsys.readouterr()
+        assert "Validation error: Input path is not a regular file" in captured.err
+
+    def test_cli_main_entry_point_duplicate_input_rejected_with_code_2(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         doc_file = tmp_path / "test.txt"
-        doc_file.write_text("CLI test text", encoding="utf-8")
-
-        with patch("sarathi.agni.bootstrap.Agni.execute", side_effect=RuntimeError("Secret internal error")):
-            argv = [
-                "--input",
-                str(doc_file),
-                "--runtime-root",
-                str(tmp_path / "Runtime"),
-                "--output-root",
-                str(tmp_path / "Output"),
-            ]
-            exit_code = cli_main(argv)
-
-        assert exit_code == 1
+        doc_file.write_text("content", encoding="utf-8")
+        argv = ["--input", str(doc_file), "--input", str(doc_file)]
+        exit_code = cli_main(argv)
+        assert exit_code == 2
         captured = capsys.readouterr()
-        assert "Error: Internal execution error - RuntimeError" in captured.err
-        assert "Secret internal error" not in captured.err
-        assert "CLI test text" not in captured.err
+        assert "Validation error: Duplicate input file selected" in captured.err

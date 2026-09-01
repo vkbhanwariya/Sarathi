@@ -10,6 +10,7 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+import uuid
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -50,6 +51,9 @@ class Agni:
     ) -> None:
         """Initialize Agni composition root and construct global services in dependency order.
 
+        Preflights and validates all explicit constructor arguments and consumed settings
+        before performing any directory creation or observable registry mutations.
+
         Args:
             settings: Optional Settings instance, or path to TOML configuration.
             runtime_root: Optional runtime staging directory override.
@@ -63,9 +67,11 @@ class Agni:
 
         Raises:
             TypeError: On invalid argument types.
-            DoshError: On configuration or storage initialization failure.
+            DoshError: On configuration, security policy, or storage initialization validation failures.
         """
-        # Validate explicit context if provided
+        # --- Preflight Phase: Strict argument and type validation BEFORE any side effects ---
+
+        # 1. Validate Context
         if context is not None and not isinstance(context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
 
@@ -76,59 +82,117 @@ class Agni:
             span_id="bootstrap-001",
         )
 
-        # 1. Injected or default Darpana telemetry service
-        if darpana is not None:
-            if not isinstance(darpana, Darpana):
-                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
-            self._darpana: Darpana = darpana
-        else:
-            self._darpana = Darpana(capacity=1000)
+        # 2. Validate Darpana
+        if darpana is not None and not isinstance(darpana, Darpana):
+            raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+        active_darpana = darpana or Darpana(capacity=1000)
 
-        # 2. Sutra Configuration
-        if settings is None:
-            self._settings: Settings = Settings()
-        elif isinstance(settings, Settings):
-            self._settings = settings
-        elif isinstance(settings, (Path, str)):
-            self._settings = load_settings(settings, darpana=self._darpana, context=bootstrap_ctx)
-        else:
-            raise TypeError(f"settings must be Settings, Path, str, or None, got {type(settings).__name__}.")
+        # 3. Validate Settings
+        active_settings: Settings
+        match settings:
+            case None:
+                active_settings = Settings()
+            case Settings():
+                active_settings = settings
+            case Path() | str():
+                active_settings = load_settings(settings, darpana=active_darpana, context=bootstrap_ctx)
+            case _:
+                raise TypeError(f"settings must be Settings, Path, str, or None, got {type(settings).__name__}.")
 
-        storage_sec = self._settings.get_section("storage") or {}
+        # 4. Validate & Resolve Storage Roots (Sutra-owned defaults)
+        def _resolve_root(arg_val: Path | str | None, setting_val: Path, param_name: str) -> Path:
+            if arg_val is not None:
+                if not isinstance(arg_val, (Path, str)):
+                    raise TypeError(f"{param_name} must be a Path, str, or None, got {type(arg_val).__name__}.")
+                if not str(arg_val).strip():
+                    raise DoshError(
+                        code=FailureCode.INVALID_CONFIGURATION,
+                        message=f"{param_name} cannot be empty.",
+                    )
+                return Path(arg_val)
+            return setting_val
 
-        # 3. Resolve storage roots
-        self._runtime_root: Path = (
-            Path(runtime_root)
-            if runtime_root is not None
-            else Path(storage_sec.get("runtime_root", "Runtime"))
-        )
-        self._output_root: Path = (
-            Path(output_root)
-            if output_root is not None
-            else Path(storage_sec.get("output_root", "Output"))
-        )
-        self._input_root: Path = (
-            Path(input_root)
-            if input_root is not None
-            else Path(storage_sec.get("input_root", "Input"))
-        )
+        validated_runtime_root = _resolve_root(runtime_root, active_settings.storage_runtime_root, "runtime_root")
+        validated_output_root = _resolve_root(output_root, active_settings.storage_output_root, "output_root")
+        validated_input_root = _resolve_root(input_root, active_settings.storage_input_root, "input_root")
 
-        # 4. Kavacha - Security & Privacy
+        # Preflight root separation
+        res_runtime = validated_runtime_root.resolve()
+        res_output = validated_output_root.resolve()
+        if res_runtime == res_output:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="Runtime root and Output root cannot be the same directory.",
+            )
+        try:
+            res_output.relative_to(res_runtime)
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="Output root cannot be nested within runtime root.",
+            )
+        except ValueError:
+            pass
+        try:
+            res_runtime.relative_to(res_output)
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="Runtime root cannot be nested within output root.",
+            )
+        except ValueError:
+            pass
+
+        # 5. Validate Kavacha & Security Policy
+        active_kavacha: Kavacha
         if kavacha is not None:
             if not isinstance(kavacha, Kavacha):
                 raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
-            self._kavacha: Kavacha = kavacha
+            active_kavacha = kavacha
         else:
-            sec_sec = self._settings.get_section("security") or {}
-            default_policy = SecurityPolicy(
-                allow_pii_access=bool(sec_sec.get("allow_pii_access", True)),
-                allow_network_access=bool(sec_sec.get("allow_network_access", False)),
-                allow_external_processing=bool(sec_sec.get("allow_external_processing", False)),
-                allowed_secrets=tuple(sec_sec.get("allowed_secrets", ())),
-            )
-            self._kavacha = Kavacha(default_policy)
+            active_kavacha = Kavacha(active_settings.security_policy())
 
-        # 5. ArtifactBoundary
+        # 6. Validate Capabilities Mapping
+        active_capabilities: dict[str, Capability]
+        if capabilities is not None:
+            if not isinstance(capabilities, Mapping):
+                raise TypeError(f"capabilities must be a Mapping or None, got {type(capabilities).__name__}.")
+            for cap_k, cap_v in capabilities.items():
+                if not isinstance(cap_k, str) or not cap_k.strip():
+                    raise TypeError("Capability mapping keys must be non-empty strings.")
+                if not isinstance(cap_v, Capability):
+                    raise TypeError(f"Capability '{cap_k}' does not implement Capability protocol.")
+            active_capabilities = dict(capabilities)
+        else:
+            active_capabilities = {
+                "identify": DarshanaCapability(),
+                "read_native": NativeExtractionCapability(),
+                "ocr": OCRCapability(),
+            }
+
+        # 7. Validate Inventory
+        active_inventory: DeviceInventory
+        if inventory is not None:
+            if not isinstance(inventory, DeviceInventory):
+                raise TypeError(f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}.")
+            active_inventory = inventory
+        else:
+            active_inventory = Yantra.default_inventory()
+
+        # 8. Validate Retry Policy
+        active_retry_policy = RetryPolicy(max_retries=active_settings.pipeline_max_retries)
+
+        # --- Composition Phase: All checks passed, construct services in dependency order ---
+
+        self._settings: Settings = active_settings
+        self._darpana: Darpana = active_darpana
+        self._runtime_root: Path = validated_runtime_root
+        self._output_root: Path = validated_output_root
+        self._input_root: Path = validated_input_root
+        self._kavacha: Kavacha = active_kavacha
+        self._capabilities: dict[str, Capability] = active_capabilities
+        self._inventory: DeviceInventory = active_inventory
+        self._retry_policy: RetryPolicy = active_retry_policy
+
+        # Artifact Boundary
         self._artifact_boundary: ArtifactBoundary = ArtifactBoundary(
             runtime_root=self._runtime_root,
             output_root=self._output_root,
@@ -136,56 +200,22 @@ class Agni:
             darpana=self._darpana,
         )
 
-        # 6. Kosh & Dvara (Registry & Built-in discovery/registration)
+        # Kosh & Dvara
         self._kosh: Kosh = Kosh()
         self._dvara: Dvara = Dvara(registry=self._kosh, darpana=self._darpana)
         self._dvara.register_builtins(context=bootstrap_ctx)
 
-        # 7. DeviceInventory & Yantra
-        if inventory is not None:
-            if not isinstance(inventory, DeviceInventory):
-                raise TypeError(f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}.")
-            self._inventory: DeviceInventory = inventory
-        else:
-            self._inventory = DeviceInventory([
-                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-            ])
+        # Yantra & Manthan
         self._yantra: Yantra = Yantra(self._inventory, darpana=self._darpana)
-
-        # 8. Manthan (Capability Resolver)
         self._manthan: Manthan = Manthan(registry=self._kosh)
 
-        # 9. Prana (Lifecycle Coordinator)
+        # Prana & QuarantineStore
         self._prana: Prana = Prana()
-
-        # 10. QuarantineStore & RetryPolicy
         self._quarantine_store: QuarantineStore = QuarantineStore(
             root=self._runtime_root / "Quarantine",
         )
 
-        pipe_sec = self._settings.get_section("pipeline") or {}
-        max_ret = pipe_sec.get("max_retries", 0)
-        self._retry_policy: RetryPolicy = RetryPolicy(max_retries=max_ret)
-
-        # 11. Capabilities Mapping
-        if capabilities is not None:
-            if not isinstance(capabilities, Mapping):
-                raise TypeError(f"capabilities must be a Mapping or None, got {type(capabilities).__name__}.")
-            self._capabilities: dict[str, Capability] = dict(capabilities)
-        else:
-            caps: dict[str, Capability] = {
-                "identify": DarshanaCapability(),
-                "read_native": NativeExtractionCapability(),
-            }
-            try:
-                ocr_path = Path("data/ocr")
-                if (ocr_path / "models").exists():
-                    caps["ocr"] = OCRCapability(data_root=ocr_path)
-            except Exception:
-                pass
-            self._capabilities = caps
-
-        # 12. Pravaha (Dynamic Pipeline Engine)
+        # Pravaha Dynamic Pipeline Engine
         self._pravaha: Pravaha = Pravaha(
             manthan=self._manthan,
             yantra=self._yantra,
@@ -193,6 +223,7 @@ class Agni:
             quarantine_store=self._quarantine_store,
             retry_policy=self._retry_policy,
             darpana=self._darpana,
+            kavacha=self._kavacha,
         )
 
         self._is_started: bool = False
@@ -301,9 +332,10 @@ class Agni:
         """Execute a canonical Request through the full Agni-wired runtime path.
 
         Performs:
-        1. Pre-Manthan Darshana identification with Darpana telemetry timing.
-        2. Manthan capability plan resolution with Darpana telemetry timing.
-        3. Pravaha dynamic pipeline execution across Yantra and configured capabilities.
+        1. Unique run/trace execution identity generation when no explicit context is provided.
+        2. Pre-Manthan Darshana identification with Darpana telemetry timing.
+        3. Manthan capability plan resolution with Darpana telemetry timing.
+        4. Pravaha dynamic pipeline execution across Yantra and configured capabilities.
 
         Args:
             request: Canonical processing request.
@@ -314,7 +346,7 @@ class Agni:
 
         Raises:
             TypeError: On invalid argument types.
-            DoshError: On validation, resolution, execution, or capability failures.
+            DoshError: On validation, security, resolution, execution, or capability failures.
         """
         if not isinstance(request, Request):
             raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
@@ -322,11 +354,12 @@ class Agni:
         if context is not None and not isinstance(context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
 
+        # Generate unique execution identity per execution when not explicitly provided
         exec_ctx = context or ExecutionContext(
-            run_id=f"run-{request.request_id}",
+            run_id=f"run-{uuid.uuid4().hex[:12]}",
             request_id=request.request_id,
-            trace_id=f"tr-{request.request_id}",
-            span_id="sp-001",
+            trace_id=f"tr-{uuid.uuid4().hex[:16]}",
+            span_id=f"sp-{uuid.uuid4().hex[:8]}",
             profile=request.profile,
         )
 
@@ -358,5 +391,5 @@ class Agni:
         with res_scope:
             plan = self._manthan.resolve(identified_request)
 
-        # 3. Pravaha Dynamic Pipeline Execution
+        # 3. Pravaha Dynamic Pipeline Execution (includes Kavacha security authorization)
         return self._pravaha.execute(plan, identified_request, exec_ctx)

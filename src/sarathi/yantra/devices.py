@@ -74,3 +74,15 @@ class DeviceInventory:
 
     def __iter__(self):
         return iter(self.devices)
+
+    @classmethod
+    def default_inventory(cls) -> DeviceInventory:
+        """Create a factual default inventory using system CPU capacity."""
+        import os
+
+        count_fn = getattr(os, "process_cpu_count", None)
+        cpu_count = count_fn() if callable(count_fn) else os.cpu_count()
+        actual_capacity = max(1, cpu_count or 1)
+        return cls([
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=actual_capacity),
+        ])
