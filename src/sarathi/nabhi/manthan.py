@@ -48,12 +48,12 @@ class CapabilityPlan:
 class Manthan:
     """Domain-neutral capability resolver for Nabhi Kernel."""
 
-    def __init__(self, registry: Kosh | None = None) -> None:
-        if registry is not None and not isinstance(registry, Kosh):
+    def __init__(self, registry: Kosh) -> None:
+        if not isinstance(registry, Kosh):
             raise TypeError(f"registry must be a Kosh instance, got {type(registry).__name__}.")
-        self._registry = registry
+        self._registry: Kosh = registry
 
-    def resolve(self, request: Request, registry: Kosh | None = None) -> CapabilityPlan:
+    def resolve(self, request: Request) -> CapabilityPlan:
         """Resolve a deterministic capability plan for a request against registered capabilities.
 
         Phase 1 routing:
@@ -62,19 +62,15 @@ class Manthan:
         - If `capability.supported_input_types` is declared, every input must have a matching `media_type`.
 
         Raises:
-            TypeError: If request or registry is of invalid type.
+            TypeError: If request is of invalid type.
             DoshError(FailureCode.UNSUPPORTED): If no compatible capability is declared.
         """
         # Validate public arguments before accessing registry state
         if not isinstance(request, Request):
             raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
 
-        active_registry = registry if registry is not None else self._registry
-        if not isinstance(active_registry, Kosh):
-            raise TypeError(f"registry must be a Kosh instance, got {type(active_registry).__name__}.")
-
         requirement = request.requirement
-        capability = active_registry.get_capability(requirement)
+        capability = self._registry.get_capability(requirement)
 
         if capability is None:
             raise DoshError(

@@ -101,15 +101,6 @@ class TestManthanResolver:
         assert plan.request_id == "req-123"
         assert plan.capability_ids == ("ocr",)
 
-    def test_resolve_passing_registry_explicitly(
-        self, kosh: Kosh, sample_request: Request
-    ) -> None:
-        manthan = Manthan()
-        plan = manthan.resolve(sample_request, registry=kosh)
-
-        assert plan.request_id == "req-123"
-        assert plan.capability_ids == ("ocr",)
-
     def test_unsupported_requirement_rejected(self, kosh: Kosh) -> None:
         request = Request(
             request_id="req-unknown",
@@ -237,30 +228,15 @@ class TestManthanResolver:
         assert plan.capability_ids == ("generic",)
 
     def test_invalid_public_arguments_reject_before_registry_access(self, kosh: Kosh) -> None:
-        manthan = Manthan()
-
-        with pytest.raises(TypeError, match="request must be a Request instance"):
-            manthan.resolve("not_a_request", registry=kosh)  # type: ignore
-
-        with pytest.raises(TypeError, match="registry must be a Kosh instance"):
-            manthan.resolve(
-                Request(
-                    request_id="req-1",
-                    requirement="ocr",
-                    inputs=(
-                        InputRef(
-                            input_id="inp-1",
-                            source_path=Path("a.pdf"),
-                            display_name="A",
-                            size_bytes=10,
-                        ),
-                    ),
-                ),
-                registry="not_a_kosh",  # type: ignore
-            )
-
         with pytest.raises(TypeError, match="registry must be a Kosh instance"):
             Manthan(registry="bad_registry")  # type: ignore
+
+        with pytest.raises(TypeError, match="registry must be a Kosh instance"):
+            Manthan(registry=None)  # type: ignore
+
+        manthan = Manthan(kosh)
+        with pytest.raises(TypeError, match="request must be a Request instance"):
+            manthan.resolve("not_a_request")  # type: ignore
 
     def test_media_type_case_insensitive(self, kosh: Kosh) -> None:
         req_upper = Request(
