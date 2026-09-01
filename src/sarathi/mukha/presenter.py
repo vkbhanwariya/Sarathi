@@ -59,6 +59,7 @@ class MukhaPresenter:
         - Factual stat().st_size (never zero fallback);
         - Deduplication;
         - Kavacha source-destination overlap validation when configured.
+        - Media/format type remains None / unavailable until factual Darshana detection (no extension-as-truth).
         """
         seen_paths: set[Path] = set()
         valid_refs: list[InputRef] = []
@@ -107,11 +108,9 @@ class MukhaPresenter:
                 source_path=resolved,
                 display_name=p.name,
                 size_bytes=size,
+                media_type=None,
             )
             valid_refs.append(ref)
-
-            fmt = resolved.suffix.upper().lstrip(".") or "UNKNOWN"
-            format_groups.setdefault(fmt, []).append(size)
 
             input_items.append(
                 InputItemView(
@@ -134,12 +133,13 @@ class MukhaPresenter:
                 kavacha.validate_source_destination_overlap(valid_refs, dest_roots)
 
         total_files = len(valid_refs) + len(issues)
-        is_grouped = total_files > 10
 
+        # Groups are only built when detected media types exist (not from suffix)
         groups = tuple(
             InputGroupView(format_name=fmt, file_count=len(sizes), total_size_bytes=sum(sizes))
             for fmt, sizes in sorted(format_groups.items())
         )
+        is_grouped = len(groups) > 0 and total_files > 10
 
         preflight = PreflightView(
             eligible_count=len(valid_refs),
@@ -194,15 +194,16 @@ class MukhaPresenter:
 
         elapsed_ns = max(0, now_ns - started_at_ns)
 
-        # Factual device execution aggregation: only when device_type is present in telemetry
+        # Factual device execution aggregation: ONLY count phase_name == "capability_execution" records
         device_durations: dict[str, list[int]] = {}
         device_confidences: dict[str, list[float]] = {}
 
         for rec in maruti_records:
-            dev = rec.attributes.get("device_type")
-            if dev:
-                dev_key = str(dev).upper()
-                device_durations.setdefault(dev_key, []).append(rec.duration_ns)
+            if rec.phase_name == "capability_execution":
+                dev = rec.attributes.get("device_type")
+                if dev:
+                    dev_key = str(dev).upper()
+                    device_durations.setdefault(dev_key, []).append(rec.duration_ns)
 
         for p_rec in pramana_records:
             dev = p_rec.attributes.get("device_type")
@@ -273,6 +274,7 @@ class MukhaPresenter:
         failed_files: int,
         quarantined_count: int = 0,
         retry_count: int = 0,
+        failures: Sequence[str] = (),
         maruti_records: Sequence[MarutiRecord] = (),
         pramana_records: Sequence[PramanaRecord] = (),
     ) -> RunSummaryView:
@@ -291,14 +293,15 @@ class MukhaPresenter:
             for stage, durs in sorted(stage_map.items())
         )
 
-        # Device execution summary: strictly when device_type is present in telemetry
+        # Device execution summary: strictly phase_name == "capability_execution" with device_type attribute
         device_map: dict[str, list[int]] = {}
         dev_confs: dict[str, list[float]] = {}
         for r in maruti_records:
-            dev = r.attributes.get("device_type")
-            if dev:
-                dev_str = str(dev).upper()
-                device_map.setdefault(dev_str, []).append(r.duration_ns)
+            if r.phase_name == "capability_execution":
+                dev = r.attributes.get("device_type")
+                if dev:
+                    dev_str = str(dev).upper()
+                    device_map.setdefault(dev_str, []).append(r.duration_ns)
 
         for pr in pramana_records:
             dev = pr.attributes.get("device_type")
@@ -367,7 +370,7 @@ class MukhaPresenter:
             device_summaries=tuple(device_summaries),
             artifacts=tuple(confirmed_artifacts),
             warnings=warnings,
-            failures=(),
+            failures=tuple(failures),
         )
 
     @staticmethod
@@ -394,9 +397,10 @@ class MukhaPresenter:
                 )
             )
             stage_map.setdefault(r.phase_name, []).append(r.duration_ns)
-            dev = r.attributes.get("device_type")
-            if dev:
-                device_map.setdefault(str(dev).upper(), []).append(r.duration_ns)
+            if r.phase_name == "capability_execution":
+                dev = r.attributes.get("device_type")
+                if dev:
+                    device_map.setdefault(str(dev).upper(), []).append(r.duration_ns)
 
         stage_timings = tuple(
             StageTimingView(stage_name=k, duration_ns=sum(v), call_count=len(v))

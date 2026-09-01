@@ -32,8 +32,12 @@ class ProgressState:
     @classmethod
     def known(cls, completed: int, total: int) -> ProgressState:
         if total <= 0:
-            return cls(kind=ProgressKind.KNOWN, completed=completed, total=total, percentage=0.0)
-        pct = min(100.0, max(0.0, completed / total * 100.0))
+            raise ValueError(f"total must be greater than 0 for KNOWN progress, got {total}.")
+        if completed < 0:
+            raise ValueError(f"completed cannot be negative, got {completed}.")
+        if completed > total:
+            raise ValueError(f"completed ({completed}) cannot exceed total ({total}).")
+        pct = min(100.0, max(0.0, (completed / total) * 100.0))
         return cls(kind=ProgressKind.KNOWN, completed=completed, total=total, percentage=pct)
 
     @classmethod
