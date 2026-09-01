@@ -557,17 +557,27 @@ class RunWorkspace:
         self._partial_artifacts.append(dest_path)
         return dest_path
 
-    def _cleanup_output_dir_on_failure(self) -> None:
-        """Safely clean unfinalized output artifacts if manifest writing or finalization fails."""
+    def _cleanup_run_on_failure(self) -> None:
+        """Clean up uncommitted staging data and all unfinalized output artifacts upon run failure."""
+        # 1. Clean staging directory
+        if self._staging_dir.exists():
+            shutil.rmtree(self._staging_dir)
+
+        # 2. Clean output directory
         if self._output_dir.exists():
-            try:
-                for item in self._output_dir.iterdir():
-                    if item.is_file():
-                        item.unlink(missing_ok=True)
-                    elif item.is_dir():
-                        shutil.rmtree(item, ignore_errors=True)
-            except OSError:
-                pass
+            if self._preserve_partial:
+                # Remove normal committed files, preserve partial/
+                for item in list(self._output_dir.iterdir()):
+                    if item.name != "partial":
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+            else:
+                shutil.rmtree(self._output_dir)
+
+        self._committed_artifacts.clear()
+        self._committed_relative_paths.clear()
 
     def finalize(
         self,
@@ -599,7 +609,8 @@ class RunWorkspace:
 
         Raises:
             DoshError(FailureCode.VALIDATION_FAILED): If already finalized.
-            DoshError(FailureCode.EXECUTION_FAILED): If manifest write fails.
+            DoshError(FailureCode.EXECUTION_FAILED): If manifest write or cleanup fails.
+            TypeError: If input sequences contain invalid record types.
         """
         if self._is_finalized:
             raise DoshError(
@@ -610,10 +621,8 @@ class RunWorkspace:
         # On failed run: incomplete runs must not leave normal output artifacts
         if not success:
             for art in self._committed_artifacts:
-                try:
-                    art.path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                if art.path.exists():
+                    art.path.unlink()
             self._committed_artifacts.clear()
             self._committed_relative_paths.clear()
 
@@ -621,10 +630,7 @@ class RunWorkspace:
             if not self._preserve_partial:
                 partial_dir = self._output_dir / "partial"
                 if partial_dir.exists():
-                    try:
-                        shutil.rmtree(partial_dir)
-                    except OSError:
-                        pass
+                    shutil.rmtree(partial_dir)
                 self._partial_artifacts.clear()
 
         manifest_data: dict[str, Any] = {
@@ -678,24 +684,28 @@ class RunWorkspace:
                 cleaned_prov.append(prov_entry)
             manifest_data["provenance"] = cleaned_prov
 
-        # Safe warning code/stage recording only
+        # Safe warning code/stage recording only (strictly validated)
         if warnings is not None:
             if not isinstance(warnings, (list, tuple)):
                 raise TypeError(f"warnings must be a sequence of WarningRecord, got {type(warnings).__name__}.")
-            manifest_data["warnings"] = [
-                {
+            cleaned_warn: list[dict[str, Any]] = []
+            for i, w in enumerate(warnings):
+                if not isinstance(w, WarningRecord):
+                    raise TypeError(f"warnings[{i}] must be a WarningRecord, got {type(w).__name__}.")
+                cleaned_warn.append({
                     "code": w.code,
                     "stage": w.stage,
-                }
-                for w in warnings
-                if isinstance(w, WarningRecord)
-            ]
+                })
+            manifest_data["warnings"] = cleaned_warn
 
         # Validate JSON serialization safety before attempting file write
         try:
             manifest_bytes = json.dumps(manifest_data, indent=2, ensure_ascii=False, allow_nan=False).encode("utf-8")
         except (TypeError, ValueError) as err:
-            self._cleanup_output_dir_on_failure()
+            try:
+                self._cleanup_run_on_failure()
+            except OSError:
+                pass
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to serialize run manifest.",
@@ -705,7 +715,10 @@ class RunWorkspace:
         try:
             self._write_bytes_atomically(manifest_file, manifest_bytes)
         except DoshError as err:
-            self._cleanup_output_dir_on_failure()
+            try:
+                self._cleanup_run_on_failure()
+            except OSError:
+                pass
             raise err
 
         # Clean staging data on finalization (observable cleanup)
@@ -736,10 +749,16 @@ class RunWorkspace:
         if exc_type is not None:
             if not self._is_finalized:
                 try:
-                    if self._staging_dir.exists():
-                        shutil.rmtree(self._staging_dir, ignore_errors=True)
-                except Exception:
-                    pass
+                    self._cleanup_run_on_failure()
+                except OSError as cleanup_err:
+                    # Preserve original exception while making cleanup failure observable
+                    if exc_val is not None:
+                        if hasattr(exc_val, "add_note"):
+                            exc_val.add_note("Failed to clean up run workspace upon exception.")
+                        try:
+                            object.__setattr__(exc_val, "__cleanup_error__", cleanup_err)
+                        except Exception:
+                            pass
         elif not self._is_finalized:
             self.cleanup()
 

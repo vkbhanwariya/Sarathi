@@ -344,6 +344,13 @@ class TestManifestSafetyAndOrdering:
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert "already finalized" in exc_info.value.message
 
+    def test_malformed_warning_entry_is_rejected_in_finalize(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-warn-bad", requirement="ocr")
+        with pytest.raises(TypeError, match="must be a WarningRecord"):
+            ws.finalize(success=True, warnings=[{"code": "BAD_TYPE"}])  # type: ignore
+
 
 class TestCleanupAndPartialPreservation:
     def test_failed_run_removes_committed_output_artifacts_and_preserves_partial_only_when_requested(
@@ -394,23 +401,77 @@ class TestCleanupAndPartialPreservation:
         committed_file = ws.output_dir / "test.txt"
         assert not committed_file.exists()
 
-    def test_context_manager_cleans_staging_on_exception(
+    def test_context_manager_cleans_staging_and_unfinalized_output_on_exception(
         self, boundary: ArtifactBoundary
     ) -> None:
+        # Case 1: preserve_partial=False removes both staging and output directories
+        staging_dir = None
+        output_dir = None
         try:
-            with boundary.begin_run(run_id="run-ctx-fail", requirement="ocr") as ws:
+            with boundary.begin_run(run_id="run-ctx-fail-1", requirement="ocr", preserve_partial=False) as ws:
+                staging_dir = ws.staging_dir
+                output_dir = ws.output_dir
                 ws.stage_artifact(
                     ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
                     b"temp data",
                 )
-                assert ws.staging_dir.exists()
+                ws.commit_artifact(
+                    ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
+                    b"some committed output",
+                )
+                assert staging_dir.exists()
+                assert (output_dir / "out.txt").exists()
                 raise RuntimeError("Simulated unhandled processing failure")
         except RuntimeError:
             pass
 
-        assert not ws.staging_dir.exists()
+        assert staging_dir is not None and not staging_dir.exists()
+        assert output_dir is not None and not output_dir.exists()
 
-    def test_cleanup_failure_is_observable(
+    def test_preserve_partial_true_retains_only_explicit_partial_artifacts_on_exception(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        staging_dir = None
+        output_dir = None
+        partial_file = None
+        try:
+            with boundary.begin_run(run_id="run-ctx-fail-2", requirement="ocr", preserve_partial=True) as ws:
+                staging_dir = ws.staging_dir
+                output_dir = ws.output_dir
+                intent_normal = ArtifactIntent(name="normal.txt", role="text", media_type="text/plain")
+                ws.commit_artifact(intent_normal, b"normal output")
+
+                intent_partial = ArtifactIntent(name="part.json", role="partial", media_type="application/json")
+                partial_file = ws.preserve_partial_artifact(intent_partial, b'{"part": 1}')
+
+                assert (output_dir / "normal.txt").exists()
+                assert partial_file is not None and partial_file.exists()
+                raise RuntimeError("Simulated crash during execution")
+        except RuntimeError:
+            pass
+
+        assert staging_dir is not None and not staging_dir.exists()
+        assert output_dir is not None and output_dir.exists()
+        # Normal committed artifact is cleaned
+        assert not (output_dir / "normal.txt").exists()
+        # Explicit partial artifact is preserved under partial/
+        assert partial_file is not None and partial_file.exists()
+
+    def test_cleanup_failure_during_active_exception_preserves_original_exception_and_is_observable(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        with patch("shutil.rmtree", side_effect=PermissionError("Staging dir locked")):
+            with pytest.raises(RuntimeError) as exc_info:
+                with boundary.begin_run(run_id="run-ctx-clean-err", requirement="ocr") as ws:
+                    ws.stage_artifact(ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp")
+                    raise RuntimeError("Primary algorithm failure")
+
+            primary_err = exc_info.value
+            assert str(primary_err) == "Primary algorithm failure"
+            # Cleanup failure is attached and observable
+            assert hasattr(primary_err, "__cleanup_error__") or hasattr(primary_err, "__notes__")
+
+    def test_cleanup_failure_is_observable_on_direct_call(
         self, boundary: ArtifactBoundary
     ) -> None:
         ws = boundary.begin_run(run_id="run-clean-err", requirement="ocr")

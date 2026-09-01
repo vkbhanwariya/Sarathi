@@ -7,6 +7,7 @@ import io
 import json
 import math
 from pathlib import Path
+import re
 from typing import Any
 import unicodedata
 
@@ -24,6 +25,22 @@ _PLUGIN_ID = "shakti.ocr"
 _CAPABILITY_ID = "ocr"
 _CANONICAL_DATA_ROOT = Path(__file__).resolve().parents[4] / "data" / "ocr"
 _REQUIRED_MODEL_KEYS = ("det", "rec", "cls")
+_HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_FILENAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
+
+
+def _is_safe_filename(name: Any) -> bool:
+    """Validate that filename is a safe, non-empty basename without path traversal or separators."""
+    if not isinstance(name, str):
+        return False
+    clean = name.strip()
+    if not clean or clean in (".", ".."):
+        return False
+    if "/" in clean or "\\" in clean or ":" in clean:
+        return False
+    if not _SAFE_FILENAME_PATTERN.match(clean):
+        return False
+    return True
 
 
 def extract_images_from_bytes(data: bytes) -> list[Any]:
@@ -97,23 +114,23 @@ class RapidOCREngine:
                 if key not in models_meta or not isinstance(models_meta[key], dict):
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Local OCR model manifest missing required model entry '{key}'.",
+                        message="Local OCR model manifest is missing required model entry.",
                     )
                 entry = models_meta[key]
                 filename = entry.get("filename")
                 expected_sha256 = entry.get("sha256")
 
-                if not filename or not isinstance(filename, str) or not expected_sha256 or not isinstance(expected_sha256, str):
+                if not _is_safe_filename(filename) or not isinstance(expected_sha256, str) or not _HEX_64_PATTERN.match(expected_sha256):
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Local OCR model manifest entry '{key}' is malformed.",
+                        message="Local OCR model manifest contains invalid model entry.",
                     )
 
-                model_path = models_dir / filename
+                model_path = models_dir / str(filename)
                 if not model_path.is_file():
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Required local OCR model asset '{filename}' is missing.",
+                        message="Required local OCR model asset is missing.",
                     )
 
                 try:
@@ -121,13 +138,13 @@ class RapidOCREngine:
                 except OSError as exc:
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Failed to read local OCR model asset '{filename}'.",
+                        message="Failed to read local OCR model asset.",
                     ) from exc
 
                 if actual_sha256 != expected_sha256:
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Local OCR model asset '{filename}' has invalid checksum.",
+                        message="Local OCR model asset has invalid checksum.",
                     )
 
                 verified_paths[key] = str(model_path)
