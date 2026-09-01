@@ -1,0 +1,37 @@
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Python Bytecode & Caches
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Build & Distribution Artifacts
+build/
+dist/
+*.egg-info/
+
+# Sarathi Storage Roots (generated/test run outputs)
+Input/
+Output/
+Runtime/
+
+# IDE & OS Metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.temp

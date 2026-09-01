@@ -1,38 +1,65 @@
-# Python
+# Python & Bytecode
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyd
 *.so
 
-# Virtual environments
+# Virtual Environments
 .venv/
 venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
-# Test / tooling caches
+# Testing & Coverage
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
+.tox/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
+nosetests.xml
 
-# Build artifacts
+# Build & Packaging
 build/
 dist/
 *.egg-info/
+*.egg
+*.whl
 
-# IDE / editor
+# IDE & Editor Configurations
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
 
-# OS
+# Operating System Files
+.DS_Store
 Thumbs.db
 Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
 
-# User input, output, and runtime-generated Sarathi data
+# Sarathi Local Storage Roots
 Input/
 Output/
 Runtime/
 
-# Temporary files
-*.tmp
+# Antigravity & Agent Caches / Scratch
+.antigravity/
+.gemini/
+
+# Logs & Temporary Files
 *.log
+*.tmp
+*.temp
+scratch/
