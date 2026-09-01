@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from datetime import date
 from decimal import Decimal
 import io
 from pathlib import Path
@@ -29,6 +28,7 @@ from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.detector import detect_bank_statement
 from sarathi.shakti.bank_statements.mapper import HeaderMapper
 from sarathi.shakti.bank_statements.models import (
+    AccountIdentity,
     BankStatement,
     Transaction,
 )
@@ -36,7 +36,8 @@ from sarathi.shakti.bank_statements.normalizer import parse_date, parse_decimal_
 from sarathi.shakti.bank_statements.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
-from sarathi.shakti.native_extraction import NativeExtractionCapability
+
+_CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
 
 
 def _get_cell(row: Sequence[str], idx: int | None) -> str | None:
@@ -50,8 +51,7 @@ class BankStatementCapability:
     def __init__(self, darpana: Darpana | None = None, banks_dir: Path | None = None) -> None:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
-        self._banks_dir = banks_dir or Path("E:/Sarathi/data/banks")
-        self._native_extractor = NativeExtractionCapability()
+        self._banks_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
         self._mapper = HeaderMapper(banks_dir=self._banks_dir)
 
     def execute(
@@ -60,10 +60,22 @@ class BankStatementCapability:
         context: ExecutionContext,
         prior_result: Result | None = None,
     ) -> Result:
-        """Execute bank statement parsing and consolidation."""
-        doc, base_prov = self._get_or_extract_document(request, context, prior_result)
+        """Execute bank statement parsing and consolidation on the extracted document.
 
-        # Request OCR continuation if empty
+        Consumes a prior_result carrying a CanonicalDocument produced by a preceding
+        pipeline stage (e.g. read_native or ocr). Does not invoke other capabilities directly.
+        """
+        # Validate that prior_result carries a valid CanonicalDocument
+        if prior_result is None or not isinstance(prior_result.data, CanonicalDocument):
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="BankStatementCapability requires a prior Result containing a CanonicalDocument.",
+            )
+
+        doc: CanonicalDocument = prior_result.data
+        base_prov: tuple[ProvenanceRecord, ...] = prior_result.provenance
+
+        # If extracted text and tables are empty, request OCR continuation through Pravaha
         if not doc.text.strip() and not any(p.tables for p in doc.pages) and doc.pages:
             return Result(data=doc, next_requirement="ocr")
 
@@ -82,7 +94,13 @@ class BankStatementCapability:
             )
 
         # Extract transactions and balances across all tables
-        raw_txns, open_bal, close_bal = self._extract_table_data(doc, request, detection.matched_profile, detection.bank_name or "Unknown Bank", detection.account_number, detection.account_holder)
+        raw_txns, open_bal, close_bal = self._extract_table_data(
+            doc,
+            request,
+            detection.matched_profile,
+            detection.bank_name or "Unknown Bank",
+            detection.account_identity,
+        )
 
         # Deduplicate, validate, and consolidate
         dedup_res = deduplicate_transactions(raw_txns)
@@ -90,8 +108,7 @@ class BankStatementCapability:
             BankStatement(
                 bank_name=detection.bank_name or "Unknown Bank",
                 bank_profile=detection.matched_profile or "generic",
-                account_number=detection.account_number,
-                account_holder=detection.account_holder,
+                account_identity=detection.account_identity,
                 opening_balance=open_bal,
                 closing_balance=close_bal,
                 transactions=dedup_res.unique_transactions,
@@ -107,22 +124,13 @@ class BankStatementCapability:
             warnings=tuple(WarningRecord(code=i.code, message=i.message, stage="validation") for i in consolidation.issues),
         )
 
-    def _get_or_extract_document(self, req: Request, ctx: ExecutionContext, prior: Result | None) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...]]:
-        if prior and isinstance(prior.data, CanonicalDocument):
-            return prior.data, prior.provenance
-        native_res = self._native_extractor.execute(req, ctx)
-        if not isinstance(native_res.data, CanonicalDocument):
-            raise DoshError(code=FailureCode.EXECUTION_FAILED, message="Native extraction failed to produce a CanonicalDocument.")
-        return native_res.data, native_res.provenance
-
     def _extract_table_data(
         self,
         doc: CanonicalDocument,
         req: Request,
         profile_id: str | None,
         bank_name: str,
-        acc_num: str | None,
-        acc_holder: str | None,
+        account_identity: AccountIdentity | None,
     ) -> tuple[list[Transaction], Decimal | None, Decimal | None]:
         all_tables: list[tuple[int, TableData]] = [(p_idx + 1, t) for p_idx, p in enumerate(doc.pages) for t in p.tables]
         all_tables.extend((1, t) for t in doc.tables if not any(t == e[1] for e in all_tables))
@@ -191,8 +199,7 @@ class BankStatementCapability:
                                     debit=parse_decimal_amount(_get_cell(row_cells, dr_col)),
                                     credit=parse_decimal_amount(_get_cell(row_cells, cr_col)),
                                     running_balance=parse_decimal_amount(_get_cell(row_cells, b_col)),
-                                    account_number=acc_num,
-                                    account_holder_name=acc_holder,
+                                    account_identity=account_identity,
                                     provenance=(prov,),
                                 )
                             )

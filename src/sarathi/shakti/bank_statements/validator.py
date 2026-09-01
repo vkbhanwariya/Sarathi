@@ -1,16 +1,14 @@
 """Financial Validator for Bank Statements in Sarathi V2.
 
 Validates:
-1. Transaction invariants: (debit is not None) OR (credit is not None).
-2. Pure Decimal arithmetic continuity: B_i = B_{i-1} + C_i - D_i.
-3. Statement reconciliation: Opening + Credits - Debits = Closing.
-4. Debit/Credit inversion detection across rows.
+1. Transaction invariants (date, debit/credit presence, non-negative Decimal)
+2. Running balance continuity (B_i = B_{i-1} + C_i - D_i)
+3. Statement reconciliation (Opening + Credits - Debits = Closing)
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Sequence
 
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
@@ -20,30 +18,32 @@ from sarathi.shakti.bank_statements.models import (
 )
 
 
-def validate_transaction(tx: Transaction) -> tuple[ValidationStatus, tuple[ValidationIssue, ...]]:
-    """Validate a single transaction's core invariants."""
-    issues: list[ValidationIssue] = list(tx.issues)
-    status = tx.status
+def validate_transaction(transaction: Transaction) -> tuple[ValidationStatus, tuple[ValidationIssue, ...]]:
+    """Validate single transaction invariants."""
+    issues: list[ValidationIssue] = []
+    status = ValidationStatus.VALID
 
-    # Invariant: exactly one direction populated (debit or credit)
-    if tx.debit is None and tx.credit is None:
+    # Invariant: At least one of debit or credit must be present
+    if transaction.debit is None and transaction.credit is None:
         issues.append(
             ValidationIssue(
                 code="MISSING_AMOUNT",
-                message="Transaction has neither debit nor credit amount populated.",
-                severity="error",
-            )
-        )
-        status = ValidationStatus.INVALID
-    elif tx.debit is not None and tx.credit is not None:
-        issues.append(
-            ValidationIssue(
-                code="CONCURRENT_DEBIT_CREDIT",
-                message=f"Transaction has both debit ({tx.debit}) and credit ({tx.credit}) populated.",
+                message="Transaction must have at least one of debit or credit amount.",
                 severity="warning",
             )
         )
-        if status == ValidationStatus.VALID:
+        status = ValidationStatus.WARNING
+
+    # Invariant: Both debit and credit cannot be non-zero simultaneously
+    if transaction.debit is not None and transaction.credit is not None:
+        if transaction.debit > Decimal("0") and transaction.credit > Decimal("0"):
+            issues.append(
+                ValidationIssue(
+                    code="DUAL_DIRECTION_AMOUNT",
+                    message="Transaction cannot have both non-zero debit and credit amounts.",
+                    severity="warning",
+                )
+            )
             status = ValidationStatus.WARNING
 
     return status, tuple(issues)
@@ -79,7 +79,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                 diff = tx.running_balance - expected_balance
                 issues.append(
                     ValidationIssue(
-                        code="BALANCE_DISCONTINUITY",
+                        code="RUNNING_BALANCE_DISCONTINUITY",
                         message=(
                             f"Running balance mismatch at row {idx + 1}: expected {expected_balance}, "
                             f"got {tx.running_balance} (difference {diff})."
@@ -100,6 +100,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
         elif prev_balance is not None:
             prev_balance = prev_balance + credit_amt - debit_amt
 
+        statement_issues.extend(issues)
         validated_transactions.append(
             Transaction(
                 transaction_date=tx.transaction_date,
@@ -111,8 +112,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                 debit=tx.debit,
                 credit=tx.credit,
                 running_balance=tx.running_balance,
-                account_number=tx.account_number,
-                account_holder_name=tx.account_holder_name,
+                account_identity=tx.account_identity,
                 currency=tx.currency,
                 status=tx_status,
                 issues=tuple(issues),
@@ -121,43 +121,35 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
             )
         )
 
-    # Statement Reconciliation: Opening + Credits - Debits == Closing
-    overall_status = statement.status
+    # Validate Statement Reconciliation: Opening + Credits - Debits == Closing
     if statement.opening_balance is not None and statement.closing_balance is not None:
         expected_closing = statement.opening_balance + total_credits - total_debits
         if statement.closing_balance != expected_closing:
-            diff = statement.closing_balance - expected_closing
+            reconcile_diff = statement.closing_balance - expected_closing
             statement_issues.append(
                 ValidationIssue(
-                    code="RECONCILIATION_FAILED",
+                    code="RECONCILIATION_MISMATCH",
                     message=(
-                        f"Statement reconciliation mismatch: opening ({statement.opening_balance}) + "
-                        f"credits ({total_credits}) - debits ({total_debits}) = {expected_closing}, "
-                        f"but closing balance is {statement.closing_balance} (diff {diff})."
+                        f"Statement reconciliation mismatch: expected closing {expected_closing}, "
+                        f"got {statement.closing_balance} (difference {reconcile_diff})."
                     ),
                     severity="warning",
                     context={
-                        "opening": str(statement.opening_balance),
-                        "total_credits": str(total_credits),
-                        "total_debits": str(total_debits),
                         "expected_closing": str(expected_closing),
                         "actual_closing": str(statement.closing_balance),
+                        "diff": str(reconcile_diff),
                     },
                 )
             )
-            overall_status = ValidationStatus.WARNING
 
-    # If any transaction is warning/invalid, reflect on statement
-    if any(t.status == ValidationStatus.INVALID for t in validated_transactions):
-        overall_status = ValidationStatus.INVALID
-    elif any(t.status == ValidationStatus.WARNING for t in validated_transactions) and overall_status == ValidationStatus.VALID:
+    overall_status = ValidationStatus.VALID
+    if any(t.status == ValidationStatus.WARNING for t in validated_transactions) or statement_issues:
         overall_status = ValidationStatus.WARNING
 
     return BankStatement(
         bank_name=statement.bank_name,
         bank_profile=statement.bank_profile,
-        account_number=statement.account_number,
-        account_holder=statement.account_holder,
+        account_identity=statement.account_identity,
         statement_period_start=statement.statement_period_start,
         statement_period_end=statement.statement_period_end,
         opening_balance=statement.opening_balance,

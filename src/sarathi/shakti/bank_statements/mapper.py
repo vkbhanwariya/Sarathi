@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 import yaml
 
+_CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
 CANONICAL_FIELDS = ("date", "description", "reference_number", "cheque_number", "debit", "credit", "balance")
 
 
@@ -36,7 +37,7 @@ class HeaderMapper:
     """Resolves raw table headers to canonical field names."""
 
     def __init__(self, banks_dir: Path | None = None) -> None:
-        self._banks_dir = banks_dir or Path("E:/Sarathi/data/banks")
+        self._banks_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
         self._common_config = self._load_yaml(self._banks_dir / "common.yaml")
         self._profiles = {
             data["profile_id"]: data
