@@ -140,6 +140,7 @@ class RunWorkspace:
         self._committed_artifacts: list[ArtifactRef] = []
         self._committed_relative_paths: set[str] = set()
         self._staged_relative_paths: set[str] = set()
+        self._partial_relative_paths: set[str] = set()
         self._partial_artifacts: list[Path] = []
         self._is_finalized: bool = False
 
@@ -246,7 +247,7 @@ class RunWorkspace:
             Path to the staged file.
 
         Raises:
-            DoshError(FailureCode.VALIDATION_FAILED): If workspace is finalized.
+            DoshError(FailureCode.VALIDATION_FAILED): If workspace is finalized, duplicate destination, or exists.
             DoshError(FailureCode.SECURITY_DENIED): On traversal, escape, or symlink violations.
             DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
         """
@@ -257,6 +258,14 @@ class RunWorkspace:
             )
 
         rel_path = self._resolve_relative_path(intent)
+        path_key = self._normalize_path_key(rel_path)
+
+        if path_key in self._staged_relative_paths:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Duplicate staged artifact destination path.",
+            )
+
         dest_path = self._staging_dir / rel_path
 
         if not _is_path_relative_to(dest_path, self._staging_dir):
@@ -266,8 +275,15 @@ class RunWorkspace:
             )
 
         _check_symlink_escape(dest_path, self._staging_dir)
+
+        if dest_path.exists():
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Staged artifact destination already exists on disk.",
+            )
+
         self._write_bytes_atomically(dest_path, bytes(content))
-        self._staged_relative_paths.add(self._normalize_path_key(rel_path))
+        self._staged_relative_paths.add(path_key)
         return dest_path
 
     def commit_staged_artifact(self, intent: ArtifactIntent, staged_path: Path) -> ArtifactRef:
@@ -491,6 +507,11 @@ class RunWorkspace:
 
         Returns:
             Path to the preserved partial artifact, or None if preserve_partial is False.
+
+        Raises:
+            DoshError(FailureCode.VALIDATION_FAILED): If workspace is finalized, duplicate destination, or exists.
+            DoshError(FailureCode.SECURITY_DENIED): On traversal, escape, or symlink violations.
+            DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
         """
         if not self._preserve_partial:
             return None
@@ -502,6 +523,14 @@ class RunWorkspace:
             )
 
         rel_path = self._resolve_relative_path(intent)
+        path_key = self._normalize_path_key(rel_path)
+
+        if path_key in self._partial_relative_paths:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Duplicate partial artifact destination path.",
+            )
+
         partial_dir = self._output_dir / "partial"
         dest_path = partial_dir / rel_path
 
@@ -512,6 +541,12 @@ class RunWorkspace:
             )
 
         _check_symlink_escape(dest_path, partial_dir)
+
+        if dest_path.exists():
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Partial artifact destination already exists on disk.",
+            )
 
         if isinstance(content, Path):
             if not content.exists():
@@ -555,6 +590,7 @@ class RunWorkspace:
             raise TypeError(f"content must be bytes, bytearray, or Path, got {type(content).__name__}.")
 
         self._partial_artifacts.append(dest_path)
+        self._partial_relative_paths.add(path_key)
         return dest_path
 
     def _cleanup_run_on_failure(self) -> None:
@@ -573,11 +609,18 @@ class RunWorkspace:
                             item.unlink()
                         elif item.is_dir():
                             shutil.rmtree(item)
+                partial_dir = self._output_dir / "partial"
+                if not partial_dir.exists():
+                    shutil.rmtree(self._output_dir)
             else:
                 shutil.rmtree(self._output_dir)
 
         self._committed_artifacts.clear()
         self._committed_relative_paths.clear()
+        self._staged_relative_paths.clear()
+        if not self._preserve_partial:
+            self._partial_artifacts.clear()
+            self._partial_relative_paths.clear()
 
     def finalize(
         self,
@@ -588,7 +631,6 @@ class RunWorkspace:
         warnings: Sequence[WarningRecord] | None = None,
     ) -> Path:
         """Finalize the run workspace: writes run-manifest.json last, cleans staging data,
-
         and marks the workspace finalized.
 
         Manifest contains only declared safe identity and factual fields: run/requirement/status/timestamps,
@@ -632,6 +674,7 @@ class RunWorkspace:
                 if partial_dir.exists():
                     shutil.rmtree(partial_dir)
                 self._partial_artifacts.clear()
+                self._partial_relative_paths.clear()
 
         manifest_data: dict[str, Any] = {
             "run_id": self._run_id,
@@ -704,8 +747,11 @@ class RunWorkspace:
         except (TypeError, ValueError) as err:
             try:
                 self._cleanup_run_on_failure()
-            except OSError:
-                pass
+            except OSError as cleanup_err:
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to clean up run workspace after manifest serialization failure.",
+                ) from cleanup_err
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to serialize run manifest.",
@@ -717,8 +763,11 @@ class RunWorkspace:
         except DoshError as err:
             try:
                 self._cleanup_run_on_failure()
-            except OSError:
-                pass
+            except OSError as cleanup_err:
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to clean up run workspace after manifest write failure.",
+                ) from cleanup_err
             raise err
 
         # Clean staging data on finalization (observable cleanup)
@@ -750,17 +799,23 @@ class RunWorkspace:
             if not self._is_finalized:
                 try:
                     self._cleanup_run_on_failure()
-                except OSError as cleanup_err:
-                    # Preserve original exception while making cleanup failure observable
+                except OSError:
+                    # Preserve original exception while attaching safe cleanup-failure note/state
                     if exc_val is not None:
                         if hasattr(exc_val, "add_note"):
                             exc_val.add_note("Failed to clean up run workspace upon exception.")
                         try:
-                            object.__setattr__(exc_val, "__cleanup_error__", cleanup_err)
-                        except Exception:
+                            exc_val.__cleanup_failed__ = True
+                        except (AttributeError, TypeError):
                             pass
         elif not self._is_finalized:
-            self.cleanup()
+            try:
+                self._cleanup_run_on_failure()
+            except OSError as cleanup_err:
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to clean up unfinalized run workspace.",
+                ) from cleanup_err
 
 
 class ArtifactBoundary:
