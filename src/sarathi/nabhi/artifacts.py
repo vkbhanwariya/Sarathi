@@ -614,34 +614,31 @@ class RunWorkspace:
         return dest_path
 
     def _cleanup_run_on_failure(self) -> None:
-        """Clean up uncommitted staging data and all unfinalized output artifacts upon unfinalized run exit or failure."""
+        """Clean up uncommitted staging data and non-preserved partial data upon run failure or unfinalized exit.
+
+        Preserves already confirmed/committed artifacts on disk and keeps committed artifact state truthful.
+        """
         try:
             # 1. Clean staging directory
             if self._staging_dir.exists():
                 shutil.rmtree(self._staging_dir)
-
-            # 2. Clean unfinalized output directory
-            if self._output_dir.exists():
-                if self._preserve_partial:
-                    # Remove normal committed files, preserve partial/
-                    for item in list(self._output_dir.iterdir()):
-                        if item.name != "partial":
-                            if item.is_file():
-                                item.unlink()
-                            elif item.is_dir():
-                                shutil.rmtree(item)
-                    partial_dir = self._output_dir / "partial"
-                    if not partial_dir.exists():
-                        shutil.rmtree(self._output_dir)
-                else:
-                    shutil.rmtree(self._output_dir)
-
-            self._committed_artifacts.clear()
-            self._committed_relative_paths.clear()
             self._staged_relative_paths.clear()
+
+            # 2. Clean partial directory if not preserving partials
             if not self._preserve_partial:
+                partial_dir = self._output_dir / "partial"
+                if partial_dir.exists():
+                    shutil.rmtree(partial_dir)
                 self._partial_artifacts.clear()
                 self._partial_relative_paths.clear()
+
+            # 3. If output directory is empty (no committed artifacts and no preserved partials), remove it
+            if self._output_dir.exists():
+                try:
+                    if not any(self._output_dir.iterdir()):
+                        self._output_dir.rmdir()
+                except OSError:
+                    pass
         except OSError as exc:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
@@ -990,6 +987,12 @@ class ArtifactBoundary:
             raise TypeError("input_sources cannot be None; pass a sequence or omit.")
         if not isinstance(input_sources, (list, tuple)):
             raise TypeError(f"input_sources must be a sequence of Path, str, or InputRef, got {type(input_sources).__name__}.")
+
+        for i, src in enumerate(input_sources):
+            if not isinstance(src, (Path, str, InputRef)):
+                raise TypeError(
+                    f"input_sources[{i}] must be a Path, str, or InputRef, got {type(src).__name__}."
+                )
 
         if input_sources and self._kavacha is None:
             raise DoshError(

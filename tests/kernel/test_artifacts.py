@@ -453,21 +453,26 @@ class TestCleanupAndPartialPreservation:
         assert preserved_path.exists()
         assert not ws2.staging_dir.exists()
 
-    def test_manifest_write_failure_cleans_incomplete_output_directory(
+    def test_manifest_write_failure_preserves_confirmed_artifacts_and_cleans_staging(
         self, boundary: ArtifactBoundary
     ) -> None:
         ws = boundary.begin_run(run_id="run-manifest-err", requirement="ocr")
+        ws.stage_artifact(ArtifactIntent(name="tmp.bin", role="temp", media_type="text/plain"), b"staging data")
         intent = ArtifactIntent(name="test.txt", role="text", media_type="text/plain")
-        ws.commit_artifact(intent, b"some content")
+        ref = ws.commit_artifact(intent, b"some content")
 
         with patch.object(RunWorkspace, "_write_bytes_atomically", side_effect=DoshError(FailureCode.EXECUTION_FAILED, "Disk write error")):
             with pytest.raises(DoshError) as exc_info:
                 ws.finalize(success=True)
 
         assert exc_info.value.code is FailureCode.EXECUTION_FAILED
-        # Verify incomplete output artifacts were cleaned from the unfinalized directory
+        # Confirmed output artifacts are preserved on disk and state remains truthful
         committed_file = ws.output_dir / "test.txt"
-        assert not committed_file.exists()
+        assert committed_file.exists()
+        assert len(ws.committed_artifacts) == 1
+        assert ws.committed_artifacts[0] == ref
+        # Staging directory is cleaned
+        assert not ws.staging_dir.exists()
 
     def test_cleanup_failure_during_manifest_serialization_is_observable_and_safe(
         self, boundary: ArtifactBoundary, tmp_path: Path
@@ -509,7 +514,7 @@ class TestCleanupAndPartialPreservation:
         assert err.__cause__ is not None
         assert isinstance(err.__cause__, PermissionError)
 
-    def test_normal_context_exit_without_finalize_removes_ordinary_output_and_staging(
+    def test_normal_context_exit_without_finalize_preserves_confirmed_artifacts_and_removes_staging(
         self, boundary: ArtifactBoundary
     ) -> None:
         staging_dir = None
@@ -521,18 +526,21 @@ class TestCleanupAndPartialPreservation:
                 ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
                 b"temp data",
             )
-            ws.commit_artifact(
+            ref = ws.commit_artifact(
                 ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
                 b"committed output",
             )
             assert staging_dir.exists()
             assert (output_dir / "out.txt").exists()
 
-        # Normal exit without finalize(): staging and entire output directory must be removed
+        # Normal exit without finalize(): staging is removed, confirmed output survives on disk
         assert staging_dir is not None and not staging_dir.exists()
-        assert output_dir is not None and not output_dir.exists()
+        assert output_dir is not None and output_dir.exists()
+        assert (output_dir / "out.txt").exists()
+        assert len(ws.committed_artifacts) == 1
+        assert ws.committed_artifacts[0] == ref
 
-    def test_normal_context_exit_without_finalize_with_preserve_partial_retains_only_partial(
+    def test_normal_context_exit_without_finalize_with_preserve_partial_retains_partial_and_confirmed(
         self, boundary: ArtifactBoundary
     ) -> None:
         staging_dir = None
@@ -545,7 +553,7 @@ class TestCleanupAndPartialPreservation:
                 ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
                 b"temp data",
             )
-            ws.commit_artifact(
+            ref = ws.commit_artifact(
                 ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
                 b"normal output",
             )
@@ -559,11 +567,13 @@ class TestCleanupAndPartialPreservation:
 
         # Staging is removed
         assert staging_dir is not None and not staging_dir.exists()
-        # Output directory exists and contains partial/, but normal committed output is removed
+        # Output directory exists and contains both confirmed artifact and partial/
         assert output_dir is not None and output_dir.exists()
-        assert not (output_dir / "out.txt").exists()
+        assert (output_dir / "out.txt").exists()
         assert partial_file is not None and partial_file.exists()
         assert (output_dir / "partial" / "part.json").exists()
+        assert len(ws.committed_artifacts) == 1
+        assert ws.committed_artifacts[0] == ref
 
     def test_normal_context_exit_cleanup_failure_is_observable_and_safe(
         self, boundary: ArtifactBoundary, tmp_path: Path
@@ -582,10 +592,9 @@ class TestCleanupAndPartialPreservation:
         assert err.__cause__ is not None
         assert isinstance(err.__cause__, PermissionError)
 
-    def test_context_manager_cleans_staging_and_unfinalized_output_on_exception(
+    def test_context_manager_cleans_staging_and_preserves_confirmed_output_on_exception(
         self, boundary: ArtifactBoundary
     ) -> None:
-        # Case 1: preserve_partial=False removes both staging and output directories
         staging_dir = None
         output_dir = None
         try:
@@ -596,7 +605,7 @@ class TestCleanupAndPartialPreservation:
                     ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
                     b"temp data",
                 )
-                ws.commit_artifact(
+                ref = ws.commit_artifact(
                     ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
                     b"some committed output",
                 )
@@ -606,10 +615,14 @@ class TestCleanupAndPartialPreservation:
         except RuntimeError:
             pass
 
+        # Staging is removed, confirmed output survives
         assert staging_dir is not None and not staging_dir.exists()
-        assert output_dir is not None and not output_dir.exists()
+        assert output_dir is not None and output_dir.exists()
+        assert (output_dir / "out.txt").exists()
+        assert len(ws.committed_artifacts) == 1
+        assert ws.committed_artifacts[0] == ref
 
-    def test_preserve_partial_true_retains_only_explicit_partial_artifacts_on_exception(
+    def test_preserve_partial_true_retains_partial_and_confirmed_artifacts_on_exception(
         self, boundary: ArtifactBoundary
     ) -> None:
         staging_dir = None
@@ -620,7 +633,7 @@ class TestCleanupAndPartialPreservation:
                 staging_dir = ws.staging_dir
                 output_dir = ws.output_dir
                 intent_normal = ArtifactIntent(name="normal.txt", role="text", media_type="text/plain")
-                ws.commit_artifact(intent_normal, b"normal output")
+                ref = ws.commit_artifact(intent_normal, b"normal output")
 
                 intent_partial = ArtifactIntent(name="part.json", role="partial", media_type="application/json")
                 partial_file = ws.preserve_partial_artifact(intent_partial, b'{"part": 1}')
@@ -633,10 +646,12 @@ class TestCleanupAndPartialPreservation:
 
         assert staging_dir is not None and not staging_dir.exists()
         assert output_dir is not None and output_dir.exists()
-        # Normal committed artifact is cleaned
-        assert not (output_dir / "normal.txt").exists()
+        # Normal committed artifact is preserved
+        assert (output_dir / "normal.txt").exists()
         # Explicit partial artifact is preserved under partial/
         assert partial_file is not None and partial_file.exists()
+        assert len(ws.committed_artifacts) == 1
+        assert ws.committed_artifacts[0] == ref
 
     def test_cleanup_failure_during_active_exception_preserves_original_exception_and_is_observable(
         self, boundary: ArtifactBoundary, tmp_path: Path
@@ -1048,3 +1063,33 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert exc_req.value.code is FailureCode.VALIDATION_FAILED
         assert malicious_req not in exc_req.value.message
         assert "requirement must be a safe stable identifier" in exc_req.value.message
+
+    def test_begin_run_invalid_input_sources_element_with_kavacha_does_not_create_custom_output_root(
+        self, tmp_path: Path
+    ) -> None:
+        from sarathi.kavacha import Kavacha, SecurityPolicy
+
+        policy = SecurityPolicy(
+            allow_pii_access=False,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        kavacha = Kavacha(policy)
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+        boundary = ArtifactBoundary(runtime_root=runtime_root, output_root=output_root, kavacha=kavacha)
+
+        custom_output = tmp_path / "custom_output_never_created"
+        assert not custom_output.exists()
+
+        # Injected Kavacha present, but input_sources contains an invalid element (int)
+        with pytest.raises(TypeError, match="must be a Path, str, or InputRef"):
+            boundary.begin_run(
+                run_id="run-invalid-elem",
+                requirement="ocr",
+                output_root=custom_output,
+                input_sources=[12345],  # type: ignore
+            )
+
+        assert not custom_output.exists()
