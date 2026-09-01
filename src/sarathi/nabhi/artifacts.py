@@ -689,24 +689,6 @@ class RunWorkspace:
                 message="Run workspace is already finalized.",
             )
 
-        # Clean staging directory and non-preserved partials
-        try:
-            if self._staging_dir.exists():
-                shutil.rmtree(self._staging_dir)
-            self._staged_relative_paths.clear()
-
-            if not success and not self._preserve_partial:
-                partial_dir = self._output_dir / "partial"
-                if partial_dir.exists():
-                    shutil.rmtree(partial_dir)
-                self._partial_artifacts.clear()
-                self._partial_relative_paths.clear()
-        except OSError as exc:
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message="Failed to clean up staging directory during finalization.",
-            ) from exc
-
         manifest_data: dict[str, Any] = {
             "run_id": self._run_id,
             "requirement": self._requirement,
@@ -735,6 +717,7 @@ class RunWorkspace:
         }
 
         # Safe provenance identity recording only (strictly validated against safe identifiers when present)
+        # MUST validate all inputs before any destructive filesystem mutation
         if provenance is not None:
             if not isinstance(provenance, (list, tuple)):
                 raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(provenance).__name__}.")
@@ -796,6 +779,7 @@ class RunWorkspace:
             manifest_data["provenance"] = cleaned_prov
 
         # Safe warning code/stage recording only (strictly validated against safe identifiers when present)
+        # MUST validate all inputs before any destructive filesystem mutation
         if warnings is not None:
             if not isinstance(warnings, (list, tuple)):
                 raise TypeError(f"warnings must be a sequence of WarningRecord, got {type(warnings).__name__}.")
@@ -819,31 +803,41 @@ class RunWorkspace:
                 cleaned_warn.append(warn_entry)
             manifest_data["warnings"] = cleaned_warn
 
-        # Validate JSON serialization safety before attempting file write
+        # Validate JSON serialization safety before attempting any state mutation or file write
         try:
             manifest_bytes = json.dumps(manifest_data, indent=2, ensure_ascii=False, allow_nan=False).encode("utf-8")
         except (TypeError, ValueError) as err:
-            try:
-                self._cleanup_run_on_failure()
-            except DoshError:
-                pass
+            self._cleanup_run_on_failure()
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to serialize run manifest.",
             ) from err
 
+        # Only after all validation and serialization succeed do we perform final filesystem cleanup
+        try:
+            if self._staging_dir.exists():
+                shutil.rmtree(self._staging_dir)
+            self._staged_relative_paths.clear()
+
+            if not success and not self._preserve_partial:
+                partial_dir = self._output_dir / "partial"
+                if partial_dir.exists():
+                    shutil.rmtree(partial_dir)
+                self._partial_artifacts.clear()
+                self._partial_relative_paths.clear()
+        except OSError as exc:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to clean up staging directory during finalization.",
+            ) from exc
+
         manifest_file = self._output_dir / "run-manifest.json"
         try:
             self._write_bytes_atomically(manifest_file, manifest_bytes)
         except DoshError:
-            try:
-                self._cleanup_run_on_failure()
-            except DoshError:
-                pass
+            self._cleanup_run_on_failure()
             raise
 
-        # Clean staging data on finalization (observable cleanup)
-        self.cleanup()
         self._is_finalized = True
         return manifest_file
 
@@ -906,10 +900,15 @@ class ArtifactBoundary:
             kavacha: Optional injected Kavacha security service.
 
         Raises:
-            TypeError: If roots are not Path or str.
+            TypeError: If roots are not Path or str, or if kavacha is not a Kavacha instance.
             DoshError(FailureCode.INVALID_CONFIGURATION): On empty paths, non-directory paths,
                 equal roots, or nested roots.
         """
+        if kavacha is not None:
+            from sarathi.kavacha import Kavacha as KavachaService
+            if not isinstance(kavacha, KavachaService):
+                raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
+
         validated_runtime = _validate_root_directory(runtime_root, "runtime_root")
         validated_output = _validate_root_directory(output_root, "output_root")
         _validate_root_separation(validated_runtime, validated_output)
@@ -987,7 +986,18 @@ class ArtifactBoundary:
         if not isinstance(preserve_partial, bool):
             raise TypeError(f"preserve_partial must be a bool, got {type(preserve_partial).__name__}.")
 
-        # Active output root determination
+        if input_sources is None:
+            raise TypeError("input_sources cannot be None; pass a sequence or omit.")
+        if not isinstance(input_sources, (list, tuple)):
+            raise TypeError(f"input_sources must be a sequence of Path, str, or InputRef, got {type(input_sources).__name__}.")
+
+        if input_sources and self._kavacha is None:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="Kavacha security service must be injected to validate input source containment.",
+            )
+
+        # Active output root determination (validated and created only after parameter validation)
         if output_root is not None:
             active_output_root = _validate_root_directory(output_root, "output_root")
             _validate_root_separation(self._runtime_root, active_output_root)
@@ -1018,11 +1028,6 @@ class ArtifactBoundary:
 
         # Validate input/output overlap via constructor-injected Kavacha if input_sources are provided
         if input_sources:
-            if self._kavacha is None:
-                raise DoshError(
-                    code=FailureCode.INVALID_CONFIGURATION,
-                    message="Kavacha security service must be injected to validate input source containment.",
-                )
             dest_roots_to_check = [self._runtime_root, active_output_root, staging_dir, run_output_dir]
             self._kavacha.validate_source_destination_overlap(input_sources, dest_roots_to_check)
 
