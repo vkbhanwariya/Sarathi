@@ -145,7 +145,6 @@ class TestAgniBootstrap:
         doc_file = tmp_path / "document.txt"
         doc_file.write_text("Secret content", encoding="utf-8")
 
-        # Create restrictive policy denying PII
         restrictive_policy = SecurityPolicy(
             allow_pii_access=False,
             allow_network_access=False,
@@ -154,7 +153,6 @@ class TestAgniBootstrap:
         )
         kavacha = Kavacha(restrictive_policy)
 
-        # Create plugin requiring PII
         pii_plugin = PluginInfo(
             plugin_id="shakti.native_extraction",
             name="Native Extraction",
@@ -195,13 +193,43 @@ class TestAgniBootstrap:
             pravaha.execute(plan, req, ExecutionContext(run_id="run-1", request_id="req-sec-01", trace_id="tr-1", span_id="sp-1"))
 
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
-        assert mock_cap.call_count == 0  # Proves capability was never executed
+        assert mock_cap.call_count == 0
+
+    @pytest.mark.parametrize(
+        ("inp_rel", "rt_rel", "out_rel"),
+        [
+            ("Storage", "Storage", "Output"),  # Input == Runtime
+            ("Storage", "Runtime", "Storage"),  # Input == Output
+            ("Runtime/nested_in", "Runtime", "Output"),  # Input nested in Runtime
+            ("Storage", "Storage/nested_rt", "Output"),  # Runtime nested in Input
+            ("Output/nested_in", "Runtime", "Output"),  # Input nested in Output
+            ("Storage", "Runtime", "Storage/nested_out"),  # Output nested in Input
+        ],
+    )
+    def test_agni_constructor_preflight_rejects_invalid_root_overlaps_via_kavacha(
+        self, tmp_path: Path, inp_rel: str, rt_rel: str, out_rel: str
+    ) -> None:
+        input_root = tmp_path / inp_rel
+        runtime_root = tmp_path / rt_rel
+        output_root = tmp_path / out_rel
+
+        with pytest.raises(DoshError) as exc_info:
+            Agni(
+                input_root=input_root,
+                runtime_root=runtime_root,
+                output_root=output_root,
+            )
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+
+        # Assert zero directory creation on preflight rejection
+        assert not runtime_root.exists()
+        assert not output_root.exists()
 
     def test_agni_constructor_preflight_fails_before_storage_mutation(self, tmp_path: Path) -> None:
         runtime_dir = tmp_path / "PreflightRuntime"
         output_dir = tmp_path / "PreflightOutput"
 
-        # Invalid capabilities mapping should raise TypeError before runtime/output directories are created
         with pytest.raises(TypeError, match="capabilities must be a Mapping or None"):
             Agni(
                 runtime_root=runtime_dir,
@@ -246,11 +274,68 @@ class TestAgniBootstrap:
         second_ctx = mock_cap.last_context
         assert second_ctx is not None
 
-        # Same request_id, but unique run_id, trace_id, span_id
         assert first_ctx.request_id == second_ctx.request_id == "req-multi-01"
         assert first_ctx.run_id != second_ctx.run_id
         assert first_ctx.trace_id != second_ctx.trace_id
         assert first_ctx.span_id != second_ctx.span_id
+
+    @pytest.mark.parametrize(
+        "overlap_location",
+        ["inside_runtime", "inside_output", "inside_custom_output"],
+    )
+    def test_agni_execute_rejects_input_inside_runtime_or_effective_output(
+        self, tmp_path: Path, overlap_location: str
+    ) -> None:
+        runtime_dir = tmp_path / "Runtime"
+        output_dir = tmp_path / "Output"
+        custom_out_dir = tmp_path / "CustomOutput"
+        mock_cap = MockControlledCapability(NATIVE_CAPABILITY)
+
+        agni = Agni(
+            runtime_root=runtime_dir,
+            output_root=output_dir,
+            capabilities={"read_native": mock_cap},
+        )
+
+        # Create input inside active runtime, active output, or custom request output
+        match overlap_location:
+            case "inside_runtime":
+                bad_file = runtime_dir / "staging_data.txt"
+                bad_file.parent.mkdir(parents=True, exist_ok=True)
+                bad_file.write_text("Staged data", encoding="utf-8")
+                req_out = None
+            case "inside_output":
+                bad_file = output_dir / "committed_data.txt"
+                bad_file.parent.mkdir(parents=True, exist_ok=True)
+                bad_file.write_text("Output data", encoding="utf-8")
+                req_out = None
+            case "inside_custom_output":
+                bad_file = custom_out_dir / "custom_data.txt"
+                bad_file.parent.mkdir(parents=True, exist_ok=True)
+                bad_file.write_text("Custom data", encoding="utf-8")
+                req_out = custom_out_dir
+
+        req = Request(
+            request_id="req-overlap-01",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-bad",
+                    source_path=bad_file,
+                    display_name=bad_file.name,
+                    size_bytes=bad_file.stat().st_size,
+                ),
+            ),
+            output_root=req_out,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            agni.execute(req)
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert "Unsafe source and destination overlap" in exc_info.value.message
+        # Verify capability execution was never reached
+        assert mock_cap.call_count == 0
 
     def test_agni_loads_sutra_settings_file_and_overrides(self, tmp_path: Path) -> None:
         cfg_file = tmp_path / "settings.toml"
