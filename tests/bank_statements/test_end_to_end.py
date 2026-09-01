@@ -1,6 +1,5 @@
-"""End-to-End Operational Acceptance Test for Bank Statement Consolidation Vertical Slice."""
+"""End-to-End Operational Acceptance Test for Bank Statement Consolidation."""
 
-import csv
 from datetime import date
 from decimal import Decimal
 import io
@@ -32,28 +31,7 @@ from sarathi.shakti.bank_statements.models import (
     create_account_identity,
 )
 
-
-@pytest.fixture
-def sbi_statement_csv(tmp_path: Path) -> Path:
-    """Create a realistic SBI bank statement CSV fixture."""
-    file_path = tmp_path / "sbi_jan_2026.csv"
-    rows = [
-        ["STATE BANK OF INDIA"],
-        ["Account Statement for Account: 30123456789"],
-        ["Account Name: Rahul Sharma"],
-        ["CIF No: 85647382910, IFSC: SBIN0001234"],
-        [""],
-        ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"],
-        ["01 Jan 2026", "01 Jan 2026", "OPENING BALANCE", "", "", "", "10,000.00"],
-        ["05 Jan 2026", "05 Jan 2026", "UPI/12345/Tea Stall", "UPI12345", "50.00", "", "9,950.00"],
-        ["10 Jan 2026", "10 Jan 2026", "SALARY CREDIT", "SAL98765", "", "50,000.00", "59,950.00"],
-        ["15 Jan 2026", "15 Jan 2026", "ATM CASH WDL", "ATM5544", "2,000.00", "", "57,950.00"],
-        ["31 Jan 2026", "31 Jan 2026", "CLOSING BALANCE", "", "", "", "57,950.00"],
-    ]
-    with open(file_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerows(rows)
-    return file_path
+_SBI_FIXTURE = Path(__file__).parent / "fixtures" / "sbi_statement.csv"
 
 
 def test_bank_capability_does_not_instantiate_native_extraction() -> None:
@@ -62,13 +40,13 @@ def test_bank_capability_does_not_instantiate_native_extraction() -> None:
     assert not hasattr(cap, "_native_extractor")
 
 
-def test_missing_prior_canonical_document_fails_safely(tmp_path: Path, sbi_statement_csv: Path) -> None:
+def test_missing_prior_canonical_document_fails_safely() -> None:
     """Verify executing BankStatementCapability without prior CanonicalDocument fails safely with DoshError."""
     cap = BankStatementCapability()
     req = Request(
         request_id="req-fail-1",
         requirement="bank_statements",
-        inputs=(InputRef("i1", sbi_statement_csv, "sbi.csv", 100),),
+        inputs=(InputRef("i1", _SBI_FIXTURE, "sbi.csv", 100),),
     )
     ctx = ExecutionContext("run-1", "req-fail-1", "t1", "s1")
 
@@ -132,9 +110,10 @@ def test_canonical_banks_dir_resolution() -> None:
     assert _CANONICAL_BANKS_DIR.exists()
     assert (_CANONICAL_BANKS_DIR / "common.yaml").exists()
     assert (_CANONICAL_BANKS_DIR / "sbi.yaml").exists()
+    assert (_CANONICAL_BANKS_DIR / "hdfc.yaml").exists()
 
 
-def test_e2e_sbi_bank_statement_consolidation(tmp_path: Path, sbi_statement_csv: Path) -> None:
+def test_e2e_sbi_bank_statement_consolidation(tmp_path: Path) -> None:
     """Test full E2E execution through Agni composition root for Bank Statement Consolidation."""
     runtime_dir = tmp_path / "Runtime"
     output_dir = tmp_path / "Output"
@@ -148,9 +127,9 @@ def test_e2e_sbi_bank_statement_consolidation(tmp_path: Path, sbi_statement_csv:
 
     inp = InputRef(
         input_id="inp-sbi-1",
-        source_path=sbi_statement_csv,
-        display_name="sbi_jan_2026.csv",
-        size_bytes=sbi_statement_csv.stat().st_size,
+        source_path=_SBI_FIXTURE,
+        display_name="sbi_statement.csv",
+        size_bytes=_SBI_FIXTURE.stat().st_size,
     )
 
     req = Request(
