@@ -17,7 +17,7 @@ from sarathi.sankalpa import (
     Result,
     WarningRecord,
 )
-from sarathi.shakti.ocr.engine import extract_images_from_bytes, ocr_page_image
+from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 
 
@@ -35,8 +35,13 @@ def _is_usable_document(doc: CanonicalDocument) -> bool:
 class OCRCapability:
     """Canonical executable capability for OCR Phase 1 (Instant profile)."""
 
-    def __init__(self, declaration: CapabilityDeclaration = CAPABILITY_DECLARATION) -> None:
+    def __init__(
+        self,
+        declaration: CapabilityDeclaration = CAPABILITY_DECLARATION,
+        engine: RapidOCREngine | None = None,
+    ) -> None:
         self.declaration: CapabilityDeclaration = declaration
+        self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine()
 
     def execute(
         self,
@@ -115,12 +120,13 @@ class OCRCapability:
                     message="Unsupported content format for OCR.",
                 )
 
-            # Perform OCR on each page image
+            # Perform OCR on each page image using instance-owned engine
             pages = []
             for page_idx, img in enumerate(images, 1):
-                page_data, prov, _ = ocr_page_image(img, page_idx, inp.input_id)
+                page_data, prov, _, page_warnings = self._engine.ocr_page(img, page_idx, inp.input_id)
                 pages.append(page_data)
                 all_provenance.append(prov)
+                all_warnings.extend(page_warnings)
 
             full_text = "\n\n".join(p.text for p in pages if p.text)
             ocr_doc = CanonicalDocument(
@@ -147,8 +153,9 @@ class OCRCapability:
                 score=round(sum(scores) / len(scores), 4),
                 method="rapidocr_mean",
                 evidence={
-                    "engine": "rapidocr-openvino",
+                    "engine": "rapidocr",
                     "backend": "openvino",
+                    "model": "PP-OCRv5",
                     "page_count": len(scores),
                 },
             )

@@ -1,9 +1,21 @@
 """Unit and end-to-end integration tests for OCR Phase 1 (Instant profile)."""
 
+import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 from PIL import Image, ImageDraw
 import pymupdf
+
+_OCR_AVAILABLE = (
+    importlib.util.find_spec("rapidocr") is not None
+    and importlib.util.find_spec("openvino") is not None
+)
+
+pytestmark = pytest.mark.skipif(
+    not _OCR_AVAILABLE,
+    reason="OCR dependencies (rapidocr, openvino) not installed. Run with --extra ocr to enable.",
+)
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import Kosh, Manthan, Pravaha
@@ -29,6 +41,7 @@ from sarathi.shakti.ocr import (
     CAPABILITY_DECLARATION as OCR_DECLARATION,
     OCRCapability,
     PLUGIN_INFO as OCR_PLUGIN,
+    RapidOCREngine,
 )
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 
@@ -89,7 +102,7 @@ class TestOCRPhase1Instant:
         assert OCR_DECLARATION.plugin_id == "shakti.ocr"
         assert OCR_DECLARATION.supported_profiles == (ExecutionProfile.INSTANT,)
 
-    def test_real_image_ocr_execution(
+    def test_real_image_ocr_execution_offline(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
         img_path = tmp_path / "invoice.png"
@@ -109,7 +122,11 @@ class TestOCRPhase1Instant:
             profile=ExecutionProfile.INSTANT,
         )
 
-        res = ocr_capability.execute(req, context)
+        # Ensure no network requests are made during OCR execution
+        with patch("requests.get", side_effect=RuntimeError("Network access forbidden in offline OCR")), \
+             patch("urllib.request.urlopen", side_effect=RuntimeError("Network access forbidden in offline OCR")):
+            res = ocr_capability.execute(req, context)
+
         assert isinstance(res, Result)
         assert res.next_requirement is None
 
@@ -129,8 +146,9 @@ class TestOCRPhase1Instant:
         # Factual overall confidence
         assert res.confidence is not None
         assert res.confidence.method == "rapidocr_mean"
-        assert res.confidence.evidence["engine"] == "rapidocr-openvino"
+        assert res.confidence.evidence["engine"] == "rapidocr"
         assert res.confidence.evidence["backend"] == "openvino"
+        assert res.confidence.evidence["model"] == "PP-OCRv5"
 
         # Provenance verification
         assert len(res.provenance) == 1
@@ -139,7 +157,9 @@ class TestOCRPhase1Instant:
         assert prov.stage == "ocr"
         assert prov.capability_id == "ocr"
         assert prov.page_number == 1
-        assert prov.evidence["engine"] == "rapidocr-openvino"
+        assert prov.evidence["engine"] == "rapidocr"
+        assert prov.evidence["backend"] == "openvino"
+        assert prov.evidence["model"] == "PP-OCRv5"
         assert prov.evidence["profile"] == "instant"
         assert prov.source_file is None
 
