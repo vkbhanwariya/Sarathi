@@ -45,10 +45,17 @@ _CHUNK_SIZE = 65536
 def _is_path_relative_to(path: Path, base: Path) -> bool:
     """Check if path is strictly located within or equal to base directory."""
     try:
-        path.resolve().relative_to(base.resolve())
+        resolved_path = path.resolve()
+        resolved_base = base.resolve()
+        resolved_path.relative_to(resolved_base)
         return True
     except ValueError:
         return False
+    except OSError as err:
+        raise DoshError(
+            code=FailureCode.EXECUTION_FAILED,
+            message="Failed to inspect filesystem path containment.",
+        ) from err
 
 
 def _check_symlink_escape(target_path: Path, base_dir: Path) -> None:
@@ -56,7 +63,14 @@ def _check_symlink_escape(target_path: Path, base_dir: Path) -> None:
 
     symlink outside of base_dir.
     """
-    resolved_base = base_dir.resolve()
+    try:
+        resolved_base = base_dir.resolve()
+    except OSError as err:
+        raise DoshError(
+            code=FailureCode.EXECUTION_FAILED,
+            message="Filesystem access error inspecting boundary base directory.",
+        ) from err
+
     current = target_path
     while True:
         try:
@@ -67,13 +81,14 @@ def _check_symlink_escape(target_path: Path, base_dir: Path) -> None:
                         code=FailureCode.SECURITY_DENIED,
                         message="Symlink escape detected: target path resolves outside boundary root.",
                     )
+            resolved_current = current.resolve()
         except OSError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Filesystem access error inspecting path.",
             ) from err
 
-        if current.resolve() == resolved_base or current == current.parent:
+        if resolved_current == resolved_base or current == current.parent:
             break
         current = current.parent
 
@@ -93,13 +108,25 @@ def _validate_root_directory(
             message=f"{param_name} cannot be an empty or whitespace path.",
         )
 
-    resolved_path = Path(root).resolve()
-
-    if resolved_path.exists() and not resolved_path.is_dir():
+    try:
+        resolved_path = Path(root).resolve()
+    except OSError as err:
         raise DoshError(
             code=FailureCode.INVALID_CONFIGURATION,
-            message=f"{param_name} exists but is not a directory.",
-        )
+            message=f"Failed to inspect {param_name} directory.",
+        ) from err
+
+    try:
+        if resolved_path.exists() and not resolved_path.is_dir():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"{param_name} exists but is not a directory.",
+            )
+    except OSError as err:
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"Failed to inspect {param_name} directory.",
+        ) from err
 
     return resolved_path
 
@@ -231,7 +258,7 @@ class RunWorkspace:
                 f.flush()
                 os.fsync(f.fileno())
             temp_file.replace(target_path)
-        except Exception as err:
+        except OSError as err:
             if temp_file.exists():
                 try:
                     temp_file.unlink(missing_ok=True)
@@ -400,7 +427,7 @@ class RunWorkspace:
                 dst.flush()
                 os.fsync(dst.fileno())
             temp_file.replace(dest_path)
-        except Exception as err:
+        except OSError as err:
             if temp_file.exists():
                 try:
                     temp_file.unlink(missing_ok=True)
@@ -631,7 +658,7 @@ class RunWorkspace:
                     dst.flush()
                     os.fsync(dst.fileno())
                 temp_file.replace(dest_path)
-            except Exception as err:
+            except OSError as err:
                 if temp_file.exists():
                     try:
                         temp_file.unlink(missing_ok=True)
@@ -696,41 +723,51 @@ class RunWorkspace:
         provenance: Sequence[ProvenanceRecord] | None = None,
         warnings: Sequence[WarningRecord] | None = None,
     ) -> Path:
-        """Finalize the run workspace: writes run-manifest.json last, cleans staging data,
-        and marks the workspace finalized.
+        """Finalize the run workspace by writing run-manifest.json and cleaning staging data.
 
-        Manifest contains only declared safe identity and factual fields: run/requirement/status/timestamps,
-        artifact ID/role/media type/relative path/size/checksum, safe provenance identity fields,
-        warning code/stage, and explicit partial artifact facts.
-
-        Completed confirmed artifacts remain valid and are truthfully recorded in the manifest
-        even if the overall run status is failed.
-
-        Arbitrary caller metadata, raw document text, raw exception text, raw paths, and arbitrary evidence
-        are strictly excluded.
+        All validation and serialization happen in-memory BEFORE any state mutation or filesystem cleanup.
 
         Args:
-            success: Whether the run completed successfully.
+            success: Whether the overall run completed successfully.
             metadata: Optional caller metadata (ignored for privacy in Phase 1 manifest).
-            provenance: Optional sequence of ProvenanceRecord instances.
-            warnings: Optional sequence of WarningRecord instances.
+            provenance: Optional sequence of ProvenanceRecord objects.
+            warnings: Optional sequence of WarningRecord objects.
 
         Returns:
-            Path to the committed run-manifest.json file.
+            Path to the written run-manifest.json.
 
         Raises:
             DoshError(FailureCode.VALIDATION_FAILED): If already finalized or invalid record identifiers.
-            DoshError(FailureCode.EXECUTION_FAILED): If manifest write or cleanup fails.
+            DoshError(FailureCode.EXECUTION_FAILED): If manifest write, stat, or cleanup fails.
             TypeError: If input sequences contain invalid record types.
         """
         if not isinstance(success, bool):
             raise TypeError(f"success must be a bool, got {type(success).__name__}.")
+
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise TypeError(f"metadata must be a Mapping or None, got {type(metadata).__name__}.")
 
         if self._is_finalized:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
                 message="Run workspace is already finalized.",
             )
+
+        partial_manifest_entries: list[dict[str, Any]] = []
+        for p in self._partial_artifacts:
+            try:
+                if p.exists():
+                    partial_manifest_entries.append(
+                        {
+                            "relative_path": str(p.relative_to(self._output_dir)).replace("\\", "/"),
+                            "size_bytes": p.stat().st_size,
+                        }
+                    )
+            except OSError as err:
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to inspect partial artifact for manifest generation.",
+                ) from err
 
         manifest_data: dict[str, Any] = {
             "run_id": self._run_id,
@@ -749,14 +786,7 @@ class RunWorkspace:
                 }
                 for art in self._committed_artifacts
             ],
-            "partial_artifacts": [
-                {
-                    "relative_path": str(p.relative_to(self._output_dir)).replace("\\", "/"),
-                    "size_bytes": p.stat().st_size if p.exists() else 0,
-                }
-                for p in self._partial_artifacts
-                if p.exists()
-            ],
+            "partial_artifacts": partial_manifest_entries,
         }
 
         # Safe provenance identity recording only (strictly validated against safe identifiers when present)
