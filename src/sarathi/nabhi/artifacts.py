@@ -1,0 +1,747 @@
+"""Canonical Artifact Boundary for Nabhi Kernel in Sarathi V2.
+
+Defines:
+- ArtifactBoundary: The single injected boundary for artifact lifecycle management.
+- RunWorkspace: Per-run active workspace providing safe staging, atomic commits,
+  manifest generation, and cleanup.
+
+Owns:
+- Root validation and separation of runtime and output directories.
+- Staging directory under Runtime/Work/<run-id>/
+- Output directory under Output/<requirement>/Run-<timestamp>-<short-id>/
+- Atomic writes via unique temporary files in the destination filesystem.
+- Measurement of actual size and SHA-256 checksums for ArtifactRef creation.
+- Canonical run-manifest.json written last upon completion.
+- Cleanup of staging files and explicit partial preservation under partial/.
+- Input file safety: inputs are never modified, moved, deleted, or copied.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath, PureWindowsPath
+import re
+import shutil
+from typing import Any, Mapping, Sequence
+import uuid
+
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.sankalpa import ArtifactIntent, ArtifactRef, ProvenanceRecord, WarningRecord
+from sarathi.sankalpa.artifact import _validate_safe_relative_path
+
+_REQUIREMENT_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_-]+$")
+_RUN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _is_path_relative_to(path: Path, base: Path) -> bool:
+    """Check if path is strictly located within or equal to base directory."""
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _check_symlink_escape(target_path: Path, base_dir: Path) -> None:
+    """Verify that neither target_path nor any of its ancestor directories up to base_dir
+
+    symlink outside of base_dir.
+    """
+    resolved_base = base_dir.resolve()
+    current = target_path
+    while True:
+        try:
+            if current.is_symlink():
+                resolved_link = current.resolve()
+                if not _is_path_relative_to(resolved_link, resolved_base):
+                    raise DoshError(
+                        code=FailureCode.SECURITY_DENIED,
+                        message=f"Symlink escape detected: {current.name} resolves outside boundary root.",
+                    )
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message=f"Filesystem access error inspecting path: {err}",
+            ) from err
+
+        if current.resolve() == resolved_base or current == current.parent:
+            break
+        current = current.parent
+
+
+def _validate_root_directory(
+    root: Path | str,
+    param_name: str,
+) -> Path:
+    """Validate that a root path argument is a valid non-empty path and can serve as a directory."""
+    if isinstance(root, bool) or not isinstance(root, (str, Path)):
+        raise TypeError(f"{param_name} must be a Path or str, got {type(root).__name__}.")
+
+    raw_str = str(root).strip()
+    if not raw_str:
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"{param_name} cannot be an empty or whitespace path.",
+        )
+
+    resolved_path = Path(root).resolve()
+
+    if resolved_path.exists() and not resolved_path.is_dir():
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"{param_name} exists but is not a directory: {resolved_path.name}",
+        )
+
+    return resolved_path
+
+
+def _validate_root_separation(runtime_root: Path, output_root: Path) -> None:
+    """Ensure runtime_root and output_root are distinct and not nested within each other."""
+    if runtime_root == output_root:
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message="runtime_root and output_root cannot be the same directory.",
+        )
+
+    if _is_path_relative_to(output_root, runtime_root) or _is_path_relative_to(runtime_root, output_root):
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message="runtime_root and output_root cannot be nested within each other.",
+        )
+
+
+class RunWorkspace:
+    """Active run workspace providing staging, atomic commit, manifest generation, and cleanup.
+
+    Managed exclusively by ArtifactBoundary.
+    """
+
+    def __init__(
+        self,
+        run_id: str,
+        requirement: str,
+        staging_dir: Path,
+        output_dir: Path,
+        preserve_partial: bool = False,
+        start_time_utc: datetime | None = None,
+    ) -> None:
+        self._run_id: str = run_id
+        self._requirement: str = requirement
+        self._staging_dir: Path = staging_dir
+        self._output_dir: Path = output_dir
+        self._preserve_partial: bool = preserve_partial
+        self._start_time_utc: datetime = (
+            start_time_utc if start_time_utc is not None else datetime.now(timezone.utc)
+        )
+
+        self._committed_artifacts: list[ArtifactRef] = []
+        self._committed_relative_paths: set[str] = set()
+        self._staged_relative_paths: set[str] = set()
+        self._partial_artifacts: list[Path] = []
+        self._is_finalized: bool = False
+
+        # Ensure staging and output directories exist
+        try:
+            self._staging_dir.mkdir(parents=True, exist_ok=True)
+            self._output_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message=f"Failed to initialize run workspace directories: {err}",
+            ) from err
+
+    @property
+    def run_id(self) -> str:
+        """Return the validated run identifier."""
+        return self._run_id
+
+    @property
+    def requirement(self) -> str:
+        """Return the validated requirement identifier."""
+        return self._requirement
+
+    @property
+    def staging_dir(self) -> Path:
+        """Return the staging directory path (Runtime/Work/<run-id>/)."""
+        return self._staging_dir
+
+    @property
+    def output_dir(self) -> Path:
+        """Return the run output directory path (Output/<requirement>/Run-<timestamp>-<short-id>/)."""
+        return self._output_dir
+
+    @property
+    def preserve_partial(self) -> bool:
+        """Return whether partial artifacts are preserved on incomplete runs."""
+        return self._preserve_partial
+
+    @property
+    def committed_artifacts(self) -> tuple[ArtifactRef, ...]:
+        """Return an immutable tuple of confirmed committed ArtifactRefs."""
+        return tuple(self._committed_artifacts)
+
+    @property
+    def is_finalized(self) -> bool:
+        """Return whether this run workspace has finalized."""
+        return self._is_finalized
+
+    def _resolve_relative_path(self, intent: ArtifactIntent) -> Path:
+        """Resolve and validate the relative destination path declared by an ArtifactIntent."""
+        if not isinstance(intent, ArtifactIntent):
+            raise TypeError(f"intent must be an ArtifactIntent instance, got {type(intent).__name__}.")
+
+        raw_rel = intent.relative_path if intent.relative_path is not None else Path(intent.name)
+        try:
+            validated_rel = _validate_safe_relative_path(raw_rel)
+        except (ValueError, TypeError) as err:
+            raise DoshError(
+                code=FailureCode.SECURITY_DENIED,
+                message=f"Invalid or unsafe artifact relative path {raw_rel!r}: {err}",
+            ) from err
+
+        return validated_rel
+
+    def _normalize_path_key(self, rel_path: Path) -> str:
+        """Normalize a relative path to standard forward-slash key for uniqueness checking."""
+        return str(rel_path).replace("\\", "/")
+
+    def _write_bytes_atomically(self, target_path: Path, content: bytes) -> None:
+        """Write content bytes into target_path atomically using a temporary file in the same directory."""
+        if not isinstance(content, (bytes, bytearray)):
+            raise TypeError(f"content must be bytes or bytearray, got {type(content).__name__}.")
+
+        target_dir = target_path.parent
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message=f"Failed to create directory {target_dir.name}: {err}",
+            ) from err
+
+        temp_file = target_dir / f".tmp_{uuid.uuid4().hex}_{target_path.name}"
+        try:
+            with temp_file.open("wb") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            temp_file.replace(target_path)
+        except OSError as err:
+            if temp_file.exists():
+                try:
+                    temp_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message=f"Failed to atomically write artifact file {target_path.name}: {err}",
+            ) from err
+
+    def stage_artifact(self, intent: ArtifactIntent, content: bytes) -> Path:
+        """Stage an artifact byte payload under Runtime/Work/<run-id>/<relative_path>.
+
+        Args:
+            intent: Declared artifact intent.
+            content: Raw byte payload.
+
+        Returns:
+            Path to the staged file.
+
+        Raises:
+            DoshError(FailureCode.VALIDATION_FAILED): If workspace is finalized.
+            DoshError(FailureCode.SECURITY_DENIED): On traversal, escape, or symlink violations.
+            DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
+        """
+        if self._is_finalized:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Cannot stage artifact in a finalized run workspace.",
+            )
+
+        rel_path = self._resolve_relative_path(intent)
+        dest_path = self._staging_dir / rel_path
+
+        if not _is_path_relative_to(dest_path, self._staging_dir):
+            raise DoshError(
+                code=FailureCode.SECURITY_DENIED,
+                message=f"Staging path escapes staging root: {rel_path}",
+            )
+
+        _check_symlink_escape(dest_path, self._staging_dir)
+        self._write_bytes_atomically(dest_path, bytes(content))
+        self._staged_relative_paths.add(self._normalize_path_key(rel_path))
+        return dest_path
+
+    def commit_staged_artifact(self, intent: ArtifactIntent, staged_path: Path) -> ArtifactRef:
+        """Atomically commit an already staged artifact to the final run output directory.
+
+        Measures actual size and SHA-256 checksum upon commit, cleans up the staged file,
+        and returns a confirmed ArtifactRef.
+
+        Args:
+            intent: Declared artifact intent.
+            staged_path: Path to the staged file in Runtime/Work/<run-id>/.
+
+        Returns:
+            Confirmed ArtifactRef.
+
+        Raises:
+            DoshError(FailureCode.VALIDATION_FAILED): On duplicate destination or missing staged file.
+            DoshError(FailureCode.SECURITY_DENIED): On traversal or root escape.
+            DoshError(FailureCode.EXECUTION_FAILED): On I/O failure.
+        """
+        if self._is_finalized:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Cannot commit artifact in a finalized run workspace.",
+            )
+
+        if not isinstance(staged_path, Path):
+            if isinstance(staged_path, str):
+                staged_path = Path(staged_path)
+            else:
+                raise TypeError(f"staged_path must be a Path or str, got {type(staged_path).__name__}.")
+
+        if not staged_path.exists():
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Staged artifact file does not exist: {staged_path.name}",
+            )
+
+        if not _is_path_relative_to(staged_path, self._staging_dir):
+            raise DoshError(
+                code=FailureCode.SECURITY_DENIED,
+                message="staged_path is not within the active staging directory.",
+            )
+
+        try:
+            content = staged_path.read_bytes()
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message=f"Failed to read staged artifact {staged_path.name}: {err}",
+            ) from err
+
+        ref = self.commit_artifact(intent, content)
+
+        # Clean up staging file
+        try:
+            staged_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        return ref
+
+    def commit_artifact(self, intent: ArtifactIntent, content: bytes) -> ArtifactRef:
+        """Directly commit an artifact byte payload to the final run output directory.
+
+        Writes atomically through a temporary file in the destination filesystem,
+        verifies that the final file exists, measures its actual size and SHA-256 checksum,
+        and returns a confirmed ArtifactRef.
+
+        Args:
+            intent: Declared artifact intent.
+            content: Raw byte payload.
+
+        Returns:
+            Confirmed ArtifactRef.
+
+        Raises:
+            DoshError(FailureCode.VALIDATION_FAILED): If already committed or destination exists.
+            DoshError(FailureCode.SECURITY_DENIED): On traversal, root escape, or symlink violations.
+            DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
+        """
+        if self._is_finalized:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Cannot commit artifact in a finalized run workspace.",
+            )
+
+        rel_path = self._resolve_relative_path(intent)
+        path_key = self._normalize_path_key(rel_path)
+
+        if path_key in self._committed_relative_paths:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Duplicate artifact destination path: {path_key!r}",
+            )
+
+        dest_path = self._output_dir / rel_path
+
+        if not _is_path_relative_to(dest_path, self._output_dir):
+            raise DoshError(
+                code=FailureCode.SECURITY_DENIED,
+                message=f"Artifact destination path escapes output root: {rel_path}",
+            )
+
+        _check_symlink_escape(dest_path, self._output_dir)
+
+        if dest_path.exists():
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Artifact destination already exists on disk: {dest_path.name}",
+            )
+
+        byte_payload = bytes(content)
+        self._write_bytes_atomically(dest_path, byte_payload)
+
+        # Measure actual facts on committed file
+        try:
+            actual_size = dest_path.stat().st_size
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message=f"Failed to measure committed artifact {dest_path.name}: {err}",
+            ) from err
+
+        sha256_hash = hashlib.sha256(byte_payload).hexdigest()
+        artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+
+        ref = ArtifactRef(
+            artifact_id=artifact_id,
+            role=intent.role,
+            media_type=intent.media_type,
+            path=dest_path,
+            size_bytes=actual_size,
+            checksum_sha256=sha256_hash,
+            metadata=intent.metadata,
+        )
+
+        self._committed_artifacts.append(ref)
+        self._committed_relative_paths.add(path_key)
+        return ref
+
+    def preserve_partial_artifact(
+        self,
+        intent: ArtifactIntent,
+        content: bytes | Path,
+    ) -> Path | None:
+        """Preserve an incomplete/partial artifact under Output/.../partial/<relative_path>
+
+        only when preserve_partial is True.
+
+        Args:
+            intent: Declared artifact intent.
+            content: Raw byte payload or path to a staged file.
+
+        Returns:
+            Path to the preserved partial artifact, or None if preserve_partial is False.
+        """
+        if not self._preserve_partial:
+            return None
+
+        if self._is_finalized:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Cannot preserve partial artifact in a finalized run workspace.",
+            )
+
+        rel_path = self._resolve_relative_path(intent)
+        partial_dir = self._output_dir / "partial"
+        dest_path = partial_dir / rel_path
+
+        if not _is_path_relative_to(dest_path, partial_dir):
+            raise DoshError(
+                code=FailureCode.SECURITY_DENIED,
+                message=f"Partial artifact path escapes partial root: {rel_path}",
+            )
+
+        _check_symlink_escape(dest_path, partial_dir)
+
+        if isinstance(content, Path):
+            if not content.exists():
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Source partial file does not exist: {content.name}",
+                )
+            try:
+                byte_payload = content.read_bytes()
+            except OSError as err:
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message=f"Failed to read partial artifact source: {err}",
+                ) from err
+        elif isinstance(content, (bytes, bytearray)):
+            byte_payload = bytes(content)
+        else:
+            raise TypeError(f"content must be bytes, bytearray, or Path, got {type(content).__name__}.")
+
+        self._write_bytes_atomically(dest_path, byte_payload)
+        self._partial_artifacts.append(dest_path)
+        return dest_path
+
+    def finalize(
+        self,
+        *,
+        success: bool = True,
+        metadata: Mapping[str, Any] | None = None,
+        provenance: Sequence[ProvenanceRecord] | None = None,
+        warnings: Sequence[WarningRecord] | None = None,
+    ) -> Path:
+        """Finalize the run workspace: writes run-manifest.json last, cleans staging data,
+
+        and marks the workspace finalized.
+
+        Manifest contains only safe run identity, confirmed artifact records, and safe provenance.
+        It strictly excludes raw input filesystem paths, document payloads, raw exception text,
+        credentials, secrets, or fabricated confidence values.
+
+        Args:
+            success: Whether the run completed successfully.
+            metadata: Optional safe run-level metadata.
+            provenance: Optional sequence of ProvenanceRecord instances.
+            warnings: Optional sequence of WarningRecord instances.
+
+        Returns:
+            Path to the committed run-manifest.json file.
+
+        Raises:
+            DoshError(FailureCode.VALIDATION_FAILED): If already finalized.
+            DoshError(FailureCode.EXECUTION_FAILED): If manifest write fails.
+        """
+        if self._is_finalized:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Run workspace is already finalized.",
+            )
+
+        manifest_data: dict[str, Any] = {
+            "run_id": self._run_id,
+            "requirement": self._requirement,
+            "status": "completed" if success else "failed",
+            "created_at_utc": self._start_time_utc.isoformat(),
+            "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "artifacts": [
+                {
+                    "artifact_id": art.artifact_id,
+                    "role": art.role,
+                    "media_type": art.media_type,
+                    "relative_path": str(art.path.relative_to(self._output_dir)).replace("\\", "/"),
+                    "size_bytes": art.size_bytes,
+                    "checksum_sha256": art.checksum_sha256,
+                    "metadata": dict(art.metadata),
+                }
+                for art in self._committed_artifacts
+            ],
+            "partial_artifacts": [
+                {
+                    "relative_path": str(p.relative_to(self._output_dir)).replace("\\", "/"),
+                    "size_bytes": p.stat().st_size if p.exists() else 0,
+                }
+                for p in self._partial_artifacts
+            ],
+        }
+
+        # Safe provenance recording
+        if provenance is not None:
+            if not isinstance(provenance, (list, tuple)):
+                raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(provenance).__name__}.")
+            cleaned_prov: list[dict[str, Any]] = []
+            for i, p in enumerate(provenance):
+                if not isinstance(p, ProvenanceRecord):
+                    raise TypeError(f"provenance[{i}] must be a ProvenanceRecord, got {type(p).__name__}.")
+                prov_entry: dict[str, Any] = {
+                    "stage": p.stage,
+                    "plugin_id": p.plugin_id,
+                    "capability_id": p.capability_id,
+                    "page_number": p.page_number,
+                    "region": p.region,
+                    "timestamp_utc": p.timestamp_utc,
+                    "evidence": dict(p.evidence),
+                }
+                if p.source_input_id:
+                    prov_entry["source_input_id"] = p.source_input_id
+                # Record source file basename only; never expose raw full directory paths
+                if p.source_file:
+                    prov_entry["source_file"] = Path(p.source_file).name
+                cleaned_prov.append(prov_entry)
+            manifest_data["provenance"] = cleaned_prov
+
+        # Safe warning recording
+        if warnings is not None:
+            if not isinstance(warnings, (list, tuple)):
+                raise TypeError(f"warnings must be a sequence of WarningRecord, got {type(warnings).__name__}.")
+            manifest_data["warnings"] = [
+                {
+                    "code": w.code,
+                    "message": w.message,
+                    "stage": w.stage,
+                    "context": dict(w.context),
+                }
+                for w in warnings
+            ]
+
+        if metadata is not None:
+            if not isinstance(metadata, Mapping):
+                raise TypeError(f"metadata must be a Mapping, got {type(metadata).__name__}.")
+            manifest_data["metadata"] = dict(metadata)
+
+        # Write run-manifest.json atomically
+        manifest_file = self._output_dir / "run-manifest.json"
+        manifest_bytes = json.dumps(manifest_data, indent=2, ensure_ascii=False).encode("utf-8")
+        self._write_bytes_atomically(manifest_file, manifest_bytes)
+
+        # Clean staging data on finalization
+        self.cleanup()
+        self._is_finalized = True
+        return manifest_file
+
+    def cleanup(self) -> None:
+        """Clean up uncommitted staging data from the staging directory."""
+        if self._staging_dir.exists():
+            try:
+                shutil.rmtree(self._staging_dir, ignore_errors=True)
+            except OSError:
+                pass
+
+    def __enter__(self) -> RunWorkspace:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        if exc_type is not None and not self._is_finalized:
+            self.cleanup()
+
+
+class ArtifactBoundary:
+    """Canonical Artifact Boundary for Sarathi V2.
+
+    Single global boundary responsible for staging, atomic commits, run manifests,
+    and storage root lifecycle.
+    """
+
+    def __init__(
+        self,
+        runtime_root: Path | str,
+        output_root: Path | str,
+    ) -> None:
+        """Construct an ArtifactBoundary with explicit runtime and output roots.
+
+        Args:
+            runtime_root: Explicit path to the runtime storage directory.
+            output_root: Explicit path to the output storage directory.
+
+        Raises:
+            TypeError: If roots are not Path or str.
+            DoshError(FailureCode.INVALID_CONFIGURATION): On empty paths, non-directory paths,
+                equal roots, or nested roots.
+        """
+        validated_runtime = _validate_root_directory(runtime_root, "runtime_root")
+        validated_output = _validate_root_directory(output_root, "output_root")
+        _validate_root_separation(validated_runtime, validated_output)
+
+        try:
+            validated_runtime.mkdir(parents=True, exist_ok=True)
+            validated_output.mkdir(parents=True, exist_ok=True)
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Failed to create root storage directories: {err}",
+            ) from err
+
+        self._runtime_root: Path = validated_runtime
+        self._output_root: Path = validated_output
+
+    @property
+    def runtime_root(self) -> Path:
+        """Return the active runtime root directory."""
+        return self._runtime_root
+
+    @property
+    def output_root(self) -> Path:
+        """Return the active output root directory."""
+        return self._output_root
+
+    def begin_run(
+        self,
+        run_id: str,
+        requirement: str,
+        *,
+        output_root: Path | str | None = None,
+        preserve_partial: bool = False,
+        timestamp: datetime | None = None,
+    ) -> RunWorkspace:
+        """Begin a run workspace for safe staging and atomic artifact commits.
+
+        Args:
+            run_id: Safe non-empty run identifier (e.g. 'run-1', 'run-001').
+            requirement: Safe stable requirement identifier (e.g. 'ocr', 'bank_statements').
+            output_root: Optional per-run output root override.
+            preserve_partial: Whether incomplete artifacts should be retained under partial/.
+            timestamp: Optional UTC timestamp override (used for deterministic run folder naming).
+
+        Returns:
+            An active RunWorkspace.
+
+        Raises:
+            TypeError: If arguments are of invalid types.
+            DoshError(FailureCode.VALIDATION_FAILED): If run_id or requirement is malformed.
+            DoshError(FailureCode.INVALID_CONFIGURATION): If output_root override is invalid or nested.
+        """
+        if not isinstance(run_id, str):
+            raise TypeError(f"run_id must be a string, got {type(run_id).__name__}.")
+        cleaned_run_id = run_id.strip()
+        if not cleaned_run_id or not _RUN_ID_PATTERN.match(cleaned_run_id):
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"run_id must be a safe non-empty identifier (alphanumeric, '_', '-'), got {run_id!r}.",
+            )
+
+        if not isinstance(requirement, str):
+            raise TypeError(f"requirement must be a string, got {type(requirement).__name__}.")
+        if not _REQUIREMENT_IDENTIFIER_PATTERN.match(requirement):
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=(
+                    f"requirement must be a safe stable identifier (lowercase letters, digits, '_' and '-' only), "
+                    f"got {requirement!r}."
+                ),
+            )
+
+        if not isinstance(preserve_partial, bool):
+            raise TypeError(f"preserve_partial must be a bool, got {type(preserve_partial).__name__}.")
+
+        # Active output root determination
+        if output_root is not None:
+            active_output_root = _validate_root_directory(output_root, "output_root")
+            _validate_root_separation(self._runtime_root, active_output_root)
+            try:
+                active_output_root.mkdir(parents=True, exist_ok=True)
+            except OSError as err:
+                raise DoshError(
+                    code=FailureCode.INVALID_CONFIGURATION,
+                    message=f"Failed to create custom output root: {err}",
+                ) from err
+        else:
+            active_output_root = self._output_root
+
+        # Staging directory: Runtime/Work/<run-id>/
+        staging_dir = self._runtime_root / "Work" / cleaned_run_id
+
+        # Unique run directory: Output/<requirement>/Run-<timestamp>-<short-id>/
+        ts = timestamp if timestamp is not None else datetime.now(timezone.utc)
+        ts_str = ts.strftime("%Y%m%d-%H%M%S")
+
+        req_output_dir = active_output_root / requirement
+        while True:
+            short_id = uuid.uuid4().hex[:8].upper()
+            run_dir_name = f"Run-{ts_str}-{short_id}"
+            run_output_dir = req_output_dir / run_dir_name
+            if not run_output_dir.exists():
+                break
+
+        return RunWorkspace(
+            run_id=cleaned_run_id,
+            requirement=requirement,
+            staging_dir=staging_dir,
+            output_dir=run_output_dir,
+            preserve_partial=preserve_partial,
+            start_time_utc=ts,
+        )
