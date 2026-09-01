@@ -29,6 +29,7 @@ from sarathi.sankalpa import ArtifactRef, Capability, DeviceType, ExecutionConte
 from sarathi.shakti.darshana import DarshanaCapability, identify_request
 from sarathi.shakti.native_extraction import NativeExtractionCapability
 from sarathi.shakti.ocr import OCRCapability
+from sarathi.shakti.bank_statements import BankStatementCapability
 from sarathi.sutra import Settings, load_settings
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 
@@ -151,6 +152,7 @@ class Agni:
                 "identify": DarshanaCapability(),
                 "read_native": NativeExtractionCapability(),
                 "ocr": OCRCapability(),
+                "bank_statements": BankStatementCapability(),
             }
 
         # 7. Validate Inventory - use factual default inventory
