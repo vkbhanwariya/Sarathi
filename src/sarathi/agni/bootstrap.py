@@ -1,0 +1,362 @@
+"""Agni - Runtime Bootstrap and Composition Root for Sarathi V2.
+
+Composes configuration, global shared services, core kernel components, plugin discovery/registration,
+lifecycle management, and canonical request execution. Wires owners together; does not absorb their logic.
+"""
+
+from __future__ import annotations
+
+from contextlib import nullcontext
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from sarathi.darpana import Darpana
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.kavacha import Kavacha, SecurityPolicy
+from sarathi.nabhi import (
+    ArtifactBoundary,
+    Dvara,
+    Kosh,
+    Manthan,
+    Pravaha,
+    Prana,
+    QuarantineStore,
+    RetryPolicy,
+)
+from sarathi.sankalpa import Capability, DeviceType, ExecutionContext, Request, Result
+from sarathi.shakti.darshana import DarshanaCapability, identify_request
+from sarathi.shakti.native_extraction import NativeExtractionCapability
+from sarathi.shakti.ocr import OCRCapability
+from sarathi.sutra import Settings, load_settings
+from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
+
+
+class Agni:
+    """Composition root for Sarathi V2 runtime services and execution lifecycle."""
+
+    def __init__(
+        self,
+        settings: Settings | Path | str | None = None,
+        *,
+        runtime_root: Path | str | None = None,
+        output_root: Path | str | None = None,
+        input_root: Path | str | None = None,
+        capabilities: Mapping[str, Capability] | None = None,
+        inventory: DeviceInventory | None = None,
+        darpana: Darpana | None = None,
+        kavacha: Kavacha | None = None,
+        context: ExecutionContext | None = None,
+    ) -> None:
+        """Initialize Agni composition root and construct global services in dependency order.
+
+        Args:
+            settings: Optional Settings instance, or path to TOML configuration.
+            runtime_root: Optional runtime staging directory override.
+            output_root: Optional output directory override.
+            input_root: Optional input directory override.
+            capabilities: Optional capability mapping override (useful for testing).
+            inventory: Optional DeviceInventory override for Yantra.
+            darpana: Optional Darpana telemetry service instance.
+            kavacha: Optional Kavacha security service instance.
+            context: Optional bootstrap ExecutionContext.
+
+        Raises:
+            TypeError: On invalid argument types.
+            DoshError: On configuration or storage initialization failure.
+        """
+        # Validate explicit context if provided
+        if context is not None and not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
+
+        bootstrap_ctx = context or ExecutionContext(
+            run_id="bootstrap",
+            request_id="bootstrap",
+            trace_id="bootstrap",
+            span_id="bootstrap-001",
+        )
+
+        # 1. Injected or default Darpana telemetry service
+        if darpana is not None:
+            if not isinstance(darpana, Darpana):
+                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+            self._darpana: Darpana = darpana
+        else:
+            self._darpana = Darpana(capacity=1000)
+
+        # 2. Sutra Configuration
+        if settings is None:
+            self._settings: Settings = Settings()
+        elif isinstance(settings, Settings):
+            self._settings = settings
+        elif isinstance(settings, (Path, str)):
+            self._settings = load_settings(settings, darpana=self._darpana, context=bootstrap_ctx)
+        else:
+            raise TypeError(f"settings must be Settings, Path, str, or None, got {type(settings).__name__}.")
+
+        storage_sec = self._settings.get_section("storage") or {}
+
+        # 3. Resolve storage roots
+        self._runtime_root: Path = (
+            Path(runtime_root)
+            if runtime_root is not None
+            else Path(storage_sec.get("runtime_root", "Runtime"))
+        )
+        self._output_root: Path = (
+            Path(output_root)
+            if output_root is not None
+            else Path(storage_sec.get("output_root", "Output"))
+        )
+        self._input_root: Path = (
+            Path(input_root)
+            if input_root is not None
+            else Path(storage_sec.get("input_root", "Input"))
+        )
+
+        # 4. Kavacha - Security & Privacy
+        if kavacha is not None:
+            if not isinstance(kavacha, Kavacha):
+                raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
+            self._kavacha: Kavacha = kavacha
+        else:
+            sec_sec = self._settings.get_section("security") or {}
+            default_policy = SecurityPolicy(
+                allow_pii_access=bool(sec_sec.get("allow_pii_access", True)),
+                allow_network_access=bool(sec_sec.get("allow_network_access", False)),
+                allow_external_processing=bool(sec_sec.get("allow_external_processing", False)),
+                allowed_secrets=tuple(sec_sec.get("allowed_secrets", ())),
+            )
+            self._kavacha = Kavacha(default_policy)
+
+        # 5. ArtifactBoundary
+        self._artifact_boundary: ArtifactBoundary = ArtifactBoundary(
+            runtime_root=self._runtime_root,
+            output_root=self._output_root,
+            kavacha=self._kavacha,
+            darpana=self._darpana,
+        )
+
+        # 6. Kosh & Dvara (Registry & Built-in discovery/registration)
+        self._kosh: Kosh = Kosh()
+        self._dvara: Dvara = Dvara(registry=self._kosh, darpana=self._darpana)
+        self._dvara.register_builtins(context=bootstrap_ctx)
+
+        # 7. DeviceInventory & Yantra
+        if inventory is not None:
+            if not isinstance(inventory, DeviceInventory):
+                raise TypeError(f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}.")
+            self._inventory: DeviceInventory = inventory
+        else:
+            self._inventory = DeviceInventory([
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ])
+        self._yantra: Yantra = Yantra(self._inventory, darpana=self._darpana)
+
+        # 8. Manthan (Capability Resolver)
+        self._manthan: Manthan = Manthan(registry=self._kosh)
+
+        # 9. Prana (Lifecycle Coordinator)
+        self._prana: Prana = Prana()
+
+        # 10. QuarantineStore & RetryPolicy
+        self._quarantine_store: QuarantineStore = QuarantineStore(
+            root=self._runtime_root / "Quarantine",
+        )
+
+        pipe_sec = self._settings.get_section("pipeline") or {}
+        max_ret = pipe_sec.get("max_retries", 0)
+        self._retry_policy: RetryPolicy = RetryPolicy(max_retries=max_ret)
+
+        # 11. Capabilities Mapping
+        if capabilities is not None:
+            if not isinstance(capabilities, Mapping):
+                raise TypeError(f"capabilities must be a Mapping or None, got {type(capabilities).__name__}.")
+            self._capabilities: dict[str, Capability] = dict(capabilities)
+        else:
+            caps: dict[str, Capability] = {
+                "identify": DarshanaCapability(),
+                "read_native": NativeExtractionCapability(),
+            }
+            try:
+                ocr_path = Path("data/ocr")
+                if (ocr_path / "models").exists():
+                    caps["ocr"] = OCRCapability(data_root=ocr_path)
+            except Exception:
+                pass
+            self._capabilities = caps
+
+        # 12. Pravaha (Dynamic Pipeline Engine)
+        self._pravaha: Pravaha = Pravaha(
+            manthan=self._manthan,
+            yantra=self._yantra,
+            capabilities=self._capabilities,
+            quarantine_store=self._quarantine_store,
+            retry_policy=self._retry_policy,
+            darpana=self._darpana,
+        )
+
+        self._is_started: bool = False
+
+    @property
+    def settings(self) -> Settings:
+        """Return the active Settings."""
+        return self._settings
+
+    @property
+    def darpana(self) -> Darpana:
+        """Return the injected Darpana telemetry service."""
+        return self._darpana
+
+    @property
+    def kavacha(self) -> Kavacha:
+        """Return the injected Kavacha security service."""
+        return self._kavacha
+
+    @property
+    def artifact_boundary(self) -> ArtifactBoundary:
+        """Return the injected ArtifactBoundary."""
+        return self._artifact_boundary
+
+    @property
+    def kosh(self) -> Kosh:
+        """Return the canonical Kosh registry."""
+        return self._kosh
+
+    @property
+    def dvara(self) -> Dvara:
+        """Return the Dvara registration manager."""
+        return self._dvara
+
+    @property
+    def yantra(self) -> Yantra:
+        """Return the Yantra execution manager."""
+        return self._yantra
+
+    @property
+    def manthan(self) -> Manthan:
+        """Return the Manthan capability resolver."""
+        return self._manthan
+
+    @property
+    def prana(self) -> Prana:
+        """Return the Prana lifecycle manager."""
+        return self._prana
+
+    @property
+    def quarantine_store(self) -> QuarantineStore:
+        """Return the QuarantineStore."""
+        return self._quarantine_store
+
+    @property
+    def retry_policy(self) -> RetryPolicy:
+        """Return the active RetryPolicy."""
+        return self._retry_policy
+
+    @property
+    def pravaha(self) -> Pravaha:
+        """Return the Pravaha pipeline engine."""
+        return self._pravaha
+
+    @property
+    def capabilities(self) -> Mapping[str, Capability]:
+        """Return an immutable snapshot of configured executable capabilities."""
+        return dict(self._capabilities)
+
+    def register_component(self, component_id: str, component: Any) -> None:
+        """Register a runtime component with Prana for lifecycle coordination."""
+        self._prana.register(component_id, component)
+
+    def start(self) -> None:
+        """Start registered runtime components in dependency order via Prana."""
+        if not self._is_started:
+            self._prana.start_all()
+            self._is_started = True
+
+    def close(self) -> None:
+        """Close registered runtime components in reverse dependency order via Prana."""
+        if self._is_started:
+            try:
+                self._prana.close_all()
+            finally:
+                self._is_started = False
+
+    def stop(self) -> None:
+        """Alias for close()."""
+        self.close()
+
+    def __enter__(self) -> Agni:
+        """Context manager entry: starts runtime lifecycle."""
+        self.start()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Context manager exit: stops runtime lifecycle."""
+        self.close()
+
+    def execute(
+        self,
+        request: Request,
+        context: ExecutionContext | None = None,
+    ) -> Result:
+        """Execute a canonical Request through the full Agni-wired runtime path.
+
+        Performs:
+        1. Pre-Manthan Darshana identification with Darpana telemetry timing.
+        2. Manthan capability plan resolution with Darpana telemetry timing.
+        3. Pravaha dynamic pipeline execution across Yantra and configured capabilities.
+
+        Args:
+            request: Canonical processing request.
+            context: Optional execution context for correlation.
+
+        Returns:
+            Canonical Result produced by the pipeline.
+
+        Raises:
+            TypeError: On invalid argument types.
+            DoshError: On validation, resolution, execution, or capability failures.
+        """
+        if not isinstance(request, Request):
+            raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
+
+        if context is not None and not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
+
+        exec_ctx = context or ExecutionContext(
+            run_id=f"run-{request.request_id}",
+            request_id=request.request_id,
+            trace_id=f"tr-{request.request_id}",
+            span_id="sp-001",
+            profile=request.profile,
+        )
+
+        # 1. Pre-Manthan Darshana Identification (Timed in Darpana)
+        id_scope = (
+            self._darpana.time_scope(
+                context=exec_ctx,
+                phase_name="identification",
+                component="shakti.darshana",
+                attributes={"input_count": len(request.inputs)},
+            )
+            if self._darpana is not None
+            else nullcontext()
+        )
+        with id_scope:
+            identified_request = identify_request(request)
+
+        # 2. Manthan Capability Plan Resolution (Timed in Darpana)
+        res_scope = (
+            self._darpana.time_scope(
+                context=exec_ctx,
+                phase_name="resolution",
+                component="nabhi.manthan",
+                attributes={"requirement": identified_request.requirement},
+            )
+            if self._darpana is not None
+            else nullcontext()
+        )
+        with res_scope:
+            plan = self._manthan.resolve(identified_request)
+
+        # 3. Pravaha Dynamic Pipeline Execution
+        return self._pravaha.execute(plan, identified_request, exec_ctx)
