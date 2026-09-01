@@ -855,7 +855,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert "promoted artifact rolled back" in exc_info.value.message
         # Destination file must NOT exist (rolled back atomically)
         assert not dest_path.exists()
-        assert len(ws._committed_artifacts) == 0
+        assert len(ws.committed_artifacts) == 0
 
     def test_commit_staged_artifact_dual_failure_registers_surviving_artifact(
         self, boundary: ArtifactBoundary
@@ -876,10 +876,10 @@ class TestNestedArtifactsAndManifestLastBoundary:
 
         assert exc_info.value.code is FailureCode.EXECUTION_FAILED
         assert "failed to roll back promoted artifact" in exc_info.value.message
-        # Destination file survived on disk and is deterministically tracked
+        # Destination file survived on disk and is deterministically tracked via public property
         assert dest_path.exists()
-        assert len(ws._committed_artifacts) == 1
-        assert ws._committed_artifacts[0].path == dest_path
+        assert len(ws.committed_artifacts) == 1
+        assert ws.committed_artifacts[0].path == dest_path
 
     @pytest.mark.parametrize(
         ("bad_prov", "err_substr"),
@@ -901,6 +901,34 @@ class TestNestedArtifactsAndManifestLastBoundary:
             ws.finalize(success=True, provenance=[bad_prov])
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert err_substr in exc_info.value.message
+
+    def test_finalize_invalid_provenance_leaves_staging_and_partial_state_intact(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-pre-mutation", requirement="ocr", preserve_partial=True)
+        staged_file = ws.stage_artifact(
+            ArtifactIntent(name="temp.txt", role="temp", media_type="text/plain"),
+            b"STAGING_MUST_SURVIVE_ON_VALIDATION_ERROR",
+        )
+        partial_file = ws.preserve_partial_artifact(
+            ArtifactIntent(name="part.json", role="partial", media_type="application/json"),
+            b'{"partial": "must_survive"}',
+        )
+
+        assert staged_file.exists()
+        assert partial_file is not None and partial_file.exists()
+
+        bad_prov = ProvenanceRecord(stage="invalid/stage", plugin_id="p1", capability_id="c1")
+
+        with pytest.raises(DoshError) as exc_info:
+            ws.finalize(success=False, provenance=[bad_prov])
+
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        # Staging and partial files MUST remain untouched because validation happened before mutation
+        assert staged_file.exists()
+        assert staged_file.read_bytes() == b"STAGING_MUST_SURVIVE_ON_VALIDATION_ERROR"
+        assert partial_file.exists()
+        assert partial_file.read_bytes() == b'{"partial": "must_survive"}'
 
     def test_provenance_and_warnings_with_none_optional_fields_serialize_safely(
         self, boundary: ArtifactBoundary
@@ -966,10 +994,30 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert "Unsafe source and destination overlap" in exc_info.value.message
         assert str(bad_input) not in exc_info.value.message
 
-    def test_input_sources_without_injected_kavacha_raises_invalid_configuration(
+    def test_artifact_boundary_init_validates_kavacha_before_creating_directories(
+        self, tmp_path: Path
+    ) -> None:
+        runtime_root = tmp_path / "nonexistent_runtime"
+        output_root = tmp_path / "nonexistent_output"
+
+        with pytest.raises(TypeError, match="kavacha must be a Kavacha instance"):
+            ArtifactBoundary(runtime_root=runtime_root, output_root=output_root, kavacha="not_a_kavacha")  # type: ignore
+
+        assert not runtime_root.exists()
+        assert not output_root.exists()
+
+    def test_input_sources_none_or_missing_kavacha_fails_before_custom_output_root_creation(
         self, boundary: ArtifactBoundary, tmp_path: Path
     ) -> None:
-        input_file = tmp_path / "valid_input.txt"
+        with pytest.raises(TypeError, match="input_sources cannot be None"):
+            boundary.begin_run(
+                run_id="run-none-input",
+                requirement="ocr",
+                input_sources=None,  # type: ignore
+            )
+
+        custom_output = tmp_path / "custom_output_not_created"
+        input_file = tmp_path / "input.txt"
         input_file.write_text("data")
 
         # boundary fixture has no injected kavacha
@@ -977,10 +1025,12 @@ class TestNestedArtifactsAndManifestLastBoundary:
             boundary.begin_run(
                 run_id="run-no-kavacha",
                 requirement="ocr",
+                output_root=custom_output,
                 input_sources=[input_file],
             )
         assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION
         assert "Kavacha security service must be injected" in exc_info.value.message
+        assert not custom_output.exists()
 
     def test_begin_run_error_messages_do_not_echo_raw_values(
         self, boundary: ArtifactBoundary
