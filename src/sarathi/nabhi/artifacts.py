@@ -25,14 +25,20 @@ import os
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 import uuid
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import ArtifactIntent, ArtifactRef, ProvenanceRecord, WarningRecord
+from sarathi.sankalpa import ArtifactIntent, ArtifactRef, InputRef, ProvenanceRecord, WarningRecord
+
+if TYPE_CHECKING:
+    from sarathi.kavacha import Kavacha
 
 _REQUIREMENT_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 _RUN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_SAFE_DOTTED_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$")
+_ISO_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$")
 _CHUNK_SIZE = 65536
 
 
@@ -389,13 +395,17 @@ class RunWorkspace:
                 message="Failed to atomically write artifact file.",
             ) from err
 
-        # Clean up staging file
+        # Clean up staging file with atomic rollback if cleanup fails
         try:
             staged_path.unlink(missing_ok=True)
         except OSError as err:
+            try:
+                dest_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message="Failed to clean up staged file.",
+                message="Failed to clean up staged file; promoted artifact rolled back.",
             ) from err
 
         artifact_id = f"art-{uuid.uuid4().hex[:12]}"
@@ -594,33 +604,39 @@ class RunWorkspace:
         return dest_path
 
     def _cleanup_run_on_failure(self) -> None:
-        """Clean up uncommitted staging data and all unfinalized output artifacts upon run failure."""
-        # 1. Clean staging directory
-        if self._staging_dir.exists():
-            shutil.rmtree(self._staging_dir)
+        """Clean up uncommitted staging data and all unfinalized output artifacts upon unfinalized run exit or failure."""
+        try:
+            # 1. Clean staging directory
+            if self._staging_dir.exists():
+                shutil.rmtree(self._staging_dir)
 
-        # 2. Clean output directory
-        if self._output_dir.exists():
-            if self._preserve_partial:
-                # Remove normal committed files, preserve partial/
-                for item in list(self._output_dir.iterdir()):
-                    if item.name != "partial":
-                        if item.is_file():
-                            item.unlink()
-                        elif item.is_dir():
-                            shutil.rmtree(item)
-                partial_dir = self._output_dir / "partial"
-                if not partial_dir.exists():
+            # 2. Clean unfinalized output directory
+            if self._output_dir.exists():
+                if self._preserve_partial:
+                    # Remove normal committed files, preserve partial/
+                    for item in list(self._output_dir.iterdir()):
+                        if item.name != "partial":
+                            if item.is_file():
+                                item.unlink()
+                            elif item.is_dir():
+                                shutil.rmtree(item)
+                    partial_dir = self._output_dir / "partial"
+                    if not partial_dir.exists():
+                        shutil.rmtree(self._output_dir)
+                else:
                     shutil.rmtree(self._output_dir)
-            else:
-                shutil.rmtree(self._output_dir)
 
-        self._committed_artifacts.clear()
-        self._committed_relative_paths.clear()
-        self._staged_relative_paths.clear()
-        if not self._preserve_partial:
-            self._partial_artifacts.clear()
-            self._partial_relative_paths.clear()
+            self._committed_artifacts.clear()
+            self._committed_relative_paths.clear()
+            self._staged_relative_paths.clear()
+            if not self._preserve_partial:
+                self._partial_artifacts.clear()
+                self._partial_relative_paths.clear()
+        except OSError as exc:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to clean up unfinalized run workspace.",
+            ) from exc
 
     def finalize(
         self,
@@ -637,6 +653,9 @@ class RunWorkspace:
         artifact ID/role/media type/relative path/size/checksum, safe provenance identity fields,
         warning code/stage, and explicit partial artifact facts.
 
+        Completed confirmed artifacts remain valid and are truthfully recorded in the manifest
+        even if the overall run status is failed.
+
         Arbitrary caller metadata, raw document text, raw exception text, raw paths, and arbitrary evidence
         are strictly excluded.
 
@@ -650,7 +669,7 @@ class RunWorkspace:
             Path to the committed run-manifest.json file.
 
         Raises:
-            DoshError(FailureCode.VALIDATION_FAILED): If already finalized.
+            DoshError(FailureCode.VALIDATION_FAILED): If already finalized or invalid record identifiers.
             DoshError(FailureCode.EXECUTION_FAILED): If manifest write or cleanup fails.
             TypeError: If input sequences contain invalid record types.
         """
@@ -660,21 +679,23 @@ class RunWorkspace:
                 message="Run workspace is already finalized.",
             )
 
-        # On failed run: incomplete runs must not leave normal output artifacts
-        if not success:
-            for art in self._committed_artifacts:
-                if art.path.exists():
-                    art.path.unlink()
-            self._committed_artifacts.clear()
-            self._committed_relative_paths.clear()
+        # Clean staging directory and non-preserved partials
+        try:
+            if self._staging_dir.exists():
+                shutil.rmtree(self._staging_dir)
+            self._staged_relative_paths.clear()
 
-            # Clean partial directory if preserve_partial is False
-            if not self._preserve_partial:
+            if not success and not self._preserve_partial:
                 partial_dir = self._output_dir / "partial"
                 if partial_dir.exists():
                     shutil.rmtree(partial_dir)
                 self._partial_artifacts.clear()
                 self._partial_relative_paths.clear()
+        except OSError as exc:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to clean up staging directory during finalization.",
+            ) from exc
 
         manifest_data: dict[str, Any] = {
             "run_id": self._run_id,
@@ -703,7 +724,7 @@ class RunWorkspace:
             ],
         }
 
-        # Safe provenance identity recording only
+        # Safe provenance identity recording only (strictly validated against safe identifiers)
         if provenance is not None:
             if not isinstance(provenance, (list, tuple)):
                 raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(provenance).__name__}.")
@@ -711,23 +732,58 @@ class RunWorkspace:
             for i, p in enumerate(provenance):
                 if not isinstance(p, ProvenanceRecord):
                     raise TypeError(f"provenance[{i}] must be a ProvenanceRecord, got {type(p).__name__}.")
+                if not _SAFE_IDENTIFIER_PATTERN.match(p.stage):
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Provenance record contains invalid stage identifier.",
+                    )
+                if not _SAFE_DOTTED_PATTERN.match(p.plugin_id):
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Provenance record contains invalid plugin_id identifier.",
+                    )
+                if not _SAFE_DOTTED_PATTERN.match(p.capability_id):
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Provenance record contains invalid capability_id identifier.",
+                    )
                 prov_entry: dict[str, Any] = {
                     "stage": p.stage,
                     "plugin_id": p.plugin_id,
                     "capability_id": p.capability_id,
                 }
                 if p.page_number is not None:
+                    if isinstance(p.page_number, bool) or not isinstance(p.page_number, int) or p.page_number <= 0:
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Provenance record contains invalid page_number.",
+                        )
                     prov_entry["page_number"] = p.page_number
                 if p.region is not None:
+                    if not isinstance(p.region, str) or not _SAFE_IDENTIFIER_PATTERN.match(p.region):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Provenance record contains invalid region identifier.",
+                        )
                     prov_entry["region"] = p.region
                 if p.source_input_id is not None:
+                    if not isinstance(p.source_input_id, str) or not _SAFE_IDENTIFIER_PATTERN.match(p.source_input_id):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Provenance record contains invalid source_input_id identifier.",
+                        )
                     prov_entry["source_input_id"] = p.source_input_id
                 if p.timestamp_utc is not None:
+                    if not isinstance(p.timestamp_utc, str) or not _ISO_TIMESTAMP_PATTERN.match(p.timestamp_utc):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Provenance record contains invalid timestamp_utc format.",
+                        )
                     prov_entry["timestamp_utc"] = p.timestamp_utc
                 cleaned_prov.append(prov_entry)
             manifest_data["provenance"] = cleaned_prov
 
-        # Safe warning code/stage recording only (strictly validated)
+        # Safe warning code/stage recording only (strictly validated against safe identifiers)
         if warnings is not None:
             if not isinstance(warnings, (list, tuple)):
                 raise TypeError(f"warnings must be a sequence of WarningRecord, got {type(warnings).__name__}.")
@@ -735,6 +791,16 @@ class RunWorkspace:
             for i, w in enumerate(warnings):
                 if not isinstance(w, WarningRecord):
                     raise TypeError(f"warnings[{i}] must be a WarningRecord, got {type(w).__name__}.")
+                if not _SAFE_IDENTIFIER_PATTERN.match(w.code):
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Warning record contains invalid warning code.",
+                    )
+                if not _SAFE_IDENTIFIER_PATTERN.match(w.stage):
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Warning record contains invalid warning stage.",
+                    )
                 cleaned_warn.append({
                     "code": w.code,
                     "stage": w.stage,
@@ -747,11 +813,8 @@ class RunWorkspace:
         except (TypeError, ValueError) as err:
             try:
                 self._cleanup_run_on_failure()
-            except OSError as cleanup_err:
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Failed to clean up run workspace after manifest serialization failure.",
-                ) from cleanup_err
+            except DoshError:
+                pass
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to serialize run manifest.",
@@ -760,15 +823,12 @@ class RunWorkspace:
         manifest_file = self._output_dir / "run-manifest.json"
         try:
             self._write_bytes_atomically(manifest_file, manifest_bytes)
-        except DoshError as err:
+        except DoshError:
             try:
                 self._cleanup_run_on_failure()
-            except OSError as cleanup_err:
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Failed to clean up run workspace after manifest write failure.",
-                ) from cleanup_err
-            raise err
+            except DoshError:
+                pass
+            raise
 
         # Clean staging data on finalization (observable cleanup)
         self.cleanup()
@@ -799,7 +859,7 @@ class RunWorkspace:
             if not self._is_finalized:
                 try:
                     self._cleanup_run_on_failure()
-                except OSError:
+                except (OSError, DoshError):
                     # Preserve original exception while attaching safe cleanup-failure note/state
                     if exc_val is not None:
                         if hasattr(exc_val, "add_note"):
@@ -809,13 +869,7 @@ class RunWorkspace:
                         except (AttributeError, TypeError):
                             pass
         elif not self._is_finalized:
-            try:
-                self._cleanup_run_on_failure()
-            except OSError as cleanup_err:
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Failed to clean up unfinalized run workspace.",
-                ) from cleanup_err
+            self._cleanup_run_on_failure()
 
 
 class ArtifactBoundary:
@@ -829,12 +883,15 @@ class ArtifactBoundary:
         self,
         runtime_root: Path | str,
         output_root: Path | str,
+        *,
+        kavacha: Kavacha | None = None,
     ) -> None:
         """Construct an ArtifactBoundary with explicit runtime and output roots.
 
         Args:
             runtime_root: Explicit path to the runtime storage directory.
             output_root: Explicit path to the output storage directory.
+            kavacha: Optional injected Kavacha security service.
 
         Raises:
             TypeError: If roots are not Path or str.
@@ -856,6 +913,7 @@ class ArtifactBoundary:
 
         self._runtime_root: Path = validated_runtime
         self._output_root: Path = validated_output
+        self._kavacha: Kavacha | None = kavacha
 
     @property
     def runtime_root(self) -> Path:
@@ -875,6 +933,8 @@ class ArtifactBoundary:
         output_root: Path | str | None = None,
         preserve_partial: bool = False,
         timestamp: datetime | None = None,
+        input_sources: Sequence[Path | str | InputRef] = (),
+        kavacha: Kavacha | None = None,
     ) -> RunWorkspace:
         """Begin a run workspace for safe staging and atomic artifact commits.
 
@@ -884,6 +944,8 @@ class ArtifactBoundary:
             output_root: Optional per-run output root override.
             preserve_partial: Whether incomplete artifacts should be retained under partial/.
             timestamp: Optional UTC timestamp override (used for deterministic run folder naming).
+            input_sources: Optional input sources to validate against storage directory overlap.
+            kavacha: Optional Kavacha service override for overlap validation.
 
         Returns:
             An active RunWorkspace.
@@ -892,6 +954,7 @@ class ArtifactBoundary:
             TypeError: If arguments are of invalid types.
             DoshError(FailureCode.VALIDATION_FAILED): If run_id or requirement is malformed.
             DoshError(FailureCode.INVALID_CONFIGURATION): If output_root override is invalid or nested.
+            DoshError(FailureCode.SECURITY_DENIED): If input sources overlap with staging or output roots.
         """
         if not isinstance(run_id, str):
             raise TypeError(f"run_id must be a string, got {type(run_id).__name__}.")
@@ -899,7 +962,7 @@ class ArtifactBoundary:
         if not cleaned_run_id or not _RUN_ID_PATTERN.match(cleaned_run_id):
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=f"run_id must be a safe non-empty identifier (alphanumeric, '_', '-'), got {run_id!r}.",
+                message="run_id must be a safe non-empty identifier (alphanumeric, '_', '-').",
             )
 
         if not isinstance(requirement, str):
@@ -907,10 +970,7 @@ class ArtifactBoundary:
         if not _REQUIREMENT_IDENTIFIER_PATTERN.match(requirement):
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=(
-                    f"requirement must be a safe stable identifier (lowercase letters, digits, '_' and '-' only), "
-                    f"got {requirement!r}."
-                ),
+                message="requirement must be a safe stable identifier (lowercase letters, digits, '_' and '-' only).",
             )
 
         if not isinstance(preserve_partial, bool):
@@ -944,6 +1004,24 @@ class ArtifactBoundary:
             run_output_dir = req_output_dir / run_dir_name
             if not run_output_dir.exists():
                 break
+
+        # Validate input/output overlap via Kavacha if input_sources are provided
+        if input_sources:
+            dest_roots_to_check = [self._runtime_root, active_output_root, staging_dir, run_output_dir]
+            effective_kavacha = kavacha or self._kavacha
+            if effective_kavacha is not None:
+                effective_kavacha.validate_source_destination_overlap(input_sources, dest_roots_to_check)
+            else:
+                from sarathi.kavacha import Kavacha as KavachaService, SecurityPolicy
+                default_kavacha = KavachaService(
+                    SecurityPolicy(
+                        allow_pii_access=False,
+                        allow_network_access=False,
+                        allow_external_processing=False,
+                        allowed_secrets=(),
+                    )
+                )
+                default_kavacha.validate_source_destination_overlap(input_sources, dest_roots_to_check)
 
         return RunWorkspace(
             run_id=cleaned_run_id,

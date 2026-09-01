@@ -1,5 +1,4 @@
-"""Unit tests for Kavacha — Security & Privacy."""
-
+from pathlib import Path
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
@@ -260,3 +259,63 @@ class TestKavachaService:
         assert set(kavacha_module.__all__) == expected
         for name in expected:
             assert hasattr(kavacha_module, name)
+
+
+class TestKavachaSourceDestinationOverlap:
+    @pytest.fixture
+    def kavacha(self) -> Kavacha:
+        policy = SecurityPolicy(
+            allow_pii_access=False,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        return Kavacha(policy)
+
+    def test_disjoint_source_and_destination_allowed(self, kavacha: Kavacha, tmp_path: Path) -> None:
+        src_file = tmp_path / "inputs" / "doc.pdf"
+        src_file.parent.mkdir(parents=True, exist_ok=True)
+        src_file.write_bytes(b"DATA")
+
+        dest_dir = tmp_path / "output" / "Run-1"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        # Should execute cleanly without error
+        kavacha.validate_source_destination_overlap([src_file], [dest_dir])
+
+    def test_source_inside_destination_rejected(self, kavacha: Kavacha, tmp_path: Path) -> None:
+        dest_dir = tmp_path / "output" / "Run-1"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        bad_src = dest_dir / "sneaky_input.pdf"
+        bad_src.write_bytes(b"DATA")
+
+        with pytest.raises(DoshError) as exc_info:
+            kavacha.validate_source_destination_overlap([bad_src], dest_dir)
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert "Unsafe source and destination overlap" in exc_info.value.message
+        assert str(bad_src) not in exc_info.value.message
+        assert str(dest_dir) not in exc_info.value.message
+
+    def test_destination_inside_source_rejected(self, kavacha: Kavacha, tmp_path: Path) -> None:
+        src_dir = tmp_path / "inputs"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        bad_dest = src_dir / "nested_output"
+        bad_dest.mkdir(parents=True, exist_ok=True)
+
+        with pytest.raises(DoshError) as exc_info:
+            kavacha.validate_source_destination_overlap([src_dir], [bad_dest])
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert "Unsafe source and destination overlap" in exc_info.value.message
+        assert str(src_dir) not in exc_info.value.message
+        assert str(bad_dest) not in exc_info.value.message
+
+    def test_invalid_types_raise_type_error(self, kavacha: Kavacha, tmp_path: Path) -> None:
+        with pytest.raises(TypeError, match="source_paths must be a sequence"):
+            kavacha.validate_source_destination_overlap("not_a_seq", tmp_path)  # type: ignore
+
+        with pytest.raises(TypeError, match="destination_roots must be a Path, str, or sequence"):
+            kavacha.validate_source_destination_overlap([tmp_path], 123)  # type: ignore

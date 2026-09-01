@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import stat
+from typing import Any
 from unittest.mock import patch
 import pytest
 
@@ -412,10 +413,10 @@ class TestManifestSafetyAndOrdering:
 
 
 class TestCleanupAndPartialPreservation:
-    def test_failed_run_removes_committed_output_artifacts_and_preserves_partial_only_when_requested(
+    def test_failed_run_preserves_confirmed_artifacts_and_cleans_staging_and_unpreserved_partial(
         self, boundary: ArtifactBoundary
     ) -> None:
-        # Case 1: preserve_partial is False -> all committed artifacts and partial dir removed
+        # Case 1: preserve_partial is False -> confirmed artifacts remain valid, staging cleaned, partial not preserved
         ws1 = boundary.begin_run(run_id="run-fail-clean", requirement="ocr", preserve_partial=False)
         intent = ArtifactIntent(name="committed.txt", role="data", media_type="text/plain")
         ref1 = ws1.commit_artifact(intent, b"committed content")
@@ -423,15 +424,19 @@ class TestCleanupAndPartialPreservation:
 
         manifest_path1 = ws1.finalize(success=False)
         assert manifest_path1.exists()
-        # Ordinary committed output artifact is removed
-        assert not ref1.path.exists()
+        # Confirmed completed artifact remains valid and intact on disk
+        assert ref1.path.exists()
         manifest_dict1 = json.loads(manifest_path1.read_text(encoding="utf-8"))
         assert manifest_dict1["status"] == "failed"
-        assert len(manifest_dict1["artifacts"]) == 0
+        assert len(manifest_dict1["artifacts"]) == 1
+        assert manifest_dict1["artifacts"][0]["artifact_id"] == ref1.artifact_id
         assert not (ws1.output_dir / "partial").exists()
+        assert not ws1.staging_dir.exists()
 
-        # Case 2: preserve_partial is True -> partial/ is preserved
+        # Case 2: preserve_partial is True -> confirmed artifacts remain valid, and partial/ is preserved
         ws2 = boundary.begin_run(run_id="run-fail-partial", requirement="ocr", preserve_partial=True)
+        intent_c = ArtifactIntent(name="doc.txt", role="text", media_type="text/plain")
+        ref2 = ws2.commit_artifact(intent_c, b"confirmed doc")
         intent_p = ArtifactIntent(name="partial_doc.json", role="partial", media_type="application/json")
         staged_p = ws2.stage_artifact(intent_p, b'{"partial": true}')
         preserved_path = ws2.preserve_partial_artifact(intent_p, staged_p)
@@ -441,8 +446,12 @@ class TestCleanupAndPartialPreservation:
         assert manifest_path2.exists()
         manifest_dict2 = json.loads(manifest_path2.read_text(encoding="utf-8"))
         assert manifest_dict2["status"] == "failed"
+        assert len(manifest_dict2["artifacts"]) == 1
+        assert manifest_dict2["artifacts"][0]["artifact_id"] == ref2.artifact_id
         assert len(manifest_dict2["partial_artifacts"]) == 1
+        assert ref2.path.exists()
         assert preserved_path.exists()
+        assert not ws2.staging_dir.exists()
 
     def test_manifest_write_failure_cleans_incomplete_output_directory(
         self, boundary: ArtifactBoundary
@@ -474,7 +483,7 @@ class TestCleanupAndPartialPreservation:
 
         err = exc_info.value
         assert err.code is FailureCode.EXECUTION_FAILED
-        assert "Failed to clean up run workspace after manifest serialization failure." in err.message
+        assert "Failed to clean up" in err.message
         assert str(secret_path) not in err.message
         assert "Locked" not in err.message
         assert err.__cause__ is not None
@@ -494,7 +503,7 @@ class TestCleanupAndPartialPreservation:
 
         err = exc_info.value
         assert err.code is FailureCode.EXECUTION_FAILED
-        assert "Failed to clean up run workspace after manifest write failure." in err.message
+        assert "Failed to clean up" in err.message
         assert str(secret_path) not in err.message
         assert "Locked" not in err.message
         assert err.__cause__ is not None
@@ -821,3 +830,85 @@ class TestNestedArtifactsAndManifestLastBoundary:
         # Input file remains completely untouched and undeleted
         assert input_file.exists()
         assert input_file.read_bytes() == b"INPUT_BYTES_DO_NOT_DELETE"
+
+    def test_commit_staged_artifact_rollback_on_staging_unlink_failure(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-rollback-test", requirement="ocr")
+        intent = ArtifactIntent(name="output.txt", role="text", media_type="text/plain")
+        staged_path = ws.stage_artifact(intent, b"output data")
+
+        dest_path = ws.output_dir / "output.txt"
+
+        orig_unlink = Path.unlink
+
+        def mock_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
+            if self.resolve() == staged_path.resolve():
+                raise OSError("Cannot unlink staged file")
+            orig_unlink(self, *args, **kwargs)
+
+        with patch.object(Path, "unlink", new=mock_unlink):
+            with pytest.raises(DoshError) as exc_info:
+                ws.commit_staged_artifact(intent, staged_path)
+
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        assert "promoted artifact rolled back" in exc_info.value.message
+        # Destination file must NOT exist (rolled back atomically)
+        assert not dest_path.exists()
+        assert len(ws._committed_artifacts) == 0
+
+    @pytest.mark.parametrize(
+        ("bad_prov", "err_substr"),
+        [
+            (ProvenanceRecord(stage="stage/slash", plugin_id="p1", capability_id="c1"), "invalid stage identifier"),
+            (ProvenanceRecord(stage="s1", plugin_id="plugin..double", capability_id="c1"), "invalid plugin_id identifier"),
+            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="cap/slash"), "invalid capability_id identifier"),
+            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", region="region:colon"), "invalid region identifier"),
+            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", source_input_id="path/to/file"), "invalid source_input_id identifier"),
+            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", timestamp_utc="not-a-timestamp"), "invalid timestamp_utc format"),
+            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", page_number=-1), "invalid page_number"),
+        ],
+    )
+    def test_provenance_safe_identifier_validation_in_finalize(
+        self, boundary: ArtifactBoundary, bad_prov: ProvenanceRecord, err_substr: str
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-prov-val", requirement="ocr")
+        with pytest.raises(DoshError) as exc_info:
+            ws.finalize(success=True, provenance=[bad_prov])
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert err_substr in exc_info.value.message
+
+    def test_input_sources_overlap_with_output_or_staging_rejected(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        # Input source residing inside output root
+        bad_input = boundary.output_root / "nested_input.txt"
+        bad_input.parent.mkdir(parents=True, exist_ok=True)
+        bad_input.write_text("input")
+
+        with pytest.raises(DoshError) as exc_info:
+            boundary.begin_run(
+                run_id="run-overlap-fail",
+                requirement="ocr",
+                input_sources=[bad_input],
+            )
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert "Unsafe source and destination overlap" in exc_info.value.message
+        assert str(bad_input) not in exc_info.value.message
+
+    def test_begin_run_error_messages_do_not_echo_raw_values(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        malicious_run_id = "../../../etc/passwd"
+        with pytest.raises(DoshError) as exc_run:
+            boundary.begin_run(run_id=malicious_run_id, requirement="ocr")
+        assert exc_run.value.code is FailureCode.VALIDATION_FAILED
+        assert malicious_run_id not in exc_run.value.message
+        assert "run_id must be a safe non-empty identifier" in exc_run.value.message
+
+        malicious_req = "ocr/../malicious"
+        with pytest.raises(DoshError) as exc_req:
+            boundary.begin_run(run_id="valid-run", requirement=malicious_req)
+        assert exc_req.value.code is FailureCode.VALIDATION_FAILED
+        assert malicious_req not in exc_req.value.message
+        assert "requirement must be a safe stable identifier" in exc_req.value.message
