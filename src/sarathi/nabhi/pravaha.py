@@ -23,13 +23,10 @@ class Pravaha:
 
     def __init__(
         self,
-        registry: Kosh,
         manthan: Manthan,
         yantra: Yantra,
         capabilities: Mapping[str, Capability],
     ) -> None:
-        if not isinstance(registry, Kosh):
-            raise TypeError(f"registry must be a Kosh instance, got {type(registry).__name__}.")
         if not isinstance(manthan, Manthan):
             raise TypeError(f"manthan must be a Manthan instance, got {type(manthan).__name__}.")
         if not isinstance(yantra, Yantra):
@@ -37,8 +34,8 @@ class Pravaha:
         if not isinstance(capabilities, Mapping):
             raise TypeError(f"capabilities must be a Mapping, got {type(capabilities).__name__}.")
 
-        self._registry: Kosh = registry
         self._manthan: Manthan = manthan
+        self._registry: Kosh = manthan.registry
         self._yantra: Yantra = yantra
         self._capabilities: Mapping[str, Capability] = dict(capabilities)
 

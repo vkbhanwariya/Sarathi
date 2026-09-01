@@ -95,6 +95,7 @@ class TestCapabilityPlanContract:
 class TestManthanResolver:
     def test_exact_successful_resolution(self, kosh: Kosh, sample_request: Request) -> None:
         manthan = Manthan(kosh)
+        assert manthan.registry is kosh
         plan = manthan.resolve(sample_request)
 
         assert isinstance(plan, CapabilityPlan)

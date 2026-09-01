@@ -226,7 +226,7 @@ class TestPravahaPipelineEngine:
 
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize", "export"))
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         final_result = pravaha.execute(
             plan=plan,
             request=sample_request,
@@ -279,7 +279,7 @@ class TestPravahaPipelineEngine:
             yantra_execute_calls.append(capability.declaration.capability_id)
             return original_yantra_execute(capability, request, context, prior_result)
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
 
         with patch.object(yantra, "execute", side_effect=spy_execute):
             result = pravaha.execute(plan=plan, request=sample_request, context=sample_context)
@@ -343,7 +343,7 @@ class TestPravahaPipelineEngine:
         initial_plan = manthan.resolve(initial_request)
         assert initial_plan.capability_ids == ("read_native",)
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         context = ExecutionContext(run_id="run-1", request_id="req-scan-1", trace_id="tr-1", span_id="sp-1")
 
         final_result = pravaha.execute(plan=initial_plan, request=initial_request, context=context)
@@ -400,7 +400,7 @@ class TestPravahaPipelineEngine:
         )
 
         plan = manthan.resolve(initial_request)
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         context = ExecutionContext(run_id="run-1", request_id="req-handoff-fields", trace_id="tr-1", span_id="sp-1")
 
         pravaha.execute(plan=plan, request=initial_request, context=context)
@@ -432,7 +432,7 @@ class TestPravahaPipelineEngine:
         capabilities = {"extract": loop_cap}
 
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract",))
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
 
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(plan=plan, request=sample_request, context=sample_context)
@@ -465,7 +465,7 @@ class TestPravahaPipelineEngine:
         }
 
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract",))
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
 
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(plan=plan, request=sample_request, context=sample_context)
@@ -494,7 +494,7 @@ class TestPravahaPipelineEngine:
         capabilities = {"extract": cap1}
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize"))
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -527,7 +527,7 @@ class TestPravahaPipelineEngine:
         capabilities = {"extract": cap1, "normalize": BadCapability()}  # type: ignore
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize"))
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(TypeError, match="does not implement Capability protocol"):
             pravaha.execute(
                 plan=plan,
@@ -558,7 +558,7 @@ class TestPravahaPipelineEngine:
         capabilities = {"extract": tampered_cap}
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract",))
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -586,7 +586,7 @@ class TestPravahaPipelineEngine:
         capabilities = {"extract": cap1, "ghost_cap": cap1}
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "ghost_cap"))
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(DoshError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -624,7 +624,7 @@ class TestPravahaPipelineEngine:
 
         plan = CapabilityPlan(request_id="req-pipe-1", capability_ids=("extract", "normalize", "export"))
 
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
         with pytest.raises(RuntimeError) as exc_info:
             pravaha.execute(
                 plan=plan,
@@ -656,7 +656,7 @@ class TestPravahaPipelineEngine:
     ) -> None:
         c1_decl, _, _, _, _ = cap_decls
         capabilities = {"extract": MockExecutableCapability(c1_decl)}
-        pravaha = Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=capabilities)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
 
         # Mismatched request_id between plan and request
         bad_plan = CapabilityPlan(request_id="mismatched-req", capability_ids=("extract",))
@@ -695,14 +695,26 @@ class TestPravahaPipelineEngine:
             pravaha.execute(plan=plan, request=sample_request, context="not_a_context")  # type: ignore
 
         # Invalid constructor arguments
-        with pytest.raises(TypeError, match="registry must be a Kosh instance"):
-            Pravaha(registry="bad_registry", manthan=manthan, yantra=yantra, capabilities=capabilities)  # type: ignore
-
         with pytest.raises(TypeError, match="manthan must be a Manthan instance"):
-            Pravaha(registry=kosh, manthan="bad_manthan", yantra=yantra, capabilities=capabilities)  # type: ignore
+            Pravaha(manthan="bad_manthan", yantra=yantra, capabilities=capabilities)  # type: ignore
 
         with pytest.raises(TypeError, match="yantra must be a Yantra instance"):
-            Pravaha(registry=kosh, manthan=manthan, yantra="bad_yantra", capabilities=capabilities)  # type: ignore
+            Pravaha(manthan=manthan, yantra="bad_yantra", capabilities=capabilities)  # type: ignore
 
         with pytest.raises(TypeError, match="capabilities must be a Mapping"):
-            Pravaha(registry=kosh, manthan=manthan, yantra=yantra, capabilities=["not_a_map"])  # type: ignore
+            Pravaha(manthan=manthan, yantra=yantra, capabilities=["not_a_map"])  # type: ignore
+
+    def test_pravaha_uses_exact_manthan_kosh_registry(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        capabilities = {"extract": MockExecutableCapability(c1_decl)}
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities=capabilities)
+
+        # Proves Pravaha and Manthan use the exact same canonical Kosh instance
+        assert pravaha._registry is manthan.registry
+        assert pravaha._registry is kosh

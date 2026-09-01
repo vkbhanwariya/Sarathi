@@ -285,7 +285,7 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `sankalpa/plugin.py` — one canonical plugin contract plus reviewable security declarations. Enforcement remains with **Kavacha — Security & Privacy**.
 - `sankalpa/capability.py` — capability declaration, support information, execution modes, and execution/device requirements.
 - `sankalpa/request.py` — canonical processing request.
-- `sankalpa/result.py` — canonical `Result`: data, artifact references, confidence, warnings, provenance, and metadata.
+- `sankalpa/result.py` — canonical `Result`: data, artifact references, confidence, warnings, provenance, and metadata. Result may carry an optional `next_requirement` for direct runtime continuation.
 - `sankalpa/artifact.py` — typed `InputRef`, `ArtifactIntent`, and confirmed `ArtifactRef` contracts; no file I/O.
 - `sankalpa/context.py` — request/trace identity and controlled shared-runtime access; not a global mutable state bucket.
 - `sankalpa/document.py` — canonical document/data representation exchanged across capabilities without teaching the core individual file formats.

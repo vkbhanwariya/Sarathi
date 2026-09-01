@@ -53,6 +53,11 @@ class Manthan:
             raise TypeError(f"registry must be a Kosh instance, got {type(registry).__name__}.")
         self._registry: Kosh = registry
 
+    @property
+    def registry(self) -> Kosh:
+        """Return the injected canonical Kosh registry."""
+        return self._registry
+
     def resolve(self, request: Request) -> CapabilityPlan:
         """Resolve a deterministic capability plan for a request against registered capabilities.
 
