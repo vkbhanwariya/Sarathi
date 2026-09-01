@@ -1,6 +1,6 @@
 # Sarathi V2 — Core Runtime Specification
 
-**Specification Updated:** 31-08-2026, 09:17 PM IST (Asia/Kolkata)
+**Specification Updated:** 02-09-2026, 12:30 AM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Agni, Sankalpa, Nabhi, Pravaha, and Yantra.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -127,7 +127,7 @@ role, media type, source/run lineage, completeness, size, checksum when
 required, and committed path. A result carries zero or more artifact
 references; the V1-style single `output_path` is not the canonical V2 model.
 
-Inputs are read-only by default. Capabilities return data and artifact intents;
+Inputs are read-only by default. Capabilities return data and typed ArtifactPayloads, where each ArtifactPayload contains an ArtifactIntent plus exact serialized bytes;
 they do not hard-code output roots, create private output stores, or choose
 final collision policy.
 

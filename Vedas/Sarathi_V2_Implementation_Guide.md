@@ -1,6 +1,6 @@
 # Sarathi V2 — Implementation Guide
 
-**Specification Updated:** 01-09-2026, 11:45 PM IST (Asia/Kolkata)
+**Specification Updated:** 02-09-2026, 12:30 AM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for implementation order, physical structure, wiring, testing, dependencies, and architecture status.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
