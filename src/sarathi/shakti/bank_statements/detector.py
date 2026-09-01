@@ -174,6 +174,7 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
                 m_holder = re.search(patterns["account_holder"], document.text, re.IGNORECASE)
                 if m_holder:
                     raw_acc_holder = m_holder.group(1).strip()
+                    score += 0.1
                     reasons.append(f"Extracted account holder: {raw_acc_holder}")
             break
 
@@ -191,7 +192,7 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
         )
 
     return DetectionEvidence(
-        is_bank_statement=score >= 0.5,
+        is_bank_statement=score >= 0.4,
         confidence_score=min(1.0, score),
         matched_profile=matched_profile_id,
         bank_name=matched_bank_name,

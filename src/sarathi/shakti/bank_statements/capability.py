@@ -60,12 +60,7 @@ class BankStatementCapability:
         context: ExecutionContext,
         prior_result: Result | None = None,
     ) -> Result:
-        """Execute bank statement parsing and consolidation on the extracted document.
-
-        Consumes a prior_result carrying a CanonicalDocument produced by a preceding
-        pipeline stage (e.g. read_native or ocr). Does not invoke other capabilities directly.
-        """
-        # Validate that prior_result carries a valid CanonicalDocument
+        """Execute bank statement parsing and consolidation on the extracted document."""
         if prior_result is None or not isinstance(prior_result.data, CanonicalDocument):
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
@@ -75,11 +70,9 @@ class BankStatementCapability:
         doc: CanonicalDocument = prior_result.data
         base_prov: tuple[ProvenanceRecord, ...] = prior_result.provenance
 
-        # If extracted text and tables are empty, request OCR continuation through Pravaha
         if not doc.text.strip() and not any(p.tables for p in doc.pages) and doc.pages:
             return Result(data=doc, next_requirement="ocr")
 
-        # Detect bank statement presence & profile
         det_scope = (
             self._darpana.time_scope(context=context, phase_name="bank_detection", component="shakti.bank_statements")
             if self._darpana else nullcontext()
@@ -93,7 +86,6 @@ class BankStatementCapability:
                 message=f"Document is not identified as a bank statement (reasons: {'; '.join(detection.reasons)}).",
             )
 
-        # Extract transactions and balances across all tables
         raw_txns, open_bal, close_bal = self._extract_table_data(
             doc,
             request,
@@ -102,7 +94,6 @@ class BankStatementCapability:
             detection.account_identity,
         )
 
-        # Deduplicate, validate, and consolidate
         dedup_res = deduplicate_transactions(raw_txns)
         statement = validate_statement_balances(
             BankStatement(
@@ -142,7 +133,7 @@ class BankStatementCapability:
                 rows = [r for r in reader if any(cell.strip() for cell in r)]
                 for r_idx, r in enumerate(rows):
                     r_str = " ".join(str(c).lower() for c in r)
-                    if ("date" in r_str or "txn" in r_str) and any(k in r_str for k in ("debit", "credit", "balance")):
+                    if ("date" in r_str or "txn" in r_str) and any(k in r_str for k in ("debit", "credit", "balance", "amount")):
                         all_tables.append((1, TableData(name="text_table", headers=tuple(rows[r_idx]), rows=tuple(tuple(x) for x in rows[r_idx:]))))
                         break
             except Exception:
@@ -156,9 +147,8 @@ class BankStatementCapability:
             if not table.rows:
                 continue
 
-            # Find header index
             hdr_idx = next(
-                (r_i for r_i, r in enumerate(table.rows) if ("date" in (s := " ".join(str(c).lower() for c in r)) or "txn" in s) and any(k in s for k in ("debit", "credit", "balance"))),
+                (r_i for r_i, r in enumerate(table.rows) if ("date" in (s := " ".join(str(c).lower() for c in r)) or "txn" in s) and any(k in s for k in ("debit", "credit", "balance", "amount"))),
                 None
             )
             if hdr_idx is None:
@@ -166,10 +156,12 @@ class BankStatementCapability:
 
             mappings = {m.canonical_field: m.column_index for m in self._mapper.map_headers(table.rows[hdr_idx], profile_id=profile_id)}
             d_col, desc_col = mappings.get("date"), mappings.get("description")
-            dr_col, cr_col, b_col = mappings.get("debit"), mappings.get("credit"), mappings.get("balance")
+            dr_col, cr_col = mappings.get("debit"), mappings.get("credit")
+            amt_col, dir_col = mappings.get("amount"), mappings.get("direction")
+            b_col = mappings.get("balance")
             ref_col, chq_col = mappings.get("reference_number"), mappings.get("cheque_number")
 
-            if d_col is None or not any(c is not None for c in (dr_col, cr_col, b_col)):
+            if d_col is None or not (any(c is not None for c in (dr_col, cr_col, b_col)) or amt_col is not None):
                 continue
 
             for row_idx, row in enumerate(table.rows[hdr_idx + 1:], start=hdr_idx + 1):
@@ -179,9 +171,50 @@ class BankStatementCapability:
                         open_bal = parse_decimal_amount(_get_cell(row_cells, b_col)) or open_bal
                     case RowType.CLOSING_BALANCE:
                         close_bal = parse_decimal_amount(_get_cell(row_cells, b_col)) or close_bal
+                    case RowType.CONTINUATION:
+                        if raw_txns:
+                            cont_text = _get_cell(row_cells, desc_col) or " ".join(c.strip() for c in row_cells if c.strip())
+                            if cont_text:
+                                prev = raw_txns[-1]
+                                updated_desc = f"{prev.description} {cont_text}".strip()
+                                raw_txns[-1] = Transaction(
+                                    transaction_date=prev.transaction_date,
+                                    description=updated_desc,
+                                    bank_name=prev.bank_name,
+                                    transaction_time=prev.transaction_time,
+                                    reference_number=prev.reference_number,
+                                    cheque_number=prev.cheque_number,
+                                    debit=prev.debit,
+                                    credit=prev.credit,
+                                    running_balance=prev.running_balance,
+                                    account_identity=prev.account_identity,
+                                    currency=prev.currency,
+                                    status=prev.status,
+                                    issues=prev.issues,
+                                    provenance=prev.provenance,
+                                    metadata=prev.metadata,
+                                )
                     case RowType.TRANSACTION:
                         tx_date = parse_date(_get_cell(row_cells, d_col))
                         if tx_date is not None:
+                            tx_debit = parse_decimal_amount(_get_cell(row_cells, dr_col))
+                            tx_credit = parse_decimal_amount(_get_cell(row_cells, cr_col))
+                            tx_bal = parse_decimal_amount(_get_cell(row_cells, b_col))
+
+                            # Support combined amount + Dr/Cr column if separate debit/credit absent
+                            if tx_debit is None and tx_credit is None and amt_col is not None:
+                                parsed_amt = parse_decimal_amount(_get_cell(row_cells, amt_col))
+                                dir_str = (_get_cell(row_cells, dir_col) or "").lower()
+                                if parsed_amt is not None:
+                                    if "dr" in dir_str or "d" in dir_str:
+                                        tx_debit = abs(parsed_amt)
+                                    elif "cr" in dir_str or "c" in dir_str:
+                                        tx_credit = abs(parsed_amt)
+                                    elif parsed_amt < Decimal("0"):
+                                        tx_debit = abs(parsed_amt)
+                                    else:
+                                        tx_credit = parsed_amt
+
                             prov = ProvenanceRecord(
                                 source_input_id=req.inputs[0].input_id if req.inputs else None,
                                 capability_id="bank_statements",
@@ -196,9 +229,9 @@ class BankStatementCapability:
                                     bank_name=bank_name,
                                     reference_number=_get_cell(row_cells, ref_col),
                                     cheque_number=_get_cell(row_cells, chq_col),
-                                    debit=parse_decimal_amount(_get_cell(row_cells, dr_col)),
-                                    credit=parse_decimal_amount(_get_cell(row_cells, cr_col)),
-                                    running_balance=parse_decimal_amount(_get_cell(row_cells, b_col)),
+                                    debit=tx_debit,
+                                    credit=tx_credit,
+                                    running_balance=tx_bal,
                                     account_identity=account_identity,
                                     provenance=(prov,),
                                 )

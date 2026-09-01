@@ -23,7 +23,7 @@ _HEADER_KEYWORDS = frozenset({"date", "txn date", "transaction date", "particula
 _OPENING_KEYWORDS = frozenset({"opening balance", "b/f", "brought forward", "balance b/f", "opening bal"})
 _CLOSING_KEYWORDS = frozenset({"closing balance", "c/f", "carried forward", "balance c/f", "closing bal"})
 _SUMMARY_KEYWORDS = frozenset({"total", "grand total", "total transactions", "summary"})
-_DATE_RE = re.compile(r"\d{1,2}[/\-\s]\d{1,2}[/\-\s]\d{2,4}|\d{1,2}\s+[a-zA-Z]{3,9}\s+\d{4}")
+_DATE_RE = re.compile(r"\d{1,2}[/\-\s]\d{1,2}[/\-\s]\d{2,4}|\d{1,2}[/\-\s]+[a-zA-Z]{3,9}[/\-\s]+\d{2,4}")
 
 
 def classify_row(row: Sequence[str], date_col_idx: int | None = None) -> RowType:
