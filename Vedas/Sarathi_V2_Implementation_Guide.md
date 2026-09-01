@@ -364,12 +364,10 @@ Capability `plugin.py` files are thin capability boundaries: declaration, suppor
 
 #### OCR
 
-- `shakti/ocr/plugin.py` — OCR capability boundary and mode/backend request integration.
-- `shakti/ocr/preprocessing.py` — orientation, resize, grayscale, and mode-appropriate image preparation.
-- `shakti/ocr/primary.py` — primary OCR engine/runtime adapter.
-- `shakti/ocr/fallback.py` — targeted fallback adapters and escalation hand-off.
-- `shakti/ocr/confidence.py` — evidence-based OCR confidence/quality evaluation; no fabricated defaults.
-- `shakti/ocr/consensus.py` — optional disagreement resolution, created only when the OCR specification's evidence gate is satisfied.
+- `shakti/ocr/plugin.py` — plugin registration and capability declaration metadata.
+- `shakti/ocr/capability.py` — executable OCR capability and input/prior-result integration.
+- `shakti/ocr/engine.py` — RapidOCR + OpenVINO primary engine adapter and page/image extraction.
+- `shakti/ocr/__init__.py` — public package exports.
 
 #### Roopa — Convert / Font Conversion
 
