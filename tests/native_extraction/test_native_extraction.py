@@ -1,8 +1,9 @@
 """Unit tests for Shruti — Read / Native Extraction capability."""
 
-import io
 from pathlib import Path
+import struct
 import sys
+from unittest.mock import patch
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
@@ -37,6 +38,28 @@ def context() -> ExecutionContext:
         trace_id="tr-1",
         span_id="sp-1",
     )
+
+
+def _build_minimal_biff8_xls(sheet_name: str = "Accounts", cell_value: float = 999.5) -> bytes:
+    """Build a genuine minimal valid BIFF8 .xls binary stream."""
+    bof_wb = b"\x09\x08\x10\x00\x00\x06\x05\x00\xbb\x0d\xcc\x07\x00\x00\x00\x00\x00\x00\x00\x00"
+    name_bytes = sheet_name.encode("ascii")
+    data_len = 6 + 1 + 1 + len(name_bytes)
+    sheet_bof_offset = 28 + data_len
+    boundsheet = (
+        struct.pack("<HHIBB", 0x0085, data_len, sheet_bof_offset, 0, 0)
+        + struct.pack("B", len(name_bytes))
+        + b"\x00"  # compressed ascii
+        + name_bytes
+    )
+    eof_wb = b"\x0a\x00\x00\x00"
+
+    bof_ws = b"\x09\x08\x10\x00\x00\x06\x10\x00\xbb\x0d\xcc\x07\x00\x00\x00\x00\x00\x00\x00\x00"
+    num_rec0 = b"\x03\x02\x0e\x00" + struct.pack("<HHH", 0, 0, 0) + struct.pack("<d", 100.0)
+    num_rec1 = b"\x03\x02\x0e\x00" + struct.pack("<HHH", 1, 0, 0) + struct.pack("<d", cell_value)
+    eof_ws = b"\x0a\x00\x00\x00"
+
+    return bof_wb + boundsheet + eof_wb + bof_ws + num_rec0 + num_rec1 + eof_ws
 
 
 class TestNativeExtraction:
@@ -82,6 +105,67 @@ class TestNativeExtraction:
         assert prov.stage == "read_native"
         assert prov.capability_id == "read_native"
         assert prov.evidence["reader"] == "pymupdf"
+        assert prov.source_file is None  # Zero path leakage in provenance
+
+    def test_privacy_zero_raw_filesystem_path_leakage(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        # Create a document inside a secret directory path
+        secret_dir = tmp_path / "very_secret_customer_pii_dir"
+        secret_dir.mkdir(parents=True, exist_ok=True)
+        doc_file = secret_dir / "statement.csv"
+        doc_file.write_text("Header1,Header2\nValue1,Value2", encoding="utf-8")
+        raw_path_str = str(doc_file)
+
+        req = Request(
+            request_id="req-privacy-1",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-priv",
+                    source_path=doc_file,
+                    display_name="statement.csv",
+                    size_bytes=doc_file.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+
+        # 1. Check provenance has no raw source path
+        for prov in res.provenance:
+            assert prov.source_file is None
+            assert raw_path_str not in str(prov.evidence)
+            assert str(secret_dir) not in str(prov.evidence)
+
+        # 2. Check warnings have no raw source path
+        for warn in res.warnings:
+            assert raw_path_str not in warn.message
+            assert str(secret_dir) not in warn.message
+
+        # 3. Check document metadata has no raw source path
+        doc = res.data
+        assert raw_path_str not in str(doc.metadata)
+
+        # 4. Check raised DoshError for missing file has no raw source path
+        missing_req = Request(
+            request_id="req-missing",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-missing",
+                    source_path=secret_dir / "does_not_exist.pdf",
+                    display_name="does_not_exist.pdf",
+                    size_bytes=10,
+                ),
+            ),
+        )
+        with pytest.raises(DoshError) as exc_info:
+            capability.execute(missing_req, context)
+
+        err = exc_info.value
+        assert raw_path_str not in err.message
+        assert str(secret_dir) not in err.message
 
     def test_actual_bytes_override_misleading_extension(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
@@ -127,6 +211,71 @@ class TestNativeExtraction:
         assert table.rows[0] == ("2026-01-01", "Salary", "50000")
         assert table.rows[1] == ("2026-01-02", "Rent", "15000")
         assert res.provenance[0].evidence["reader"] == "beautifulsoup4"
+
+    def test_genuine_legacy_biff_xls_extraction(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        biff_file = tmp_path / "legacy.xls"
+        biff_data = _build_minimal_biff8_xls("Accounts", 999.5)
+        biff_file.write_bytes(biff_data)
+
+        req = Request(
+            request_id="req-biff",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-biff",
+                    source_path=biff_file,
+                    display_name="legacy.xls",
+                    size_bytes=biff_file.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+        assert res.next_requirement is None
+        doc = res.data
+        assert isinstance(doc, CanonicalDocument)
+        assert doc.detected_type == "xls_legacy"
+        assert len(doc.tables) == 1
+        assert doc.tables[0].name == "Accounts"
+        assert doc.tables[0].rows == ((999.5,),)
+        assert res.provenance[0].evidence["reader"] == "xlrd"
+
+    def test_xlsm_macro_workbook_extraction(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        xlsm_path = tmp_path / "macro_enabled.xlsm"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "MacroData"
+        ws.append(["Param", "Value"])
+        ws.append(["Threshold", 500])
+        wb.save(str(xlsm_path))
+        wb.close()
+
+        req = Request(
+            request_id="req-xlsm",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-xlsm",
+                    source_path=xlsm_path,
+                    display_name="macro_enabled.xlsm",
+                    size_bytes=xlsm_path.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+        assert res.next_requirement is None
+        doc = res.data
+        assert isinstance(doc, CanonicalDocument)
+        assert doc.detected_type == "xlsx"
+        assert len(doc.tables) == 1
+        assert doc.tables[0].name == "MacroData"
+        assert doc.tables[0].headers == ("Param", "Value")
+        assert doc.tables[0].rows == (("Threshold", 500),)
 
     def test_xlsx_multi_sheet_extraction_retains_all_sheets(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
@@ -189,7 +338,7 @@ class TestNativeExtraction:
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
         csv_path = tmp_path / "latin1.csv"
-        # Write CSV encoded in latin-1 with special characters (e.g. € or accented letters)
+        # Write CSV encoded in latin-1 with special characters
         content = "Namn;Stad;Belopp\nMüller;München;1200\nAndré;Genève;3400\n"
         csv_path.write_bytes(content.encode("iso-8859-1"))
 
@@ -266,10 +415,10 @@ class TestNativeExtraction:
     def test_empty_native_output_requests_ocr(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        # Create a PDF with a blank page (no text stream, simulates scanned page without OCR)
+        # Create a PDF with a blank page (no text stream)
         blank_pdf_path = tmp_path / "scanned_blank.pdf"
         doc_pdf = pymupdf.open()
-        doc_pdf.new_page(width=595, height=842)  # No text inserted
+        doc_pdf.new_page(width=595, height=842)
         doc_pdf.save(str(blank_pdf_path))
         doc_pdf.close()
 
@@ -311,8 +460,95 @@ class TestNativeExtraction:
         )
 
         res = capability.execute(req, context)
-        # Corrupted input must escalate to OCR rather than crashing
+        # Corrupted input must escalate to OCR
         assert res.next_requirement == "ocr"
+
+    def test_multi_input_one_native_one_ocr_required(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        # Input 1: valid native PDF
+        valid_pdf_path = tmp_path / "valid.pdf"
+        doc_pdf = pymupdf.open()
+        p = doc_pdf.new_page()
+        p.insert_text((50, 50), "Valid invoice text 5000 USD")
+        doc_pdf.save(str(valid_pdf_path))
+        doc_pdf.close()
+
+        # Input 2: blank scanned PDF (no native text)
+        blank_pdf_path = tmp_path / "blank.pdf"
+        doc_blank = pymupdf.open()
+        doc_blank.new_page()
+        doc_blank.save(str(blank_pdf_path))
+        doc_blank.close()
+
+        req = Request(
+            request_id="req-multi",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-valid",
+                    source_path=valid_pdf_path,
+                    display_name="valid.pdf",
+                    size_bytes=valid_pdf_path.stat().st_size,
+                ),
+                InputRef(
+                    input_id="inp-blank",
+                    source_path=blank_pdf_path,
+                    display_name="blank.pdf",
+                    size_bytes=blank_pdf_path.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+
+        # Since input 2 requires OCR, next_requirement is signaled
+        assert res.next_requirement == "ocr"
+
+        # Result data preserves BOTH document outputs
+        assert isinstance(res.data, tuple)
+        assert len(res.data) == 2
+
+        doc1, doc2 = res.data
+        assert isinstance(doc1, CanonicalDocument)
+        assert doc1.source_input_id == "inp-valid"
+        assert "Valid invoice text 5000 USD" in doc1.pages[0].text
+
+        assert isinstance(doc2, CanonicalDocument)
+        assert doc2.source_input_id == "inp-blank"
+
+        # Both source input IDs have their respective provenance
+        prov_input_ids = [p.source_input_id for p in res.provenance]
+        assert "inp-valid" in prov_input_ids
+        assert "inp-blank" in prov_input_ids
+
+    def test_unexpected_code_errors_are_not_caught_as_ocr_handoff(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        # Create a valid PDF
+        pdf_path = tmp_path / "test.pdf"
+        doc_pdf = pymupdf.open()
+        doc_pdf.new_page().insert_text((50, 50), "Test")
+        doc_pdf.save(str(pdf_path))
+        doc_pdf.close()
+
+        req = Request(
+            request_id="req-bug",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=pdf_path,
+                    display_name="test.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+        )
+
+        # Simulate an unexpected programmer/code bug (e.g. AttributeError) inside reader
+        with patch("sarathi.shakti.native_extraction.capability.read_pdf", side_effect=AttributeError("Bug in code")):
+            with pytest.raises(AttributeError, match="Bug in code"):
+                capability.execute(req, context)
 
     def test_unknown_binary_content_returns_controlled_unsupported_error(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path

@@ -393,7 +393,15 @@ Capability `plugin.py` files are thin capability boundaries: declaration, suppor
 - `shakti/bank_statements/deduplicator.py` — overlap candidate evaluation and evidence-based PROVEN/PROBABLE/DISTINCT duplicate decisions while retaining provenance.
 - `shakti/bank_statements/consolidator.py` — account grouping, safe chronology, final unified statement construction, and canonical output preparation.
 
-**Shruti — Read / Native Extraction**, **Darshana — Identify**, and Translation begin with only the files required by their locked flows. Their internal Python files are named here only after responsibility boundaries are fixed during implementation; this prevents the README from inventing speculative modules merely to make every plugin look symmetrical.
+#### Shruti — Read / Native Extraction
+
+- `shakti/native_extraction/plugin.py` — plugin registration and capability declaration metadata.
+- `shakti/native_extraction/capability.py` — **Shruti — Read / Native Extraction** executable capability implementing the canonical Capability protocol.
+- `shakti/native_extraction/detector.py` — byte-signature and content format detection.
+- `shakti/native_extraction/readers.py` — format-specific native readers for PDF, XLSX/XLSM, legacy XLS, HTML tables, SpreadsheetML, and CSV/text.
+- `shakti/native_extraction/__init__.py` — public package exports.
+
+**Darshana — Identify** and Translation begin with only the files required by their locked flows. Their internal Python files are named here only after responsibility boundaries are fixed during implementation; this prevents the README from inventing speculative modules merely to make every plugin look symmetrical.
 
 ------------------------------------------------------------------------
 

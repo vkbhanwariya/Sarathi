@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import io
-from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
 
@@ -33,7 +32,6 @@ _CAPABILITY_ID = "read_native"
 def read_pdf(
     data: bytes,
     input_id: str,
-    file_path: str,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract native text, spans, and embedded tables from PDF via PyMuPDF."""
     doc = pymupdf.open(stream=data, filetype="pdf")
@@ -100,7 +98,6 @@ def read_pdf(
             provenances.append(
                 ProvenanceRecord(
                     source_input_id=input_id,
-                    source_file=file_path,
                     stage=_STAGE_NAME,
                     plugin_id=_PLUGIN_ID,
                     capability_id=_CAPABILITY_ID,
@@ -130,7 +127,6 @@ def read_pdf(
 def read_xlsx(
     data: bytes,
     input_id: str,
-    file_path: str,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract all sheets from XLSX/XLSM using python-calamine with openpyxl fallback."""
     tables: list[TableData] = []
@@ -160,20 +156,19 @@ def read_xlsx(
             provenances.append(
                 ProvenanceRecord(
                     source_input_id=input_id,
-                    source_file=file_path,
                     stage=_STAGE_NAME,
                     plugin_id=_PLUGIN_ID,
                     capability_id=_CAPABILITY_ID,
                     evidence={"reader": "python-calamine", "sheet": sheet_name, "row_count": len(raw_rows)},
                 )
             )
-    except Exception as exc:
+    except Exception:
         # Fallback to openpyxl
         reader_used = "openpyxl"
         warnings.append(
             WarningRecord(
                 code="CALAMINE_FALLBACK",
-                message=f"python-calamine failed on workbook, falling back to openpyxl: {type(exc).__name__}",
+                message="python-calamine failed on workbook, fell back to openpyxl reader.",
                 stage=_STAGE_NAME,
             )
         )
@@ -198,7 +193,6 @@ def read_xlsx(
                 provenances.append(
                     ProvenanceRecord(
                         source_input_id=input_id,
-                        source_file=file_path,
                         stage=_STAGE_NAME,
                         plugin_id=_PLUGIN_ID,
                         capability_id=_CAPABILITY_ID,
@@ -221,7 +215,6 @@ def read_xlsx(
 def read_xls_legacy(
     data: bytes,
     input_id: str,
-    file_path: str,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract all sheets from legacy BIFF .xls using xlrd."""
     tables: list[TableData] = []
@@ -251,7 +244,6 @@ def read_xls_legacy(
         provenances.append(
             ProvenanceRecord(
                 source_input_id=input_id,
-                source_file=file_path,
                 stage=_STAGE_NAME,
                 plugin_id=_PLUGIN_ID,
                 capability_id=_CAPABILITY_ID,
@@ -271,7 +263,6 @@ def read_xls_legacy(
 def read_html_table(
     data: bytes,
     input_id: str,
-    file_path: str,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract tables or text from HTML markup (including disguised .xls) via BeautifulSoup."""
     tables: list[TableData] = []
@@ -314,7 +305,6 @@ def read_html_table(
             provenances.append(
                 ProvenanceRecord(
                     source_input_id=input_id,
-                    source_file=file_path,
                     stage=_STAGE_NAME,
                     plugin_id=_PLUGIN_ID,
                     capability_id=_CAPABILITY_ID,
@@ -330,7 +320,6 @@ def read_html_table(
         provenances.append(
             ProvenanceRecord(
                 source_input_id=input_id,
-                source_file=file_path,
                 stage=_STAGE_NAME,
                 plugin_id=_PLUGIN_ID,
                 capability_id=_CAPABILITY_ID,
@@ -353,7 +342,6 @@ def read_html_table(
 def read_spreadsheet_ml(
     data: bytes,
     input_id: str,
-    file_path: str,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract XML spreadsheets (2003 XML format) using ElementTree."""
     tables: list[TableData] = []
@@ -396,7 +384,6 @@ def read_spreadsheet_ml(
         provenances.append(
             ProvenanceRecord(
                 source_input_id=input_id,
-                source_file=file_path,
                 stage=_STAGE_NAME,
                 plugin_id=_PLUGIN_ID,
                 capability_id=_CAPABILITY_ID,
@@ -416,7 +403,6 @@ def read_spreadsheet_ml(
 def read_csv_or_text(
     data: bytes,
     input_id: str,
-    file_path: str,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract CSV or plain text using polars / stdlib csv with charset-normalizer encoding detection."""
     match = charset_normalizer.from_bytes(data).best()
@@ -442,7 +428,6 @@ def read_csv_or_text(
             provenances.append(
                 ProvenanceRecord(
                     source_input_id=input_id,
-                    source_file=file_path,
                     stage=_STAGE_NAME,
                     plugin_id=_PLUGIN_ID,
                     capability_id=_CAPABILITY_ID,
@@ -464,7 +449,6 @@ def read_csv_or_text(
                 provenances.append(
                     ProvenanceRecord(
                         source_input_id=input_id,
-                        source_file=file_path,
                         stage=_STAGE_NAME,
                         plugin_id=_PLUGIN_ID,
                         capability_id=_CAPABILITY_ID,
@@ -481,7 +465,6 @@ def read_csv_or_text(
         provenances.append(
             ProvenanceRecord(
                 source_input_id=input_id,
-                source_file=file_path,
                 stage=_STAGE_NAME,
                 plugin_id=_PLUGIN_ID,
                 capability_id=_CAPABILITY_ID,

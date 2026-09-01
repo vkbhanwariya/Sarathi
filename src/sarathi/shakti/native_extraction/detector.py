@@ -46,7 +46,7 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
         return DetectedFormat.PDF
 
     # 2. OLE / Legacy BIFF .xls detection
-    if data.startswith(_OLE_MAGIC):
+    if data.startswith(_OLE_MAGIC) or data.startswith(b"\x09\x08"):
         return DetectedFormat.XLS_LEGACY
 
     # 3. ZIP / XLSX / XLSM detection

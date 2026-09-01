@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import csv
 from typing import Any
+import xml.etree.ElementTree as ET
+from zipfile import BadZipFile
+
+import openpyxl.utils.exceptions
+import pymupdf
+import python_calamine
+import xlrd
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -25,6 +32,19 @@ from sarathi.shakti.native_extraction.readers import (
     read_spreadsheet_ml,
     read_xls_legacy,
     read_xlsx,
+)
+
+_PARSE_EXCEPTIONS = (
+    pymupdf.FileDataError,
+    pymupdf.EmptyFileError,
+    openpyxl.utils.exceptions.InvalidFileException,
+    BadZipFile,
+    python_calamine.CalamineError,
+    xlrd.biffh.XLRDError,
+    ET.ParseError,
+    csv.Error,
+    UnicodeDecodeError,
+    ValueError,
 )
 
 
@@ -73,7 +93,7 @@ class NativeExtractionCapability:
             fmt = detect_content_format(data, inp.source_path)
 
             if fmt == DetectedFormat.UNKNOWN:
-                # If file is empty or corrupted document, escalate to OCR
+                # If file is empty, escalate to OCR
                 if len(data) == 0:
                     needs_ocr = True
                     all_warnings.append(
@@ -96,20 +116,20 @@ class NativeExtractionCapability:
                     message="Unsupported content format for native extraction.",
                 )
 
-            # Route to concrete native readers with error safety
+            # Route to concrete native readers with honest parse error handling
             try:
                 if fmt == DetectedFormat.PDF:
-                    doc, provs, warns = read_pdf(data, inp.input_id, str(inp.source_path))
+                    doc, provs, warns = read_pdf(data, inp.input_id)
                 elif fmt == DetectedFormat.XLSX:
-                    doc, provs, warns = read_xlsx(data, inp.input_id, str(inp.source_path))
+                    doc, provs, warns = read_xlsx(data, inp.input_id)
                 elif fmt == DetectedFormat.XLS_LEGACY:
-                    doc, provs, warns = read_xls_legacy(data, inp.input_id, str(inp.source_path))
+                    doc, provs, warns = read_xls_legacy(data, inp.input_id)
                 elif fmt == DetectedFormat.HTML_TABLE:
-                    doc, provs, warns = read_html_table(data, inp.input_id, str(inp.source_path))
+                    doc, provs, warns = read_html_table(data, inp.input_id)
                 elif fmt == DetectedFormat.SPREADSHEET_ML:
-                    doc, provs, warns = read_spreadsheet_ml(data, inp.input_id, str(inp.source_path))
+                    doc, provs, warns = read_spreadsheet_ml(data, inp.input_id)
                 elif fmt == DetectedFormat.CSV_OR_TEXT:
-                    doc, provs, warns = read_csv_or_text(data, inp.input_id, str(inp.source_path))
+                    doc, provs, warns = read_csv_or_text(data, inp.input_id)
                 else:
                     raise DoshError(
                         code=FailureCode.UNSUPPORTED,
@@ -125,9 +145,9 @@ class NativeExtractionCapability:
                     bool(p.text and p.text.strip()) for p in doc.pages
                 )
                 has_usable_tables = any(
-                    len(t.rows) > 0 for t in doc.tables
+                    len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables
                 ) or any(
-                    any(len(t.rows) > 0 for t in p.tables) for p in doc.pages
+                    any(len(t.rows) > 0 or len(t.headers) > 0 for t in p.tables) for p in doc.pages
                 )
 
                 if not has_usable_text and not has_usable_tables:
@@ -141,13 +161,15 @@ class NativeExtractionCapability:
                         )
                     )
 
-            except Exception as exc:
-                # Corrupt or unparseable document -> escalate to OCR
+            except DoshError:
+                raise
+            except _PARSE_EXCEPTIONS:
+                # Corrupted or unparseable document -> escalate to OCR
                 needs_ocr = True
                 all_warnings.append(
                     WarningRecord(
                         code="NATIVE_PARSE_ERROR",
-                        message=f"Failed to extract native content ({type(exc).__name__}). Escalating to OCR.",
+                        message="Failed to parse document content natively. Escalating to OCR.",
                         stage="read_native",
                     )
                 )
