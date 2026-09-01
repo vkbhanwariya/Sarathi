@@ -217,11 +217,11 @@ class RunSummaryView:
     status: str
     wall_time_ns: int
     total_inputs: int
-    successful_files: int
-    warning_files: int
-    failed_files: int
-    quarantined_count: int
-    retry_count: int
+    successful_files: int | None = None
+    warning_files: int | None = None
+    failed_files: int | None = None
+    quarantined_count: int | None = None
+    retry_count: int | None = None
     avg_duration_per_input_ns: int | None = None
     avg_confidence: float | None = None
     accuracy: float | None = None

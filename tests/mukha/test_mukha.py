@@ -7,7 +7,7 @@ import time
 from unittest.mock import MagicMock
 import pytest
 
-from sarathi.darpana import MarutiRecord, PramanaRecord
+from sarathi.darpana import Darpana, MarutiRecord, PramanaRecord
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.mukha import (
@@ -37,7 +37,6 @@ from sarathi.mukha import (
     format_duration_ns,
     status_badge,
 )
-from sarathi.nabhi.quarantine import QuarantineRecord, QuarantineStatus
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactRef,
@@ -161,7 +160,7 @@ class TestMukhaInputAndIntakeTruth:
         assert len(refs) == 2
         assert refs[0].display_name == "doc1.pdf"
         assert refs[0].size_bytes == valid_f1.stat().st_size
-        assert refs[0].media_type is None  # media_type is None before Darshana detection
+        assert refs[0].media_type is None
         assert refs[1].display_name == "doc2.txt"
         assert refs[1].size_bytes == valid_f2.stat().st_size
 
@@ -210,10 +209,68 @@ class TestMukhaInputAndIntakeTruth:
 
 
 class TestMukhaTelemetryAndRuntimeTruth:
-    """Tests for capability_execution-only device metrics and monotonicity."""
+    """Tests for real Darpana filtering, capability_execution-only device metrics, and monotonicity."""
+
+    def test_real_darpana_run_scoped_filtering(self) -> None:
+        darpana = Darpana(capacity=1000)
+        # Record observations across different runs
+        darpana.record_maruti(
+            MarutiRecord(
+                run_id="run-A",
+                request_id="req-A",
+                trace_id="tr-A",
+                span_id="sp-1",
+                phase_name="capability_execution",
+                component="yantra",
+                duration_ns=300_000_000,
+                timestamp_utc="2026-09-01T00:00:00Z",
+                outcome="success",
+                attributes={"device_type": "gpu"},
+            )
+        )
+        darpana.record_maruti(
+            MarutiRecord(
+                run_id="run-B",
+                request_id="req-B",
+                trace_id="tr-B",
+                span_id="sp-2",
+                phase_name="capability_execution",
+                component="yantra",
+                duration_ns=800_000_000,
+                timestamp_utc="2026-09-01T00:00:01Z",
+                outcome="success",
+                attributes={"device_type": "cpu"},
+            )
+        )
+
+        darpana.record_pramana(
+            PramanaRecord(
+                run_id="run-A",
+                request_id="req-A",
+                trace_id="tr-A",
+                span_id="sp-1",
+                capability_id="ocr",
+                stage="ocr",
+                timestamp_utc="2026-09-01T00:00:00Z",
+                confidence=ConfidenceValue(score=0.97, method="test", evidence={"test": True}),
+                attributes={"device_type": "gpu"},
+            )
+        )
+
+        from sarathi.mukha.app import _filter_run_telemetry
+
+        maruti_a, pramana_a = _filter_run_telemetry(darpana, "run-A")
+        assert len(maruti_a) == 1
+        assert maruti_a[0].run_id == "run-A"
+        assert len(pramana_a) == 1
+        assert pramana_a[0].run_id == "run-A"
+
+        maruti_b, pramana_b = _filter_run_telemetry(darpana, "run-B")
+        assert len(maruti_b) == 1
+        assert maruti_b[0].run_id == "run-B"
+        assert len(pramana_b) == 0
 
     def test_device_telemetry_aggregates_only_capability_execution_spans(self) -> None:
-        # A single attempt with allocation + capability_execution + release spans
         maruti_recs = [
             MarutiRecord(
                 run_id="r1",
@@ -428,9 +485,9 @@ class TestMukhaSummaryAndArtifactsTruth:
 
 
 class TestMukhaTextualWorkerFlow:
-    """Tests proving asynchronous worker execution off the Textual event loop."""
+    """Tests proving asynchronous worker execution, timer refreshes, and safe failure presentation."""
 
-    def test_app_start_runs_off_event_loop_and_transitions_to_summary(self, tmp_path: Path) -> None:
+    def test_app_start_runs_off_event_loop_refreshes_and_transitions_to_summary(self, tmp_path: Path) -> None:
         async def _run() -> None:
             in_file = tmp_path / "sample.txt"
             in_file.write_text("hello", encoding="utf-8")
@@ -447,19 +504,33 @@ class TestMukhaTextualWorkerFlow:
                 ),
             )
 
+            real_darpana = Darpana(capacity=1000)
             exec_started = threading.Event()
             allow_finish = threading.Event()
 
             def mock_execute(request: Request, context: ExecutionContext | None = None) -> Result:
+                assert context is not None
+                real_darpana.record_maruti(
+                    MarutiRecord(
+                        run_id=context.run_id,
+                        request_id=context.request_id,
+                        trace_id=context.trace_id,
+                        span_id=context.span_id,
+                        phase_name="capability_execution",
+                        component="yantra",
+                        duration_ns=100_000_000,
+                        timestamp_utc="2026-09-01T00:00:00Z",
+                        outcome="success",
+                        attributes={"device_type": "gpu"},
+                    )
+                )
                 exec_started.set()
                 allow_finish.wait(timeout=2.0)
                 return Result(data="worker_success", artifacts=(), warnings=())
 
             mock_agni = MagicMock()
             mock_agni.execute.side_effect = mock_execute
-            mock_agni.darpana.maruti_records.return_value = ()
-            mock_agni.darpana.pramana_records.return_value = ()
-            mock_agni.quarantine_store.list_all.return_value = ()
+            mock_agni.darpana = real_darpana
 
             sel = InputSelectionView(total_files=1, total_size_bytes=5, is_grouped=False)
             actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
@@ -468,26 +539,28 @@ class TestMukhaTextualWorkerFlow:
             app = MukhaApp(initial_state=init_state, agni=mock_agni, pending_request=req)
 
             async with app.run_test() as pilot:
-                # 1. Starts at HomeScreen
                 assert isinstance(app.screen, HomeScreen)
 
-                # 2. Click Start Run
                 await pilot.click("#btn-start_run")
                 await pilot.pause()
 
-                # Execution started in background thread; MonitorScreen is visible while in flight
+                # Execution is running; MonitorScreen is active and timer is running
                 assert isinstance(app.screen, MonitorScreen)
+                assert app._monitor_timer is not None
 
-                # Allow worker to finish
+                # Allow worker to complete
                 allow_finish.set()
-                await pilot.pause(0.1)
+                await pilot.pause(0.15)
 
-                # 3. Transitions to SummaryScreen upon completion
+                # Transitions to SummaryScreen
                 assert isinstance(app.screen, SummaryScreen)
                 assert app.app_state.terminal_summary is not None
                 assert app.app_state.terminal_summary.status == "SUCCESS"
 
-                # 4. Agni was invoked with an explicit ExecutionContext matching run_id
+                # Timer is stopped upon completion
+                assert app._monitor_timer is None
+
+                # Correct ExecutionContext passed
                 mock_agni.execute.assert_called_once()
                 call_args = mock_agni.execute.call_args
                 passed_context = call_args.kwargs.get("context")
@@ -518,9 +591,7 @@ class TestMukhaTextualWorkerFlow:
                 code=FailureCode.EXECUTION_FAILED,
                 message="Resource limit exceeded",
             )
-            mock_agni.darpana.maruti_records.return_value = ()
-            mock_agni.darpana.pramana_records.return_value = ()
-            mock_agni.quarantine_store.list_all.return_value = ()
+            mock_agni.darpana = Darpana(capacity=1000)
 
             sel = InputSelectionView(total_files=1, total_size_bytes=3, is_grouped=False)
             actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
@@ -536,38 +607,34 @@ class TestMukhaTextualWorkerFlow:
                 assert app.app_state.terminal_summary is not None
                 assert app.app_state.terminal_summary.status == "FAILED"
                 assert len(app.app_state.terminal_summary.failures) == 1
-                assert "Resource limit exceeded" in app.app_state.terminal_summary.failures[0]
+                assert "[execution_failed] Resource limit exceeded" in app.app_state.terminal_summary.failures[0]
+                assert app._monitor_timer is None
 
         asyncio.run(_run())
 
-    def test_app_handles_quarantine_store_records_in_summary(self, tmp_path: Path) -> None:
+    def test_app_sanitizes_unexpected_exception_messages(self, tmp_path: Path) -> None:
         async def _run() -> None:
-            in_file = tmp_path / "quarantine.txt"
-            in_file.write_text("quarantine", encoding="utf-8")
+            in_file = tmp_path / "secret.txt"
+            in_file.write_text("sensitive", encoding="utf-8")
             req = Request(
-                request_id="req-worker-quarantine",
+                request_id="req-worker-secret",
                 requirement="read_native",
                 inputs=(
                     InputRef(
                         input_id="inp-1",
                         source_path=in_file,
-                        display_name="quarantine.txt",
-                        size_bytes=10,
+                        display_name="secret.txt",
+                        size_bytes=9,
                     ),
                 ),
             )
 
-            mock_quarantine_rec = MagicMock()
-            mock_quarantine_rec.status = QuarantineStatus.QUARANTINED
-            mock_quarantine_rec.attempt_count = 2
-
+            # Unexpected exception with raw internal path / secret
             mock_agni = MagicMock()
-            mock_agni.execute.return_value = Result(data="quarantined_pass", artifacts=(), warnings=())
-            mock_agni.darpana.maruti_records.return_value = ()
-            mock_agni.darpana.pramana_records.return_value = ()
-            mock_agni.quarantine_store.list_all.return_value = [mock_quarantine_rec]
+            mock_agni.execute.side_effect = RuntimeError("SECRET_API_KEY_12345 in /internal/path/db.sqlite")
+            mock_agni.darpana = Darpana(capacity=1000)
 
-            sel = InputSelectionView(total_files=1, total_size_bytes=10, is_grouped=False)
+            sel = InputSelectionView(total_files=1, total_size_bytes=9, is_grouped=False)
             actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
             init_state = MukhaPresenter.build_home_view(input_selection=sel, available_actions=actions)
 
@@ -579,8 +646,13 @@ class TestMukhaTextualWorkerFlow:
 
                 assert isinstance(app.screen, SummaryScreen)
                 assert app.app_state.terminal_summary is not None
-                assert app.app_state.terminal_summary.quarantined_count == 1
-                assert app.app_state.terminal_summary.retry_count == 2
+                assert app.app_state.terminal_summary.status == "FAILED"
+                assert len(app.app_state.terminal_summary.failures) == 1
+                # Must NOT expose raw exception string or secrets
+                assert "SECRET_API_KEY" not in app.app_state.terminal_summary.failures[0]
+                assert "/internal/path" not in app.app_state.terminal_summary.failures[0]
+                # Presents safe generic message + exception type only
+                assert app.app_state.terminal_summary.failures[0] == "Internal execution error (RuntimeError)"
 
         asyncio.run(_run())
 
