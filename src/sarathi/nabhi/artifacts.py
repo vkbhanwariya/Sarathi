@@ -395,19 +395,7 @@ class RunWorkspace:
                 message="Failed to atomically write artifact file.",
             ) from err
 
-        # Clean up staging file with atomic rollback if cleanup fails
-        try:
-            staged_path.unlink(missing_ok=True)
-        except OSError as err:
-            try:
-                dest_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message="Failed to clean up staged file; promoted artifact rolled back.",
-            ) from err
-
+        # Promotion succeeded on disk: dest_path exists.
         artifact_id = f"art-{uuid.uuid4().hex[:12]}"
         ref = ArtifactRef(
             artifact_id=artifact_id,
@@ -419,6 +407,28 @@ class RunWorkspace:
             metadata=intent.metadata,
         )
 
+        # Attempt staging cleanup
+        try:
+            staged_path.unlink(missing_ok=True)
+        except OSError as unlink_err:
+            # Staging cleanup failed. Attempt atomic rollback of dest_path.
+            try:
+                dest_path.unlink(missing_ok=True)
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to clean up staged file; promoted artifact rolled back.",
+                ) from unlink_err
+            except OSError as rollback_err:
+                # Rollback also failed: dest_path STILL exists on disk!
+                # Track surviving promoted file in committed artifacts to ensure deterministic state
+                self._committed_artifacts.append(ref)
+                self._committed_relative_paths.add(path_key)
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to clean up staged file and failed to roll back promoted artifact.",
+                ) from rollback_err
+
+        # Normal success path: dest_path promoted, staged_path unlinked
         self._committed_artifacts.append(ref)
         self._committed_relative_paths.add(path_key)
         return ref
@@ -724,7 +734,7 @@ class RunWorkspace:
             ],
         }
 
-        # Safe provenance identity recording only (strictly validated against safe identifiers)
+        # Safe provenance identity recording only (strictly validated against safe identifiers when present)
         if provenance is not None:
             if not isinstance(provenance, (list, tuple)):
                 raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(provenance).__name__}.")
@@ -732,26 +742,28 @@ class RunWorkspace:
             for i, p in enumerate(provenance):
                 if not isinstance(p, ProvenanceRecord):
                     raise TypeError(f"provenance[{i}] must be a ProvenanceRecord, got {type(p).__name__}.")
-                if not _SAFE_IDENTIFIER_PATTERN.match(p.stage):
-                    raise DoshError(
-                        code=FailureCode.VALIDATION_FAILED,
-                        message="Provenance record contains invalid stage identifier.",
-                    )
-                if not _SAFE_DOTTED_PATTERN.match(p.plugin_id):
-                    raise DoshError(
-                        code=FailureCode.VALIDATION_FAILED,
-                        message="Provenance record contains invalid plugin_id identifier.",
-                    )
-                if not _SAFE_DOTTED_PATTERN.match(p.capability_id):
-                    raise DoshError(
-                        code=FailureCode.VALIDATION_FAILED,
-                        message="Provenance record contains invalid capability_id identifier.",
-                    )
-                prov_entry: dict[str, Any] = {
-                    "stage": p.stage,
-                    "plugin_id": p.plugin_id,
-                    "capability_id": p.capability_id,
-                }
+                prov_entry: dict[str, Any] = {}
+                if p.stage is not None:
+                    if not isinstance(p.stage, str) or not _SAFE_IDENTIFIER_PATTERN.match(p.stage):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Provenance record contains invalid stage identifier.",
+                        )
+                    prov_entry["stage"] = p.stage
+                if p.plugin_id is not None:
+                    if not isinstance(p.plugin_id, str) or not _SAFE_DOTTED_PATTERN.match(p.plugin_id):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Provenance record contains invalid plugin_id identifier.",
+                        )
+                    prov_entry["plugin_id"] = p.plugin_id
+                if p.capability_id is not None:
+                    if not isinstance(p.capability_id, str) or not _SAFE_DOTTED_PATTERN.match(p.capability_id):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Provenance record contains invalid capability_id identifier.",
+                        )
+                    prov_entry["capability_id"] = p.capability_id
                 if p.page_number is not None:
                     if isinstance(p.page_number, bool) or not isinstance(p.page_number, int) or p.page_number <= 0:
                         raise DoshError(
@@ -783,7 +795,7 @@ class RunWorkspace:
                 cleaned_prov.append(prov_entry)
             manifest_data["provenance"] = cleaned_prov
 
-        # Safe warning code/stage recording only (strictly validated against safe identifiers)
+        # Safe warning code/stage recording only (strictly validated against safe identifiers when present)
         if warnings is not None:
             if not isinstance(warnings, (list, tuple)):
                 raise TypeError(f"warnings must be a sequence of WarningRecord, got {type(warnings).__name__}.")
@@ -791,20 +803,20 @@ class RunWorkspace:
             for i, w in enumerate(warnings):
                 if not isinstance(w, WarningRecord):
                     raise TypeError(f"warnings[{i}] must be a WarningRecord, got {type(w).__name__}.")
-                if not _SAFE_IDENTIFIER_PATTERN.match(w.code):
+                if not isinstance(w.code, str) or not _SAFE_IDENTIFIER_PATTERN.match(w.code):
                     raise DoshError(
                         code=FailureCode.VALIDATION_FAILED,
                         message="Warning record contains invalid warning code.",
                     )
-                if not _SAFE_IDENTIFIER_PATTERN.match(w.stage):
-                    raise DoshError(
-                        code=FailureCode.VALIDATION_FAILED,
-                        message="Warning record contains invalid warning stage.",
-                    )
-                cleaned_warn.append({
-                    "code": w.code,
-                    "stage": w.stage,
-                })
+                warn_entry: dict[str, Any] = {"code": w.code}
+                if w.stage is not None:
+                    if not isinstance(w.stage, str) or not _SAFE_IDENTIFIER_PATTERN.match(w.stage):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message="Warning record contains invalid warning stage.",
+                        )
+                    warn_entry["stage"] = w.stage
+                cleaned_warn.append(warn_entry)
             manifest_data["warnings"] = cleaned_warn
 
         # Validate JSON serialization safety before attempting file write
@@ -934,7 +946,6 @@ class ArtifactBoundary:
         preserve_partial: bool = False,
         timestamp: datetime | None = None,
         input_sources: Sequence[Path | str | InputRef] = (),
-        kavacha: Kavacha | None = None,
     ) -> RunWorkspace:
         """Begin a run workspace for safe staging and atomic artifact commits.
 
@@ -945,7 +956,6 @@ class ArtifactBoundary:
             preserve_partial: Whether incomplete artifacts should be retained under partial/.
             timestamp: Optional UTC timestamp override (used for deterministic run folder naming).
             input_sources: Optional input sources to validate against storage directory overlap.
-            kavacha: Optional Kavacha service override for overlap validation.
 
         Returns:
             An active RunWorkspace.
@@ -953,7 +963,8 @@ class ArtifactBoundary:
         Raises:
             TypeError: If arguments are of invalid types.
             DoshError(FailureCode.VALIDATION_FAILED): If run_id or requirement is malformed.
-            DoshError(FailureCode.INVALID_CONFIGURATION): If output_root override is invalid or nested.
+            DoshError(FailureCode.INVALID_CONFIGURATION): If output_root override is invalid or nested,
+                or if input_sources are supplied without an injected Kavacha security service.
             DoshError(FailureCode.SECURITY_DENIED): If input sources overlap with staging or output roots.
         """
         if not isinstance(run_id, str):
@@ -1005,23 +1016,15 @@ class ArtifactBoundary:
             if not run_output_dir.exists():
                 break
 
-        # Validate input/output overlap via Kavacha if input_sources are provided
+        # Validate input/output overlap via constructor-injected Kavacha if input_sources are provided
         if input_sources:
-            dest_roots_to_check = [self._runtime_root, active_output_root, staging_dir, run_output_dir]
-            effective_kavacha = kavacha or self._kavacha
-            if effective_kavacha is not None:
-                effective_kavacha.validate_source_destination_overlap(input_sources, dest_roots_to_check)
-            else:
-                from sarathi.kavacha import Kavacha as KavachaService, SecurityPolicy
-                default_kavacha = KavachaService(
-                    SecurityPolicy(
-                        allow_pii_access=False,
-                        allow_network_access=False,
-                        allow_external_processing=False,
-                        allowed_secrets=(),
-                    )
+            if self._kavacha is None:
+                raise DoshError(
+                    code=FailureCode.INVALID_CONFIGURATION,
+                    message="Kavacha security service must be injected to validate input source containment.",
                 )
-                default_kavacha.validate_source_destination_overlap(input_sources, dest_roots_to_check)
+            dest_roots_to_check = [self._runtime_root, active_output_root, staging_dir, run_output_dir]
+            self._kavacha.validate_source_destination_overlap(input_sources, dest_roots_to_check)
 
         return RunWorkspace(
             run_id=cleaned_run_id,
