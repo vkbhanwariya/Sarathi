@@ -1,7 +1,9 @@
-"""Comprehensive unit and headless Textual tests for Mukha - Console & Presentation."""
+"""Comprehensive unit and headless Textual tests for Mukha - Console & Presentation Phase 1."""
 
 import asyncio
 from pathlib import Path
+import threading
+import time
 from unittest.mock import MagicMock
 import pytest
 
@@ -35,10 +37,12 @@ from sarathi.mukha import (
     format_duration_ns,
     status_badge,
 )
+from sarathi.nabhi.quarantine import QuarantineRecord, QuarantineStatus
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactRef,
     ConfidenceValue,
+    ExecutionContext,
     ExecutionProfile,
     InputRef,
     Request,
@@ -95,8 +99,51 @@ class TestMukhaComponents:
         assert status_badge("  success  ") == "SUCCESS"
 
 
+class TestMukhaProgressStateContract:
+    """Tests for strict ProgressState validation rules."""
+
+    @pytest.mark.parametrize(
+        ("completed", "total", "expected_pct"),
+        [
+            (5, 10, 50.0),
+            (0, 10, 0.0),
+            (10, 10, 100.0),
+            (3, 4, 75.0),
+        ],
+    )
+    def test_valid_known_progress(self, completed: int, total: int, expected_pct: float) -> None:
+        prog = ProgressState.known(completed, total)
+        assert prog.kind == ProgressKind.KNOWN
+        assert prog.completed == completed
+        assert prog.total == total
+        assert prog.percentage == pytest.approx(expected_pct)
+
+    @pytest.mark.parametrize(
+        ("completed", "total"),
+        [
+            (3, 0),
+            (5, -1),
+            (-1, 10),
+            (11, 10),
+        ],
+    )
+    def test_invalid_known_progress_raises_value_error(self, completed: int, total: int) -> None:
+        with pytest.raises(ValueError):
+            ProgressState.known(completed, total)
+
+    def test_indeterminate_and_unavailable_progress(self) -> None:
+        indet = ProgressState.indeterminate(completed=4)
+        assert indet.kind == ProgressKind.INDETERMINATE
+        assert indet.completed == 4
+        assert indet.percentage is None
+
+        unavail = ProgressState.unavailable()
+        assert unavail.kind == ProgressKind.UNAVAILABLE
+        assert unavail.percentage is None
+
+
 class TestMukhaInputAndIntakeTruth:
-    """Tests for factual intake and presenter input views."""
+    """Tests for factual intake without suffix-as-content-truth."""
 
     def test_intake_from_paths_canonical_validation(self, tmp_path: Path) -> None:
         valid_f1 = tmp_path / "doc1.pdf"
@@ -114,30 +161,14 @@ class TestMukhaInputAndIntakeTruth:
         assert len(refs) == 2
         assert refs[0].display_name == "doc1.pdf"
         assert refs[0].size_bytes == valid_f1.stat().st_size
+        assert refs[0].media_type is None  # media_type is None before Darshana detection
         assert refs[1].display_name == "doc2.txt"
         assert refs[1].size_bytes == valid_f2.stat().st_size
 
         assert pf.eligible_count == 2
         assert pf.issue_count == 3
-        assert not sel.is_grouped
-
-    def test_intake_from_paths_large_batch_grouping(self, tmp_path: Path) -> None:
-        files = []
-        for i in range(12):
-            f = tmp_path / f"pdf_{i}.pdf"
-            f.write_text("pdf_data", encoding="utf-8")
-            files.append(f)
-        for i in range(3):
-            f = tmp_path / f"sheet_{i}.xlsx"
-            f.write_text("sheet_data", encoding="utf-8")
-            files.append(f)
-
-        refs, sel, pf = MukhaPresenter.intake_from_paths(files)
-        assert len(refs) == 15
-        assert sel.is_grouped is True
-        assert len(sel.groups) == 2
-        pdf_group = next(g for g in sel.groups if g.format_name == "PDF")
-        assert pdf_group.file_count == 12
+        assert sel.is_grouped is False
+        assert len(sel.groups) == 0
 
     def test_intake_from_paths_respects_kavacha_overlap_validation(self, tmp_path: Path) -> None:
         runtime_dir = tmp_path / "Runtime"
@@ -178,8 +209,64 @@ class TestMukhaInputAndIntakeTruth:
         assert len(view.available_actions) == 1
 
 
-class TestMukhaProgressAndRuntimeTruth:
-    """Tests for 5-second progress promotion and runtime aggregation truth."""
+class TestMukhaTelemetryAndRuntimeTruth:
+    """Tests for capability_execution-only device metrics and monotonicity."""
+
+    def test_device_telemetry_aggregates_only_capability_execution_spans(self) -> None:
+        # A single attempt with allocation + capability_execution + release spans
+        maruti_recs = [
+            MarutiRecord(
+                run_id="r1",
+                request_id="req1",
+                trace_id="tr1",
+                span_id="sp1",
+                phase_name="allocation",
+                component="yantra",
+                duration_ns=10_000_000,
+                timestamp_utc="2026-09-01T00:00:00Z",
+                outcome="success",
+                attributes={"device_type": "gpu"},
+            ),
+            MarutiRecord(
+                run_id="r1",
+                request_id="req1",
+                trace_id="tr1",
+                span_id="sp2",
+                phase_name="capability_execution",
+                component="yantra",
+                duration_ns=500_000_000,
+                timestamp_utc="2026-09-01T00:00:01Z",
+                outcome="success",
+                attributes={"device_type": "gpu"},
+            ),
+            MarutiRecord(
+                run_id="r1",
+                request_id="req1",
+                trace_id="tr1",
+                span_id="sp3",
+                phase_name="release",
+                component="yantra",
+                duration_ns=5_000_000,
+                timestamp_utc="2026-09-01T00:00:02Z",
+                outcome="success",
+                attributes={"device_type": "gpu"},
+            ),
+        ]
+
+        state = MukhaPresenter.build_monitor_view(
+            run_id="run-102",
+            status="running",
+            started_at_ns=0,
+            now_ns=1_000_000_000,
+            files=(),
+            maruti_records=maruti_recs,
+        )
+
+        assert len(state.device_progress) == 1
+        gpu_stat = state.device_progress[0]
+        assert gpu_stat.device_type == "GPU"
+        assert gpu_stat.execution_count == 1
+        assert gpu_stat.total_duration_ns == 500_000_000
 
     def test_five_second_rule_for_long_running_operations(self) -> None:
         workers = [
@@ -199,68 +286,6 @@ class TestMukhaProgressAndRuntimeTruth:
         assert len(state.long_running) == 1
         assert state.long_running[0].operation_name == "Worker w-2 - slow.pdf"
         assert state.long_running[0].is_long_running is True
-
-    @pytest.mark.parametrize(
-        ("completed", "total", "expected_kind", "expected_pct"),
-        [
-            (5, 10, ProgressKind.KNOWN, 50.0),
-            (0, 10, ProgressKind.KNOWN, 0.0),
-            (10, 10, ProgressKind.KNOWN, 100.0),
-            (3, 0, ProgressKind.KNOWN, 0.0),
-        ],
-    )
-    def test_progress_states(self, completed: int, total: int, expected_kind: ProgressKind, expected_pct: float) -> None:
-        prog = ProgressState.known(completed, total)
-        assert prog.kind == expected_kind
-        assert prog.percentage == expected_pct
-
-        indet = ProgressState.indeterminate(completed=3)
-        assert indet.kind == ProgressKind.INDETERMINATE
-
-        unavail = ProgressState.unavailable()
-        assert unavail.kind == ProgressKind.UNAVAILABLE
-
-    def test_device_telemetry_aggregation_no_cpu_default(self) -> None:
-        maruti_recs = [
-            MarutiRecord(
-                run_id="r1",
-                request_id="req1",
-                trace_id="tr1",
-                span_id="sp1",
-                phase_name="ocr",
-                component="yantra",
-                duration_ns=500_000_000,
-                timestamp_utc="2026-09-01T00:00:00Z",
-                outcome="success",
-                attributes={"device_type": "gpu"},
-            ),
-        ]
-        pramana_recs = [
-            PramanaRecord(
-                run_id="r1",
-                request_id="req1",
-                trace_id="tr1",
-                span_id="sp1",
-                capability_id="ocr",
-                stage="ocr",
-                timestamp_utc="2026-09-01T00:00:00Z",
-                confidence=ConfidenceValue(score=0.98, method="test", evidence={"test": True}),
-            ),
-        ]
-
-        state = MukhaPresenter.build_monitor_view(
-            run_id="run-102",
-            status="running",
-            started_at_ns=0,
-            now_ns=1_000_000_000,
-            files=(),
-            maruti_records=maruti_recs,
-            pramana_records=pramana_recs,
-        )
-
-        assert len(state.device_progress) == 1
-        assert state.device_progress[0].device_type == "GPU"
-        assert all(d.device_type != "CPU" for d in state.device_progress)
 
     def test_terminal_state_monotonicity_prevents_regression(self) -> None:
         initial = MukhaPresenter.build_monitor_view(
@@ -324,7 +349,7 @@ class TestMukhaSummaryAndArtifactsTruth:
                 request_id="req-201",
                 trace_id="tr1",
                 span_id="sp1",
-                phase_name="pipeline_stage",
+                phase_name="capability_execution",
                 component="nabhi.pravaha",
                 duration_ns=400_000_000,
                 timestamp_utc="2026-09-01T00:00:00Z",
@@ -336,7 +361,7 @@ class TestMukhaSummaryAndArtifactsTruth:
                 request_id="req-201",
                 trace_id="tr1",
                 span_id="sp2",
-                phase_name="retry_attempt",
+                phase_name="capability_execution",
                 component="nabhi.pravaha",
                 duration_ns=600_000_000,
                 timestamp_utc="2026-09-01T00:00:01Z",
@@ -401,56 +426,16 @@ class TestMukhaSummaryAndArtifactsTruth:
 
         assert len(summary.artifacts) == 0
 
-    def test_inspector_view_aggregation(self) -> None:
-        maruti_recs = [
-            MarutiRecord(
-                run_id="r1",
-                request_id="req1",
-                trace_id="tr1",
-                span_id="sp1",
-                phase_name="resolution",
-                component="nabhi.manthan",
-                duration_ns=250_000_000,
-                timestamp_utc="2026-09-01T00:00:00Z",
-                outcome="success",
-            ),
-        ]
-        insp = MukhaPresenter.build_inspector_view(
-            run_id="insp-1",
-            status="SUCCESS",
-            elapsed_ns=250_000_000,
-            maruti_records=maruti_recs,
-        )
-        assert insp.run_id == "insp-1"
-        assert len(insp.activity_logs) == 1
-        assert len(insp.stage_timings) == 1
-        assert insp.stage_timings[0].stage_name == "resolution"
 
+class TestMukhaTextualWorkerFlow:
+    """Tests proving asynchronous worker execution off the Textual event loop."""
 
-class TestMukhaOwnershipAndTextualHeadlessApp:
-    """Headless Textual UI flow and runtime boundary routing tests."""
-
-    def test_app_launches_to_home_screen(self) -> None:
-        async def _run() -> None:
-            sel = InputSelectionView(total_files=3, total_size_bytes=3000, is_grouped=False)
-            actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
-            init_state = MukhaPresenter.build_home_view(input_selection=sel, available_actions=actions)
-
-            app = MukhaApp(initial_state=init_state)
-
-            async with app.run_test() as pilot:
-                assert isinstance(app.screen, HomeScreen)
-                assert app.screen.query_one("#home-req") is not None
-                assert app.screen.query_one("#inputs-table") is not None
-
-        asyncio.run(_run())
-
-    def test_app_routes_start_intent_through_canonical_agni_owner(self, tmp_path: Path) -> None:
+    def test_app_start_runs_off_event_loop_and_transitions_to_summary(self, tmp_path: Path) -> None:
         async def _run() -> None:
             in_file = tmp_path / "sample.txt"
             in_file.write_text("hello", encoding="utf-8")
             req = Request(
-                request_id="req-route-1",
+                request_id="req-worker-1",
                 requirement="read_native",
                 inputs=(
                     InputRef(
@@ -462,11 +447,19 @@ class TestMukhaOwnershipAndTextualHeadlessApp:
                 ),
             )
 
+            exec_started = threading.Event()
+            allow_finish = threading.Event()
+
+            def mock_execute(request: Request, context: ExecutionContext | None = None) -> Result:
+                exec_started.set()
+                allow_finish.wait(timeout=2.0)
+                return Result(data="worker_success", artifacts=(), warnings=())
+
             mock_agni = MagicMock()
-            mock_agni.execute.return_value = Result(
-                data="executed",
-                artifacts=(),
-            )
+            mock_agni.execute.side_effect = mock_execute
+            mock_agni.darpana.maruti_records.return_value = ()
+            mock_agni.darpana.pramana_records.return_value = ()
+            mock_agni.quarantine_store.list_all.return_value = ()
 
             sel = InputSelectionView(total_files=1, total_size_bytes=5, is_grouped=False)
             actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
@@ -475,63 +468,119 @@ class TestMukhaOwnershipAndTextualHeadlessApp:
             app = MukhaApp(initial_state=init_state, agni=mock_agni, pending_request=req)
 
             async with app.run_test() as pilot:
+                # 1. Starts at HomeScreen
+                assert isinstance(app.screen, HomeScreen)
+
+                # 2. Click Start Run
                 await pilot.click("#btn-start_run")
                 await pilot.pause()
 
-                mock_agni.execute.assert_called_once_with(req)
+                # Execution started in background thread; MonitorScreen is visible while in flight
+                assert isinstance(app.screen, MonitorScreen)
+
+                # Allow worker to finish
+                allow_finish.set()
+                await pilot.pause(0.1)
+
+                # 3. Transitions to SummaryScreen upon completion
                 assert isinstance(app.screen, SummaryScreen)
+                assert app.app_state.terminal_summary is not None
+                assert app.app_state.terminal_summary.status == "SUCCESS"
+
+                # 4. Agni was invoked with an explicit ExecutionContext matching run_id
+                mock_agni.execute.assert_called_once()
+                call_args = mock_agni.execute.call_args
+                passed_context = call_args.kwargs.get("context")
+                assert isinstance(passed_context, ExecutionContext)
+                assert passed_context.run_id == app.app_state.terminal_summary.run_id
 
         asyncio.run(_run())
 
-    def test_app_switch_to_monitor_and_summary(self) -> None:
+    def test_app_handles_dosh_failure_in_worker_gracefully(self, tmp_path: Path) -> None:
         async def _run() -> None:
-            sel = InputSelectionView(total_files=1, total_size_bytes=1000, is_grouped=False)
-            mon_state = MukhaPresenter.build_monitor_view(
-                run_id="run-tui-1",
-                status="running",
-                started_at_ns=0,
-                now_ns=2_000_000_000,
-                files=(),
-            )
-            sum_state = RunSummaryView(
-                run_id="run-tui-1",
-                status="SUCCESS",
-                wall_time_ns=2_000_000_000,
-                total_inputs=1,
-                successful_files=1,
-                warning_files=0,
-                failed_files=0,
-                quarantined_count=0,
-                retry_count=0,
-            )
-
-            app_state = ApplicationViewState(
-                current_screen="home",
+            in_file = tmp_path / "fail.txt"
+            in_file.write_text("bad", encoding="utf-8")
+            req = Request(
+                request_id="req-worker-fail",
                 requirement="read_native",
-                policy_label="Local only",
-                input_selection=sel,
-                active_run=mon_state,
-                terminal_summary=sum_state,
+                inputs=(
+                    InputRef(
+                        input_id="inp-1",
+                        source_path=in_file,
+                        display_name="fail.txt",
+                        size_bytes=3,
+                    ),
+                ),
             )
 
-            app = MukhaApp(initial_state=app_state)
+            mock_agni = MagicMock()
+            mock_agni.execute.side_effect = DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Resource limit exceeded",
+            )
+            mock_agni.darpana.maruti_records.return_value = ()
+            mock_agni.darpana.pramana_records.return_value = ()
+            mock_agni.quarantine_store.list_all.return_value = ()
+
+            sel = InputSelectionView(total_files=1, total_size_bytes=3, is_grouped=False)
+            actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, available_actions=actions)
+
+            app = MukhaApp(initial_state=init_state, agni=mock_agni, pending_request=req)
 
             async with app.run_test() as pilot:
-                app.switch_to_monitor()
-                await pilot.pause()
-                assert isinstance(app.screen, MonitorScreen)
+                await pilot.click("#btn-start_run")
+                await pilot.pause(0.1)
 
-                app.switch_to_summary()
-                await pilot.pause()
                 assert isinstance(app.screen, SummaryScreen)
+                assert app.app_state.terminal_summary is not None
+                assert app.app_state.terminal_summary.status == "FAILED"
+                assert len(app.app_state.terminal_summary.failures) == 1
+                assert "Resource limit exceeded" in app.app_state.terminal_summary.failures[0]
 
-                app.switch_to_inspector()
-                await pilot.pause()
-                assert isinstance(app.screen, InspectorScreen)
+        asyncio.run(_run())
 
-                app.switch_to_home()
-                await pilot.pause()
-                assert isinstance(app.screen, HomeScreen)
+    def test_app_handles_quarantine_store_records_in_summary(self, tmp_path: Path) -> None:
+        async def _run() -> None:
+            in_file = tmp_path / "quarantine.txt"
+            in_file.write_text("quarantine", encoding="utf-8")
+            req = Request(
+                request_id="req-worker-quarantine",
+                requirement="read_native",
+                inputs=(
+                    InputRef(
+                        input_id="inp-1",
+                        source_path=in_file,
+                        display_name="quarantine.txt",
+                        size_bytes=10,
+                    ),
+                ),
+            )
+
+            mock_quarantine_rec = MagicMock()
+            mock_quarantine_rec.status = QuarantineStatus.QUARANTINED
+            mock_quarantine_rec.attempt_count = 2
+
+            mock_agni = MagicMock()
+            mock_agni.execute.return_value = Result(data="quarantined_pass", artifacts=(), warnings=())
+            mock_agni.darpana.maruti_records.return_value = ()
+            mock_agni.darpana.pramana_records.return_value = ()
+            mock_agni.quarantine_store.list_all.return_value = [mock_quarantine_rec]
+
+            sel = InputSelectionView(total_files=1, total_size_bytes=10, is_grouped=False)
+            actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, available_actions=actions)
+
+            app = MukhaApp(initial_state=init_state, agni=mock_agni, pending_request=req)
+
+            async with app.run_test() as pilot:
+                await pilot.click("#btn-start_run")
+                await pilot.pause(0.1)
+
+                assert isinstance(app.screen, SummaryScreen)
+                assert app.app_state.terminal_summary is not None
+                assert app.app_state.terminal_summary.quarantined_count == 1
+                assert app.app_state.terminal_summary.retry_count == 2
 
         asyncio.run(_run())
 

@@ -2,11 +2,14 @@
 
 The canonical interactive presentation frontend for Sarathi.
 Consumes typed presentation state and routes user intents to canonical runtime owners.
+Runs runtime execution off the event loop via Textual worker threads.
 """
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
+import uuid
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
@@ -21,18 +24,22 @@ from textual.widgets import (
     TabPane,
 )
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.components import (
     format_bytes,
     format_confidence,
     format_duration_ns,
     status_badge,
 )
+from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import (
     ApplicationViewState,
     InspectorViewState,
     RunSummaryView,
     RunViewState,
 )
+from sarathi.nabhi.quarantine import QuarantineStatus
+from sarathi.sankalpa import ExecutionContext
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
@@ -119,7 +126,8 @@ class MonitorScreen(Screen):
                 yield dev_table
 
             with Horizontal(id="monitor-actions"):
-                yield Button("Cancel", id="btn-cancel-run", variant="error")
+                # Cancellation is disabled as it is not supported in the pipeline
+                yield Button("Cancel", id="btn-cancel-run", disabled=True)
                 yield Button("Summary", id="btn-goto-summary")
         yield Footer()
 
@@ -167,6 +175,11 @@ class SummaryScreen(Screen):
                         format_confidence(ds.avg_confidence),
                     )
                 yield hw_table
+
+            if self.state.failures:
+                yield Label(f"Failures ({len(self.state.failures)}):", id="failures-title")
+                for f in self.state.failures:
+                    yield Label(f"  X {f}", classes="failure-item")
 
             with Horizontal(id="summary-actions"):
                 yield Button("Inspect Run", id="btn-inspect-run")
@@ -257,6 +270,9 @@ class MukhaApp(App):
         self.app_state: ApplicationViewState = initial_state
         self._agni: Agni | None = agni
         self._pending_request: Request | None = pending_request
+        self._active_context: ExecutionContext | None = None
+        self._active_run_id: str | None = None
+        self._start_time_ns: int = 0
 
     def on_mount(self) -> None:
         self.push_screen(HomeScreen(self.app_state))
@@ -274,33 +290,143 @@ class MukhaApp(App):
         self.switch_to_inspector()
 
     def action_start_run(self) -> None:
-        """Route start intent through Agni if available, transitioning to monitor/summary."""
+        """Start execution asynchronously on a background worker thread and switch to Monitor."""
         if self._agni is not None and self._pending_request is not None:
-            # Route execution through canonical Agni composition root
-            result = self._agni.execute(self._pending_request)
-            from sarathi.mukha.presenter import MukhaPresenter
-            summary_view = MukhaPresenter.build_summary_view(
-                run_id=self._pending_request.request_id,
-                status="SUCCESS",
-                wall_time_ns=0,
-                request=self._pending_request,
-                result=result,
-                successful_files=len(self._pending_request.inputs),
-                warning_files=len(result.warnings),
-                failed_files=0,
+            # Create factual ExecutionContext with real identity
+            run_id = f"run_{uuid.uuid4().hex[:12]}"
+            trace_id = f"tr_{uuid.uuid4().hex[:16]}"
+            span_id = f"sp_{uuid.uuid4().hex[:16]}"
+            context = ExecutionContext(
+                run_id=run_id,
+                request_id=self._pending_request.request_id,
+                trace_id=trace_id,
+                span_id=span_id,
+                profile=self._pending_request.profile,
+            )
+            self._active_context = context
+            self._active_run_id = run_id
+            self._start_time_ns = time.perf_counter_ns()
+
+            # Immediate transition to Monitor
+            initial_mon = MukhaPresenter.build_monitor_view(
+                run_id=run_id,
+                status="running",
+                started_at_ns=self._start_time_ns,
+                now_ns=self._start_time_ns,
+                files=(),
             )
             self.app_state = ApplicationViewState(
-                current_screen="summary",
+                current_screen="monitor",
                 requirement=self.app_state.requirement,
                 policy_label=self.app_state.policy_label,
                 input_selection=self.app_state.input_selection,
                 preflight=self.app_state.preflight,
-                available_actions=self.app_state.available_actions,
-                terminal_summary=summary_view,
+                available_actions=(),
+                active_run=initial_mon,
             )
-            self.switch_to_summary()
+            self.switch_to_monitor()
+
+            # Run execution off the Textual UI event loop in a worker thread
+            self.run_worker(self._run_agni_worker, thread=True, exclusive=True)
         elif self.app_state.active_run is not None:
             self.switch_to_monitor()
+
+    def _run_agni_worker(self) -> None:
+        """Background thread execution of Agni runtime."""
+        req = self._pending_request
+        ctx = self._active_context
+        start_ns = self._start_time_ns
+        assert req is not None and ctx is not None and self._agni is not None
+
+        try:
+            result = self._agni.execute(req, context=ctx)
+            elapsed = max(0, time.perf_counter_ns() - start_ns)
+            self.call_from_thread(self._on_execution_success, req, ctx, result, elapsed)
+        except Exception as exc:
+            elapsed = max(0, time.perf_counter_ns() - start_ns)
+            self.call_from_thread(self._on_execution_failure, req, ctx, exc, elapsed)
+
+    def _on_execution_success(
+        self,
+        req: Request,
+        ctx: ExecutionContext,
+        result: Result,
+        elapsed_ns: int,
+    ) -> None:
+        """Main thread callback for successful Agni execution."""
+        maruti = self._agni.darpana.maruti_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
+        pramana = self._agni.darpana.pramana_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
+        q_recs = self._agni.quarantine_store.list_all() if hasattr(self._agni, "quarantine_store") else ()
+        q_count = sum(1 for q in q_recs if getattr(q, "status", None) == QuarantineStatus.QUARANTINED)
+        retry_count = sum(getattr(q, "attempt_count", 0) for q in q_recs)
+
+        summary_view = MukhaPresenter.build_summary_view(
+            run_id=ctx.run_id,
+            status="SUCCESS",
+            wall_time_ns=elapsed_ns,
+            request=req,
+            result=result,
+            successful_files=len(req.inputs),
+            warning_files=len(result.warnings),
+            failed_files=0,
+            quarantined_count=q_count,
+            retry_count=retry_count,
+            maruti_records=maruti,
+            pramana_records=pramana,
+        )
+        self.app_state = ApplicationViewState(
+            current_screen="summary",
+            requirement=self.app_state.requirement,
+            policy_label=self.app_state.policy_label,
+            input_selection=self.app_state.input_selection,
+            preflight=self.app_state.preflight,
+            available_actions=(),
+            terminal_summary=summary_view,
+        )
+        self.switch_to_summary()
+
+    def _on_execution_failure(
+        self,
+        req: Request,
+        ctx: ExecutionContext,
+        exc: Exception,
+        elapsed_ns: int,
+    ) -> None:
+        """Main thread callback for failed Agni execution."""
+        from sarathi.sankalpa import Result as SankalpaResult
+
+        is_quarantine = isinstance(exc, DoshError) and "quarantine" in exc.message.lower()
+        status = "QUARANTINED" if is_quarantine else "FAILED"
+        msg = f"[{exc.code.value}] {exc.message}" if isinstance(exc, DoshError) else str(exc)
+
+        maruti = self._agni.darpana.maruti_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
+        pramana = self._agni.darpana.pramana_records(run_id=ctx.run_id) if hasattr(self._agni, "darpana") else ()
+
+        empty_res = SankalpaResult(data="", artifacts=(), warnings=())
+        summary_view = MukhaPresenter.build_summary_view(
+            run_id=ctx.run_id,
+            status=status,
+            wall_time_ns=elapsed_ns,
+            request=req,
+            result=empty_res,
+            successful_files=0,
+            warning_files=0,
+            failed_files=len(req.inputs),
+            quarantined_count=1 if is_quarantine else 0,
+            failures=(msg,),
+            maruti_records=maruti,
+            pramana_records=pramana,
+        )
+        self.app_state = ApplicationViewState(
+            current_screen="summary",
+            requirement=self.app_state.requirement,
+            policy_label=self.app_state.policy_label,
+            input_selection=self.app_state.input_selection,
+            preflight=self.app_state.preflight,
+            available_actions=(),
+            terminal_summary=summary_view,
+        )
+        self.switch_to_summary()
 
     def switch_to_home(self) -> None:
         self.push_screen(HomeScreen(self.app_state))
@@ -317,10 +443,13 @@ class MukhaApp(App):
         if self.app_state.inspector is not None:
             self.push_screen(InspectorScreen(self.app_state.inspector))
         elif self.app_state.terminal_summary is not None:
-            from sarathi.mukha.presenter import MukhaPresenter
+            maruti = self._agni.darpana.maruti_records(run_id=self.app_state.terminal_summary.run_id) if hasattr(self._agni, "darpana") else ()
+            pramana = self._agni.darpana.pramana_records(run_id=self.app_state.terminal_summary.run_id) if hasattr(self._agni, "darpana") else ()
             insp = MukhaPresenter.build_inspector_view(
                 run_id=self.app_state.terminal_summary.run_id,
                 status=self.app_state.terminal_summary.status,
                 elapsed_ns=self.app_state.terminal_summary.wall_time_ns,
+                maruti_records=maruti,
+                pramana_records=pramana,
             )
             self.push_screen(InspectorScreen(insp))
