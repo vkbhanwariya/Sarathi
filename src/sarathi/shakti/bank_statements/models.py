@@ -32,6 +32,34 @@ class DuplicateDecision(StrEnum):
     DISTINCT = "distinct"
 
 
+def _validate_decimal(val: Any, name: str, non_negative: bool = False) -> Decimal | None:
+    """Validate that val is a Decimal or None, and optionally non-negative."""
+    if val is None:
+        return None
+    if isinstance(val, bool) or not isinstance(val, Decimal):
+        raise TypeError(f"{name} must be a Decimal instance or None, got {type(val)}.")
+    if non_negative and val < Decimal("0"):
+        raise ValueError(f"{name} magnitude must be non-negative, got {val}.")
+    return val
+
+
+def _validate_seq(seq: Any, item_cls: type, name: str) -> tuple:
+    """Validate that seq is a list/tuple of item_cls and return an immutable tuple."""
+    if not isinstance(seq, (list, tuple)):
+        raise TypeError(f"{name} must be a sequence of {item_cls.__name__}, got {type(seq)}.")
+    for i, item in enumerate(seq):
+        if not isinstance(item, item_cls):
+            raise TypeError(f"{name}[{i}] must be a {item_cls.__name__}, got {type(item)}.")
+    return tuple(seq)
+
+
+def _validate_mapping(mapping: Any, name: str) -> MappingProxyType:
+    """Validate that mapping is a Mapping and return an immutable MappingProxyType."""
+    if not isinstance(mapping, Mapping):
+        raise TypeError(f"{name} must be a Mapping, got {type(mapping)}.")
+    return MappingProxyType(dict(mapping))
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationIssue:
     """Non-fatal or fatal validation issue observed on a transaction or statement."""
@@ -46,10 +74,7 @@ class ValidationIssue:
             raise ValueError("ValidationIssue code must be a non-empty string.")
         if not self.message or not self.message.strip():
             raise ValueError("ValidationIssue message must be a non-empty string.")
-        if isinstance(self.context, Mapping):
-            object.__setattr__(self, "context", MappingProxyType(dict(self.context)))
-        else:
-            raise TypeError(f"context must be a Mapping, got {type(self.context)}.")
+        object.__setattr__(self, "context", _validate_mapping(self.context, "context"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,43 +108,13 @@ class Transaction:
         if not self.bank_name or not isinstance(self.bank_name, str):
             raise ValueError("bank_name must be a non-empty string.")
 
-        # Decimal type validation & magnitude rules
-        if self.debit is not None:
-            if isinstance(self.debit, bool) or not isinstance(self.debit, Decimal):
-                raise TypeError(f"debit must be a Decimal instance or None, got {type(self.debit)}.")
-            if self.debit < Decimal("0"):
-                raise ValueError(f"debit magnitude must be non-negative, got {self.debit}.")
+        _validate_decimal(self.debit, "debit", non_negative=True)
+        _validate_decimal(self.credit, "credit", non_negative=True)
+        _validate_decimal(self.running_balance, "running_balance")
 
-        if self.credit is not None:
-            if isinstance(self.credit, bool) or not isinstance(self.credit, Decimal):
-                raise TypeError(f"credit must be a Decimal instance or None, got {type(self.credit)}.")
-            if self.credit < Decimal("0"):
-                raise ValueError(f"credit magnitude must be non-negative, got {self.credit}.")
-
-        if self.running_balance is not None:
-            if isinstance(self.running_balance, bool) or not isinstance(self.running_balance, Decimal):
-                raise TypeError(f"running_balance must be a Decimal instance or None, got {type(self.running_balance)}.")
-
-        if isinstance(self.issues, (list, tuple)):
-            for i, iss in enumerate(self.issues):
-                if not isinstance(iss, ValidationIssue):
-                    raise TypeError(f"issues[{i}] must be a ValidationIssue, got {type(iss)}.")
-            object.__setattr__(self, "issues", tuple(self.issues))
-        else:
-            raise TypeError(f"issues must be a sequence of ValidationIssue, got {type(self.issues)}.")
-
-        if isinstance(self.provenance, (list, tuple)):
-            for i, prov in enumerate(self.provenance):
-                if not isinstance(prov, ProvenanceRecord):
-                    raise TypeError(f"provenance[{i}] must be a ProvenanceRecord, got {type(prov)}.")
-            object.__setattr__(self, "provenance", tuple(self.provenance))
-        else:
-            raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(self.provenance)}.")
-
-        if isinstance(self.metadata, Mapping):
-            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
-        else:
-            raise TypeError(f"metadata must be a Mapping, got {type(self.metadata)}.")
+        object.__setattr__(self, "issues", _validate_seq(self.issues, ValidationIssue, "issues"))
+        object.__setattr__(self, "provenance", _validate_seq(self.provenance, ProvenanceRecord, "provenance"))
+        object.__setattr__(self, "metadata", _validate_mapping(self.metadata, "metadata"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,39 +142,13 @@ class BankStatement:
         if not self.bank_profile or not isinstance(self.bank_profile, str):
             raise ValueError("bank_profile must be a non-empty string.")
 
-        if self.opening_balance is not None and not isinstance(self.opening_balance, Decimal):
-            raise TypeError(f"opening_balance must be a Decimal or None, got {type(self.opening_balance)}.")
-        if self.closing_balance is not None and not isinstance(self.closing_balance, Decimal):
-            raise TypeError(f"closing_balance must be a Decimal or None, got {type(self.closing_balance)}.")
+        _validate_decimal(self.opening_balance, "opening_balance")
+        _validate_decimal(self.closing_balance, "closing_balance")
 
-        if isinstance(self.transactions, (list, tuple)):
-            for i, tx in enumerate(self.transactions):
-                if not isinstance(tx, Transaction):
-                    raise TypeError(f"transactions[{i}] must be a Transaction, got {type(tx)}.")
-            object.__setattr__(self, "transactions", tuple(self.transactions))
-        else:
-            raise TypeError(f"transactions must be a sequence of Transaction, got {type(self.transactions)}.")
-
-        if isinstance(self.issues, (list, tuple)):
-            for i, iss in enumerate(self.issues):
-                if not isinstance(iss, ValidationIssue):
-                    raise TypeError(f"issues[{i}] must be a ValidationIssue, got {type(iss)}.")
-            object.__setattr__(self, "issues", tuple(self.issues))
-        else:
-            raise TypeError(f"issues must be a sequence of ValidationIssue, got {type(self.issues)}.")
-
-        if isinstance(self.provenance, (list, tuple)):
-            for i, prov in enumerate(self.provenance):
-                if not isinstance(prov, ProvenanceRecord):
-                    raise TypeError(f"provenance[{i}] must be a ProvenanceRecord, got {type(prov)}.")
-            object.__setattr__(self, "provenance", tuple(self.provenance))
-        else:
-            raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(self.provenance)}.")
-
-        if isinstance(self.metadata, Mapping):
-            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
-        else:
-            raise TypeError(f"metadata must be a Mapping, got {type(self.metadata)}.")
+        object.__setattr__(self, "transactions", _validate_seq(self.transactions, Transaction, "transactions"))
+        object.__setattr__(self, "issues", _validate_seq(self.issues, ValidationIssue, "issues"))
+        object.__setattr__(self, "provenance", _validate_seq(self.provenance, ProvenanceRecord, "provenance"))
+        object.__setattr__(self, "metadata", _validate_mapping(self.metadata, "metadata"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,14 +163,7 @@ class BankStatementConsolidationResult:
     issues: tuple[ValidationIssue, ...] = ()
 
     def __post_init__(self) -> None:
-        if isinstance(self.statements, (list, tuple)):
-            for i, s in enumerate(self.statements):
-                if not isinstance(s, BankStatement):
-                    raise TypeError(f"statements[{i}] must be a BankStatement, got {type(s)}.")
-            object.__setattr__(self, "statements", tuple(self.statements))
-        else:
-            raise TypeError(f"statements must be a sequence of BankStatement, got {type(self.statements)}.")
-
+        object.__setattr__(self, "statements", _validate_seq(self.statements, BankStatement, "statements"))
         if not isinstance(self.total_debit, Decimal):
             raise TypeError(f"total_debit must be a Decimal, got {type(self.total_debit)}.")
         if not isinstance(self.total_credit, Decimal):

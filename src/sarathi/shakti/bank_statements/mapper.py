@@ -1,19 +1,13 @@
 """Header Mapper for Bank Statements in Sarathi V2.
 
 Maps extracted table headers to canonical financial fields:
-- date
-- description
-- reference_number
-- cheque_number
-- debit
-- credit
-- balance
+- date, description, reference_number, cheque_number, debit, credit, balance
 
 Resolution hierarchy:
 1. Bank Exact Match
 2. Generic Exact Match
-3. Bank Fuzzy Match (Score >= 92)
-4. Generic Fuzzy Match (Score >= 92)
+3. Bank Fuzzy Match (Score >= 92%)
+4. Generic Fuzzy Match (Score >= 92%)
 """
 
 from __future__ import annotations
@@ -23,6 +17,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 import yaml
+
+CANONICAL_FIELDS = ("date", "description", "reference_number", "cheque_number", "debit", "credit", "balance")
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,50 +37,30 @@ class HeaderMapper:
 
     def __init__(self, banks_dir: Path | None = None) -> None:
         self._banks_dir = banks_dir or Path("E:/Sarathi/data/banks")
-        self._common_config = self._load_common_config()
-        self._profiles = self._load_profiles()
+        self._common_config = self._load_yaml(self._banks_dir / "common.yaml")
+        self._profiles = {
+            data["profile_id"]: data
+            for f in self._banks_dir.glob("*.yaml")
+            if f.name != "common.yaml" and isinstance((data := self._load_yaml(f)), dict) and "profile_id" in data
+        } if self._banks_dir.exists() else {}
 
-    def _load_common_config(self) -> dict[str, Any]:
-        common_path = self._banks_dir / "common.yaml"
-        if common_path.exists():
+    @staticmethod
+    def _load_yaml(path: Path) -> dict[str, Any]:
+        if path.exists():
             try:
-                data = yaml.safe_load(common_path.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    return data
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                return data if isinstance(data, dict) else {}
             except Exception:
                 pass
         return {}
-
-    def _load_profiles(self) -> dict[str, dict[str, Any]]:
-        profiles = {}
-        if self._banks_dir.exists():
-            for f in self._banks_dir.glob("*.yaml"):
-                if f.name == "common.yaml":
-                    continue
-                try:
-                    data = yaml.safe_load(f.read_text(encoding="utf-8"))
-                    if isinstance(data, dict) and "profile_id" in data:
-                        profiles[data["profile_id"]] = data
-                except Exception:
-                    continue
-        return profiles
 
     def map_headers(
         self,
         headers: list[str] | tuple[str, ...],
         profile_id: str | None = None,
     ) -> list[ColumnMapping]:
-        """Map raw header strings to canonical field names.
-
-        Args:
-            headers: List of raw header strings from row 0.
-            profile_id: Optional bank profile ID (e.g. 'sbi').
-
-        Returns:
-            List of ColumnMapping instances for recognized columns.
-        """
-        bank_profile = self._profiles.get(profile_id or "", {})
-        bank_headers = bank_profile.get("headers", {})
+        """Map raw header strings to canonical field names."""
+        bank_headers = self._profiles.get(profile_id or "", {}).get("headers", {})
         common_aliases = self._common_config.get("aliases", {})
 
         mappings: list[ColumnMapping] = []
@@ -95,16 +71,8 @@ class HeaderMapper:
             if not cleaned:
                 continue
 
-            mapping = self._match_header(
-                idx=idx,
-                cleaned_header=cleaned,
-                raw_header=str(raw_h),
-                bank_headers=bank_headers,
-                common_aliases=common_aliases,
-                already_mapped=mapped_fields,
-            )
-
-            if mapping is not None:
+            mapping = self._match_header(idx, cleaned, str(raw_h), bank_headers, common_aliases, mapped_fields)
+            if mapping:
                 mappings.append(mapping)
                 mapped_fields.add(mapping.canonical_field)
 
@@ -113,60 +81,30 @@ class HeaderMapper:
     def _match_header(
         self,
         idx: int,
-        cleaned_header: str,
+        cleaned: str,
         raw_header: str,
         bank_headers: dict[str, Any],
         common_aliases: dict[str, Any],
         already_mapped: set[str],
     ) -> ColumnMapping | None:
-        canonical_fields = ["date", "description", "reference_number", "cheque_number", "debit", "credit", "balance"]
+        available = [f for f in CANONICAL_FIELDS if f not in already_mapped]
 
-        # 1. Bank Exact Match
-        for field_name in canonical_fields:
-            if field_name in already_mapped:
-                continue
-            aliases = bank_headers.get(field_name, [])
-            if any(cleaned_header == str(a).strip().lower() for a in aliases):
-                return ColumnMapping(idx, raw_header, field_name, "bank_exact", 1.0)
+        # 1. Exact matches: Bank exact -> Generic exact
+        for match_type, source in [("bank_exact", bank_headers), ("generic_exact", common_aliases)]:
+            for field in available:
+                if any(cleaned == str(a).strip().lower() for a in source.get(field, [])):
+                    return ColumnMapping(idx, raw_header, field, match_type, 1.0)
 
-        # 2. Generic Exact Match
-        for field_name in canonical_fields:
-            if field_name in already_mapped:
-                continue
-            aliases = common_aliases.get(field_name, [])
-            if any(cleaned_header == str(a).strip().lower() for a in aliases):
-                return ColumnMapping(idx, raw_header, field_name, "generic_exact", 1.0)
-
-        # 3. Bank Fuzzy Match (>= 92%)
-        best_field: str | None = None
-        best_score = 0.0
-        best_match_type = ""
-
-        for field_name in canonical_fields:
-            if field_name in already_mapped:
-                continue
-            aliases = bank_headers.get(field_name, [])
-            for a in aliases:
-                ratio = SequenceMatcher(None, cleaned_header, str(a).strip().lower()).ratio()
-                if ratio > best_score:
-                    best_score = ratio
-                    best_field = field_name
-                    best_match_type = "bank_fuzzy"
-
-        # 4. Generic Fuzzy Match (>= 92%)
-        if best_score < 0.92:
-            for field_name in canonical_fields:
-                if field_name in already_mapped:
-                    continue
-                aliases = common_aliases.get(field_name, [])
-                for a in aliases:
-                    ratio = SequenceMatcher(None, cleaned_header, str(a).strip().lower()).ratio()
-                    if ratio > best_score:
-                        best_score = ratio
-                        best_field = field_name
-                        best_match_type = "generic_fuzzy"
-
-        if best_score >= 0.92 and best_field is not None:
-            return ColumnMapping(idx, raw_header, best_field, best_match_type, best_score)
+        # 2. Fuzzy matches (>= 92%): Bank fuzzy -> Generic fuzzy
+        for match_type, source in [("bank_fuzzy", bank_headers), ("generic_fuzzy", common_aliases)]:
+            scored = [
+                (SequenceMatcher(None, cleaned, str(a).strip().lower()).ratio(), field)
+                for field in available
+                for a in source.get(field, [])
+            ]
+            if scored:
+                best_score, best_field = max(scored, key=lambda x: x[0])
+                if best_score >= 0.92:
+                    return ColumnMapping(idx, raw_header, best_field, match_type, best_score)
 
         return None
