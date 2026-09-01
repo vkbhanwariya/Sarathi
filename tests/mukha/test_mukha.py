@@ -556,6 +556,12 @@ class TestMukhaTextualWorkerFlow:
                 assert isinstance(app.screen, SummaryScreen)
                 assert app.app_state.terminal_summary is not None
                 assert app.app_state.terminal_summary.status == "SUCCESS"
+                assert app.app_state.terminal_summary.successful_files is None
+                assert app.app_state.terminal_summary.failed_files is None
+                assert app.app_state.terminal_summary.quarantined_count is None
+                assert app.app_state.terminal_summary.retry_count is None
+                files_label = app.screen.query_one("#summary-files-count")
+                assert "Files: - success, 0 warning, - failed" in str(files_label.render())
 
                 # Timer is stopped upon completion
                 assert app._monitor_timer is None
@@ -606,6 +612,13 @@ class TestMukhaTextualWorkerFlow:
                 assert isinstance(app.screen, SummaryScreen)
                 assert app.app_state.terminal_summary is not None
                 assert app.app_state.terminal_summary.status == "FAILED"
+                assert app.app_state.terminal_summary.successful_files is None
+                assert app.app_state.terminal_summary.warning_files is None
+                assert app.app_state.terminal_summary.failed_files is None
+                assert app.app_state.terminal_summary.quarantined_count is None
+                assert app.app_state.terminal_summary.retry_count is None
+                files_label = app.screen.query_one("#summary-files-count")
+                assert "Files: - success, - warning, - failed" in str(files_label.render())
                 assert len(app.app_state.terminal_summary.failures) == 1
                 assert "[execution_failed] Resource limit exceeded" in app.app_state.terminal_summary.failures[0]
                 assert app._monitor_timer is None
