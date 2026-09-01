@@ -6,8 +6,21 @@ from unittest.mock import patch
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.nabhi import CapabilityPlan, Kosh, Manthan, Pravaha
+from sarathi.nabhi import (
+    ArtifactBoundary,
+    CapabilityPlan,
+    Kosh,
+    LifecycleAction,
+    LifecycleActionType,
+    Manthan,
+    Pravaha,
+    QuarantineRecord,
+    QuarantineStatus,
+    QuarantineStore,
+    RetryPolicy,
+)
 from sarathi.sankalpa import (
+    ArtifactIntent,
     Capability,
     CapabilityDeclaration,
     DeviceRequirement,
@@ -718,3 +731,400 @@ class TestPravahaPipelineEngine:
         # Proves Pravaha and Manthan use the exact same canonical Kosh instance
         assert pravaha._registry is manthan.registry
         assert pravaha._registry is kosh
+
+
+class TestPravahaFailureLifecycleAndQuarantine:
+    """Explicit acceptance tests for Pravaha failure lifecycle, bounded retry, and quarantine."""
+
+    def test_classified_failure_enters_failure_lifecycle(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        failing_cap = MockExecutableCapability(
+            c1_decl,
+            fail_error=DoshError(FailureCode.EXECUTION_FAILED, "Primary execution error"),
+        )
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        retry_policy = RetryPolicy(max_retries=0)  # No retry allowed
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": failing_cap},
+            quarantine_store=q_store,
+            retry_policy=retry_policy,
+        )
+        plan = CapabilityPlan(request_id=sample_request.request_id, capability_ids=("extract",))
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan, sample_request, sample_context)
+
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        assert failing_cap.call_count == 1
+
+        # Manifest must exist and be in terminal quarantine
+        q_dirs = list((tmp_path / "quarantine").iterdir())
+        assert len(q_dirs) == 1
+        record = q_store.get_record(q_dirs[0].name)
+        assert record is not None
+        assert record.status is QuarantineStatus.TERMINAL
+        assert record.failure_code is FailureCode.EXECUTION_FAILED
+        assert record.attempt_count == 0
+
+    def test_allowed_retry_executes_again_through_yantra_and_succeeds(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+
+        class FlakyCapability(MockExecutableCapability):
+            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+                self.call_count += 1
+                if self.call_count == 1:
+                    raise DoshError(FailureCode.EXECUTION_FAILED, "Temporary flake")
+                return Result(data=("flaky_success",))
+
+        flaky_cap = FlakyCapability(c1_decl)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        retry_policy = RetryPolicy(max_retries=2)
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": flaky_cap},
+            quarantine_store=q_store,
+            retry_policy=retry_policy,
+        )
+        plan = CapabilityPlan(request_id=sample_request.request_id, capability_ids=("extract",))
+
+        result = pravaha.execute(plan, sample_request, sample_context)
+
+        assert result.data == ("flaky_success",)
+        assert flaky_cap.call_count == 2
+
+        # Quarantined item must have been released upon retry success
+        q_dirs = list((tmp_path / "quarantine").iterdir())
+        assert len(q_dirs) == 1
+        record = q_store.get_record(q_dirs[0].name)
+        assert record is not None
+        assert record.status is QuarantineStatus.RELEASED
+        assert record.attempt_count == 1
+
+    def test_retry_exhaustion_becomes_terminal_quarantine(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        always_failing_cap = MockExecutableCapability(
+            c1_decl,
+            fail_error=DoshError(FailureCode.EXECUTION_FAILED, "Persistent failure"),
+        )
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        retry_policy = RetryPolicy(max_retries=2)
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": always_failing_cap},
+            quarantine_store=q_store,
+            retry_policy=retry_policy,
+        )
+        plan = CapabilityPlan(request_id=sample_request.request_id, capability_ids=("extract",))
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan, sample_request, sample_context)
+
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        # 1 initial attempt + 2 retries = 3 calls
+        assert always_failing_cap.call_count == 3
+
+        q_dirs = list((tmp_path / "quarantine").iterdir())
+        assert len(q_dirs) == 1
+        record = q_store.get_record(q_dirs[0].name)
+        assert record is not None
+        assert record.status is QuarantineStatus.TERMINAL
+        assert record.attempt_count == 2
+
+    def test_permanent_non_retryable_failure_does_not_loop(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        security_failing_cap = MockExecutableCapability(
+            c1_decl,
+            fail_error=DoshError(FailureCode.SECURITY_DENIED, "Access denied"),
+        )
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        retry_policy = RetryPolicy(max_retries=5)  # High retry limit, but code is non-retryable
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": security_failing_cap},
+            quarantine_store=q_store,
+            retry_policy=retry_policy,
+        )
+        plan = CapabilityPlan(request_id=sample_request.request_id, capability_ids=("extract",))
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan, sample_request, sample_context)
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert security_failing_cap.call_count == 1  # No loop!
+
+        q_dirs = list((tmp_path / "quarantine").iterdir())
+        assert len(q_dirs) == 1
+        record = q_store.get_record(q_dirs[0].name)
+        assert record is not None
+        assert record.status is QuarantineStatus.TERMINAL
+        assert record.attempt_count == 0
+
+    def test_terminal_attempt_cannot_execute_again(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        failing_cap = MockExecutableCapability(
+            c1_decl,
+            fail_error=DoshError(FailureCode.EXECUTION_FAILED, "Primary fail"),
+        )
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        retry_policy = RetryPolicy(max_retries=0)
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": failing_cap},
+            quarantine_store=q_store,
+            retry_policy=retry_policy,
+        )
+        plan = CapabilityPlan(request_id=sample_request.request_id, capability_ids=("extract",))
+
+        # First run puts attempt into terminal state
+        with pytest.raises(DoshError):
+            pravaha.execute(plan, sample_request, sample_context)
+        assert failing_cap.call_count == 1
+
+        # Second attempt must immediately be rejected without invoking Yantra/capability
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan, sample_request, sample_context)
+
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "terminal quarantine state" in exc_info.value.message
+        assert failing_cap.call_count == 1  # Unchanged!
+
+    def test_typed_lifecycle_action_validation_before_mutation(
+        self,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": MockExecutableCapability(c1_decl)},
+            quarantine_store=q_store,
+        )
+
+        # Invalid action argument type
+        with pytest.raises(TypeError, match="action must be a LifecycleAction"):
+            pravaha.apply_lifecycle_action("not_an_action")  # type: ignore
+
+        # Action on non-existent item raises VALIDATION_FAILED
+        missing_action = LifecycleAction(action=LifecycleActionType.RELEASE, item_id="quar-nonexistent")
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(missing_action)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+
+        # Pre-populate a record in TERMINAL state
+        record = QuarantineRecord(
+            quarantine_id="quar-item-01",
+            input_hash="hash123",
+            run_id="run-01",
+            request_id="req-01",
+            trace_id="tr-01",
+            capability_id="extract",
+            plugin_id="shakti.native",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="instant",
+            attempt_count=2,
+            max_retries=2,
+            status=QuarantineStatus.TERMINAL,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        # Cannot release or retry a terminal item
+        retry_act = LifecycleAction(action=LifecycleActionType.RETRY, item_id="quar-item-01")
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "terminal state" in exc_info.value.message
+
+        # Store remains untouched in TERMINAL state
+        stored = q_store.get_record("quar-item-01")
+        assert stored is not None
+        assert stored.status is QuarantineStatus.TERMINAL
+
+    def test_hashed_manifest_contains_required_safe_factual_fields(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        import json
+
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        record = QuarantineRecord(
+            quarantine_id="quar-safe-01",
+            input_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            run_id="run-100",
+            request_id="req-100",
+            trace_id="tr-100",
+            capability_id="extract",
+            plugin_id="shakti.native",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="standard",
+            attempt_count=1,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+            provenance=({"stage": "native_extraction", "details": "safe_meta"},),
+        )
+
+        manifest_path = q_store.quarantine(record)
+        assert manifest_path.exists()
+
+        raw_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        # Verify required factual safe fields
+        assert raw_data["quarantine_id"] == "quar-safe-01"
+        assert raw_data["input_hash"] == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        assert raw_data["run_id"] == "run-100"
+        assert raw_data["request_id"] == "req-100"
+        assert raw_data["trace_id"] == "tr-100"
+        assert raw_data["capability_id"] == "extract"
+        assert raw_data["plugin_id"] == "shakti.native"
+        assert raw_data["failure_code"] == FailureCode.EXECUTION_FAILED.value
+        assert raw_data["profile"] == "standard"
+        assert raw_data["attempt_count"] == 1
+        assert raw_data["max_retries"] == 2
+        assert raw_data["status"] == "quarantined"
+
+        # Verify manifest DOES NOT contain raw source path, raw document bytes, secrets, or raw exception strings
+        raw_text = manifest_path.read_text(encoding="utf-8")
+        assert "password" not in raw_text.lower()
+        assert "secret" not in raw_text.lower()
+        assert "c:\\" not in raw_text.lower()
+        assert "/users/" not in raw_text.lower()
+        assert "traceback" not in raw_text.lower()
+
+    def test_confirmed_artifacts_remain_valid_across_failure(
+        self,
+        tmp_path: Path,
+        kosh: Kosh,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        c1_decl, c2_decl, _, _, _ = cap_decls
+
+        output_root = tmp_path / "Output"
+        output_root.mkdir(parents=True, exist_ok=True)
+        runtime_root = tmp_path / "Runtime"
+        runtime_root.mkdir(parents=True, exist_ok=True)
+
+        boundary = ArtifactBoundary(runtime_root=runtime_root, output_root=output_root)
+        workspace = boundary.begin_run(
+            run_id=sample_context.run_id,
+            requirement="extract",
+        )
+
+        # Stage and commit an artifact before failure
+        intent = ArtifactIntent(
+            name="partial_report.txt",
+            role="report",
+            media_type="text/plain",
+            relative_path="partial_report.txt",
+        )
+        content = b"Valid report data before second step fails."
+        art_ref = workspace.commit_artifact(intent, content)
+        assert art_ref.path.exists()
+
+        # Step 1 succeeds, Step 2 fails with non-retryable error
+        step1_cap = MockExecutableCapability(c1_decl, return_invalid_type=None)
+        step2_cap = MockExecutableCapability(
+            c2_decl,
+            fail_error=DoshError(FailureCode.EXECUTION_FAILED, "Step 2 failed"),
+        )
+
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        retry_policy = RetryPolicy(max_retries=0)
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": step1_cap, "transform": step2_cap},
+            quarantine_store=q_store,
+            retry_policy=retry_policy,
+        )
+
+        kosh.register_plugin(
+            PluginInfo(
+                plugin_id="test.plugin",
+                name="Test",
+                version="1.0.0",
+                security=SecurityDeclaration(),
+                capabilities=("extract", "transform"),
+            )
+        )
+        plan = CapabilityPlan(request_id=sample_request.request_id, capability_ids=("extract", "transform"))
+
+        with pytest.raises(DoshError):
+            pravaha.execute(plan, sample_request, sample_context)
+
+        # Workspace finalized on failure: confirmed committed artifact MUST remain present on disk!
+        manifest = workspace.finalize(success=False)
+        assert art_ref.path.exists()
+        assert art_ref.path.read_bytes() == b"Valid report data before second step fails."
+
+    def test_quarantine_is_not_smriti_or_cache(self) -> None:
+        """Prove architecturally that quarantine does not import, reference, or use Smriti caching."""
+        import sys
+        import sarathi.nabhi.quarantine as q_mod
+        import sarathi.nabhi.pravaha as p_mod
+
+        assert not hasattr(q_mod, "Smriti")
+        assert not hasattr(p_mod, "Smriti")
+        assert "sarathi.smriti" not in sys.modules or sys.modules["sarathi.smriti"] is None or not hasattr(sys.modules.get("sarathi.smriti"), "get_cached_result")
