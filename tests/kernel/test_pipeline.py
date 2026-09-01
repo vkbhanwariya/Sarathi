@@ -1189,9 +1189,10 @@ class TestPravahaFailureLifecycleAndQuarantine:
             retry_policy=retry_policy,
         )
 
+        valid_input_hash = pravaha._compute_input_hash(sample_request, cap, sample_context)
         record = QuarantineRecord(
             quarantine_id="quar-retry-01",
-            input_hash="hash_retry",
+            input_hash=valid_input_hash,
             run_id=sample_context.run_id,
             request_id=sample_context.request_id,
             trace_id=sample_context.trace_id,
@@ -1358,3 +1359,356 @@ class TestPravahaFailureLifecycleAndQuarantine:
         assert not hasattr(q_mod, "Smriti")
         assert not hasattr(p_mod, "Smriti")
         assert "sarathi.smriti" not in sys.modules or sys.modules["sarathi.smriti"] is None or not hasattr(sys.modules.get("sarathi.smriti"), "get_cached_result")
+
+    def test_retry_action_mismatched_request_id_fails_before_mutation(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        cap = MockExecutableCapability(c1_decl)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": cap},
+            quarantine_store=q_store,
+            retry_policy=RetryPolicy(max_retries=2),
+        )
+
+        valid_hash = pravaha._compute_input_hash(sample_request, cap, sample_context)
+        record = QuarantineRecord(
+            quarantine_id="quar-mismatch-req",
+            input_hash=valid_hash,
+            run_id=sample_context.run_id,
+            request_id="original-req-id",
+            trace_id=sample_context.trace_id,
+            capability_id="extract",
+            plugin_id="shakti.pipeline",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="instant",
+            attempt_count=0,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        # sample_request has request_id="req-test-1" != "original-req-id"
+        retry_act = LifecycleAction(
+            action=LifecycleActionType.RETRY,
+            item_id="quar-mismatch-req",
+            request=sample_request,
+            context=sample_context,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "does not match quarantined request_id" in exc_info.value.message
+
+        # Assert zero store mutation and zero capability call
+        assert cap.call_count == 0
+        stored = q_store.get_record("quar-mismatch-req")
+        assert stored is not None
+        assert stored.status is QuarantineStatus.QUARANTINED
+        assert stored.attempt_count == 0
+
+    def test_retry_action_mismatched_run_id_fails_before_mutation(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        cap = MockExecutableCapability(c1_decl)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": cap},
+            quarantine_store=q_store,
+            retry_policy=RetryPolicy(max_retries=2),
+        )
+
+        valid_hash = pravaha._compute_input_hash(sample_request, cap, sample_context)
+        record = QuarantineRecord(
+            quarantine_id="quar-mismatch-run",
+            input_hash=valid_hash,
+            run_id="original-run-id",
+            request_id=sample_context.request_id,
+            trace_id=sample_context.trace_id,
+            capability_id="extract",
+            plugin_id="shakti.pipeline",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="instant",
+            attempt_count=0,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        # sample_context has run_id="run-test-1" != "original-run-id"
+        retry_act = LifecycleAction(
+            action=LifecycleActionType.RETRY,
+            item_id="quar-mismatch-run",
+            request=sample_request,
+            context=sample_context,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "does not match quarantined run_id" in exc_info.value.message
+
+        assert cap.call_count == 0
+        stored = q_store.get_record("quar-mismatch-run")
+        assert stored is not None
+        assert stored.status is QuarantineStatus.QUARANTINED
+        assert stored.attempt_count == 0
+
+    def test_retry_action_mismatched_input_hash_fails_before_mutation(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        cap = MockExecutableCapability(c1_decl)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": cap},
+            quarantine_store=q_store,
+            retry_policy=RetryPolicy(max_retries=2),
+        )
+
+        # Deliberately different input hash
+        record = QuarantineRecord(
+            quarantine_id="quar-mismatch-hash",
+            input_hash="tampered_hash_value_1234567890abcdef",
+            run_id=sample_context.run_id,
+            request_id=sample_context.request_id,
+            trace_id=sample_context.trace_id,
+            capability_id="extract",
+            plugin_id="shakti.pipeline",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="instant",
+            attempt_count=0,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        retry_act = LifecycleAction(
+            action=LifecycleActionType.RETRY,
+            item_id="quar-mismatch-hash",
+            request=sample_request,
+            context=sample_context,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Recomputed input hash does not match" in exc_info.value.message
+
+        assert cap.call_count == 0
+        stored = q_store.get_record("quar-mismatch-hash")
+        assert stored is not None
+        assert stored.status is QuarantineStatus.QUARANTINED
+        assert stored.attempt_count == 0
+
+    def test_retry_action_mismatched_trace_id_fails_before_mutation(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        cap = MockExecutableCapability(c1_decl)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": cap},
+            quarantine_store=q_store,
+            retry_policy=RetryPolicy(max_retries=2),
+        )
+
+        valid_hash = pravaha._compute_input_hash(sample_request, cap, sample_context)
+        record = QuarantineRecord(
+            quarantine_id="quar-mismatch-tr",
+            input_hash=valid_hash,
+            run_id=sample_context.run_id,
+            request_id=sample_context.request_id,
+            trace_id="original-trace-id",
+            capability_id="extract",
+            plugin_id="shakti.pipeline",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="instant",
+            attempt_count=0,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        retry_act = LifecycleAction(
+            action=LifecycleActionType.RETRY,
+            item_id="quar-mismatch-tr",
+            request=sample_request,
+            context=sample_context,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "does not match quarantined trace_id" in exc_info.value.message
+
+        assert cap.call_count == 0
+        stored = q_store.get_record("quar-mismatch-tr")
+        assert stored is not None
+        assert stored.status is QuarantineStatus.QUARANTINED
+        assert stored.attempt_count == 0
+
+    def test_retry_action_mismatched_profile_fails_before_mutation(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        cap = MockExecutableCapability(c1_decl)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": cap},
+            quarantine_store=q_store,
+            retry_policy=RetryPolicy(max_retries=2),
+        )
+
+        valid_hash = pravaha._compute_input_hash(sample_request, cap, sample_context)
+        record = QuarantineRecord(
+            quarantine_id="quar-mismatch-prof",
+            input_hash=valid_hash,
+            run_id=sample_context.run_id,
+            request_id=sample_context.request_id,
+            trace_id=sample_context.trace_id,
+            capability_id="extract",
+            plugin_id="shakti.pipeline",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="deep",
+            attempt_count=0,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        # sample_context has profile=INSTANT ("instant") != "deep"
+        retry_act = LifecycleAction(
+            action=LifecycleActionType.RETRY,
+            item_id="quar-mismatch-prof",
+            request=sample_request,
+            context=sample_context,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "does not match quarantined profile" in exc_info.value.message
+
+        assert cap.call_count == 0
+        stored = q_store.get_record("quar-mismatch-prof")
+        assert stored is not None
+        assert stored.status is QuarantineStatus.QUARANTINED
+        assert stored.attempt_count == 0
+
+    def test_retry_action_mismatched_kosh_declaration_fails_before_mutation(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        # Tampered declaration
+        tampered_decl = CapabilityDeclaration(
+            capability_id="extract",
+            plugin_id="shakti.pipeline",
+            version="2.0.0",  # Changed version
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+        tampered_cap = MockExecutableCapability(tampered_decl)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"extract": tampered_cap},
+            quarantine_store=q_store,
+            retry_policy=RetryPolicy(max_retries=2),
+        )
+
+        valid_hash = pravaha._compute_input_hash(sample_request, tampered_cap, sample_context)
+        record = QuarantineRecord(
+            quarantine_id="quar-mismatch-decl",
+            input_hash=valid_hash,
+            run_id=sample_context.run_id,
+            request_id=sample_context.request_id,
+            trace_id=sample_context.trace_id,
+            capability_id="extract",
+            plugin_id="shakti.pipeline",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="instant",
+            attempt_count=0,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        retry_act = LifecycleAction(
+            action=LifecycleActionType.RETRY,
+            item_id="quar-mismatch-decl",
+            request=sample_request,
+            context=sample_context,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "declaration does not match registered declaration in Kosh" in exc_info.value.message
+
+        assert tampered_cap.call_count == 0
+        stored = q_store.get_record("quar-mismatch-decl")
+        assert stored is not None
+        assert stored.status is QuarantineStatus.QUARANTINED
+        assert stored.attempt_count == 0

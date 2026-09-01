@@ -57,7 +57,6 @@ class LifecycleAction:
     item_id: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
     request: Request | None = None
-    plan: CapabilityPlan | None = None
     context: ExecutionContext | None = None
 
     def __post_init__(self) -> None:
@@ -82,11 +81,7 @@ class LifecycleAction:
         if self.request is not None and not isinstance(self.request, Request):
             raise TypeError(f"request must be a Request instance or None, got {type(self.request).__name__}.")
 
-        if self.plan is not None:
-            from sarathi.nabhi.manthan import CapabilityPlan as _PlanClass
 
-            if not isinstance(self.plan, _PlanClass):
-                raise TypeError(f"plan must be a CapabilityPlan instance or None, got {type(self.plan).__name__}.")
 
         if self.context is not None and not isinstance(self.context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance or None, got {type(self.context).__name__}.")

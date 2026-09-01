@@ -148,6 +148,37 @@ class Pravaha:
             )
             self._darpana.record_pramana(pramana_rec)
 
+    def _record_quarantine_maruti(
+        self,
+        context: ExecutionContext,
+        record: QuarantineRecord,
+        status_name: str,
+    ) -> None:
+        """Record minimal factual Maruti observation for real quarantine state transitions."""
+        if self._darpana is None:
+            return
+
+        from sarathi.darpana import MarutiRecord
+
+        maruti_rec = MarutiRecord(
+            run_id=context.run_id,
+            request_id=context.request_id,
+            trace_id=context.trace_id,
+            span_id=context.span_id,
+            phase_name="quarantine_lifecycle",
+            component="nabhi.pravaha",
+            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            duration_ns=0,
+            outcome="success",
+            attributes={
+                "capability_id": record.capability_id,
+                "lifecycle_status": status_name,
+                "attempt_count": record.attempt_count,
+                "max_retries": record.max_retries,
+            },
+        )
+        self._darpana.record_maruti(maruti_rec)
+
     def _execute_retry_attempt(
         self,
         cap: Capability,
@@ -202,6 +233,7 @@ class Pravaha:
             QuarantineStatus.RETRIED,
             attempt_count=new_attempt,
         )
+        self._record_quarantine_maruti(context, retried_rec, QuarantineStatus.RETRIED.value)
 
         retry_ctx = ExecutionContext(
             run_id=context.run_id,
@@ -245,6 +277,7 @@ class Pravaha:
                 QuarantineStatus.RELEASED,
                 attempt_count=new_attempt,
             )
+            self._record_quarantine_maruti(retry_ctx, released_rec, QuarantineStatus.RELEASED.value)
             self._record_pramana_if_available(cap, result, retry_ctx)
             return result, released_rec
         except DoshError as dosh_err:
@@ -271,6 +304,8 @@ class Pravaha:
                 provenance=retried_rec.provenance,
             )
             self._quarantine_store.quarantine(updated_rec)
+            if not is_still_retryable:
+                self._record_quarantine_maruti(retry_ctx, updated_rec, QuarantineStatus.TERMINAL.value)
             raise dosh_err
 
     def execute(
@@ -420,6 +455,7 @@ class Pravaha:
                                 updated_at_utc=datetime.now(timezone.utc).isoformat(),
                             )
                             self._quarantine_store.quarantine(rec)
+                            self._record_quarantine_maruti(current_ctx, rec, QuarantineStatus.TERMINAL.value)
                         raise dosh_err
 
                     # Retry is allowed: initialize quarantine record and loop through canonical retry path
@@ -441,6 +477,7 @@ class Pravaha:
                     )
                     assert self._quarantine_store is not None  # Enforced by __init__ when max_retries > 0
                     self._quarantine_store.quarantine(init_rec)
+                    self._record_quarantine_maruti(current_ctx, init_rec, QuarantineStatus.QUARANTINED.value)
 
                     curr_rec = init_rec
                     last_err: DoshError = dosh_err
@@ -498,7 +535,6 @@ class Pravaha:
         action: LifecycleAction,
         *,
         request: Request | None = None,
-        plan: CapabilityPlan | None = None,
         context: ExecutionContext | None = None,
     ) -> QuarantineRecord:
         """Apply a validated lifecycle transition (release, retry, terminate) to a quarantined item.
@@ -506,7 +542,6 @@ class Pravaha:
         Args:
             action: Typed LifecycleAction request.
             request: Optional Request override for retry re-execution.
-            plan: Optional CapabilityPlan override for retry re-execution.
             context: Optional ExecutionContext override for retry re-execution.
 
         Returns:
@@ -542,6 +577,9 @@ class Pravaha:
                 message=f"Quarantine item '{action.item_id}' not found.",
             )
 
+        effective_req = request or action.request
+        effective_ctx = context or action.context
+
         match action.action:
             case LifecycleActionType.RELEASE:
                 if existing.status == QuarantineStatus.RELEASED:
@@ -554,7 +592,10 @@ class Pravaha:
                         code=FailureCode.VALIDATION_FAILED,
                         message=f"Quarantine item '{action.item_id}' is in terminal state and cannot be released.",
                     )
-                return self._quarantine_store.update_status(action.item_id, QuarantineStatus.RELEASED)
+                updated_rec = self._quarantine_store.update_status(action.item_id, QuarantineStatus.RELEASED)
+                if effective_ctx is not None:
+                    self._record_quarantine_maruti(effective_ctx, updated_rec, QuarantineStatus.RELEASED.value)
+                return updated_rec
 
             case LifecycleActionType.TERMINATE:
                 if existing.status == QuarantineStatus.TERMINAL:
@@ -567,7 +608,10 @@ class Pravaha:
                         code=FailureCode.VALIDATION_FAILED,
                         message=f"Quarantine item '{action.item_id}' is in released state and cannot be terminated.",
                     )
-                return self._quarantine_store.update_status(action.item_id, QuarantineStatus.TERMINAL)
+                updated_rec = self._quarantine_store.update_status(action.item_id, QuarantineStatus.TERMINAL)
+                if effective_ctx is not None:
+                    self._record_quarantine_maruti(effective_ctx, updated_rec, QuarantineStatus.TERMINAL.value)
+                return updated_rec
 
             case LifecycleActionType.RETRY:
                 if existing.status == QuarantineStatus.TERMINAL:
@@ -586,15 +630,49 @@ class Pravaha:
                         message=f"Quarantine item '{action.item_id}' has exhausted maximum retries ({existing.max_retries}).",
                     )
 
-                effective_req = request or action.request
-                effective_ctx = context or action.context
-
                 if effective_req is None or effective_ctx is None:
                     raise DoshError(
                         code=FailureCode.VALIDATION_FAILED,
                         message="Request and ExecutionContext are required to execute a retry through Yantra.",
                     )
 
+                # Mandatory RETRY identity binding checks before ANY mutation or execution
+                # 1. request.request_id == existing.request_id
+                if effective_req.request_id != existing.request_id:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Request request_id '{effective_req.request_id}' does not match quarantined request_id '{existing.request_id}'.",
+                    )
+
+                # 2. context.request_id == existing.request_id
+                if effective_ctx.request_id != existing.request_id:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Context request_id '{effective_ctx.request_id}' does not match quarantined request_id '{existing.request_id}'.",
+                    )
+
+                # 3. context.run_id == existing.run_id
+                if effective_ctx.run_id != existing.run_id:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Context run_id '{effective_ctx.run_id}' does not match quarantined run_id '{existing.run_id}'.",
+                    )
+
+                # 4. context.trace_id == existing.trace_id
+                if effective_ctx.trace_id != existing.trace_id:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Context trace_id '{effective_ctx.trace_id}' does not match quarantined trace_id '{existing.trace_id}'.",
+                    )
+
+                # 5. context.profile.value == existing.profile
+                if effective_ctx.profile.value != existing.profile:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Context profile '{effective_ctx.profile.value}' does not match quarantined profile '{existing.profile}'.",
+                    )
+
+                # 6. Resolve target capability and verify registered declaration
                 cap_id = existing.capability_id
                 if cap_id not in self._capabilities:
                     raise DoshError(
@@ -602,7 +680,34 @@ class Pravaha:
                         message=f"Executable capability '{cap_id}' is not available in Pravaha capabilities.",
                     )
                 cap = self._capabilities[cap_id]
+                if not isinstance(cap, Capability):
+                    raise TypeError(
+                        f"Provided capability '{cap_id}' does not implement Capability protocol, "
+                        f"got {type(cap).__name__}."
+                    )
 
+                registered_decl = self._registry.get_capability(cap_id)
+                if registered_decl is None:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantined capability '{cap_id}' is not registered in Kosh.",
+                    )
+
+                if cap.declaration != registered_decl:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Executable capability '{cap_id}' declaration does not match registered declaration in Kosh.",
+                    )
+
+                # 7. Recompute canonical input hash and verify match
+                recomputed_hash = self._compute_input_hash(effective_req, cap, effective_ctx)
+                if recomputed_hash != existing.input_hash:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Recomputed input hash does not match quarantined input hash.",
+                    )
+
+                # All checks passed: proceed with Yantra execution
                 _, updated_rec = self._execute_retry_attempt(
                     cap=cap,
                     request=effective_req,

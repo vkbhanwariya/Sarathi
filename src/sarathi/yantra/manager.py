@@ -59,6 +59,11 @@ class Yantra:
             DoshError(FailureCode.RESOURCE_UNAVAILABLE): If capacity is exhausted.
             TypeError: If requirement is not a DeviceRequirement.
         """
+        if not isinstance(requirement, DeviceRequirement):
+            raise TypeError(f"requirement must be a DeviceRequirement instance, got {type(requirement).__name__}.")
+        if context is not None and not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
+
         scope = (
             self._darpana.time_scope(
                 context=context,
@@ -86,6 +91,11 @@ class Yantra:
             DoshError(FailureCode.RESOURCE_UNAVAILABLE): If allocation is unknown/foreign/tampered/double-released.
             TypeError: If allocation is not an Allocation instance.
         """
+        if not isinstance(allocation, Allocation):
+            raise TypeError(f"allocation must be an Allocation instance, got {type(allocation).__name__}.")
+        if context is not None and not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
+
         scope = (
             self._darpana.time_scope(
                 context=context,

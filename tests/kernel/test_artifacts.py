@@ -1274,3 +1274,30 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert "Locked" not in err.message
         assert err.__cause__ is not None
         assert isinstance(err.__cause__, PermissionError)
+
+    def test_artifact_boundary_invalid_darpana_causes_zero_root_creation(
+        self, tmp_path: Path
+    ) -> None:
+        runtime_root = tmp_path / "NonExistentRuntime"
+        output_root = tmp_path / "NonExistentOutput"
+
+        with pytest.raises(TypeError, match="darpana must be a Darpana instance or None"):
+            ArtifactBoundary(runtime_root=runtime_root, output_root=output_root, darpana="invalid_darpana")  # type: ignore
+
+        assert not runtime_root.exists()
+        assert not output_root.exists()
+
+    def test_artifact_boundary_begin_run_invalid_context_causes_zero_mutation(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        custom_out = tmp_path / "CustomNonExistentOutput"
+
+        with pytest.raises(TypeError, match="context must be an ExecutionContext instance or None"):
+            boundary.begin_run(
+                run_id="run-invalid-ctx",
+                requirement="ocr",
+                output_root=custom_out,
+                context="invalid_ctx",  # type: ignore
+            )
+
+        assert not custom_out.exists()
