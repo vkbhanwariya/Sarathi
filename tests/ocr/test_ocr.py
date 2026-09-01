@@ -165,6 +165,30 @@ class TestOCRPhase1Instant:
         assert prov.evidence["profile"] == "instant"
         assert prov.source_file is None
 
+    def test_explicit_injected_data_root(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        custom_data_dir = tmp_path / "custom_data_root"
+        shutil.copytree(canonical_src, custom_data_dir)
+
+        cap = OCRCapability(data_root=custom_data_dir)
+
+        img_path = tmp_path / "invoice_injected.png"
+        _create_sample_image("INJECTED-ROOT-123", img_path)
+        req = Request(
+            request_id="req-inj",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-inj", source_path=img_path, display_name="invoice.png", size_bytes=img_path.stat().st_size),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        res = cap.execute(req, context)
+        assert isinstance(res, Result)
+        assert "INJECTED-ROOT-123" in res.data.pages[0].text
+
     def test_missing_local_model_asset_raises_safe_dosherror(
         self, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -241,6 +265,118 @@ class TestOCRPhase1Instant:
         assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
         assert "invalid checksum" in err.message
         assert str(tampered_data) not in err.message
+
+    def test_traversal_filename_in_manifest_rejected_safely(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        data_dir = tmp_path / "traversal_ocr_data"
+        data_dir.mkdir()
+        (data_dir / "models").mkdir()
+        manifest_file = data_dir / "manifest.json"
+        manifest_file.write_text(
+            json.dumps({
+                "models": {
+                    "det": {"filename": "../secret_file.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
+                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
+                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        cap = OCRCapability(data_root=data_dir)
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-trav",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+        err = exc_info.value
+        assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "contains invalid model entry" in err.message
+        assert "../secret_file.onnx" not in err.message
+        assert str(data_dir) not in err.message
+
+    def test_absolute_filename_in_manifest_rejected_safely(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        data_dir = tmp_path / "abs_ocr_data"
+        data_dir.mkdir()
+        (data_dir / "models").mkdir()
+        manifest_file = data_dir / "manifest.json"
+        manifest_file.write_text(
+            json.dumps({
+                "models": {
+                    "det": {"filename": "/etc/shadow.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
+                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
+                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        cap = OCRCapability(data_root=data_dir)
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-abs",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+        err = exc_info.value
+        assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "contains invalid model entry" in err.message
+        assert "/etc/shadow.onnx" not in err.message
+
+    def test_invalid_checksum_format_in_manifest_rejected_safely(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        data_dir = tmp_path / "checksum_ocr_data"
+        data_dir.mkdir()
+        (data_dir / "models").mkdir()
+        manifest_file = data_dir / "manifest.json"
+        manifest_file.write_text(
+            json.dumps({
+                "models": {
+                    "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "INVALID_CHECKSUM_NOT_64_HEX"},
+                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
+                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        cap = OCRCapability(data_root=data_dir)
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-chk",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+        err = exc_info.value
+        assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "contains invalid model entry" in err.message
+        assert "INVALID_CHECKSUM_NOT_64_HEX" not in err.message
 
     def test_malformed_geometry_yields_factual_warning(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
