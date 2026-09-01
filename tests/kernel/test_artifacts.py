@@ -721,3 +721,103 @@ class TestPublicExport:
         }
         assert set(nabhi_module.__all__) == expected
         assert hasattr(nabhi_module, "ArtifactBoundary")
+
+
+class TestNestedArtifactsAndManifestLastBoundary:
+    def test_deeply_nested_safe_artifact_lifecycle(self, boundary: ArtifactBoundary) -> None:
+        ws = boundary.begin_run(run_id="run-nested-deep", requirement="bank_statements", preserve_partial=True)
+        deep_rel_path = Path("nested_a/nested_b/nested_c/statement_summary.json")
+        intent = ArtifactIntent(
+            name="statement_summary.json",
+            role="summary",
+            media_type="application/json",
+            relative_path=deep_rel_path,
+        )
+        content = b'{"deep": "nested_summary_data"}'
+
+        # 1. Staging deeply nested path
+        staged_path = ws.stage_artifact(intent, content)
+        assert staged_path.exists()
+        assert staged_path == ws.staging_dir / "nested_a" / "nested_b" / "nested_c" / "statement_summary.json"
+
+        # 2. Committing deeply nested staged path
+        ref = ws.commit_staged_artifact(intent, staged_path)
+        assert ref.path == ws.output_dir / "nested_a" / "nested_b" / "nested_c" / "statement_summary.json"
+        assert ref.path.exists()
+        assert not staged_path.exists()
+
+        # 3. Preserving deeply nested partial artifact
+        partial_rel_path = Path("partial_a/partial_b/partial_c/checkpoint.bin")
+        partial_intent = ArtifactIntent(
+            name="checkpoint.bin",
+            role="partial",
+            media_type="application/octet-stream",
+            relative_path=partial_rel_path,
+        )
+        preserved_path = ws.preserve_partial_artifact(partial_intent, b"PARTIAL_CHECKPOINT_BYTES")
+        assert preserved_path is not None and preserved_path.exists()
+        assert preserved_path == ws.output_dir / "partial" / "partial_a" / "partial_b" / "partial_c" / "checkpoint.bin"
+
+        # 4. Finalize and check manifest formatting
+        manifest_path = ws.finalize(success=True)
+        manifest_dict = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        art_rel_paths = [a["relative_path"] for a in manifest_dict["artifacts"]]
+        assert "nested_a/nested_b/nested_c/statement_summary.json" in art_rel_paths
+
+        part_rel_paths = [p["relative_path"] for p in manifest_dict["partial_artifacts"]]
+        assert "partial/partial_a/partial_b/partial_c/checkpoint.bin" in part_rel_paths
+
+    def test_manifest_last_and_workspace_locked_after_finalize(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-manifest-last-lock", requirement="ocr")
+        intent = ArtifactIntent(name="text.txt", role="text", media_type="text/plain")
+
+        # Before finalize: manifest does NOT exist
+        manifest_path = ws.output_dir / "run-manifest.json"
+        assert not manifest_path.exists()
+
+        ws.commit_artifact(intent, b"final text content")
+        assert not manifest_path.exists()
+
+        # Finalize writes manifest last
+        fin_manifest = ws.finalize(success=True)
+        assert fin_manifest == manifest_path
+        assert manifest_path.exists()
+        assert ws.is_finalized is True
+
+        # Any subsequent mutations are rejected
+        post_intent = ArtifactIntent(name="late.txt", role="text", media_type="text/plain")
+        with pytest.raises(DoshError) as exc_stage:
+            ws.stage_artifact(post_intent, b"late staging")
+        assert exc_stage.value.code is FailureCode.VALIDATION_FAILED
+        assert "finalized run workspace" in exc_stage.value.message
+
+        with pytest.raises(DoshError) as exc_commit:
+            ws.commit_artifact(post_intent, b"late commit")
+        assert exc_commit.value.code is FailureCode.VALIDATION_FAILED
+        assert "finalized run workspace" in exc_commit.value.message
+
+        with pytest.raises(DoshError) as exc_part:
+            ws.preserve_partial_artifact(post_intent, b"late partial")
+        assert exc_part.value.code is FailureCode.VALIDATION_FAILED
+        assert "finalized run workspace" in exc_part.value.message
+
+    def test_commit_staged_artifact_rejects_external_input_path(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        input_file = tmp_path / "external_input.pdf"
+        input_file.write_bytes(b"INPUT_BYTES_DO_NOT_DELETE")
+
+        ws = boundary.begin_run(run_id="run-input-guard-commit", requirement="ocr")
+        intent = ArtifactIntent(name="input_as_staged.pdf", role="data", media_type="application/pdf")
+
+        with pytest.raises(DoshError) as exc_info:
+            ws.commit_staged_artifact(intent, input_file)
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert "is not within the active staging directory" in exc_info.value.message
+        # Input file remains completely untouched and undeleted
+        assert input_file.exists()
+        assert input_file.read_bytes() == b"INPUT_BYTES_DO_NOT_DELETE"

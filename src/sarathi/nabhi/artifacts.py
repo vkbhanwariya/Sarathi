@@ -513,14 +513,14 @@ class RunWorkspace:
             DoshError(FailureCode.SECURITY_DENIED): On traversal, escape, or symlink violations.
             DoshError(FailureCode.EXECUTION_FAILED): On write/filesystem failure.
         """
-        if not self._preserve_partial:
-            return None
-
         if self._is_finalized:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
                 message="Cannot preserve partial artifact in a finalized run workspace.",
             )
+
+        if not self._preserve_partial:
+            return None
 
         rel_path = self._resolve_relative_path(intent)
         path_key = self._normalize_path_key(rel_path)
