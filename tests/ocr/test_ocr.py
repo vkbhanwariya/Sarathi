@@ -1,21 +1,25 @@
 """Unit and end-to-end integration tests for OCR Phase 1 (Instant profile)."""
 
 import importlib.util
-from pathlib import Path
-from unittest.mock import patch
 import pytest
-from PIL import Image, ImageDraw
-import pymupdf
 
 _OCR_AVAILABLE = (
     importlib.util.find_spec("rapidocr") is not None
     and importlib.util.find_spec("openvino") is not None
+    and importlib.util.find_spec("PIL") is not None
 )
 
-pytestmark = pytest.mark.skipif(
-    not _OCR_AVAILABLE,
-    reason="OCR dependencies (rapidocr, openvino) not installed. Run with --extra ocr to enable.",
-)
+if not _OCR_AVAILABLE:
+    pytest.skip(
+        "OCR optional dependencies (rapidocr, openvino, pillow) not installed. Run with --extra ocr to enable.",
+        allow_module_level=True,
+    )
+
+from pathlib import Path
+import shutil
+from unittest.mock import MagicMock, patch
+from PIL import Image, ImageDraw
+import pymupdf
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import Kosh, Manthan, Pravaha
@@ -162,6 +166,108 @@ class TestOCRPhase1Instant:
         assert prov.evidence["model"] == "PP-OCRv5"
         assert prov.evidence["profile"] == "instant"
         assert prov.source_file is None
+
+    def test_missing_local_model_asset_raises_safe_dosherror_without_network(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        # Create empty model directory with missing models
+        empty_models_dir = tmp_path / "empty_models"
+        empty_models_dir.mkdir()
+
+        engine = RapidOCREngine(model_root=empty_models_dir)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-missing-model",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with patch("requests.get", side_effect=RuntimeError("Network access forbidden in offline OCR")), \
+             patch("urllib.request.urlopen", side_effect=RuntimeError("Network access forbidden in offline OCR")):
+            with pytest.raises(DoshError) as exc_info:
+                cap.execute(req, context)
+
+        err = exc_info.value
+        assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "is missing" in err.message
+        assert str(empty_models_dir) not in err.message
+
+    def test_altered_model_checksum_is_rejected_before_engine_creation(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        # Copy real models but tamper with one of them
+        src_dir = Path("data/ocr/models")
+        tampered_dir = tmp_path / "tampered_models"
+        tampered_dir.mkdir()
+
+        for f in src_dir.iterdir():
+            if f.is_file():
+                shutil.copy2(f, tampered_dir / f.name)
+
+        # Tamper with det model
+        det_file = tampered_dir / "ch_PP-OCRv5_det_mobile.onnx"
+        det_file.write_bytes(b"tampered_corrupt_content")
+
+        engine = RapidOCREngine(model_root=tampered_dir)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-tampered-model",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            cap.execute(req, context)
+
+        err = exc_info.value
+        assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "invalid checksum" in err.message
+        assert str(tampered_dir) not in err.message
+
+    def test_malformed_geometry_yields_factual_warning(
+        self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        img_path = tmp_path / "test.png"
+        _create_sample_image("GEOM-TEXT", img_path)
+
+        req = Request(
+            request_id="req-geom",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        # Mock engine output returning malformed box with fewer than 4 points
+        mock_output = MagicMock()
+        mock_output.txts = ("GEOM-TEXT",)
+        mock_output.boxes = ([ [10.0, 10.0] ],) # Only 1 point instead of 4
+        mock_output.scores = (0.95,)
+
+        mock_rapidocr = MagicMock()
+        mock_rapidocr.return_value = mock_output
+        ocr_capability._engine._engine = mock_rapidocr
+
+        res = ocr_capability.execute(req, context)
+        assert res.next_requirement is None
+        doc = res.data
+        assert isinstance(doc, CanonicalDocument)
+        assert len(doc.pages[0].spans) == 1
+        assert doc.pages[0].spans[0].bounding_box is None
+        assert any(w.code == "OCR_INVALID_GEOMETRY" for w in res.warnings)
 
     def test_real_scanned_pdf_ocr_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
