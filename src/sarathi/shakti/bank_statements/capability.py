@@ -25,7 +25,7 @@ from sarathi.shakti.bank_statements.consolidator import (
     consolidate_statements,
 )
 from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
-from sarathi.shakti.bank_statements.detector import detect_bank_statement
+from sarathi.shakti.bank_statements.detector import detect_bank_statement, load_bank_profiles
 from sarathi.shakti.bank_statements.mapper import HeaderMapper
 from sarathi.shakti.bank_statements.models import (
     AccountIdentity,
@@ -38,6 +38,9 @@ from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
 
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
+
+_EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "withdrawals"})
+_EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "deposits"})
 
 
 def _get_cell(row: Sequence[str], idx: int | None) -> str | None:
@@ -53,6 +56,7 @@ class BankStatementCapability:
         self._darpana = darpana
         self._banks_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
         self._mapper = HeaderMapper(banks_dir=self._banks_dir)
+        self._profiles = {p.get("profile_id"): p for p in load_bank_profiles(self._banks_dir)}
 
     def execute(
         self,
@@ -143,6 +147,9 @@ class BankStatementCapability:
         open_bal: Decimal | None = None
         close_bal: Decimal | None = None
 
+        active_profile = self._profiles.get(profile_id or "", {})
+        has_signed_semantics = bool(active_profile.get("signed_amounts", False))
+
         for page_num, table in all_tables:
             if not table.rows:
                 continue
@@ -201,19 +208,29 @@ class BankStatementCapability:
                             tx_credit = parse_decimal_amount(_get_cell(row_cells, cr_col))
                             tx_bal = parse_decimal_amount(_get_cell(row_cells, b_col))
 
-                            # Support combined amount + Dr/Cr column if separate debit/credit absent
+                            # Handle single amount column with strict explicit direction or signed semantics
                             if tx_debit is None and tx_credit is None and amt_col is not None:
                                 parsed_amt = parse_decimal_amount(_get_cell(row_cells, amt_col))
-                                dir_str = (_get_cell(row_cells, dir_col) or "").lower()
-                                if parsed_amt is not None:
-                                    if "dr" in dir_str or "d" in dir_str:
+                                raw_dir = _get_cell(row_cells, dir_col)
+                                norm_dir = raw_dir.lower().strip() if raw_dir else ""
+
+                                if norm_dir in _EXPLICIT_DR_INDICATORS:
+                                    tx_debit = abs(parsed_amt) if parsed_amt is not None else None
+                                    tx_credit = None
+                                elif norm_dir in _EXPLICIT_CR_INDICATORS:
+                                    tx_credit = abs(parsed_amt) if parsed_amt is not None else None
+                                    tx_debit = None
+                                elif has_signed_semantics and parsed_amt is not None:
+                                    if parsed_amt < Decimal("0"):
                                         tx_debit = abs(parsed_amt)
-                                    elif "cr" in dir_str or "c" in dir_str:
-                                        tx_credit = abs(parsed_amt)
-                                    elif parsed_amt < Decimal("0"):
-                                        tx_debit = abs(parsed_amt)
-                                    else:
+                                        tx_credit = None
+                                    elif parsed_amt > Decimal("0"):
                                         tx_credit = parsed_amt
+                                        tx_debit = None
+                                else:
+                                    # Direction absent or ambiguous: do NOT guess financial direction
+                                    tx_debit = None
+                                    tx_credit = None
 
                             prov = ProvenanceRecord(
                                 source_input_id=req.inputs[0].input_id if req.inputs else None,
