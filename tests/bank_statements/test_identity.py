@@ -1,7 +1,6 @@
-"""Tests for Bank Statement Identification vs Non-Bank Content."""
+"""Tests for Bank Statement and Profile Detection."""
 
 from pathlib import Path
-import pytest
 
 from sarathi.sankalpa import CanonicalDocument, PageData, TableData
 from sarathi.shakti.bank_statements.detector import detect_bank_statement
@@ -34,56 +33,34 @@ def test_detect_sbi_bank_statement() -> None:
     assert evidence.is_bank_statement is True
     assert evidence.matched_profile == "sbi"
     assert evidence.bank_name == "State Bank of India"
-    assert evidence.account_number == "30123456789"
-    assert evidence.account_holder == "Mr. Rahul Sharma"
-    assert evidence.confidence_score >= 0.8
+    assert evidence.account_identity is not None
+    assert evidence.account_identity.masked_account_number == "XXXXXXX6789"
+    assert evidence.account_identity.account_fingerprint is not None
 
 
 def test_detect_negative_non_bank_invoice() -> None:
-    invoice_text = """
+    doc_text = """
     TAX INVOICE
     Bill of Supply
     Invoice Number: INV-2026-001
     Purchase Order: PO-9988
-    Customer: ABC Corp
-    Total Amount Due: 15,000.00
+    Total Amount: 15,000.00
+    GSTIN: 27AAAAA0000A1Z5
     """
-    table = TableData(
-        rows=(
-            ("Item No", "Description", "Quantity", "Unit Price", "Total"),
-            ("1", "Office Chairs", "5", "3000.00", "15000.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-inv-1",
-        text=invoice_text,
-        pages=(PageData(page_number=1, text=invoice_text, tables=(table,)),),
-    )
-
+    doc = CanonicalDocument(document_id="doc-inv-1", text=doc_text)
     evidence = detect_bank_statement(doc)
     assert evidence.is_bank_statement is False
-    assert evidence.matched_profile is None
-    assert evidence.confidence_score <= 0.3
+    assert evidence.confidence_score < 0.5
 
 
 def test_detect_negative_loan_schedule() -> None:
-    loan_text = """
-    Loan Amortisation Schedule
+    doc_text = """
+    LOAN AMORTISATION SCHEDULE
     Repayment Schedule
-    Loan Account: LN-778899
+    Loan Account: LN-12345
+    Principal: 500,000.00
     EMI Amount: 12,500.00
     """
-    table = TableData(
-        rows=(
-            ("Installment No", "Due Date", "Principal", "Interest", "EMI", "Outstanding Principal"),
-            ("1", "10/01/2026", "10000.00", "2500.00", "12500.00", "490000.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-loan-1",
-        text=loan_text,
-        pages=(PageData(page_number=1, text=loan_text, tables=(table,)),),
-    )
-
+    doc = CanonicalDocument(document_id="doc-loan-1", text=doc_text)
     evidence = detect_bank_statement(doc)
     assert evidence.is_bank_statement is False

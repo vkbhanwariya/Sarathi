@@ -115,6 +115,12 @@ class Manthan:
                         ),
                     )
 
+        if requirement == "bank_statements":
+            return CapabilityPlan(
+                request_id=request.request_id,
+                capability_ids=("read_native", "bank_statements"),
+            )
+
         return CapabilityPlan(
             request_id=request.request_id,
             capability_ids=(capability.capability_id,),

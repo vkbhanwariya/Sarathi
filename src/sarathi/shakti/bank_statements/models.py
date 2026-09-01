@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date, time
 from decimal import Decimal
 from enum import StrEnum
+import hashlib
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -30,6 +31,55 @@ class DuplicateDecision(StrEnum):
     PROVEN_DUPLICATE = "proven_duplicate"
     PROBABLE_DUPLICATE = "probable_duplicate"
     DISTINCT = "distinct"
+
+
+@dataclass(frozen=True, slots=True)
+class AccountIdentity:
+    """Safe typed account identity protecting PII."""
+
+    bank_name: str
+    masked_account_number: str | None = None
+    account_fingerprint: str | None = None
+    account_holder: str | None = None
+    account_type: str | None = None
+    bank_profile: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.bank_name or not self.bank_name.strip():
+            raise ValueError("bank_name must be a non-empty string.")
+
+
+def create_account_identity(
+    bank_name: str,
+    raw_account_number: str | None,
+    account_holder: str | None = None,
+    bank_profile: str | None = None,
+    account_type: str | None = None,
+) -> AccountIdentity:
+    """Create a safe AccountIdentity with masked account number and deterministic fingerprint."""
+    masked: str | None = None
+    fingerprint: str | None = None
+
+    if raw_account_number and raw_account_number.strip():
+        clean_acc = raw_account_number.strip()
+        # Mask leading digits, retain last 4
+        if len(clean_acc) >= 4:
+            masked = "X" * (len(clean_acc) - 4) + clean_acc[-4:]
+        else:
+            masked = "X" * len(clean_acc)
+
+        # Deterministic SHA-256 fingerprint scoped to bank and account
+        raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}"
+        fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
+
+    return AccountIdentity(
+        bank_name=bank_name.strip(),
+        masked_account_number=masked,
+        account_fingerprint=fingerprint,
+        account_holder=account_holder.strip() if account_holder else None,
+        account_type=account_type.strip() if account_type else None,
+        bank_profile=bank_profile.strip() if bank_profile else None,
+    )
 
 
 def _validate_decimal(val: Any, name: str, non_negative: bool = False) -> Decimal | None:
@@ -90,8 +140,7 @@ class Transaction:
     debit: Decimal | None = None
     credit: Decimal | None = None
     running_balance: Decimal | None = None
-    account_number: str | None = None
-    account_holder_name: str | None = None
+    account_identity: AccountIdentity | None = None
     currency: str = "INR"
     status: ValidationStatus = ValidationStatus.VALID
     issues: tuple[ValidationIssue, ...] = ()
@@ -107,6 +156,8 @@ class Transaction:
             raise TypeError(f"description must be a string, got {type(self.description)}.")
         if not self.bank_name or not isinstance(self.bank_name, str):
             raise ValueError("bank_name must be a non-empty string.")
+        if self.account_identity is not None and not isinstance(self.account_identity, AccountIdentity):
+            raise TypeError(f"account_identity must be an AccountIdentity instance or None, got {type(self.account_identity)}.")
 
         _validate_decimal(self.debit, "debit", non_negative=True)
         _validate_decimal(self.credit, "credit", non_negative=True)
@@ -123,8 +174,7 @@ class BankStatement:
 
     bank_name: str
     bank_profile: str
-    account_number: str | None
-    account_holder: str | None
+    account_identity: AccountIdentity | None = None
     statement_period_start: date | None = None
     statement_period_end: date | None = None
     opening_balance: Decimal | None = None
@@ -141,6 +191,8 @@ class BankStatement:
             raise ValueError("bank_name must be a non-empty string.")
         if not self.bank_profile or not isinstance(self.bank_profile, str):
             raise ValueError("bank_profile must be a non-empty string.")
+        if self.account_identity is not None and not isinstance(self.account_identity, AccountIdentity):
+            raise TypeError(f"account_identity must be an AccountIdentity instance or None, got {type(self.account_identity)}.")
 
         _validate_decimal(self.opening_balance, "opening_balance")
         _validate_decimal(self.closing_balance, "closing_balance")

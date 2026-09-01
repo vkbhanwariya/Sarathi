@@ -152,7 +152,7 @@ class Agni:
                 "identify": DarshanaCapability(),
                 "read_native": NativeExtractionCapability(),
                 "ocr": OCRCapability(),
-                "bank_statements": BankStatementCapability(),
+                "bank_statements": BankStatementCapability(darpana=active_darpana),
             }
 
         # 7. Validate Inventory - use factual default inventory
