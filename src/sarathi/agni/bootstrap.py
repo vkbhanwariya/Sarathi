@@ -99,7 +99,16 @@ class Agni:
             case _:
                 raise TypeError(f"settings must be Settings, Path, str, or None, got {type(settings).__name__}.")
 
-        # 4. Validate & Resolve Storage Roots (Sutra-owned defaults)
+        # 4. Validate Kavacha & Security Policy
+        active_kavacha: Kavacha
+        if kavacha is not None:
+            if not isinstance(kavacha, Kavacha):
+                raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
+            active_kavacha = kavacha
+        else:
+            active_kavacha = Kavacha(active_settings.security_policy())
+
+        # 5. Validate & Resolve Storage Roots (Sutra-owned defaults)
         def _resolve_root(arg_val: Path | str | None, setting_val: Path, param_name: str) -> Path:
             if arg_val is not None:
                 if not isinstance(arg_val, (Path, str)):
@@ -116,39 +125,15 @@ class Agni:
         validated_output_root = _resolve_root(output_root, active_settings.storage_output_root, "output_root")
         validated_input_root = _resolve_root(input_root, active_settings.storage_input_root, "input_root")
 
-        # Preflight root separation
-        res_runtime = validated_runtime_root.resolve()
-        res_output = validated_output_root.resolve()
-        if res_runtime == res_output:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="Runtime root and Output root cannot be the same directory.",
-            )
-        try:
-            res_output.relative_to(res_runtime)
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="Output root cannot be nested within runtime root.",
-            )
-        except ValueError:
-            pass
-        try:
-            res_runtime.relative_to(res_output)
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="Runtime root cannot be nested within output root.",
-            )
-        except ValueError:
-            pass
-
-        # 5. Validate Kavacha & Security Policy
-        active_kavacha: Kavacha
-        if kavacha is not None:
-            if not isinstance(kavacha, Kavacha):
-                raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
-            active_kavacha = kavacha
-        else:
-            active_kavacha = Kavacha(active_settings.security_policy())
+        # Canonical root overlap validation using Kavacha
+        active_kavacha.validate_source_destination_overlap(
+            [validated_input_root],
+            (validated_runtime_root, validated_output_root),
+        )
+        active_kavacha.validate_source_destination_overlap(
+            [validated_runtime_root],
+            validated_output_root,
+        )
 
         # 6. Validate Capabilities Mapping
         active_capabilities: dict[str, Capability]
@@ -332,10 +317,11 @@ class Agni:
         """Execute a canonical Request through the full Agni-wired runtime path.
 
         Performs:
-        1. Unique run/trace execution identity generation when no explicit context is provided.
-        2. Pre-Manthan Darshana identification with Darpana telemetry timing.
-        3. Manthan capability plan resolution with Darpana telemetry timing.
-        4. Pravaha dynamic pipeline execution across Yantra and configured capabilities.
+        1. Input source vs active/effective destination root overlap verification via Kavacha.
+        2. Unique run/trace execution identity generation when no explicit context is provided.
+        3. Pre-Manthan Darshana identification with Darpana telemetry timing.
+        4. Manthan capability plan resolution with Darpana telemetry timing.
+        5. Pravaha dynamic pipeline execution across Yantra and configured capabilities.
 
         Args:
             request: Canonical processing request.
@@ -354,7 +340,14 @@ class Agni:
         if context is not None and not isinstance(context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
 
-        # Generate unique execution identity per execution when not explicitly provided
+        # 1. Prevent re-ingestion from active staging/runtime or effective output roots via Kavacha
+        effective_output_root = request.output_root or self._output_root
+        self._kavacha.validate_source_destination_overlap(
+            request.inputs,
+            (self._runtime_root, effective_output_root),
+        )
+
+        # 2. Generate unique execution identity per execution when not explicitly provided
         exec_ctx = context or ExecutionContext(
             run_id=f"run-{uuid.uuid4().hex[:12]}",
             request_id=request.request_id,
@@ -363,7 +356,7 @@ class Agni:
             profile=request.profile,
         )
 
-        # 1. Pre-Manthan Darshana Identification (Timed in Darpana)
+        # 3. Pre-Manthan Darshana Identification (Timed in Darpana)
         id_scope = (
             self._darpana.time_scope(
                 context=exec_ctx,
@@ -377,7 +370,7 @@ class Agni:
         with id_scope:
             identified_request = identify_request(request)
 
-        # 2. Manthan Capability Plan Resolution (Timed in Darpana)
+        # 4. Manthan Capability Plan Resolution (Timed in Darpana)
         res_scope = (
             self._darpana.time_scope(
                 context=exec_ctx,
@@ -391,5 +384,5 @@ class Agni:
         with res_scope:
             plan = self._manthan.resolve(identified_request)
 
-        # 3. Pravaha Dynamic Pipeline Execution (includes Kavacha security authorization)
+        # 5. Pravaha Dynamic Pipeline Execution (includes Kavacha security authorization)
         return self._pravaha.execute(plan, identified_request, exec_ctx)
