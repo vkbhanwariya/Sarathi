@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 31-08-2026, 09:17 PM IST (Asia/Kolkata)
+**README Updated:** 01-09-2026, 11:40 PM IST (Asia/Kolkata)
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and
@@ -143,3 +143,20 @@ created only when an existing owner cannot hold the concern cleanly.
     explicit profile requests them.
 -   Architecture is ready for implementation subject to the linked guide and
     capability specifications.
+
+------------------------------------------------------------------------
+
+## 7. Local Run Command
+
+Sarathi provides a non-interactive CLI entry point and interactive presentation frontend using the canonical Agni runtime bootstrap path:
+
+```bash
+# Non-interactive execution via console script entry point
+uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --profile "instant"
+
+# Non-interactive execution via Python module entry point
+uv run python -m sarathi --input "path/to/document.txt" --requirement "read_native" --output-root "Output"
+
+# Interactive presentation console via Mukha
+uv run python -m sarathi.mukha
+```
