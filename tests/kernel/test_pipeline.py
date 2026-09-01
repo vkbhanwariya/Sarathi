@@ -1712,3 +1712,141 @@ class TestPravahaFailureLifecycleAndQuarantine:
         assert stored is not None
         assert stored.status is QuarantineStatus.QUARANTINED
         assert stored.attempt_count == 0
+
+    def test_pravaha_security_denial_blocks_execution_before_yantra(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        from sarathi.kavacha import Kavacha, SecurityPolicy
+
+        c1_decl, _, _, _, _ = cap_decls
+        cap = MockExecutableCapability(c1_decl)
+
+        # Restrictive policy denying external processing or custom secrets
+        policy = SecurityPolicy(
+            allow_pii_access=False,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        kavacha = Kavacha(policy)
+
+        # Plugin requiring PII
+        kosh = manthan.registry
+        kosh.register_plugin(
+            PluginInfo(
+                plugin_id="shakti.pipeline.denied",
+                name="Denied Plugin",
+                version="1.0.0",
+                security=SecurityDeclaration(pii_access=True),
+                capabilities=("denied_cap",),
+            )
+        )
+        denied_decl = CapabilityDeclaration(
+            capability_id="denied_cap",
+            plugin_id="shakti.pipeline.denied",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+        kosh.register_capability(denied_decl)
+        denied_cap = MockExecutableCapability(denied_decl)
+
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"denied_cap": denied_cap},
+            kavacha=kavacha,
+        )
+
+        plan = CapabilityPlan(request_id=sample_request.request_id, capability_ids=("denied_cap",))
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.execute(plan, sample_request, sample_context)
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert denied_cap.call_count == 0
+
+    def test_pravaha_retry_cannot_bypass_kavacha_security_authorization(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_request: Request,
+        sample_context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        from sarathi.kavacha import Kavacha, SecurityPolicy
+
+        kosh = manthan.registry
+        kosh.register_plugin(
+            PluginInfo(
+                plugin_id="shakti.pipeline.retry_denied",
+                name="Retry Denied Plugin",
+                version="1.0.0",
+                security=SecurityDeclaration(network_access=True, local_processing_only=False),
+                capabilities=("retry_denied_cap",),
+            )
+        )
+        denied_decl = CapabilityDeclaration(
+            capability_id="retry_denied_cap",
+            plugin_id="shakti.pipeline.retry_denied",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+        kosh.register_capability(denied_decl)
+        denied_cap = MockExecutableCapability(denied_decl)
+
+        # Policy denying network access
+        policy = SecurityPolicy(
+            allow_pii_access=True,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        kavacha = Kavacha(policy)
+        q_store = QuarantineStore(tmp_path / "quarantine")
+
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"retry_denied_cap": denied_cap},
+            quarantine_store=q_store,
+            retry_policy=RetryPolicy(max_retries=2),
+            kavacha=kavacha,
+        )
+
+        valid_hash = pravaha._compute_input_hash(sample_request, denied_cap, sample_context)
+        record = QuarantineRecord(
+            quarantine_id="quar-retry-sec-01",
+            input_hash=valid_hash,
+            run_id=sample_context.run_id,
+            request_id=sample_context.request_id,
+            trace_id=sample_context.trace_id,
+            capability_id="retry_denied_cap",
+            plugin_id="shakti.pipeline.retry_denied",
+            failure_code=FailureCode.EXECUTION_FAILED,
+            profile="instant",
+            attempt_count=0,
+            max_retries=2,
+            status=QuarantineStatus.QUARANTINED,
+            created_at_utc="2026-09-01T00:00:00Z",
+            updated_at_utc="2026-09-01T00:00:00Z",
+        )
+        q_store.quarantine(record)
+
+        retry_act = LifecycleAction(
+            action=LifecycleActionType.RETRY,
+            item_id="quar-retry-sec-01",
+            request=sample_request,
+            context=sample_context,
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            pravaha.apply_lifecycle_action(retry_act)
+
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+        assert denied_cap.call_count == 0

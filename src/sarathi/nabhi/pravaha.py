@@ -32,6 +32,7 @@ from sarathi.yantra import Yantra
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
+    from sarathi.kavacha import Kavacha
 
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -47,6 +48,7 @@ class Pravaha:
         quarantine_store: QuarantineStore | None = None,
         retry_policy: RetryPolicy | None = None,
         darpana: Darpana | None = None,
+        kavacha: Kavacha | None = None,
     ) -> None:
         """Initialize Pravaha with resolver, execution manager, capabilities, optional quarantine, and telemetry."""
         if not isinstance(manthan, Manthan):
@@ -66,6 +68,11 @@ class Pravaha:
 
             if not isinstance(darpana, DarpanaService):
                 raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+        if kavacha is not None:
+            from sarathi.kavacha import Kavacha as KavachaService
+
+            if not isinstance(kavacha, KavachaService):
+                raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
 
         self._manthan: Manthan = manthan
         self._registry: Kosh = manthan.registry
@@ -74,6 +81,7 @@ class Pravaha:
         self._quarantine_store: QuarantineStore | None = quarantine_store
         self._retry_policy: RetryPolicy = retry_policy if retry_policy is not None else RetryPolicy(max_retries=0)
         self._darpana: Darpana | None = darpana
+        self._kavacha: Kavacha | None = kavacha
 
         if self._retry_policy.max_retries > 0 and self._quarantine_store is None:
             raise DoshError(
@@ -95,6 +103,18 @@ class Pravaha:
     def darpana(self) -> Darpana | None:
         """Return the injected Darpana telemetry service, if configured."""
         return self._darpana
+
+    @property
+    def kavacha(self) -> Kavacha | None:
+        """Return the injected Kavacha security service, if configured."""
+        return self._kavacha
+
+    def _authorize_capability(self, cap: Capability) -> None:
+        """Authorize capability's owning plugin security declaration via Kavacha if configured."""
+        if self._kavacha is not None:
+            plugin = self._registry.get_plugin(cap.declaration.plugin_id)
+            if plugin is not None:
+                self._kavacha.authorize(plugin.security)
 
     def _compute_input_hash(self, request: Request, capability: Capability, context: ExecutionContext) -> str:
         """Compute a deterministic, privacy-safe hash identifying the canonical execution attempt.
@@ -183,17 +203,18 @@ class Pravaha:
 
         1. Validates current record/state.
         2. Validates retry eligibility.
-        3. Increments factual attempt count.
-        4. Executes through Yantra.
-        5. On success -> marks RELEASED in QuarantineStore.
-        6. On classified failure -> updates attempt/persists TERMINAL state when exhausted.
-        7. Preserves original Dosh classification when failure remains terminal.
+        3. Authorizes capability through Kavacha.
+        4. Increments factual attempt count.
+        5. Executes through Yantra.
+        6. On success -> marks RELEASED in QuarantineStore.
+        7. On classified failure -> updates attempt/persists TERMINAL state when exhausted.
+        8. Preserves original Dosh classification when failure remains terminal.
 
         Returns:
             Tuple of (Result, updated QuarantineRecord) on success.
 
         Raises:
-            DoshError: If retry attempt fails.
+            DoshError: If retry attempt fails or security authorization is denied.
         """
         if self._quarantine_store is None:
             raise DoshError(
@@ -216,6 +237,9 @@ class Pravaha:
                 code=FailureCode.VALIDATION_FAILED,
                 message=f"Quarantine item '{record.quarantine_id}' has exhausted maximum retries ({record.max_retries}).",
             )
+
+        # Enforce security authorization before any retry mutation or Yantra allocation
+        self._authorize_capability(cap)
 
         new_attempt = record.attempt_count + 1
 
@@ -344,6 +368,7 @@ class Pravaha:
             TypeError: If arguments are of invalid types or capabilities do not satisfy protocol.
             DoshError(FailureCode.VALIDATION_FAILED): If plan/request IDs mismatch, declaration mismatch occurs,
                 a repeated requirement is encountered, or a terminal attempt is re-executed.
+            DoshError(FailureCode.SECURITY_DENIED): If capability violates Kavacha security authorization.
             DoshError(FailureCode.DEPENDENCY_UNAVAILABLE): If a planned capability is missing from capabilities mapping.
             DoshError: On unrecoverable or exhausted capability execution failure.
         """
@@ -401,6 +426,9 @@ class Pravaha:
                         code=FailureCode.VALIDATION_FAILED,
                         message=f"Executable capability '{cap_id}' declaration does not match registered declaration in Kosh.",
                     )
+
+                # Authorize against Kavacha before execution
+                self._authorize_capability(executable_cap)
 
                 validated_capabilities.append(executable_cap)
 
@@ -576,6 +604,7 @@ class Pravaha:
             DoshError(FailureCode.INVALID_CONFIGURATION): If no QuarantineStore is configured.
             DoshError(FailureCode.VALIDATION_FAILED): If transition is invalid, item ID is malformed,
                 item does not exist, or required execution context is missing.
+            DoshError(FailureCode.SECURITY_DENIED): If capability violates Kavacha security authorization.
             DoshError(FailureCode.DEPENDENCY_UNAVAILABLE): If capability required for retry is missing.
         """
         if not isinstance(action, LifecycleAction):

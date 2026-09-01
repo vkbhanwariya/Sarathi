@@ -10,8 +10,14 @@ management remain with Kavacha.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
+
+from sarathi.dosh import DoshError, FailureCode
+
+if TYPE_CHECKING:
+    from sarathi.kavacha import SecurityPolicy
 
 
 def _freeze_value(value: Any) -> Any:
@@ -68,3 +74,118 @@ class Settings:
     def data(self) -> Mapping[str, Any]:
         """Return the entire immutable root mapping."""
         return self._data
+
+    # --- Typed Sutra accessors with canonical defaults ---
+
+    @property
+    def storage_runtime_root(self) -> Path:
+        """Return validated runtime root Path, defaulting to 'Runtime'."""
+        sec = self.get_section("storage")
+        raw = sec.get("runtime_root", "Runtime") if sec is not None else "Runtime"
+        if not isinstance(raw, (str, Path)) or not str(raw).strip():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="storage.runtime_root must be a non-empty string or Path.",
+            )
+        return Path(raw)
+
+    @property
+    def storage_output_root(self) -> Path:
+        """Return validated output root Path, defaulting to 'Output'."""
+        sec = self.get_section("storage")
+        raw = sec.get("output_root", "Output") if sec is not None else "Output"
+        if not isinstance(raw, (str, Path)) or not str(raw).strip():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="storage.output_root must be a non-empty string or Path.",
+            )
+        return Path(raw)
+
+    @property
+    def storage_input_root(self) -> Path:
+        """Return validated input root Path, defaulting to 'Input'."""
+        sec = self.get_section("storage")
+        raw = sec.get("input_root", "Input") if sec is not None else "Input"
+        if not isinstance(raw, (str, Path)) or not str(raw).strip():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="storage.input_root must be a non-empty string or Path.",
+            )
+        return Path(raw)
+
+    @property
+    def pipeline_max_retries(self) -> int:
+        """Return validated pipeline max_retries count, defaulting to 0."""
+        sec = self.get_section("pipeline")
+        raw = sec.get("max_retries", 0) if sec is not None else 0
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw < 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"pipeline.max_retries must be a non-negative integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
+    def allow_pii_access(self) -> bool:
+        """Return validated allow_pii_access boolean, defaulting to True."""
+        sec = self.get_section("security")
+        raw = sec.get("allow_pii_access", True) if sec is not None else True
+        if not isinstance(raw, bool):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="security.allow_pii_access must be a boolean.",
+            )
+        return raw
+
+    @property
+    def allow_network_access(self) -> bool:
+        """Return validated allow_network_access boolean, defaulting to False."""
+        sec = self.get_section("security")
+        raw = sec.get("allow_network_access", False) if sec is not None else False
+        if not isinstance(raw, bool):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="security.allow_network_access must be a boolean.",
+            )
+        return raw
+
+    @property
+    def allow_external_processing(self) -> bool:
+        """Return validated allow_external_processing boolean, defaulting to False."""
+        sec = self.get_section("security")
+        raw = sec.get("allow_external_processing", False) if sec is not None else False
+        if not isinstance(raw, bool):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="security.allow_external_processing must be a boolean.",
+            )
+        return raw
+
+    @property
+    def allowed_secrets(self) -> tuple[str, ...]:
+        """Return validated allowed_secrets sequence, defaulting to ()."""
+        sec = self.get_section("security")
+        raw = sec.get("allowed_secrets", ()) if sec is not None else ()
+        if not isinstance(raw, (list, tuple)) or not all(isinstance(s, str) for s in raw):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="security.allowed_secrets must be a sequence of strings.",
+            )
+        return tuple(raw)
+
+    def security_policy(self) -> SecurityPolicy:
+        """Construct a validated SecurityPolicy from configuration."""
+        from sarathi.kavacha import SecurityPolicy
+
+        try:
+            return SecurityPolicy(
+                allow_pii_access=self.allow_pii_access,
+                allow_network_access=self.allow_network_access,
+                allow_external_processing=self.allow_external_processing,
+                allowed_secrets=self.allowed_secrets,
+            )
+        except (ValueError, TypeError) as err:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="Invalid security policy configuration.",
+            ) from err

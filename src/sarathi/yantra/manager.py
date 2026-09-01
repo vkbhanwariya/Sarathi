@@ -26,6 +26,11 @@ if TYPE_CHECKING:
 class Yantra:
     """Resource and execution manager for hardware allocation and capability execution."""
 
+    @classmethod
+    def default_inventory(cls) -> DeviceInventory:
+        """Return the factual default hardware inventory."""
+        return DeviceInventory.default_inventory()
+
     def __init__(self, inventory: DeviceInventory, darpana: Darpana | None = None) -> None:
         if not isinstance(inventory, DeviceInventory):
             raise TypeError(f"inventory must be a DeviceInventory instance, got {type(inventory).__name__}.")
