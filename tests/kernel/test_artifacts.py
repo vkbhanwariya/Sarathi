@@ -5,10 +5,12 @@ import hashlib
 import json
 from pathlib import Path
 import stat
+from unittest.mock import patch
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import ArtifactBoundary
+from sarathi.nabhi.artifacts import RunWorkspace
 import sarathi.nabhi as nabhi_module
 from sarathi.sankalpa import ArtifactIntent, ArtifactRef, InputRef, ProvenanceRecord, WarningRecord
 
@@ -202,6 +204,23 @@ class TestStagingAndCommit:
         # Staging directory is completely removed on finalization
         assert not ws.staging_dir.exists()
 
+    def test_staged_commit_uses_streaming_not_whole_file_reads(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-stream", requirement="ocr")
+        intent = ArtifactIntent(name="big.bin", role="data", media_type="application/octet-stream")
+        content = b"X" * 200000
+
+        staged_path = ws.stage_artifact(intent, content)
+
+        # Assert Path.read_bytes() is NOT invoked during commit_staged_artifact
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("Whole-file read_bytes was called!")):
+            ref = ws.commit_staged_artifact(intent, staged_path)
+
+        assert ref.size_bytes == len(content)
+        assert ref.checksum_sha256 == hashlib.sha256(content).hexdigest()
+        assert ref.path.exists()
+
     def test_direct_atomic_commit(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-direct", requirement="bank_statements")
         intent = ArtifactIntent(
@@ -231,17 +250,14 @@ class TestStagingAndCommit:
         with pytest.raises(DoshError) as exc_info:
             ws.commit_artifact(intent2, b"second content")
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
-        assert "Duplicate artifact destination" in exc_info.value.message
+        assert "Duplicate artifact destination path." in exc_info.value.message
 
 
 class TestSecurityAndPathEscapeValidation:
     def test_path_traversal_attempts_rejected(self, boundary: ArtifactBoundary) -> None:
-        ws = boundary.begin_run(run_id="run-sec", requirement="ocr")
-
         for bad_rel in ("../escape.txt", "../../root.txt", "sub/../../escape.txt", "/etc/passwd", "C:\\Windows\\out.txt"):
             with pytest.raises((DoshError, ValueError)):
-                intent = ArtifactIntent(name="bad", role="data", media_type="text/plain", relative_path=bad_rel)
-                ws.commit_artifact(intent, b"dangerous payload")
+                ArtifactIntent(name="bad", role="data", media_type="text/plain", relative_path=bad_rel)
 
     def test_symlink_escape_rejected(self, boundary: ArtifactBoundary, tmp_path: Path) -> None:
         ws = boundary.begin_run(run_id="run-sym", requirement="ocr")
@@ -277,24 +293,23 @@ class TestManifestSafetyAndOrdering:
 
         prov = ProvenanceRecord(
             source_input_id="inp-001",
-            source_file=str(tmp_path / "sensitive_folder" / "input_doc.pdf"),
             stage="ocr",
             plugin_id="shakti.ocr",
             capability_id="ocr.engine",
             page_number=1,
-            evidence={"model": "rapidocr_v2", "confidence": 0.98},
+            evidence={"model": "rapidocr_v2", "confidence": 0.98, "secret_key": "raw_secret"},
             timestamp_utc="2026-09-01T12:00:00Z",
         )
         warn = WarningRecord(
             code="LOW_DPI",
             message="Image resolution is lower than 300 DPI.",
             stage="ocr",
-            context={"dpi": 150},
+            context={"dpi": 150, "token": "secret_token"},
         )
 
         manifest_path = ws.finalize(
             success=True,
-            metadata={"job_type": "automated_audit"},
+            metadata={"job_type": "automated_audit", "admin_secret": "forbidden"},
             provenance=[prov],
             warnings=[warn],
         )
@@ -302,17 +317,23 @@ class TestManifestSafetyAndOrdering:
         manifest_raw = manifest_path.read_text(encoding="utf-8")
         manifest_dict = json.loads(manifest_raw)
 
-        # 1. Document content payload is NOT dumped into manifest
+        # 1. Document content payload and secrets are NOT dumped into manifest
         assert "Confidential invoice data 12345" not in manifest_raw
+        assert "raw_secret" not in manifest_raw
+        assert "secret_token" not in manifest_raw
+        assert "admin_secret" not in manifest_raw
 
-        # 2. Raw sensitive directory paths are sanitized to basename only
-        assert str(tmp_path / "sensitive_folder") not in manifest_raw
-        assert manifest_dict["provenance"][0]["source_file"] == "input_doc.pdf"
+        # 2. Arbitrary metadata and evidence dictionaries are strictly omitted from Phase 1 manifest
+        assert "metadata" not in manifest_dict
+        assert "evidence" not in manifest_dict["provenance"][0]
+        assert "context" not in manifest_dict["warnings"][0]
+        assert "message" not in manifest_dict["warnings"][0]
 
         # 3. Safe facts are recorded accurately
-        assert manifest_dict["metadata"]["job_type"] == "automated_audit"
         assert manifest_dict["warnings"][0]["code"] == "LOW_DPI"
-        assert manifest_dict["provenance"][0]["evidence"]["confidence"] == 0.98
+        assert manifest_dict["warnings"][0]["stage"] == "ocr"
+        assert manifest_dict["provenance"][0]["stage"] == "ocr"
+        assert manifest_dict["provenance"][0]["plugin_id"] == "shakti.ocr"
 
     def test_cannot_finalize_twice(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-double-fin", requirement="ocr")
@@ -325,42 +346,53 @@ class TestManifestSafetyAndOrdering:
 
 
 class TestCleanupAndPartialPreservation:
-    def test_default_cleanup_removes_uncommitted_staging(
+    def test_failed_run_removes_committed_output_artifacts_and_preserves_partial_only_when_requested(
         self, boundary: ArtifactBoundary
     ) -> None:
-        ws = boundary.begin_run(run_id="run-fail-clean", requirement="ocr", preserve_partial=False)
-        intent = ArtifactIntent(name="temp.txt", role="temp", media_type="text/plain")
-        staged = ws.stage_artifact(intent, b"temporary staging bytes")
-        assert staged.exists()
+        # Case 1: preserve_partial is False -> all committed artifacts and partial dir removed
+        ws1 = boundary.begin_run(run_id="run-fail-clean", requirement="ocr", preserve_partial=False)
+        intent = ArtifactIntent(name="committed.txt", role="data", media_type="text/plain")
+        ref1 = ws1.commit_artifact(intent, b"committed content")
+        assert ref1.path.exists()
 
-        # Run fails and cleanup is invoked
-        ws.cleanup()
-        assert not ws.staging_dir.exists()
-        assert not (ws.output_dir / "partial").exists()
+        manifest_path1 = ws1.finalize(success=False)
+        assert manifest_path1.exists()
+        # Ordinary committed output artifact is removed
+        assert not ref1.path.exists()
+        manifest_dict1 = json.loads(manifest_path1.read_text(encoding="utf-8"))
+        assert manifest_dict1["status"] == "failed"
+        assert len(manifest_dict1["artifacts"]) == 0
+        assert not (ws1.output_dir / "partial").exists()
 
-    def test_explicit_partial_preservation_retains_under_partial(
-        self, boundary: ArtifactBoundary
-    ) -> None:
-        ws = boundary.begin_run(run_id="run-preserve", requirement="ocr", preserve_partial=True)
-        intent = ArtifactIntent(name="partial_data.json", role="partial_result", media_type="application/json")
-        staged = ws.stage_artifact(intent, b'{"partial": "data"}')
+        # Case 2: preserve_partial is True -> partial/ is preserved
+        ws2 = boundary.begin_run(run_id="run-fail-partial", requirement="ocr", preserve_partial=True)
+        intent_p = ArtifactIntent(name="partial_doc.json", role="partial", media_type="application/json")
+        staged_p = ws2.stage_artifact(intent_p, b'{"partial": true}')
+        preserved_path = ws2.preserve_partial_artifact(intent_p, staged_p)
+        assert preserved_path is not None and preserved_path.exists()
 
-        # Explicit partial preservation
-        preserved_path = ws.preserve_partial_artifact(intent, staged)
-        assert preserved_path is not None
-        assert preserved_path == ws.output_dir / "partial" / "partial_data.json"
+        manifest_path2 = ws2.finalize(success=False)
+        assert manifest_path2.exists()
+        manifest_dict2 = json.loads(manifest_path2.read_text(encoding="utf-8"))
+        assert manifest_dict2["status"] == "failed"
+        assert len(manifest_dict2["partial_artifacts"]) == 1
         assert preserved_path.exists()
-        assert preserved_path.read_bytes() == b'{"partial": "data"}'
 
-        # Finalize as failed run
-        manifest_path = ws.finalize(success=False)
-        manifest_dict = json.loads(manifest_path.read_text(encoding="utf-8"))
-        assert manifest_dict["status"] == "failed"
-        assert len(manifest_dict["partial_artifacts"]) == 1
-        assert manifest_dict["partial_artifacts"][0]["relative_path"] == "partial/partial_data.json"
+    def test_manifest_write_failure_cleans_incomplete_output_directory(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-manifest-err", requirement="ocr")
+        intent = ArtifactIntent(name="test.txt", role="text", media_type="text/plain")
+        ws.commit_artifact(intent, b"some content")
 
-        # Staging is cleaned up
-        assert not ws.staging_dir.exists()
+        with patch.object(RunWorkspace, "_write_bytes_atomically", side_effect=DoshError(FailureCode.EXECUTION_FAILED, "Disk write error")):
+            with pytest.raises(DoshError) as exc_info:
+                ws.finalize(success=True)
+
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        # Verify incomplete output artifacts were cleaned from the unfinalized directory
+        committed_file = ws.output_dir / "test.txt"
+        assert not committed_file.exists()
 
     def test_context_manager_cleans_staging_on_exception(
         self, boundary: ArtifactBoundary
@@ -377,6 +409,19 @@ class TestCleanupAndPartialPreservation:
             pass
 
         assert not ws.staging_dir.exists()
+
+    def test_cleanup_failure_is_observable(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-clean-err", requirement="ocr")
+        ws.stage_artifact(ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp")
+
+        with patch("shutil.rmtree", side_effect=PermissionError("Staging dir locked")):
+            with pytest.raises(DoshError) as exc_info:
+                ws.cleanup()
+
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to clean up run staging directory." in exc_info.value.message
 
 
 class TestInputSourceImmutability:
@@ -406,6 +451,23 @@ class TestInputSourceImmutability:
         input_stat_after = input_file.stat()
         assert input_stat_before.st_size == input_stat_after.st_size
         assert input_stat_before.st_mtime == input_stat_after.st_mtime
+
+
+class TestPrivacyAndErrorSafety:
+    def test_filesystem_failure_paths_do_not_leak_raw_paths(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        secret_folder = tmp_path / "secret_folder_abc"
+        secret_folder.mkdir()
+        ws = boundary.begin_run(run_id="run-priv-err", requirement="ocr")
+
+        with patch.object(Path, "open", side_effect=OSError(f"Access denied to {secret_folder}")):
+            with pytest.raises(DoshError) as exc_info:
+                ws.commit_artifact(ArtifactIntent(name="x.bin", role="data", media_type="application/octet-stream"), b"data")
+
+        err_msg = exc_info.value.message
+        assert str(secret_folder) not in err_msg
+        assert "Access denied" not in err_msg
 
 
 class TestPublicExport:
