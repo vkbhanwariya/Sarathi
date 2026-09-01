@@ -60,6 +60,13 @@ class Kosh:
                 message=f"Owning plugin '{plugin_id}' is not registered for capability '{cap_id}'.",
             )
 
+        owner_plugin = self._plugins[plugin_id]
+        if cap_id not in owner_plugin.capabilities:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Capability '{cap_id}' is not declared by owning plugin '{plugin_id}'.",
+            )
+
         if cap_id in self._capabilities:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,

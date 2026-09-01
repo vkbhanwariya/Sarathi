@@ -137,9 +137,65 @@ class TestKoshRegistry:
         assert kosh.get_capability("ocr") == sample_capability
         assert len(kosh) == 1
 
+    def test_undeclared_capability_rejected(
+        self,
+        kosh: Kosh,
+        sample_plugin: PluginInfo,
+    ) -> None:
+        kosh.register_plugin(sample_plugin)
+
+        undeclared_cap = CapabilityDeclaration(
+            capability_id="undeclared.ocr",
+            plugin_id="shakti.ocr",
+            version="2.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            kosh.register_capability(undeclared_cap)
+
+        err = exc_info.value
+        assert err.code is FailureCode.VALIDATION_FAILED
+        assert "not declared by owning plugin" in err.message
+
+    def test_undeclared_capability_rejection_leaves_state_unmutated(
+        self,
+        kosh: Kosh,
+        sample_plugin: PluginInfo,
+        sample_capability: CapabilityDeclaration,
+    ) -> None:
+        kosh.register_plugin(sample_plugin)
+        kosh.register_capability(sample_capability)
+
+        # Baseline snapshots before rejection
+        plugins_before = kosh.plugins()
+        caps_before = kosh.capabilities()
+        plugin_caps_before = kosh.get_capabilities_for_plugin("shakti.ocr")
+        count_before = len(kosh)
+
+        undeclared_cap = CapabilityDeclaration(
+            capability_id="undeclared.cap",
+            plugin_id="shakti.ocr",
+            version="2.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            kosh.register_capability(undeclared_cap)
+
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+
+        # Verify state is completely unmutated
+        assert len(kosh) == count_before
+        assert kosh.plugins() == plugins_before
+        assert kosh.capabilities() == caps_before
+        assert kosh.get_capabilities_for_plugin("shakti.ocr") == plugin_caps_before
+        assert kosh.get_capability("undeclared.cap") is None
+        assert kosh.has_capability("undeclared.cap") is False
+
     def test_registration_order_preserved_in_snapshots(self, kosh: Kosh) -> None:
-        p1 = PluginInfo(plugin_id="plugin.a", name="A", version="1.0")
-        p2 = PluginInfo(plugin_id="plugin.b", name="B", version="1.0")
+        p1 = PluginInfo(plugin_id="plugin.a", name="A", version="1.0", capabilities=("cap.1", "cap.3"))
+        p2 = PluginInfo(plugin_id="plugin.b", name="B", version="1.0", capabilities=("cap.2",))
         p3 = PluginInfo(plugin_id="plugin.c", name="C", version="1.0")
 
         kosh.register_plugin(p1)
