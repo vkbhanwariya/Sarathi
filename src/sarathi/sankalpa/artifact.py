@@ -105,6 +105,8 @@ class ArtifactIntent:
             if not isinstance(self.relative_path, (Path, str)):
                 raise TypeError(f"relative_path must be a Path or str, got {type(self.relative_path)}.")
             object.__setattr__(self, "relative_path", _validate_safe_relative_path(self.relative_path))
+        else:
+            object.__setattr__(self, "relative_path", _validate_safe_relative_path(self.name))
         if isinstance(self.metadata, Mapping):
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         else:

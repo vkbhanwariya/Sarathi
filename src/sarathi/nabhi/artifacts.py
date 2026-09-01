@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 import re
 import shutil
 from typing import Any, Mapping, Sequence
@@ -30,10 +30,10 @@ import uuid
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import ArtifactIntent, ArtifactRef, ProvenanceRecord, WarningRecord
-from sarathi.sankalpa.artifact import _validate_safe_relative_path
 
 _REQUIREMENT_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 _RUN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_CHUNK_SIZE = 65536
 
 
 def _is_path_relative_to(path: Path, base: Path) -> bool:
@@ -59,12 +59,12 @@ def _check_symlink_escape(target_path: Path, base_dir: Path) -> None:
                 if not _is_path_relative_to(resolved_link, resolved_base):
                     raise DoshError(
                         code=FailureCode.SECURITY_DENIED,
-                        message=f"Symlink escape detected: {current.name} resolves outside boundary root.",
+                        message="Symlink escape detected: target path resolves outside boundary root.",
                     )
         except OSError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message=f"Filesystem access error inspecting path: {err}",
+                message="Filesystem access error inspecting path.",
             ) from err
 
         if current.resolve() == resolved_base or current == current.parent:
@@ -92,7 +92,7 @@ def _validate_root_directory(
     if resolved_path.exists() and not resolved_path.is_dir():
         raise DoshError(
             code=FailureCode.INVALID_CONFIGURATION,
-            message=f"{param_name} exists but is not a directory: {resolved_path.name}",
+            message=f"{param_name} exists but is not a directory.",
         )
 
     return resolved_path
@@ -150,7 +150,7 @@ class RunWorkspace:
         except OSError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message=f"Failed to initialize run workspace directories: {err}",
+                message="Failed to initialize run workspace directories.",
             ) from err
 
     @property
@@ -189,20 +189,15 @@ class RunWorkspace:
         return self._is_finalized
 
     def _resolve_relative_path(self, intent: ArtifactIntent) -> Path:
-        """Resolve and validate the relative destination path declared by an ArtifactIntent."""
+        """Resolve and return the validated relative destination path declared by an ArtifactIntent."""
         if not isinstance(intent, ArtifactIntent):
             raise TypeError(f"intent must be an ArtifactIntent instance, got {type(intent).__name__}.")
-
-        raw_rel = intent.relative_path if intent.relative_path is not None else Path(intent.name)
-        try:
-            validated_rel = _validate_safe_relative_path(raw_rel)
-        except (ValueError, TypeError) as err:
+        if intent.relative_path is None:
             raise DoshError(
-                code=FailureCode.SECURITY_DENIED,
-                message=f"Invalid or unsafe artifact relative path {raw_rel!r}: {err}",
-            ) from err
-
-        return validated_rel
+                code=FailureCode.VALIDATION_FAILED,
+                message="ArtifactIntent has no resolved relative path.",
+            )
+        return intent.relative_path
 
     def _normalize_path_key(self, rel_path: Path) -> str:
         """Normalize a relative path to standard forward-slash key for uniqueness checking."""
@@ -219,7 +214,7 @@ class RunWorkspace:
         except OSError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message=f"Failed to create directory {target_dir.name}: {err}",
+                message="Failed to create artifact destination directory.",
             ) from err
 
         temp_file = target_dir / f".tmp_{uuid.uuid4().hex}_{target_path.name}"
@@ -237,7 +232,7 @@ class RunWorkspace:
                     pass
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message=f"Failed to atomically write artifact file {target_path.name}: {err}",
+                message="Failed to atomically write artifact file.",
             ) from err
 
     def stage_artifact(self, intent: ArtifactIntent, content: bytes) -> Path:
@@ -267,7 +262,7 @@ class RunWorkspace:
         if not _is_path_relative_to(dest_path, self._staging_dir):
             raise DoshError(
                 code=FailureCode.SECURITY_DENIED,
-                message=f"Staging path escapes staging root: {rel_path}",
+                message="Staging path escapes staging root.",
             )
 
         _check_symlink_escape(dest_path, self._staging_dir)
@@ -276,10 +271,10 @@ class RunWorkspace:
         return dest_path
 
     def commit_staged_artifact(self, intent: ArtifactIntent, staged_path: Path) -> ArtifactRef:
-        """Atomically commit an already staged artifact to the final run output directory.
+        """Atomically commit an already staged artifact to the final run output directory by streaming.
 
-        Measures actual size and SHA-256 checksum upon commit, cleans up the staged file,
-        and returns a confirmed ArtifactRef.
+        Measures actual size and SHA-256 checksum during the stream, cleans up the staged file,
+        and returns a confirmed ArtifactRef without loading the whole file into memory.
 
         Args:
             intent: Declared artifact intent.
@@ -308,7 +303,7 @@ class RunWorkspace:
         if not staged_path.exists():
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=f"Staged artifact file does not exist: {staged_path.name}",
+                message="Staged artifact file does not exist.",
             )
 
         if not _is_path_relative_to(staged_path, self._staging_dir):
@@ -317,22 +312,89 @@ class RunWorkspace:
                 message="staged_path is not within the active staging directory.",
             )
 
+        rel_path = self._resolve_relative_path(intent)
+        path_key = self._normalize_path_key(rel_path)
+
+        if path_key in self._committed_relative_paths:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Duplicate artifact destination path.",
+            )
+
+        dest_path = self._output_dir / rel_path
+
+        if not _is_path_relative_to(dest_path, self._output_dir):
+            raise DoshError(
+                code=FailureCode.SECURITY_DENIED,
+                message="Artifact destination path escapes output root.",
+            )
+
+        _check_symlink_escape(dest_path, self._output_dir)
+
+        if dest_path.exists():
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Artifact destination already exists on disk.",
+            )
+
+        dest_dir = dest_path.parent
         try:
-            content = staged_path.read_bytes()
+            dest_dir.mkdir(parents=True, exist_ok=True)
         except OSError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message=f"Failed to read staged artifact {staged_path.name}: {err}",
+                message="Failed to create artifact destination directory.",
             ) from err
 
-        ref = self.commit_artifact(intent, content)
+        temp_file = dest_dir / f".tmp_{uuid.uuid4().hex}_{dest_path.name}"
+        hasher = hashlib.sha256()
+        total_bytes = 0
+
+        try:
+            with staged_path.open("rb") as src, temp_file.open("wb") as dst:
+                while True:
+                    chunk = src.read(_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+                    hasher.update(chunk)
+                    total_bytes += len(chunk)
+                dst.flush()
+                os.fsync(dst.fileno())
+            temp_file.replace(dest_path)
+        except OSError as err:
+            if temp_file.exists():
+                try:
+                    temp_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to atomically write artifact file.",
+            ) from err
 
         # Clean up staging file
         try:
             staged_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to clean up staged file.",
+            ) from err
 
+        artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+        ref = ArtifactRef(
+            artifact_id=artifact_id,
+            role=intent.role,
+            media_type=intent.media_type,
+            path=dest_path,
+            size_bytes=total_bytes,
+            checksum_sha256=hasher.hexdigest(),
+            metadata=intent.metadata,
+        )
+
+        self._committed_artifacts.append(ref)
+        self._committed_relative_paths.add(path_key)
         return ref
 
     def commit_artifact(self, intent: ArtifactIntent, content: bytes) -> ArtifactRef:
@@ -366,7 +428,7 @@ class RunWorkspace:
         if path_key in self._committed_relative_paths:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=f"Duplicate artifact destination path: {path_key!r}",
+                message="Duplicate artifact destination path.",
             )
 
         dest_path = self._output_dir / rel_path
@@ -374,7 +436,7 @@ class RunWorkspace:
         if not _is_path_relative_to(dest_path, self._output_dir):
             raise DoshError(
                 code=FailureCode.SECURITY_DENIED,
-                message=f"Artifact destination path escapes output root: {rel_path}",
+                message="Artifact destination path escapes output root.",
             )
 
         _check_symlink_escape(dest_path, self._output_dir)
@@ -382,7 +444,7 @@ class RunWorkspace:
         if dest_path.exists():
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=f"Artifact destination already exists on disk: {dest_path.name}",
+                message="Artifact destination already exists on disk.",
             )
 
         byte_payload = bytes(content)
@@ -394,7 +456,7 @@ class RunWorkspace:
         except OSError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message=f"Failed to measure committed artifact {dest_path.name}: {err}",
+                message="Failed to measure committed artifact.",
             ) from err
 
         sha256_hash = hashlib.sha256(byte_payload).hexdigest()
@@ -446,7 +508,7 @@ class RunWorkspace:
         if not _is_path_relative_to(dest_path, partial_dir):
             raise DoshError(
                 code=FailureCode.SECURITY_DENIED,
-                message=f"Partial artifact path escapes partial root: {rel_path}",
+                message="Partial artifact path escapes partial root.",
             )
 
         _check_symlink_escape(dest_path, partial_dir)
@@ -455,23 +517,57 @@ class RunWorkspace:
             if not content.exists():
                 raise DoshError(
                     code=FailureCode.VALIDATION_FAILED,
-                    message=f"Source partial file does not exist: {content.name}",
+                    message="Source partial file does not exist.",
                 )
+            dest_dir = dest_path.parent
             try:
-                byte_payload = content.read_bytes()
+                dest_dir.mkdir(parents=True, exist_ok=True)
             except OSError as err:
                 raise DoshError(
                     code=FailureCode.EXECUTION_FAILED,
-                    message=f"Failed to read partial artifact source: {err}",
+                    message="Failed to create artifact destination directory.",
+                ) from err
+
+            temp_file = dest_dir / f".tmp_{uuid.uuid4().hex}_{dest_path.name}"
+            try:
+                with content.open("rb") as src, temp_file.open("wb") as dst:
+                    while True:
+                        chunk = src.read(_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                temp_file.replace(dest_path)
+            except OSError as err:
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to atomically write artifact file.",
                 ) from err
         elif isinstance(content, (bytes, bytearray)):
-            byte_payload = bytes(content)
+            self._write_bytes_atomically(dest_path, bytes(content))
         else:
             raise TypeError(f"content must be bytes, bytearray, or Path, got {type(content).__name__}.")
 
-        self._write_bytes_atomically(dest_path, byte_payload)
         self._partial_artifacts.append(dest_path)
         return dest_path
+
+    def _cleanup_output_dir_on_failure(self) -> None:
+        """Safely clean unfinalized output artifacts if manifest writing or finalization fails."""
+        if self._output_dir.exists():
+            try:
+                for item in self._output_dir.iterdir():
+                    if item.is_file():
+                        item.unlink(missing_ok=True)
+                    elif item.is_dir():
+                        shutil.rmtree(item, ignore_errors=True)
+            except OSError:
+                pass
 
     def finalize(
         self,
@@ -485,13 +581,16 @@ class RunWorkspace:
 
         and marks the workspace finalized.
 
-        Manifest contains only safe run identity, confirmed artifact records, and safe provenance.
-        It strictly excludes raw input filesystem paths, document payloads, raw exception text,
-        credentials, secrets, or fabricated confidence values.
+        Manifest contains only declared safe identity and factual fields: run/requirement/status/timestamps,
+        artifact ID/role/media type/relative path/size/checksum, safe provenance identity fields,
+        warning code/stage, and explicit partial artifact facts.
+
+        Arbitrary caller metadata, raw document text, raw exception text, raw paths, and arbitrary evidence
+        are strictly excluded.
 
         Args:
             success: Whether the run completed successfully.
-            metadata: Optional safe run-level metadata.
+            metadata: Optional caller metadata (ignored for privacy in Phase 1 manifest).
             provenance: Optional sequence of ProvenanceRecord instances.
             warnings: Optional sequence of WarningRecord instances.
 
@@ -508,6 +607,26 @@ class RunWorkspace:
                 message="Run workspace is already finalized.",
             )
 
+        # On failed run: incomplete runs must not leave normal output artifacts
+        if not success:
+            for art in self._committed_artifacts:
+                try:
+                    art.path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            self._committed_artifacts.clear()
+            self._committed_relative_paths.clear()
+
+            # Clean partial directory if preserve_partial is False
+            if not self._preserve_partial:
+                partial_dir = self._output_dir / "partial"
+                if partial_dir.exists():
+                    try:
+                        shutil.rmtree(partial_dir)
+                    except OSError:
+                        pass
+                self._partial_artifacts.clear()
+
         manifest_data: dict[str, Any] = {
             "run_id": self._run_id,
             "requirement": self._requirement,
@@ -522,7 +641,6 @@ class RunWorkspace:
                     "relative_path": str(art.path.relative_to(self._output_dir)).replace("\\", "/"),
                     "size_bytes": art.size_bytes,
                     "checksum_sha256": art.checksum_sha256,
-                    "metadata": dict(art.metadata),
                 }
                 for art in self._committed_artifacts
             ],
@@ -532,10 +650,11 @@ class RunWorkspace:
                     "size_bytes": p.stat().st_size if p.exists() else 0,
                 }
                 for p in self._partial_artifacts
+                if p.exists()
             ],
         }
 
-        # Safe provenance recording
+        # Safe provenance identity recording only
         if provenance is not None:
             if not isinstance(provenance, (list, tuple)):
                 raise TypeError(f"provenance must be a sequence of ProvenanceRecord, got {type(provenance).__name__}.")
@@ -547,44 +666,49 @@ class RunWorkspace:
                     "stage": p.stage,
                     "plugin_id": p.plugin_id,
                     "capability_id": p.capability_id,
-                    "page_number": p.page_number,
-                    "region": p.region,
-                    "timestamp_utc": p.timestamp_utc,
-                    "evidence": dict(p.evidence),
                 }
-                if p.source_input_id:
+                if p.page_number is not None:
+                    prov_entry["page_number"] = p.page_number
+                if p.region is not None:
+                    prov_entry["region"] = p.region
+                if p.source_input_id is not None:
                     prov_entry["source_input_id"] = p.source_input_id
-                # Record source file basename only; never expose raw full directory paths
-                if p.source_file:
-                    prov_entry["source_file"] = Path(p.source_file).name
+                if p.timestamp_utc is not None:
+                    prov_entry["timestamp_utc"] = p.timestamp_utc
                 cleaned_prov.append(prov_entry)
             manifest_data["provenance"] = cleaned_prov
 
-        # Safe warning recording
+        # Safe warning code/stage recording only
         if warnings is not None:
             if not isinstance(warnings, (list, tuple)):
                 raise TypeError(f"warnings must be a sequence of WarningRecord, got {type(warnings).__name__}.")
             manifest_data["warnings"] = [
                 {
                     "code": w.code,
-                    "message": w.message,
                     "stage": w.stage,
-                    "context": dict(w.context),
                 }
                 for w in warnings
+                if isinstance(w, WarningRecord)
             ]
 
-        if metadata is not None:
-            if not isinstance(metadata, Mapping):
-                raise TypeError(f"metadata must be a Mapping, got {type(metadata).__name__}.")
-            manifest_data["metadata"] = dict(metadata)
+        # Validate JSON serialization safety before attempting file write
+        try:
+            manifest_bytes = json.dumps(manifest_data, indent=2, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        except (TypeError, ValueError) as err:
+            self._cleanup_output_dir_on_failure()
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to serialize run manifest.",
+            ) from err
 
-        # Write run-manifest.json atomically
         manifest_file = self._output_dir / "run-manifest.json"
-        manifest_bytes = json.dumps(manifest_data, indent=2, ensure_ascii=False).encode("utf-8")
-        self._write_bytes_atomically(manifest_file, manifest_bytes)
+        try:
+            self._write_bytes_atomically(manifest_file, manifest_bytes)
+        except DoshError as err:
+            self._cleanup_output_dir_on_failure()
+            raise err
 
-        # Clean staging data on finalization
+        # Clean staging data on finalization (observable cleanup)
         self.cleanup()
         self._is_finalized = True
         return manifest_file
@@ -593,9 +717,12 @@ class RunWorkspace:
         """Clean up uncommitted staging data from the staging directory."""
         if self._staging_dir.exists():
             try:
-                shutil.rmtree(self._staging_dir, ignore_errors=True)
-            except OSError:
-                pass
+                shutil.rmtree(self._staging_dir)
+            except OSError as err:
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to clean up run staging directory.",
+                ) from err
 
     def __enter__(self) -> RunWorkspace:
         return self
@@ -606,7 +733,14 @@ class RunWorkspace:
         exc_val: BaseException | None,
         exc_tb: Any,
     ) -> None:
-        if exc_type is not None and not self._is_finalized:
+        if exc_type is not None:
+            if not self._is_finalized:
+                try:
+                    if self._staging_dir.exists():
+                        shutil.rmtree(self._staging_dir, ignore_errors=True)
+                except Exception:
+                    pass
+        elif not self._is_finalized:
             self.cleanup()
 
 
@@ -643,7 +777,7 @@ class ArtifactBoundary:
         except OSError as err:
             raise DoshError(
                 code=FailureCode.INVALID_CONFIGURATION,
-                message=f"Failed to create root storage directories: {err}",
+                message="Failed to create root storage directories.",
             ) from err
 
         self._runtime_root: Path = validated_runtime
@@ -717,7 +851,7 @@ class ArtifactBoundary:
             except OSError as err:
                 raise DoshError(
                     code=FailureCode.INVALID_CONFIGURATION,
-                    message=f"Failed to create custom output root: {err}",
+                    message="Failed to create custom output root.",
                 ) from err
         else:
             active_output_root = self._output_root
