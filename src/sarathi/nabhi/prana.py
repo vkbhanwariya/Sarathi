@@ -20,6 +20,7 @@ class Prana:
 
     def __init__(self) -> None:
         self._components: dict[str, Any] = {}
+        self._attempted_ids: set[str] = set()
         self._started_ids: list[str] = []
         self._closed_ids: set[str] = set()
 
@@ -59,20 +60,21 @@ class Prana:
     def start_all(self) -> None:
         """Start registered components in registration order.
 
-        A component may start only once per Prana instance.
+        A component start may be attempted only once per Prana instance.
         If a component fails to start:
         - Closes already-started components in reverse start order.
-        - Re-raises the original exception unchanged.
+        - Re-raises the original exception unchanged with traceback preserved.
         """
         for comp_id, comp in self._components.items():
-            if comp_id in self._started_ids:
+            if comp_id in self._attempted_ids:
                 continue
+            self._attempted_ids.add(comp_id)
             try:
                 comp.start()
                 self._started_ids.append(comp_id)
-            except BaseException as exc:
+            except BaseException:
                 self._cleanup_on_start_failure()
-                raise exc
+                raise
 
     def _cleanup_on_start_failure(self) -> None:
         """Close already-started components in reverse start order upon start failure."""
@@ -113,18 +115,6 @@ class Prana:
 
         if first_error is not None:
             raise first_error
-
-    def get_component(self, component_id: str) -> Any | None:
-        """Look up a registered component by component_id, or return None."""
-        if not isinstance(component_id, str):
-            raise TypeError(f"component_id must be a string, got {type(component_id).__name__}.")
-        return self._components.get(component_id.strip())
-
-    def has_component(self, component_id: str) -> bool:
-        """Check if a component_id is registered."""
-        if not isinstance(component_id, str):
-            raise TypeError(f"component_id must be a string, got {type(component_id).__name__}.")
-        return component_id.strip() in self._components
 
     def registered_ids(self) -> tuple[str, ...]:
         """Return an immutable snapshot of registered component IDs in registration order."""
