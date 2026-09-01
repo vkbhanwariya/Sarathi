@@ -66,15 +66,18 @@ class OCRCapability:
                 message=f"Profile '{request.profile.value}' is not supported by OCR Phase 1 (Instant only).",
             )
 
-        # Inspect prior_result for existing usable native documents
+        # Inspect prior_result for existing usable native documents using structural pattern matching
         prior_docs: dict[str, CanonicalDocument] = {}
         if prior_result is not None and prior_result.data is not None:
-            if isinstance(prior_result.data, CanonicalDocument):
-                prior_docs[prior_result.data.source_input_id] = prior_result.data
-            elif isinstance(prior_result.data, (tuple, list)):
-                for item in prior_result.data:
-                    if isinstance(item, CanonicalDocument):
-                        prior_docs[item.source_input_id] = item
+            match prior_result.data:
+                case CanonicalDocument() as doc:
+                    prior_docs[doc.source_input_id] = doc
+                case tuple() | list() as items:
+                    prior_docs.update({
+                        item.source_input_id: item
+                        for item in items
+                        if isinstance(item, CanonicalDocument)
+                    })
 
         final_docs: list[CanonicalDocument] = []
         all_provenance: list[ProvenanceRecord] = list(prior_result.provenance) if prior_result else []
@@ -82,8 +85,8 @@ class OCRCapability:
 
         for inp in request.inputs:
             # Check if this input was already extracted natively and is usable
-            if inp.input_id in prior_docs and _is_usable_document(prior_docs[inp.input_id]):
-                final_docs.append(prior_docs[inp.input_id])
+            if (usable_doc := prior_docs.get(inp.input_id)) and _is_usable_document(usable_doc):
+                final_docs.append(usable_doc)
                 continue
 
             # Input requires OCR
@@ -142,16 +145,16 @@ class OCRCapability:
 
         result_data: Any = final_docs[0] if len(final_docs) == 1 else tuple(final_docs)
 
-        # Aggregate overall measured confidence across OCR pages
-        scores: list[float] = []
-        for doc in final_docs:
-            for p in doc.pages:
-                if "confidence" in p.metadata and isinstance(p.metadata["confidence"], (int, float)):
-                    scores.append(float(p.metadata["confidence"]))
+        # Aggregate overall measured confidence across OCR pages via concise comprehension
+        scores: list[float] = [
+            float(p.metadata["confidence"])
+            for doc in final_docs
+            for p in doc.pages
+            if isinstance(p.metadata.get("confidence"), (int, float))
+        ]
 
-        overall_confidence: ConfidenceValue | None = None
-        if scores:
-            overall_confidence = ConfidenceValue(
+        overall_confidence: ConfidenceValue | None = (
+            ConfidenceValue(
                 score=round(sum(scores) / len(scores), 4),
                 method="rapidocr_mean",
                 evidence={
@@ -161,6 +164,9 @@ class OCRCapability:
                     "page_count": len(scores),
                 },
             )
+            if scores
+            else None
+        )
 
         return Result(
             data=result_data,

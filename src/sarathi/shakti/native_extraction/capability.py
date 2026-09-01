@@ -1,9 +1,9 @@
-"""Shruti — Native Extraction Executable Capability."""
+"""Shruti - Native Extraction Executable Capability."""
 
 from __future__ import annotations
 
 import csv
-from typing import Any
+from typing import Any, Callable
 import xml.etree.ElementTree as ET
 from zipfile import BadZipFile
 
@@ -45,6 +45,40 @@ _PARSE_EXCEPTIONS = (
     csv.Error,
     UnicodeDecodeError,
 )
+
+
+def _get_reader(
+    fmt: DetectedFormat,
+) -> Callable[[bytes, str], tuple[CanonicalDocument, list[ProvenanceRecord], list[WarningRecord]]] | None:
+    """Return the concrete reader for a detected format using modern structural pattern matching."""
+    match fmt:
+        case DetectedFormat.PDF:
+            return read_pdf
+        case DetectedFormat.XLSX:
+            return read_xlsx
+        case DetectedFormat.XLS_LEGACY:
+            return read_xls_legacy
+        case DetectedFormat.HTML_TABLE:
+            return read_html_table
+        case DetectedFormat.SPREADSHEET_ML:
+            return read_spreadsheet_ml
+        case DetectedFormat.CSV_OR_TEXT:
+            return read_csv_or_text
+        case _:
+            return None
+
+
+def _has_usable_content(doc: CanonicalDocument) -> bool:
+    """Check whether a CanonicalDocument contains usable text or table data."""
+    has_text = bool(doc.text and doc.text.strip()) or any(
+        bool(p.text and p.text.strip()) for p in doc.pages
+    )
+    has_tables = any(
+        len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables
+    ) or any(
+        any(len(t.rows) > 0 or len(t.headers) > 0 for t in p.tables) for p in doc.pages
+    )
+    return has_text or has_tables
 
 
 class NativeExtractionCapability:
@@ -115,41 +149,21 @@ class NativeExtractionCapability:
                     message="Unsupported content format for native extraction.",
                 )
 
+            reader = _get_reader(fmt)
+            if reader is None:
+                raise DoshError(
+                    code=FailureCode.UNSUPPORTED,
+                    message="Unsupported content format for native extraction.",
+                )
+
             # Route to concrete native readers with honest parse error handling
             try:
-                if fmt == DetectedFormat.PDF:
-                    doc, provs, warns = read_pdf(data, inp.input_id)
-                elif fmt == DetectedFormat.XLSX:
-                    doc, provs, warns = read_xlsx(data, inp.input_id)
-                elif fmt == DetectedFormat.XLS_LEGACY:
-                    doc, provs, warns = read_xls_legacy(data, inp.input_id)
-                elif fmt == DetectedFormat.HTML_TABLE:
-                    doc, provs, warns = read_html_table(data, inp.input_id)
-                elif fmt == DetectedFormat.SPREADSHEET_ML:
-                    doc, provs, warns = read_spreadsheet_ml(data, inp.input_id)
-                elif fmt == DetectedFormat.CSV_OR_TEXT:
-                    doc, provs, warns = read_csv_or_text(data, inp.input_id)
-                else:
-                    raise DoshError(
-                        code=FailureCode.UNSUPPORTED,
-                        message="Unsupported content format for native extraction.",
-                    )
-
+                doc, provs, warns = reader(data, inp.input_id)
                 extracted_docs.append(doc)
                 all_provenance.extend(provs)
                 all_warnings.extend(warns)
 
-                # Quality check: verify whether usable text or table data exists
-                has_usable_text = bool(doc.text and doc.text.strip()) or any(
-                    bool(p.text and p.text.strip()) for p in doc.pages
-                )
-                has_usable_tables = any(
-                    len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables
-                ) or any(
-                    any(len(t.rows) > 0 or len(t.headers) > 0 for t in p.tables) for p in doc.pages
-                )
-
-                if not has_usable_text and not has_usable_tables:
+                if not _has_usable_content(doc):
                     # Empty native content (e.g. scanned PDF with no text stream) -> escalate to OCR
                     needs_ocr = True
                     all_warnings.append(
