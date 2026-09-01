@@ -5,10 +5,11 @@ Verifies the complete pipeline flow through the actual Agni runtime bootstrap:
 - Document identification via Darshana
 - Capability resolution via Manthan
 - Pipeline execution via Pravaha and Yantra
-- Artifact lifecycle, staging, atomic commitment, and safe completion manifest
+- Real artifact commitment via Agni and RunWorkspace into Output/
+- Final run-manifest.json written last
 - Telemetry recording via Darpana (Maruti performance & Pramana confidence)
-- Expected failure paths reaching safe Dosh classification and Pravaha lifecycle
-- Verification that no duplicate Kosh/service/telemetry path is created
+- Real execution failure path reaching Pravaha quarantine and lifecycle
+- Verification that no duplicate Kosh/service/telemetry/boundary path is created
 - CLI non-interactive execution and safe error reporting
 """
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 import pytest
 
 from sarathi.__main__ import main as cli_main
@@ -24,16 +26,25 @@ from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha, SecurityPolicy
-from sarathi.nabhi import ArtifactBoundary, Kosh
+from sarathi.nabhi import Kosh
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactRef,
+    Capability,
+    CapabilityDeclaration,
+    DeviceRequirement,
+    DeviceType,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
+    PluginInfo,
     Request,
     Result,
+    SecurityDeclaration,
 )
+from sarathi.shakti.darshana import DarshanaCapability
+from sarathi.shakti.native_extraction import NativeExtractionCapability
+from sarathi.sutra import Settings
 
 
 @pytest.fixture
@@ -46,6 +57,52 @@ def workspace_dirs(tmp_path: Path) -> tuple[Path, Path, Path]:
     runtime_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     return input_dir, runtime_dir, output_dir
+
+
+from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION as NATIVE_DECLARATION
+
+
+class MockArtifactProducerCapability:
+    """Mock capability that declares an ArtifactIntent to test Agni artifact commitment."""
+
+    def __init__(self) -> None:
+        self.declaration = NATIVE_DECLARATION
+
+    def execute(
+        self,
+        request: Request,
+        context: ExecutionContext,
+        prior_result: Result | None = None,
+    ) -> Result:
+        intent = ArtifactIntent(
+            name="extracted_export.txt",
+            role="text_export",
+            media_type="text/plain",
+        )
+        payload_bytes = b"E2E Real Agni Committed Artifact Payload Content."
+        return Result(
+            data="Native Extraction Success Data",
+            artifact_intents=(intent,),
+            metadata={"content": payload_bytes},
+        )
+
+
+class MockFailingCapability:
+    """Mock capability that raises DoshError during execution to test Pravaha failure lifecycle."""
+
+    def __init__(self) -> None:
+        self.declaration = NATIVE_DECLARATION
+
+    def execute(
+        self,
+        request: Request,
+        context: ExecutionContext,
+        prior_result: Result | None = None,
+    ) -> Result:
+        raise DoshError(
+            code=FailureCode.EXECUTION_FAILED,
+            message="Simulated capability runtime crash during processing",
+        )
 
 
 class TestOperationalAcceptanceE2E:
@@ -126,126 +183,147 @@ class TestOperationalAcceptanceE2E:
                 assert r.outcome == "success"
                 assert r.duration_ns >= 0
 
-    def test_e2e_artifact_boundary_atomic_commit_and_safe_manifest(
+    def test_e2e_real_artifact_commitment_through_agni_execute(
         self, workspace_dirs: tuple[Path, Path, Path]
     ) -> None:
-        """Test artifact lifecycle: staging, atomic commit, and safe completion manifest."""
+        """Test full artifact lifecycle executed exclusively through Agni.execute()."""
         input_dir, runtime_dir, output_dir = workspace_dirs
-        sample_file = input_dir / "input.pdf"
-        sample_file.write_text("dummy_pdf_content", encoding="utf-8")
+        sample_file = input_dir / "input.txt"
+        sample_file.write_text("dummy_content", encoding="utf-8")
 
-        policy = SecurityPolicy(
-            allow_pii_access=True,
-            allow_network_access=False,
-            allow_external_processing=False,
-            allowed_secrets=(),
+        req = Request(
+            request_id="req-art-e2e",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=sample_file,
+                    display_name="input.txt",
+                    size_bytes=sample_file.stat().st_size,
+                ),
+            ),
+            output_root=output_dir,
         )
-        kavacha = Kavacha(policy)
 
-        boundary = ArtifactBoundary(
+        darpana = Darpana(capacity=1000)
+        custom_caps = {
+            "identify": DarshanaCapability(),
+            "read_native": MockArtifactProducerCapability(),
+        }
+
+        # 1. Execute ONLY through Agni.execute
+        with Agni(
             runtime_root=runtime_dir,
             output_root=output_dir,
-            kavacha=kavacha,
-        )
-
-        ctx = ExecutionContext(
-            run_id="run-art-001",
-            request_id="req-art-001",
-            trace_id="tr-art-001",
-            span_id="sp-art-001",
-        )
-
-        inputs = (
-            InputRef(
-                input_id="inp-1",
-                source_path=sample_file,
-                display_name="input.pdf",
-                size_bytes=sample_file.stat().st_size,
-            ),
-        )
-
-        with boundary.begin_run(
-            run_id="run-art-001",
-            requirement="read_native",
-            input_sources=inputs,
-            context=ctx,
-        ) as ws:
-            # 1. Stage and commit an artifact
-            intent = ArtifactIntent(
-                name="extracted_content.txt",
-                role="text_export",
-                media_type="text/plain",
+            input_root=input_dir,
+            capabilities=custom_caps,
+            darpana=darpana,
+        ) as agni:
+            ctx = ExecutionContext(
+                run_id="run-art-e2e",
+                request_id=req.request_id,
+                trace_id="tr-art-e2e",
+                span_id="sp-art-e2e",
             )
-            payload = b"Extracted Document Text Content from Native Reader."
-            staged_path = ws.stage_artifact(intent, payload)
-            assert staged_path.exists()
-            ref = ws.commit_staged_artifact(intent, staged_path)
+            result = agni.execute(req, context=ctx)
 
-            assert isinstance(ref, ArtifactRef)
-            assert ref.path.exists()
-            assert ref.size_bytes == len(payload)
+            # 2. Receive confirmed ArtifactRef in Result.artifacts
+            assert isinstance(result, Result)
+            assert len(result.artifact_intents) == 0
+            assert len(result.artifacts) == 1
+            art_ref = result.artifacts[0]
+            assert isinstance(art_ref, ArtifactRef)
+            assert art_ref.role == "text_export"
+
+            # 3. Verify committed artifact exists on disk under output_root
+            assert art_ref.path.exists()
+            assert output_dir.resolve() in art_ref.path.resolve().parents
+            payload = b"E2E Real Agni Committed Artifact Payload Content."
+            assert art_ref.size_bytes == len(payload)
             expected_sha = hashlib.sha256(payload).hexdigest()
-            assert ref.checksum_sha256 == expected_sha
+            assert art_ref.checksum_sha256 == expected_sha
+            assert art_ref.path.read_bytes() == payload
 
-            # Verify actual on-disk file in Output/
-            disk_bytes = ref.path.read_bytes()
-            assert disk_bytes == payload
-
-            # Finalize workspace and generate run-manifest.json
-            manifest_path = ws.finalize(success=True)
+            # 4. Locate and verify the real run-manifest.json written last
+            manifest_path = art_ref.path.parent / "run-manifest.json"
             assert manifest_path.exists()
-            assert manifest_path.name == "run-manifest.json"
 
-            # Verify safe completion manifest contains no secrets or raw machine paths
             manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            assert manifest_data["run_id"] == "run-art-001"
+            assert manifest_data["run_id"] == "run-art-e2e"
             assert manifest_data["status"] == "completed"
             assert manifest_data["requirement"] == "read_native"
             assert len(manifest_data["artifacts"]) == 1
             assert manifest_data["artifacts"][0]["role"] == "text_export"
             assert manifest_data["artifacts"][0]["checksum_sha256"] == expected_sha
 
-    def test_e2e_expected_failure_reaches_safe_dosh_classification(
+            # 5. Staging directory is cleaned up
+            staging_dir = runtime_dir / "Work" / "run-art-e2e"
+            assert not staging_dir.exists()
+
+    def test_e2e_real_execution_failure_reaches_pravaha_and_quarantine(
         self, workspace_dirs: tuple[Path, Path, Path]
     ) -> None:
-        """Test expected failure path: unsupported requirement fails with clean DoshError."""
+        """Test real execution failure flowing through Darshana -> Manthan -> Pravaha -> Quarantine."""
         input_dir, runtime_dir, output_dir = workspace_dirs
-        sample_file = input_dir / "sample.txt"
-        sample_file.write_text("content", encoding="utf-8")
+        sample_file = input_dir / "failing_input.txt"
+        sample_file.write_text("corrupted_content", encoding="utf-8")
 
         req = Request(
-            request_id="req-e2e-fail",
-            requirement="unsupported_quantum_translation",
+            request_id="req-fail-e2e",
+            requirement="read_native",
             inputs=(
                 InputRef(
                     input_id="inp-1",
                     source_path=sample_file,
-                    display_name="sample.txt",
+                    display_name="failing_input.txt",
                     size_bytes=sample_file.stat().st_size,
                 ),
             ),
+            output_root=output_dir,
         )
 
         darpana = Darpana(capacity=1000)
+        custom_caps = {
+            "identify": DarshanaCapability(),
+            "read_native": MockFailingCapability(),
+        }
 
         with Agni(
             runtime_root=runtime_dir,
             output_root=output_dir,
             input_root=input_dir,
+            capabilities=custom_caps,
             darpana=darpana,
         ) as agni:
             ctx = ExecutionContext(
-                run_id="run-e2e-fail",
+                run_id="run-fail-e2e",
                 request_id=req.request_id,
-                trace_id="tr-fail",
-                span_id="sp-fail",
+                trace_id="tr-fail-e2e",
+                span_id="sp-fail-e2e",
             )
-            # Reaches safe Dosh classification
+
+            # 1. Execution fails in Pravaha and preserves original classified DoshError
             with pytest.raises(DoshError) as exc_info:
                 agni.execute(req, context=ctx)
 
-            assert exc_info.value.code is FailureCode.UNSUPPORTED
-            assert "unsupported_quantum_translation" in exc_info.value.message
+            assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+            assert "Simulated capability runtime crash" in exc_info.value.message
+
+            # 2. Pravaha recorded factual quarantine entry in QuarantineStore
+            manifest_files = list(agni.quarantine_store.root.glob("*/manifest.json"))
+            assert len(manifest_files) == 1
+            q_data = json.loads(manifest_files[0].read_text(encoding="utf-8"))
+            assert q_data["failure_code"] == FailureCode.EXECUTION_FAILED.value
+            assert q_data["status"] == "terminal"
+            assert q_data["run_id"] == ctx.run_id
+
+            q_record = agni.quarantine_store.get_record(q_data["quarantine_id"])
+            assert q_record is not None
+            assert q_record.failure_code is FailureCode.EXECUTION_FAILED
+
+            # 3. Lifecycle telemetry exists for the same run_id with failed outcome
+            maruti_recs = tuple(r for r in darpana.maruti_records() if r.run_id == ctx.run_id)
+            assert any(r.phase_name == "capability_execution" and r.outcome == "failure" for r in maruti_recs)
 
     def test_e2e_security_root_overlap_failure_path(
         self, workspace_dirs: tuple[Path, Path, Path]

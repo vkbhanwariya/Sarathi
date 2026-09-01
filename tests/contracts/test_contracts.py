@@ -649,6 +649,18 @@ class TestResultContracts:
         with pytest.raises(TypeError):
             res.metadata["run"] = "test"  # type: ignore
 
+
+    def test_result_artifact_intents_validation(self) -> None:
+        intent = ArtifactIntent(name="report.txt", role="report", media_type="text/plain")
+        res = Result(data="test", artifact_intents=(intent,))
+        assert len(res.artifact_intents) == 1
+        assert res.artifact_intents[0] == intent
+
+        with pytest.raises(TypeError):
+            Result(data="test", artifact_intents="not_a_sequence")  # type: ignore
+        with pytest.raises(TypeError):
+            Result(data="test", artifact_intents=["not_an_intent"])  # type: ignore
+
     def test_result_next_requirement_validation(self) -> None:
         res_default = Result(data="test")
         assert res_default.next_requirement is None

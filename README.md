@@ -156,7 +156,4 @@ uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --prof
 
 # Non-interactive execution via Python module entry point
 uv run python -m sarathi --input "path/to/document.txt" --requirement "read_native" --output-root "Output"
-
-# Interactive presentation console via Mukha
-uv run python -m sarathi.mukha
 ```
