@@ -3,8 +3,9 @@
   "engine": "rapidocr",
   "backend": "openvino",
   "suite": "PP-OCRv5",
+  "description": "PaddleOCR PP-OCRv5 text detection and recognition suite with companion PP-OCR mobile text angle classifier",
   "license": "Apache-2.0",
-  "source": "PaddleOCR PP-OCRv5 via RapidOCR",
+  "source": "PaddleOCR via RapidOCR",
   "models": {
     "det": {
       "filename": "ch_PP-OCRv5_det_mobile.onnx",
@@ -24,8 +25,9 @@
     },
     "cls": {
       "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
-      "ocr_version": "PP-OCRv5",
+      "ocr_version": "PP-OCRv2.0",
       "task_type": "cls",
+      "role": "text_direction_classifier",
       "model_type": "mobile",
       "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
       "size_bytes": 585532

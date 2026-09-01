@@ -372,7 +372,7 @@ class TestOCRPhase1Instant:
             mock_rapidocr.assert_not_called()
 
         assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
-        assert "Required local OCR model asset is missing." in exc_info.value.message
+        assert "not a regular file" in exc_info.value.message or "is missing" in exc_info.value.message
         assert str(dir_data) not in exc_info.value.message
 
     @pytest.mark.parametrize("tampered_model", ["det", "rec", "cls"])
@@ -411,6 +411,127 @@ class TestOCRPhase1Instant:
         assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
         assert "Local OCR model asset has invalid checksum." in err.message
         assert str(tampered_data) not in err.message
+
+    @pytest.mark.parametrize("symlink_model", ["det", "rec", "cls"])
+    def test_symlinked_model_asset_rejected_safely(
+        self, symlink_model: str, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        sym_data = tmp_path / f"sym_data_{symlink_model}"
+        shutil.copytree(src_data, sym_data)
+
+        outside_model = tmp_path / f"outside_{symlink_model}.onnx"
+        manifest = json.loads((sym_data / "manifest.json").read_text(encoding="utf-8"))
+        filename = manifest["models"][symlink_model]["filename"]
+        target_file = sym_data / "models" / filename
+
+        outside_model.write_bytes(target_file.read_bytes())
+        target_file.unlink()
+        try:
+            target_file.symlink_to(outside_model)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlink creation not supported/permitted in this environment.")
+
+        engine = RapidOCREngine(data_root=sym_data)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id=f"req-sym-{symlink_model}",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            with pytest.raises(DoshError) as exc_info:
+                cap.execute(req, context)
+            mock_rapidocr.assert_not_called()
+
+        assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "not a regular file" in exc_info.value.message
+        assert str(sym_data) not in exc_info.value.message
+        assert str(outside_model) not in exc_info.value.message
+
+    def test_symlinked_models_directory_rejected_safely(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        sym_data = tmp_path / "sym_models_dir_data"
+        sym_data.mkdir()
+        shutil.copy(src_data / "manifest.json", sym_data / "manifest.json")
+
+        outside_models_dir = src_data / "models"
+        target_models_symlink = sym_data / "models"
+        try:
+            target_models_symlink.symlink_to(outside_models_dir, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlink creation not supported/permitted in this environment.")
+
+        engine = RapidOCREngine(data_root=sym_data)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-sym-dir",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            with pytest.raises(DoshError) as exc_info:
+                cap.execute(req, context)
+            mock_rapidocr.assert_not_called()
+
+        assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "invalid or a symlink" in exc_info.value.message
+        assert str(sym_data) not in exc_info.value.message
+
+    def test_symlinked_manifest_file_rejected_safely(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        sym_data = tmp_path / "sym_manifest_data"
+        shutil.copytree(src_data, sym_data)
+
+        manifest_file = sym_data / "manifest.json"
+        outside_manifest = tmp_path / "outside_manifest.json"
+        outside_manifest.write_bytes(manifest_file.read_bytes())
+        manifest_file.unlink()
+        try:
+            manifest_file.symlink_to(outside_manifest)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlink creation not supported/permitted in this environment.")
+
+        engine = RapidOCREngine(data_root=sym_data)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test.png"
+        _create_sample_image("TEXT", img_path)
+        req = Request(
+            request_id="req-sym-manifest",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            with pytest.raises(DoshError) as exc_info:
+                cap.execute(req, context)
+            mock_rapidocr.assert_not_called()
+
+        assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
+        assert "not a regular file" in exc_info.value.message or "invalid" in exc_info.value.message
+        assert str(sym_data) not in exc_info.value.message
 
     def test_rapidocr_constructor_called_with_all_three_explicit_paths(
         self, context: ExecutionContext, tmp_path: Path
@@ -634,6 +755,46 @@ class TestOCRPhase1Instant:
         ocr_capability._engine._engine = mock_rapidocr
 
         with pytest.raises(RuntimeError, match="OpenVINO internal pipeline failure"):
+            ocr_capability.execute(req, context)
+
+    def test_unexpected_defect_in_geometry_processing_propagates(
+        self,
+        ocr_capability: OCRCapability,
+        context: ExecutionContext,
+        tmp_path: Path,
+    ) -> None:
+        img_path = tmp_path / "test.png"
+        _create_sample_image("GEOM-FAULT", img_path)
+
+        req = Request(
+            request_id="req-geom-fault",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        class CustomDefectError(RuntimeError):
+            pass
+
+        class CorruptBoxSequence:
+            def __len__(self) -> int:
+                return 4
+
+            def __iter__(self) -> Any:
+                raise CustomDefectError("Unexpected hardware or memory fault in geometry buffer")
+
+        mock_output = MagicMock()
+        mock_output.txts = ("GEOM-FAULT",)
+        mock_output.boxes = (CorruptBoxSequence(),)
+        mock_output.scores = (0.95,)
+
+        mock_rapidocr = MagicMock()
+        mock_rapidocr.return_value = mock_output
+        ocr_capability._engine._engine = mock_rapidocr
+
+        with pytest.raises(CustomDefectError, match="Unexpected hardware or memory fault in geometry buffer"):
             ocr_capability.execute(req, context)
 
     def test_real_scanned_pdf_ocr_execution(

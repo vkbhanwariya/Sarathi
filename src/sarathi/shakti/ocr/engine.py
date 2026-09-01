@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import re
+import stat
 from typing import Any
 import unicodedata
 
@@ -87,10 +88,18 @@ class RapidOCREngine:
             manifest_file = self._data_root / "manifest.json"
             models_dir = self._data_root / "models"
 
-            if not manifest_file.is_file():
+            try:
+                manifest_stat = manifest_file.lstat()
+            except OSError as exc:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Required local OCR model manifest is missing.",
+                ) from exc
+
+            if stat.S_ISLNK(manifest_stat.st_mode) or not stat.S_ISREG(manifest_stat.st_mode):
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Required local OCR model manifest is invalid or not a regular file.",
                 )
 
             try:
@@ -105,6 +114,20 @@ class RapidOCREngine:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Local OCR model manifest has an invalid structure.",
+                )
+
+            try:
+                models_dir_stat = models_dir.lstat()
+            except OSError as exc:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Required local OCR model directory is missing.",
+                ) from exc
+
+            if stat.S_ISLNK(models_dir_stat.st_mode) or not stat.S_ISDIR(models_dir_stat.st_mode):
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Required local OCR model directory is invalid or a symlink.",
                 )
 
             models_meta = manifest_dict["models"]
@@ -133,10 +156,18 @@ class RapidOCREngine:
             # 2. Verify model assets on disk and validate SHA-256 checksums
             for key, (filename, expected_sha256) in entries.items():
                 model_path = models_dir / filename
-                if not model_path.is_file():
+                try:
+                    st = model_path.lstat()
+                except OSError as exc:
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
                         message="Required local OCR model asset is missing.",
+                    ) from exc
+
+                if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message="Required local OCR model asset is not a regular file.",
                     )
 
                 try:
