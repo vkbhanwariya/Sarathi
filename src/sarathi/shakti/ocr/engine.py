@@ -109,7 +109,9 @@ class RapidOCREngine:
 
             models_meta = manifest_dict["models"]
             verified_paths: dict[str, str] = {}
+            entries: dict[str, tuple[str, str]] = {}
 
+            # 1. Validate manifest structure for all required model keys
             for key in _REQUIRED_MODEL_KEYS:
                 if key not in models_meta or not isinstance(models_meta[key], dict):
                     raise DoshError(
@@ -126,7 +128,11 @@ class RapidOCREngine:
                         message="Local OCR model manifest contains invalid model entry.",
                     )
 
-                model_path = models_dir / str(filename)
+                entries[key] = (str(filename), expected_sha256)
+
+            # 2. Verify model assets on disk and validate SHA-256 checksums
+            for key, (filename, expected_sha256) in entries.items():
+                model_path = models_dir / filename
                 if not model_path.is_file():
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
@@ -244,7 +250,16 @@ class RapidOCREngine:
                                 min_y = min(float(pt[1]) for pt in box_val)
                                 max_x = max(float(pt[0]) for pt in box_val)
                                 max_y = max(float(pt[1]) for pt in box_val)
-                                bounding_box = (min_x, min_y, max_x, max_y)
+                                if any(math.isnan(v) or math.isinf(v) for v in (min_x, min_y, max_x, max_y)):
+                                    warnings.append(
+                                        WarningRecord(
+                                            code="OCR_INVALID_GEOMETRY",
+                                            message="Engine returned non-finite bounding box coordinates.",
+                                            stage=_STAGE_NAME,
+                                        )
+                                    )
+                                else:
+                                    bounding_box = (min_x, min_y, max_x, max_y)
                         except (TypeError, ValueError, IndexError):
                             warnings.append(
                                 WarningRecord(

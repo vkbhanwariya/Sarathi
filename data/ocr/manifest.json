@@ -2,6 +2,7 @@
   "version": "1.0.0",
   "engine": "rapidocr",
   "backend": "openvino",
+  "suite": "PP-OCRv5",
   "license": "Apache-2.0",
   "source": "PaddleOCR PP-OCRv5 via RapidOCR",
   "models": {
@@ -23,7 +24,7 @@
     },
     "cls": {
       "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
-      "ocr_version": "PP-OCRv4",
+      "ocr_version": "PP-OCRv5",
       "task_type": "cls",
       "model_type": "mobile",
       "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
