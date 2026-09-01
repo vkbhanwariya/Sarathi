@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import math
 from pathlib import Path
@@ -21,6 +22,21 @@ _STAGE_NAME = "ocr"
 _PLUGIN_ID = "shakti.ocr"
 _CAPABILITY_ID = "ocr"
 _DEFAULT_MODEL_DIR = Path("data") / "ocr" / "models"
+
+_EXPECTED_MODELS: dict[str, dict[str, str]] = {
+    "det": {
+        "filename": "ch_PP-OCRv5_det_mobile.onnx",
+        "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+    },
+    "rec": {
+        "filename": "ch_PP-OCRv5_rec_mobile.onnx",
+        "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+    },
+    "cls": {
+        "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+    },
+}
 
 
 def extract_images_from_bytes(data: bytes) -> list[Any]:
@@ -62,7 +78,7 @@ class RapidOCREngine:
         self._engine: Any = None
 
     def _get_engine(self) -> Any:
-        """Lazily initialize the underlying RapidOCR engine instance."""
+        """Lazily initialize the underlying RapidOCR engine instance after verifying assets."""
         if self._engine is None:
             try:
                 from rapidocr import RapidOCR
@@ -74,26 +90,46 @@ class RapidOCREngine:
                     message="OCR dependencies are not installed. Install with 'uv add --optional ocr'.",
                 ) from exc
 
-            det_path = self._model_root / "ch_PP-OCRv5_det_mobile.onnx"
-            rec_path = self._model_root / "ch_PP-OCRv5_rec_mobile.onnx"
-            cls_path = self._model_root / "ch_ppocr_mobile_v2.0_cls_mobile.onnx"
+            verified_paths: dict[str, str] = {}
+            for model_key, model_meta in _EXPECTED_MODELS.items():
+                model_filename = model_meta["filename"]
+                model_path = self._model_root / model_filename
+
+                if not model_path.is_file():
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Required local OCR model asset '{model_filename}' is missing.",
+                    )
+
+                try:
+                    actual_sha256 = hashlib.sha256(model_path.read_bytes()).hexdigest()
+                except OSError as exc:
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Failed to read local OCR model asset '{model_filename}'.",
+                    ) from exc
+
+                if actual_sha256 != model_meta["sha256"]:
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Local OCR model asset '{model_filename}' has invalid checksum.",
+                    )
+
+                verified_paths[model_key] = str(model_path)
 
             params: dict[str, Any] = {
                 "Det.engine_type": EngineType.OPENVINO,
                 "Det.ocr_version": OCRVersion.PPOCRV5,
                 "Det.model_type": ModelType.MOBILE,
+                "Det.model_path": verified_paths["det"],
                 "Rec.engine_type": EngineType.OPENVINO,
                 "Rec.ocr_version": OCRVersion.PPOCRV5,
                 "Rec.model_type": ModelType.MOBILE,
+                "Rec.model_path": verified_paths["rec"],
                 "Cls.engine_type": EngineType.OPENVINO,
+                "Cls.model_path": verified_paths["cls"],
                 "Global.log_level": "error",
             }
-            if det_path.is_file():
-                params["Det.model_path"] = str(det_path)
-            if rec_path.is_file():
-                params["Rec.model_path"] = str(rec_path)
-            if cls_path.is_file():
-                params["Cls.model_path"] = str(cls_path)
 
             self._engine = RapidOCR(params=params)
         return self._engine
@@ -151,15 +187,30 @@ class RapidOCREngine:
                             )
 
                     bounding_box: tuple[float, float, float, float] | None = None
-                    if box_val is not None and len(box_val) >= 4:
+                    if box_val is not None:
                         try:
-                            min_x = min(pt[0] for pt in box_val)
-                            min_y = min(pt[1] for pt in box_val)
-                            max_x = max(pt[0] for pt in box_val)
-                            max_y = max(pt[1] for pt in box_val)
-                            bounding_box = (float(min_x), float(min_y), float(max_x), float(max_y))
-                        except Exception:
-                            bounding_box = None
+                            if len(box_val) < 4:
+                                warnings.append(
+                                    WarningRecord(
+                                        code="OCR_INVALID_GEOMETRY",
+                                        message="Engine returned bounding box with fewer than 4 points.",
+                                        stage=_STAGE_NAME,
+                                    )
+                                )
+                            else:
+                                min_x = min(float(pt[0]) for pt in box_val)
+                                min_y = min(float(pt[1]) for pt in box_val)
+                                max_x = max(float(pt[0]) for pt in box_val)
+                                max_y = max(float(pt[1]) for pt in box_val)
+                                bounding_box = (min_x, min_y, max_x, max_y)
+                        except (TypeError, ValueError, IndexError):
+                            warnings.append(
+                                WarningRecord(
+                                    code="OCR_INVALID_GEOMETRY",
+                                    message="Engine returned malformed or non-numeric bounding box coordinates.",
+                                    stage=_STAGE_NAME,
+                                )
+                            )
 
                     spans.append(
                         TextSpan(
