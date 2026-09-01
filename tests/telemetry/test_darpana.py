@@ -636,8 +636,10 @@ class TestDarpanaGlobalWiring:
         assert "retried" in statuses
         assert "released" in statuses
 
-        # Verify safe attributes only
+        # Verify factual non-negative measured durations and safe attributes only
         for r in quar_obs:
+            assert r.duration_ns >= 0
+            assert r.outcome == "success"
             assert "capability_id" in r.attributes
             assert "attempt_count" in r.attributes
             assert "max_retries" in r.attributes
