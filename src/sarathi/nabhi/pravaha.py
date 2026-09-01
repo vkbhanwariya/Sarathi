@@ -10,10 +10,11 @@ device allocation, UI rendering, telemetry persistence, caching, or security pol
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
 import re
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
@@ -29,6 +30,9 @@ from sarathi.nabhi.quarantine import (
 from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
 from sarathi.yantra import Yantra
 
+if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
+
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -42,8 +46,9 @@ class Pravaha:
         capabilities: Mapping[str, Capability],
         quarantine_store: QuarantineStore | None = None,
         retry_policy: RetryPolicy | None = None,
+        darpana: Darpana | None = None,
     ) -> None:
-        """Initialize Pravaha with resolver, execution manager, capabilities, and optional quarantine store."""
+        """Initialize Pravaha with resolver, execution manager, capabilities, optional quarantine, and telemetry."""
         if not isinstance(manthan, Manthan):
             raise TypeError(f"manthan must be a Manthan instance, got {type(manthan).__name__}.")
         if not isinstance(yantra, Yantra):
@@ -56,6 +61,11 @@ class Pravaha:
             )
         if retry_policy is not None and not isinstance(retry_policy, RetryPolicy):
             raise TypeError(f"retry_policy must be a RetryPolicy instance or None, got {type(retry_policy).__name__}.")
+        if darpana is not None:
+            from sarathi.darpana import Darpana as DarpanaService
+
+            if not isinstance(darpana, DarpanaService):
+                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
 
         self._manthan: Manthan = manthan
         self._registry: Kosh = manthan.registry
@@ -63,6 +73,7 @@ class Pravaha:
         self._capabilities: Mapping[str, Capability] = dict(capabilities)
         self._quarantine_store: QuarantineStore | None = quarantine_store
         self._retry_policy: RetryPolicy = retry_policy if retry_policy is not None else RetryPolicy(max_retries=0)
+        self._darpana: Darpana | None = darpana
 
         if self._retry_policy.max_retries > 0 and self._quarantine_store is None:
             raise DoshError(
@@ -80,6 +91,11 @@ class Pravaha:
         """Return the active RetryPolicy."""
         return self._retry_policy
 
+    @property
+    def darpana(self) -> Darpana | None:
+        """Return the injected Darpana telemetry service, if configured."""
+        return self._darpana
+
     def _compute_input_hash(self, request: Request, capability: Capability, context: ExecutionContext) -> str:
         """Compute a deterministic, privacy-safe hash identifying the canonical execution attempt.
 
@@ -95,6 +111,42 @@ class Pravaha:
             f"{context.profile.value}:{input_material}"
         )
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _record_pramana_if_available(
+        self,
+        capability: Capability,
+        result: Result,
+        context: ExecutionContext,
+    ) -> None:
+        """Record quality observation to Darpana Pramana telemetry if evidence-backed facts exist."""
+        if self._darpana is None:
+            return
+
+        from sarathi.darpana import AccuracyValue, PramanaRecord
+
+        accuracy_val = (
+            result.metadata.get("accuracy")
+            if isinstance(result.metadata.get("accuracy"), AccuracyValue)
+            else None
+        )
+
+        if result.confidence is not None or accuracy_val is not None:
+            pramana_rec = PramanaRecord(
+                run_id=context.run_id,
+                request_id=context.request_id,
+                trace_id=context.trace_id,
+                span_id=context.span_id,
+                capability_id=capability.declaration.capability_id,
+                stage=capability.declaration.capability_id,
+                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                confidence=result.confidence,
+                accuracy=accuracy_val,
+                attributes={
+                    "plugin_id": capability.declaration.plugin_id,
+                    "profile": context.profile.value,
+                },
+            )
+            self._darpana.record_pramana(pramana_rec)
 
     def _execute_retry_attempt(
         self,
@@ -163,64 +215,62 @@ class Pravaha:
             metadata=context.metadata,
         )
 
-        try:
-            result = self._yantra.execute(
-                capability=cap,
-                request=request,
+        scope = (
+            self._darpana.time_scope(
                 context=retry_ctx,
-                prior_result=prior_result,
+                phase_name="retry_attempt",
+                component="nabhi.pravaha",
+                attributes={
+                    "capability_id": cap.declaration.capability_id,
+                    "attempt": new_attempt,
+                    "max_retries": record.max_retries,
+                },
             )
+            if self._darpana is not None
+            else nullcontext()
+        )
+
+        try:
+            with scope:
+                result = self._yantra.execute(
+                    capability=cap,
+                    request=request,
+                    context=retry_ctx,
+                    prior_result=prior_result,
+                )
+
             # Retry succeeded: release quarantined status
             released_rec = self._quarantine_store.update_status(
                 record.quarantine_id,
                 QuarantineStatus.RELEASED,
                 attempt_count=new_attempt,
             )
+            self._record_pramana_if_available(cap, result, retry_ctx)
             return result, released_rec
         except DoshError as dosh_err:
             # Check if this failure remains retryable and retries are not exhausted
-            if self._retry_policy.is_retryable(dosh_err.code, new_attempt):
-                # Update failure code and keep in RETRIED state with new attempt count
-                ts_now = datetime.now(timezone.utc).isoformat()
-                interim_rec = QuarantineRecord(
-                    quarantine_id=retried_rec.quarantine_id,
-                    input_hash=retried_rec.input_hash,
-                    run_id=retried_rec.run_id,
-                    request_id=retried_rec.request_id,
-                    trace_id=retried_rec.trace_id,
-                    capability_id=retried_rec.capability_id,
-                    plugin_id=retried_rec.plugin_id,
-                    failure_code=dosh_err.code,
-                    profile=retried_rec.profile,
-                    attempt_count=new_attempt,
-                    max_retries=retried_rec.max_retries,
-                    status=QuarantineStatus.RETRIED,
-                    created_at_utc=retried_rec.created_at_utc,
-                    updated_at_utc=ts_now,
-                    provenance=retried_rec.provenance,
-                )
-                self._quarantine_store.quarantine(interim_rec)
-            else:
-                # Retries exhausted or non-retryable error: transition to TERMINAL
-                ts_now = datetime.now(timezone.utc).isoformat()
-                term_rec = QuarantineRecord(
-                    quarantine_id=retried_rec.quarantine_id,
-                    input_hash=retried_rec.input_hash,
-                    run_id=retried_rec.run_id,
-                    request_id=retried_rec.request_id,
-                    trace_id=retried_rec.trace_id,
-                    capability_id=retried_rec.capability_id,
-                    plugin_id=retried_rec.plugin_id,
-                    failure_code=dosh_err.code,
-                    profile=retried_rec.profile,
-                    attempt_count=new_attempt,
-                    max_retries=retried_rec.max_retries,
-                    status=QuarantineStatus.TERMINAL,
-                    created_at_utc=retried_rec.created_at_utc,
-                    updated_at_utc=ts_now,
-                    provenance=retried_rec.provenance,
-                )
-                self._quarantine_store.quarantine(term_rec)
+            is_still_retryable = self._retry_policy.is_retryable(dosh_err.code, new_attempt)
+            next_status = QuarantineStatus.RETRIED if is_still_retryable else QuarantineStatus.TERMINAL
+            ts_now = datetime.now(timezone.utc).isoformat()
+
+            updated_rec = QuarantineRecord(
+                quarantine_id=retried_rec.quarantine_id,
+                input_hash=retried_rec.input_hash,
+                run_id=retried_rec.run_id,
+                request_id=retried_rec.request_id,
+                trace_id=retried_rec.trace_id,
+                capability_id=retried_rec.capability_id,
+                plugin_id=retried_rec.plugin_id,
+                failure_code=dosh_err.code,
+                profile=retried_rec.profile,
+                attempt_count=new_attempt,
+                max_retries=retried_rec.max_retries,
+                status=next_status,
+                created_at_utc=retried_rec.created_at_utc,
+                updated_at_utc=ts_now,
+                provenance=retried_rec.provenance,
+            )
+            self._quarantine_store.quarantine(updated_rec)
             raise dosh_err
 
     def execute(
@@ -323,12 +373,29 @@ class Pravaha:
                         )
 
                 try:
-                    prior_result = self._yantra.execute(
-                        capability=cap,
-                        request=current_request,
-                        context=current_ctx,
-                        prior_result=prior_result,
+                    scope = (
+                        self._darpana.time_scope(
+                            context=current_ctx,
+                            phase_name="pipeline_stage",
+                            component="nabhi.pravaha",
+                            attributes={
+                                "capability_id": cap.declaration.capability_id,
+                                "plugin_id": cap.declaration.plugin_id,
+                            },
+                        )
+                        if self._darpana is not None
+                        else nullcontext()
                     )
+                    with scope:
+                        prior_result = self._yantra.execute(
+                            capability=cap,
+                            request=current_request,
+                            context=current_ctx,
+                            prior_result=prior_result,
+                        )
+
+                    self._record_pramana_if_available(cap, prior_result, current_ctx)
+
                 except DoshError as dosh_err:
                     current_attempt = 0
                     is_retry_allowed = self._retry_policy.is_retryable(dosh_err.code, current_attempt)
@@ -475,70 +542,71 @@ class Pravaha:
                 message=f"Quarantine item '{action.item_id}' not found.",
             )
 
-        if action.action == LifecycleActionType.RELEASE:
-            if existing.status == QuarantineStatus.RELEASED:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Quarantine item '{action.item_id}' is already released.",
-                )
-            if existing.status == QuarantineStatus.TERMINAL:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Quarantine item '{action.item_id}' is in terminal state and cannot be released.",
-                )
-            return self._quarantine_store.update_status(action.item_id, QuarantineStatus.RELEASED)
+        match action.action:
+            case LifecycleActionType.RELEASE:
+                if existing.status == QuarantineStatus.RELEASED:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantine item '{action.item_id}' is already released.",
+                    )
+                if existing.status == QuarantineStatus.TERMINAL:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantine item '{action.item_id}' is in terminal state and cannot be released.",
+                    )
+                return self._quarantine_store.update_status(action.item_id, QuarantineStatus.RELEASED)
 
-        elif action.action == LifecycleActionType.TERMINATE:
-            if existing.status == QuarantineStatus.TERMINAL:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Quarantine item '{action.item_id}' is already terminal.",
-                )
-            if existing.status == QuarantineStatus.RELEASED:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Quarantine item '{action.item_id}' is in released state and cannot be terminated.",
-                )
-            return self._quarantine_store.update_status(action.item_id, QuarantineStatus.TERMINAL)
+            case LifecycleActionType.TERMINATE:
+                if existing.status == QuarantineStatus.TERMINAL:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantine item '{action.item_id}' is already terminal.",
+                    )
+                if existing.status == QuarantineStatus.RELEASED:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantine item '{action.item_id}' is in released state and cannot be terminated.",
+                    )
+                return self._quarantine_store.update_status(action.item_id, QuarantineStatus.TERMINAL)
 
-        elif action.action == LifecycleActionType.RETRY:
-            if existing.status == QuarantineStatus.TERMINAL:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Quarantine item '{action.item_id}' is in terminal state and cannot be retried.",
-                )
-            if existing.status == QuarantineStatus.RELEASED:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Quarantine item '{action.item_id}' is already released.",
-                )
-            if existing.attempt_count >= existing.max_retries:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Quarantine item '{action.item_id}' has exhausted maximum retries ({existing.max_retries}).",
-                )
+            case LifecycleActionType.RETRY:
+                if existing.status == QuarantineStatus.TERMINAL:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantine item '{action.item_id}' is in terminal state and cannot be retried.",
+                    )
+                if existing.status == QuarantineStatus.RELEASED:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantine item '{action.item_id}' is already released.",
+                    )
+                if existing.attempt_count >= existing.max_retries:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Quarantine item '{action.item_id}' has exhausted maximum retries ({existing.max_retries}).",
+                    )
 
-            effective_req = request if request is not None else action.request
-            effective_ctx = context if context is not None else action.context
+                effective_req = request or action.request
+                effective_ctx = context or action.context
 
-            if effective_req is None or effective_ctx is None:
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message="Request and ExecutionContext are required to execute a retry through Yantra.",
+                if effective_req is None or effective_ctx is None:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Request and ExecutionContext are required to execute a retry through Yantra.",
+                    )
+
+                cap_id = existing.capability_id
+                if cap_id not in self._capabilities:
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Executable capability '{cap_id}' is not available in Pravaha capabilities.",
+                    )
+                cap = self._capabilities[cap_id]
+
+                _, updated_rec = self._execute_retry_attempt(
+                    cap=cap,
+                    request=effective_req,
+                    context=effective_ctx,
+                    record=existing,
                 )
-
-            cap_id = existing.capability_id
-            if cap_id not in self._capabilities:
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Executable capability '{cap_id}' is not available in Pravaha capabilities.",
-                )
-            cap = self._capabilities[cap_id]
-
-            _, updated_rec = self._execute_retry_attempt(
-                cap=cap,
-                request=effective_req,
-                context=effective_ctx,
-                record=existing,
-            )
-            return updated_rec
+                return updated_rec

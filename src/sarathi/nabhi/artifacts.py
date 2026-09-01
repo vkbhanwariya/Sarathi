@@ -25,13 +25,15 @@ import os
 from pathlib import Path
 import re
 import shutil
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 import uuid
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import ArtifactIntent, ArtifactRef, InputRef, ProvenanceRecord, WarningRecord
+from sarathi.sankalpa import ArtifactIntent, ArtifactRef, ExecutionContext, InputRef, ProvenanceRecord, WarningRecord
 
 if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
     from sarathi.kavacha import Kavacha
 
 _REQUIREMENT_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_-]+$")
@@ -160,7 +162,17 @@ class RunWorkspace:
         output_dir: Path,
         preserve_partial: bool = False,
         start_time_utc: datetime | None = None,
+        darpana: Darpana | None = None,
+        context: ExecutionContext | None = None,
     ) -> None:
+        if darpana is not None:
+            from sarathi.darpana import Darpana as DarpanaService
+
+            if not isinstance(darpana, DarpanaService):
+                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+        if context is not None and not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
+
         self._run_id: str = run_id
         self._requirement: str = requirement
         self._staging_dir: Path = staging_dir
@@ -169,6 +181,8 @@ class RunWorkspace:
         self._start_time_utc: datetime = (
             start_time_utc if start_time_utc is not None else datetime.now(timezone.utc)
         )
+        self._darpana: Darpana | None = darpana
+        self._context: ExecutionContext | None = context
 
         self._committed_artifacts: list[ArtifactRef] = []
         self._committed_relative_paths: set[str] = set()
@@ -722,6 +736,37 @@ class RunWorkspace:
         metadata: Mapping[str, Any] | None = None,
         provenance: Sequence[ProvenanceRecord] | None = None,
         warnings: Sequence[WarningRecord] | None = None,
+        context: ExecutionContext | None = None,
+    ) -> Path:
+        effective_ctx = context or self._context
+        scope = (
+            self._darpana.time_scope(
+                context=effective_ctx,
+                phase_name="artifact_finalization",
+                component="nabhi.artifacts",
+                attributes={
+                    "committed_count": len(self._committed_artifacts),
+                    "success": success,
+                },
+            )
+            if self._darpana is not None and effective_ctx is not None
+            else nullcontext()
+        )
+        with scope:
+            return self._finalize_internal(
+                success=success,
+                metadata=metadata,
+                provenance=provenance,
+                warnings=warnings,
+            )
+
+    def _finalize_internal(
+        self,
+        *,
+        success: bool = True,
+        metadata: Mapping[str, Any] | None = None,
+        provenance: Sequence[ProvenanceRecord] | None = None,
+        warnings: Sequence[WarningRecord] | None = None,
     ) -> Path:
         """Finalize the run workspace by writing run-manifest.json and cleaning staging data.
 
@@ -964,6 +1009,7 @@ class ArtifactBoundary:
         output_root: Path | str,
         *,
         kavacha: Kavacha | None = None,
+        darpana: Darpana | None = None,
     ) -> None:
         """Construct an ArtifactBoundary with explicit runtime and output roots.
 
@@ -995,9 +1041,16 @@ class ArtifactBoundary:
                 message="Failed to create root storage directories.",
             ) from err
 
+        if darpana is not None:
+            from sarathi.darpana import Darpana as DarpanaService
+
+            if not isinstance(darpana, DarpanaService):
+                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+
         self._runtime_root: Path = validated_runtime
         self._output_root: Path = validated_output
         self._kavacha: Kavacha | None = kavacha
+        self._darpana: Darpana | None = darpana
 
     @property
     def runtime_root(self) -> Path:
@@ -1009,6 +1062,11 @@ class ArtifactBoundary:
         """Return the active output root directory."""
         return self._output_root
 
+    @property
+    def darpana(self) -> Darpana | None:
+        """Return the injected Darpana telemetry service, if present."""
+        return self._darpana
+
     def begin_run(
         self,
         run_id: str,
@@ -1018,6 +1076,7 @@ class ArtifactBoundary:
         preserve_partial: bool = False,
         timestamp: datetime | None = None,
         input_sources: Sequence[Path | str | InputRef] = (),
+        context: ExecutionContext | None = None,
     ) -> RunWorkspace:
         """Begin a run workspace for safe staging and atomic artifact commits.
 
@@ -1129,4 +1188,6 @@ class ArtifactBoundary:
             output_dir=run_output_dir,
             preserve_partial=preserve_partial,
             start_time_utc=ts,
+            darpana=self._darpana,
+            context=context,
         )

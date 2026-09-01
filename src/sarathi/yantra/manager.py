@@ -1,10 +1,13 @@
-"""Yantra — Resource & Execution Manager for Sarathi V2.
+"""Yantra - Resource & Execution Manager for Sarathi V2.
 
 Exposes:
 - Yantra: Single public interface for compatible hardware allocation, release, and approved capability execution.
 """
 
 from __future__ import annotations
+
+from contextlib import nullcontext
+from typing import TYPE_CHECKING
 
 from sarathi.sankalpa import (
     Capability,
@@ -16,37 +19,88 @@ from sarathi.sankalpa import (
 from sarathi.yantra.devices import DeviceInventory
 from sarathi.yantra.resources import Allocation, _ResourceAllocator
 
+if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
+
 
 class Yantra:
     """Resource and execution manager for hardware allocation and capability execution."""
 
-    def __init__(self, inventory: DeviceInventory) -> None:
+    def __init__(self, inventory: DeviceInventory, darpana: Darpana | None = None) -> None:
         if not isinstance(inventory, DeviceInventory):
             raise TypeError(f"inventory must be a DeviceInventory instance, got {type(inventory).__name__}.")
+        if darpana is not None:
+            from sarathi.darpana import Darpana as DarpanaService
+
+            if not isinstance(darpana, DarpanaService):
+                raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+
         self._allocator = _ResourceAllocator(inventory)
+        self._darpana: Darpana | None = darpana
 
     @property
     def inventory(self) -> DeviceInventory:
         """Return the active immutable device inventory."""
         return self._allocator.inventory
 
-    def allocate(self, requirement: DeviceRequirement) -> Allocation:
+    @property
+    def darpana(self) -> Darpana | None:
+        """Return the injected Darpana telemetry service, if present."""
+        return self._darpana
+
+    def allocate(
+        self,
+        requirement: DeviceRequirement,
+        context: ExecutionContext | None = None,
+    ) -> Allocation:
         """Allocate an execution device slot for a capability requirement.
 
         Raises:
             DoshError(FailureCode.RESOURCE_UNAVAILABLE): If capacity is exhausted.
             TypeError: If requirement is not a DeviceRequirement.
         """
-        return self._allocator.allocate(requirement)
+        scope = (
+            self._darpana.time_scope(
+                context=context,
+                phase_name="allocation",
+                component="yantra.allocator",
+                attributes={
+                    "preferred_devices": tuple(d.value for d in requirement.preferred_devices),
+                    "priority": requirement.priority,
+                },
+            )
+            if self._darpana is not None and context is not None
+            else nullcontext()
+        )
+        with scope:
+            return self._allocator.allocate(requirement)
 
-    def release(self, allocation: Allocation) -> None:
+    def release(
+        self,
+        allocation: Allocation,
+        context: ExecutionContext | None = None,
+    ) -> None:
         """Release an allocated device slot back to the manager.
 
         Raises:
             DoshError(FailureCode.RESOURCE_UNAVAILABLE): If allocation is unknown/foreign/tampered/double-released.
             TypeError: If allocation is not an Allocation instance.
         """
-        self._allocator.release(allocation)
+        scope = (
+            self._darpana.time_scope(
+                context=context,
+                phase_name="release",
+                component="yantra.allocator",
+                attributes={
+                    "device_id": allocation.device_id,
+                    "device_type": allocation.device_type.value,
+                },
+            )
+            if self._darpana is not None and context is not None
+            else nullcontext()
+        )
+        with scope:
+            self._allocator.release(allocation)
 
     def execute(
         self,
@@ -68,7 +122,7 @@ class Yantra:
 
         Raises:
             TypeError: If arguments are of invalid type or capability returns non-Result.
-            DoshError: If hardware allocation fails.
+            DoshError: If hardware allocation fails or capability fails.
         """
         if not isinstance(capability, Capability):
             raise TypeError(f"capability must be a Capability instance, got {type(capability).__name__}.")
@@ -79,9 +133,25 @@ class Yantra:
         if prior_result is not None and not isinstance(prior_result, Result):
             raise TypeError(f"prior_result must be a Result instance or None, got {type(prior_result).__name__}.")
 
-        allocation = self.allocate(capability.declaration.device_requirement)
+        allocation = self.allocate(capability.declaration.device_requirement, context=context)
         try:
-            result = capability.execute(request=request, context=context, prior_result=prior_result)
+            scope = (
+                self._darpana.time_scope(
+                    context=context,
+                    phase_name="capability_execution",
+                    component=capability.declaration.plugin_id,
+                    attributes={
+                        "capability_id": capability.declaration.capability_id,
+                        "device_id": allocation.device_id,
+                        "device_type": allocation.device_type.value,
+                    },
+                )
+                if self._darpana is not None
+                else nullcontext()
+            )
+            with scope:
+                result = capability.execute(request=request, context=context, prior_result=prior_result)
+
             if not isinstance(result, Result):
                 raise TypeError(
                     f"Capability '{capability.declaration.capability_id}' execute() must return a Result instance, "
@@ -89,4 +159,4 @@ class Yantra:
                 )
             return result
         finally:
-            self.release(allocation)
+            self.release(allocation, context=context)
