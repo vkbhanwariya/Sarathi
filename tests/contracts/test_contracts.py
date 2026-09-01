@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from sarathi.sankalpa import (
+    ArtifactPayload,
     ArtifactIntent,
     ArtifactRef,
     CanonicalDocument,
@@ -650,16 +651,33 @@ class TestResultContracts:
             res.metadata["run"] = "test"  # type: ignore
 
 
-    def test_result_artifact_intents_validation(self) -> None:
+    def test_artifact_payload_contract(self) -> None:
         intent = ArtifactIntent(name="report.txt", role="report", media_type="text/plain")
-        res = Result(data="test", artifact_intents=(intent,))
-        assert len(res.artifact_intents) == 1
-        assert res.artifact_intents[0] == intent
+        payload = ArtifactPayload(intent=intent, content=b"report content bytes")
+        assert payload.intent == intent
+        assert payload.content == b"report content bytes"
+
+        # Bytearray normalized to immutable bytes
+        payload_ba = ArtifactPayload(intent=intent, content=bytearray(b"bytearray"))
+        assert isinstance(payload_ba.content, bytes)
+        assert payload_ba.content == b"bytearray"
 
         with pytest.raises(TypeError):
-            Result(data="test", artifact_intents="not_a_sequence")  # type: ignore
+            ArtifactPayload(intent="not_an_intent", content=b"data")  # type: ignore
         with pytest.raises(TypeError):
-            Result(data="test", artifact_intents=["not_an_intent"])  # type: ignore
+            ArtifactPayload(intent=intent, content="not_bytes")  # type: ignore
+
+    def test_result_artifact_payloads_validation(self) -> None:
+        intent = ArtifactIntent(name="report.txt", role="report", media_type="text/plain")
+        payload = ArtifactPayload(intent=intent, content=b"payload bytes")
+        res = Result(data="test", artifact_payloads=(payload,))
+        assert len(res.artifact_payloads) == 1
+        assert res.artifact_payloads[0] == payload
+
+        with pytest.raises(TypeError):
+            Result(data="test", artifact_payloads="not_a_sequence")  # type: ignore
+        with pytest.raises(TypeError):
+            Result(data="test", artifact_payloads=["not_a_payload"])  # type: ignore
 
     def test_result_next_requirement_validation(self) -> None:
         res_default = Result(data="test")
@@ -716,6 +734,7 @@ class TestDomainAgnosticContracts:
     def test_canonical_exports_complete_and_clean(self) -> None:
         expected_exports = {
             "ArtifactIntent",
+            "ArtifactPayload",
             "ArtifactRef",
             "CanonicalDocument",
             "Capability",

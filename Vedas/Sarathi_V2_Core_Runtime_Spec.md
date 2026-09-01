@@ -265,6 +265,9 @@ Canonical rules:
 - `<requirement>` is a validated safe stable requirement/capability identifier
   (lowercase letters, digits, `_` and `-` only; matching `^[a-z0-9_-]+$`), not
   raw user-entered text or paths; the run suffix prevents normal cross-run collisions.
+- Capabilities produce data + typed `ArtifactPayload`s (combining `ArtifactIntent` with exact serialized bytes).
+- Nabhi alone manages staging, collision handling, and atomic commit of payload bytes.
+- Canonical final `Result.artifacts` contains confirmed `ArtifactRef`s only; `artifact_payloads` is returned empty.
 - `run-manifest.json` records only confirmed artifacts and safe provenance. It
   never invents confidence/quality values or exposes raw sensitive source paths.
 - `Runtime/Quarantine`, `Runtime/Telemetry`, and `Runtime/Cache` retain their

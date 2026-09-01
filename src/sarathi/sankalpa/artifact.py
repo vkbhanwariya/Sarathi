@@ -3,6 +3,7 @@
 Defines:
 - InputRef: typed reference to an input source with measured facts.
 - ArtifactIntent: capability intent to produce an artifact.
+- ArtifactPayload: typed capability payload combining ArtifactIntent and serialized bytes.
 - ArtifactRef: confirmed reference to an existing committed artifact.
 
 Contains contracts only: performs absolutely no filesystem I/O, path creation,
@@ -111,6 +112,21 @@ class ArtifactIntent:
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         else:
             raise TypeError(f"metadata must be a Mapping, got {type(self.metadata)}.")
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactPayload:
+    """Declared typed artifact intent and serialized byte content from a capability."""
+
+    intent: ArtifactIntent
+    content: bytes
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.intent, ArtifactIntent):
+            raise TypeError(f"intent must be an ArtifactIntent instance, got {type(self.intent).__name__}.")
+        if isinstance(self.content, bool) or not isinstance(self.content, (bytes, bytearray)):
+            raise TypeError(f"content must be bytes or bytearray, got {type(self.content).__name__}.")
+        object.__setattr__(self, "content", bytes(self.content))
 
 
 @dataclass(frozen=True, slots=True)

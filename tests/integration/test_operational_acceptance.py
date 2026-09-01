@@ -29,21 +29,18 @@ from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.nabhi import Kosh
 from sarathi.sankalpa import (
     ArtifactIntent,
+    ArtifactPayload,
     ArtifactRef,
     Capability,
-    CapabilityDeclaration,
-    DeviceRequirement,
-    DeviceType,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
-    PluginInfo,
     Request,
     Result,
-    SecurityDeclaration,
 )
 from sarathi.shakti.darshana import DarshanaCapability
 from sarathi.shakti.native_extraction import NativeExtractionCapability
+from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION as NATIVE_DECLARATION
 from sarathi.sutra import Settings
 
 
@@ -59,11 +56,8 @@ def workspace_dirs(tmp_path: Path) -> tuple[Path, Path, Path]:
     return input_dir, runtime_dir, output_dir
 
 
-from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION as NATIVE_DECLARATION
-
-
 class MockArtifactProducerCapability:
-    """Mock capability that declares an ArtifactIntent to test Agni artifact commitment."""
+    """Mock capability that returns a typed ArtifactPayload to test Agni artifact commitment."""
 
     def __init__(self) -> None:
         self.declaration = NATIVE_DECLARATION
@@ -82,8 +76,12 @@ class MockArtifactProducerCapability:
         payload_bytes = b"E2E Real Agni Committed Artifact Payload Content."
         return Result(
             data="Native Extraction Success Data",
-            artifact_intents=(intent,),
-            metadata={"content": payload_bytes},
+            artifact_payloads=(
+                ArtifactPayload(
+                    intent=intent,
+                    content=payload_bytes,
+                ),
+            ),
         )
 
 
@@ -227,9 +225,9 @@ class TestOperationalAcceptanceE2E:
             )
             result = agni.execute(req, context=ctx)
 
-            # 2. Receive confirmed ArtifactRef in Result.artifacts
+            # 2. Receive confirmed ArtifactRef in Result.artifacts, with artifact_payloads empty
             assert isinstance(result, Result)
-            assert len(result.artifact_intents) == 0
+            assert len(result.artifact_payloads) == 0
             assert len(result.artifacts) == 1
             art_ref = result.artifacts[0]
             assert isinstance(art_ref, ArtifactRef)
@@ -259,6 +257,9 @@ class TestOperationalAcceptanceE2E:
             # 5. Staging directory is cleaned up
             staging_dir = runtime_dir / "Work" / "run-art-e2e"
             assert not staging_dir.exists()
+
+            # 6. Source input file remains unmodified
+            assert sample_file.read_text(encoding="utf-8") == "dummy_content"
 
     def test_e2e_real_execution_failure_reaches_pravaha_and_quarantine(
         self, workspace_dirs: tuple[Path, Path, Path]
@@ -321,9 +322,10 @@ class TestOperationalAcceptanceE2E:
             assert q_record is not None
             assert q_record.failure_code is FailureCode.EXECUTION_FAILED
 
-            # 3. Lifecycle telemetry exists for the same run_id with failed outcome
+            # 3. Lifecycle telemetry exists for the same run_id (both execution failure and quarantine transition)
             maruti_recs = tuple(r for r in darpana.maruti_records() if r.run_id == ctx.run_id)
             assert any(r.phase_name == "capability_execution" and r.outcome == "failure" for r in maruti_recs)
+            assert any(r.phase_name == "quarantine_lifecycle" and r.run_id == ctx.run_id for r in maruti_recs)
 
     def test_e2e_security_root_overlap_failure_path(
         self, workspace_dirs: tuple[Path, Path, Path]

@@ -23,7 +23,7 @@ import re
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from sarathi.sankalpa.artifact import ArtifactIntent, ArtifactRef
+from sarathi.sankalpa.artifact import ArtifactPayload, ArtifactRef
 
 _REQUIREMENT_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 
@@ -114,7 +114,7 @@ class Result:
     """Canonical result contract returned across capability boundaries."""
 
     data: Any = None
-    artifact_intents: tuple[ArtifactIntent, ...] = ()
+    artifact_payloads: tuple[ArtifactPayload, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
     confidence: ConfidenceValue | None = None
     warnings: tuple[WarningRecord, ...] = ()
@@ -123,13 +123,13 @@ class Result:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if isinstance(self.artifact_intents, (list, tuple)):
-            for i, intent in enumerate(self.artifact_intents):
-                if not isinstance(intent, ArtifactIntent):
-                    raise TypeError(f"artifact_intents[{i}] must be an ArtifactIntent, got {type(intent)}.")
-            object.__setattr__(self, "artifact_intents", tuple(self.artifact_intents))
+        if isinstance(self.artifact_payloads, (list, tuple)):
+            for i, payload in enumerate(self.artifact_payloads):
+                if not isinstance(payload, ArtifactPayload):
+                    raise TypeError(f"artifact_payloads[{i}] must be an ArtifactPayload, got {type(payload)}.")
+            object.__setattr__(self, "artifact_payloads", tuple(self.artifact_payloads))
         else:
-            raise TypeError(f"artifact_intents must be a sequence of ArtifactIntent, got {type(self.artifact_intents)}.")
+            raise TypeError(f"artifact_payloads must be a sequence of ArtifactPayload, got {type(self.artifact_payloads)}.")
 
         if isinstance(self.artifacts, (list, tuple)):
             for i, art in enumerate(self.artifacts):

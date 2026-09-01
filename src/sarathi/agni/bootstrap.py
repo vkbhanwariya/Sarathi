@@ -153,22 +153,14 @@ class Agni:
                 "ocr": OCRCapability(),
             }
 
-        # 7. Validate Inventory
+        # 7. Validate Inventory - use factual default inventory
         active_inventory: DeviceInventory
         if inventory is not None:
             if not isinstance(inventory, DeviceInventory):
                 raise TypeError(f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}.")
             active_inventory = inventory
         else:
-            active_inventory = DeviceInventory(
-                devices=(
-                    DeviceInfo(
-                        device_id="cpu-0",
-                        device_type=DeviceType.CPU,
-                        capacity=4,
-                    ),
-                )
-            )
+            active_inventory = Yantra.default_inventory()
 
         # 8. Validate Retry Policy
         active_retry_policy: RetryPolicy = RetryPolicy(
@@ -329,13 +321,13 @@ class Agni:
         Performs:
         1. Input source vs active/effective destination root overlap verification via Kavacha.
         2. Unique run/trace execution identity generation when no explicit context is provided.
-        3. RunWorkspace opening via Nabhi ArtifactBoundary for this run_id / requirement.
-        4. Pre-Manthan Darshana identification with Darpana telemetry timing.
-        5. Manthan capability plan resolution with Darpana telemetry timing.
+        3. Pre-Manthan Darshana identification with Darpana telemetry timing.
+        4. Manthan capability plan resolution with Darpana telemetry timing.
+        5. RunWorkspace opening via Nabhi ArtifactBoundary for this validated run.
         6. Pravaha dynamic pipeline execution across Yantra and configured capabilities.
-        7. Artifact atomic commit into Output/<requirement>/Run-... via RunWorkspace.
+        7. Artifact atomic commit of exact payload bytes into Output/<requirement>/Run-... via RunWorkspace.
         8. Run manifest (run-manifest.json) finalization written last.
-        9. Returns canonical final Result with confirmed ArtifactRefs.
+        9. Returns canonical final Result with confirmed ArtifactRefs from the workspace.
 
         Args:
             request: Canonical processing request.
@@ -370,7 +362,35 @@ class Agni:
             profile=request.profile,
         )
 
-        # 3. Open RunWorkspace on the canonical ArtifactBoundary for this run
+        # 3. Pre-Manthan Darshana Identification BEFORE workspace creation (Timed in Darpana)
+        id_scope = (
+            self._darpana.time_scope(
+                context=exec_ctx,
+                phase_name="identification",
+                component="shakti.darshana",
+                attributes={"input_count": len(request.inputs)},
+            )
+            if self._darpana is not None
+            else nullcontext()
+        )
+        with id_scope:
+            identified_request = identify_request(request)
+
+        # 4. Manthan Capability Plan Resolution BEFORE workspace creation (Timed in Darpana)
+        res_scope = (
+            self._darpana.time_scope(
+                context=exec_ctx,
+                phase_name="resolution",
+                component="nabhi.manthan",
+                attributes={"requirement": identified_request.requirement},
+            )
+            if self._darpana is not None
+            else nullcontext()
+        )
+        with res_scope:
+            plan = self._manthan.resolve(identified_request)
+
+        # 5. Open RunWorkspace on the canonical ArtifactBoundary for this validated run
         with self._artifact_boundary.begin_run(
             run_id=exec_ctx.run_id,
             requirement=request.requirement,
@@ -379,60 +399,13 @@ class Agni:
             context=exec_ctx,
         ) as workspace:
             try:
-                # 4. Pre-Manthan Darshana Identification (Timed in Darpana)
-                id_scope = (
-                    self._darpana.time_scope(
-                        context=exec_ctx,
-                        phase_name="identification",
-                        component="shakti.darshana",
-                        attributes={"input_count": len(request.inputs)},
-                    )
-                    if self._darpana is not None
-                    else nullcontext()
-                )
-                with id_scope:
-                    identified_request = identify_request(request)
-
-                # 5. Manthan Capability Plan Resolution (Timed in Darpana)
-                res_scope = (
-                    self._darpana.time_scope(
-                        context=exec_ctx,
-                        phase_name="resolution",
-                        component="nabhi.manthan",
-                        attributes={"requirement": identified_request.requirement},
-                    )
-                    if self._darpana is not None
-                    else nullcontext()
-                )
-                with res_scope:
-                    plan = self._manthan.resolve(identified_request)
-
                 # 6. Pravaha Dynamic Pipeline Execution (includes Kavacha security authorization)
                 raw_result = self._pravaha.execute(plan, identified_request, exec_ctx)
 
-                # 7. Commit declared artifact intents through Nabhi RunWorkspace
-                confirmed_artifacts: list[ArtifactRef] = list(workspace.committed_artifacts)
-                if raw_result.artifact_intents:
-                    for intent in raw_result.artifact_intents:
-                        content_bytes: bytes
-                        if isinstance(intent.metadata.get("content"), (bytes, bytearray)):
-                            content_bytes = bytes(intent.metadata["content"])
-                        elif isinstance(raw_result.metadata.get("content"), (bytes, bytearray)):
-                            content_bytes = bytes(raw_result.metadata["content"])
-                        elif isinstance(raw_result.data, (bytes, bytearray)):
-                            content_bytes = bytes(raw_result.data)
-                        elif isinstance(raw_result.data, str):
-                            content_bytes = raw_result.data.encode("utf-8")
-                        else:
-                            content_bytes = str(raw_result.data).encode("utf-8")
-
-                        ref = workspace.commit_artifact(intent, content_bytes)
-                        if ref not in confirmed_artifacts:
-                            confirmed_artifacts.append(ref)
-
-                for art in raw_result.artifacts:
-                    if isinstance(art, ArtifactRef) and art not in confirmed_artifacts:
-                        confirmed_artifacts.append(art)
+                # 7. Commit declared artifact payloads through Nabhi RunWorkspace
+                if raw_result.artifact_payloads:
+                    for payload in raw_result.artifact_payloads:
+                        workspace.commit_artifact(payload.intent, payload.content)
 
                 # 8. Finalize workspace and write run-manifest.json last
                 workspace.finalize(
@@ -441,11 +414,11 @@ class Agni:
                     warnings=raw_result.warnings,
                 )
 
-                # 9. Return final Result with confirmed ArtifactRefs
+                # 9. Return final Result with confirmed ArtifactRefs strictly from active workspace
                 return Result(
                     data=raw_result.data,
-                    artifact_intents=(),
-                    artifacts=tuple(confirmed_artifacts),
+                    artifact_payloads=(),
+                    artifacts=workspace.committed_artifacts,
                     confidence=raw_result.confidence,
                     warnings=raw_result.warnings,
                     provenance=raw_result.provenance,
