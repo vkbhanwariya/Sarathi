@@ -8,13 +8,19 @@ Does NOT contain executor or execution APIs yet.
 
 from __future__ import annotations
 
-from sarathi.sankalpa import DeviceRequirement
+from sarathi.sankalpa import (
+    Capability,
+    DeviceRequirement,
+    ExecutionContext,
+    Request,
+    Result,
+)
 from sarathi.yantra.devices import DeviceInventory
 from sarathi.yantra.resources import Allocation, _ResourceAllocator
 
 
 class Yantra:
-    """Resource manager for hardware allocation and release."""
+    """Resource and execution manager for hardware allocation and capability execution."""
 
     def __init__(self, inventory: DeviceInventory) -> None:
         if not isinstance(inventory, DeviceInventory):
@@ -43,3 +49,46 @@ class Yantra:
             TypeError: If allocation is not an Allocation instance.
         """
         self._allocator.release(allocation)
+
+    def execute(
+        self,
+        capability: Capability,
+        request: Request,
+        context: ExecutionContext,
+        prior_result: Result | None = None,
+    ) -> Result:
+        """Execute a capability after allocating compatible hardware, releasing slot in finally.
+
+        Args:
+            capability: Conforming executable Capability instance.
+            request: Canonical processing request.
+            context: Runtime execution context.
+            prior_result: Optional result from preceding pipeline stage.
+
+        Returns:
+            Canonical Result from capability execution.
+
+        Raises:
+            TypeError: If arguments are of invalid type or capability returns non-Result.
+            DoshError: If hardware allocation fails.
+        """
+        if not isinstance(capability, Capability):
+            raise TypeError(f"capability must be a Capability instance, got {type(capability).__name__}.")
+        if not isinstance(request, Request):
+            raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
+        if not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance, got {type(context).__name__}.")
+        if prior_result is not None and not isinstance(prior_result, Result):
+            raise TypeError(f"prior_result must be a Result instance or None, got {type(prior_result).__name__}.")
+
+        allocation = self.allocate(capability.declaration.device_requirement)
+        try:
+            result = capability.execute(request=request, context=context, prior_result=prior_result)
+            if not isinstance(result, Result):
+                raise TypeError(
+                    f"Capability '{capability.declaration.capability_id}' execute() must return a Result instance, "
+                    f"got {type(result).__name__}."
+                )
+            return result
+        finally:
+            self.release(allocation)

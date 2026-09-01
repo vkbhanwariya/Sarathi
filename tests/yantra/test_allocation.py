@@ -1,9 +1,20 @@
-"""Unit tests for Yantra — Resource & Execution Manager Phase 1."""
-
+from pathlib import Path
+from typing import Any
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import DeviceRequirement, DeviceType
+from sarathi.sankalpa import (
+    Capability,
+    CapabilityDeclaration,
+    DeviceRequirement,
+    DeviceType,
+    ExecutionContext,
+    ExecutionProfile,
+    InputRef,
+    Request,
+    Result,
+    WarningRecord,
+)
 from sarathi.yantra import (
     Allocation,
     DeviceInfo,
@@ -266,3 +277,171 @@ class TestResourceAllocation:
         assert "ResourceAllocator" not in yantra_module.__all__
         for name in expected:
             assert hasattr(yantra_module, name)
+
+
+class TestYantraExecution:
+    @pytest.fixture
+    def inventory_1_slot(self) -> DeviceInventory:
+        return DeviceInventory([
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=1)
+        ])
+
+    @pytest.fixture
+    def sample_request(self) -> Request:
+        return Request(
+            request_id="req-1",
+            requirement="test_cap",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("doc.pdf"),
+                    display_name="doc.pdf",
+                    size_bytes=100,
+                ),
+            ),
+        )
+
+    @pytest.fixture
+    def sample_context(self) -> ExecutionContext:
+        return ExecutionContext(
+            run_id="run-1",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-1",
+        )
+
+    def test_execute_success_allocates_and_releases(
+        self,
+        inventory_1_slot: DeviceInventory,
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        decl = CapabilityDeclaration(
+            capability_id="test_cap",
+            plugin_id="test.plugin",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+            device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
+        )
+
+        class SuccessCapability:
+            def __init__(self) -> None:
+                self.declaration = decl
+
+            def execute(
+                self,
+                request: Request,
+                context: ExecutionContext,
+                prior_result: Result | None = None,
+            ) -> Result:
+                return Result(data="success_output")
+
+        yantra = Yantra(inventory_1_slot)
+        cap = SuccessCapability()
+
+        result = yantra.execute(
+            capability=cap,
+            request=sample_request,
+            context=sample_context,
+            prior_result=None,
+        )
+
+        assert isinstance(result, Result)
+        assert result.data == "success_output"
+
+        # Verify device slot was authentically released in finally block:
+        # We can immediately allocate the 1 available slot again without error
+        re_alloc = yantra.allocate(decl.device_requirement)
+        assert re_alloc.device_id == "cpu-0"
+        yantra.release(re_alloc)
+
+    def test_execute_failure_releases_allocation_and_preserves_error(
+        self,
+        inventory_1_slot: DeviceInventory,
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        decl = CapabilityDeclaration(
+            capability_id="test_cap",
+            plugin_id="test.plugin",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+            device_requirement=DeviceRequirement(preferred_devices=(DeviceType.CPU,)),
+        )
+        original_error = ValueError("Capability crashed during execute")
+
+        class FailingCapability:
+            def __init__(self) -> None:
+                self.declaration = decl
+
+            def execute(
+                self,
+                request: Request,
+                context: ExecutionContext,
+                prior_result: Result | None = None,
+            ) -> Result:
+                raise original_error
+
+        yantra = Yantra(inventory_1_slot)
+        cap = FailingCapability()
+
+        with pytest.raises(ValueError) as exc_info:
+            yantra.execute(
+                capability=cap,
+                request=sample_request,
+                context=sample_context,
+                prior_result=None,
+            )
+
+        assert exc_info.value is original_error
+
+        # Verify device slot was cleanly released even upon failure
+        re_alloc = yantra.allocate(decl.device_requirement)
+        assert re_alloc.device_id == "cpu-0"
+        yantra.release(re_alloc)
+
+    def test_execute_invalid_arguments_and_return_types(
+        self,
+        inventory_1_slot: DeviceInventory,
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        yantra = Yantra(inventory_1_slot)
+        decl = CapabilityDeclaration(
+            capability_id="test_cap",
+            plugin_id="test.plugin",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+
+        class BadReturnCapability:
+            def __init__(self) -> None:
+                self.declaration = decl
+
+            def execute(
+                self,
+                request: Request,
+                context: ExecutionContext,
+                prior_result: Result | None = None,
+            ) -> Any:
+                return {"invalid": "not_a_result"}
+
+        with pytest.raises(TypeError, match="capability must be a Capability"):
+            yantra.execute(capability="not_a_cap", request=sample_request, context=sample_context)  # type: ignore
+
+        with pytest.raises(TypeError, match="request must be a Request"):
+            yantra.execute(capability=BadReturnCapability(), request="not_a_req", context=sample_context)  # type: ignore
+
+        with pytest.raises(TypeError, match="context must be an ExecutionContext"):
+            yantra.execute(capability=BadReturnCapability(), request=sample_request, context="not_a_ctx")  # type: ignore
+
+        with pytest.raises(TypeError, match="prior_result must be a Result"):
+            yantra.execute(capability=BadReturnCapability(), request=sample_request, context=sample_context, prior_result="not_a_res")  # type: ignore
+
+        # Bad return type raises TypeError and releases allocation
+        with pytest.raises(TypeError, match="must return a Result instance"):
+            yantra.execute(capability=BadReturnCapability(), request=sample_request, context=sample_context)
+
+        # Capacity is restored
+        alloc = yantra.allocate(decl.device_requirement)
+        yantra.release(alloc)

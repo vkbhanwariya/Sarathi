@@ -15,33 +15,44 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
 from sarathi.nabhi.manthan import CapabilityPlan
 from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
+from sarathi.yantra import Yantra
 
 
 class Pravaha:
     """Dynamic Pipeline Engine for Nabhi Kernel."""
 
-    def __init__(self, registry: Kosh) -> None:
+    def __init__(
+        self,
+        registry: Kosh,
+        yantra: Yantra,
+        capabilities: Mapping[str, Capability],
+    ) -> None:
         if not isinstance(registry, Kosh):
             raise TypeError(f"registry must be a Kosh instance, got {type(registry).__name__}.")
+        if not isinstance(yantra, Yantra):
+            raise TypeError(f"yantra must be a Yantra instance, got {type(yantra).__name__}.")
+        if not isinstance(capabilities, Mapping):
+            raise TypeError(f"capabilities must be a Mapping, got {type(capabilities).__name__}.")
+
         self._registry: Kosh = registry
+        self._yantra: Yantra = yantra
+        self._capabilities: Mapping[str, Capability] = dict(capabilities)
 
     def execute(
         self,
         plan: CapabilityPlan,
         request: Request,
         context: ExecutionContext,
-        capabilities: Mapping[str, Capability],
     ) -> Result:
-        """Execute a resolved capability plan across provided executable capabilities.
+        """Execute a resolved capability plan across configured capabilities through Yantra.
 
         Validates all planned capabilities against registered declarations before invoking
-        the first capability.
+        the first capability through Yantra.
 
         Args:
             plan: The resolved capability execution plan.
             request: The canonical processing request.
             context: The execution context and correlation metadata.
-            capabilities: Mapping from capability_id to executable Capability instance.
 
         Returns:
             The final canonical Result from the pipeline.
@@ -58,8 +69,6 @@ class Pravaha:
             raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
         if not isinstance(context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance, got {type(context).__name__}.")
-        if not isinstance(capabilities, Mapping):
-            raise TypeError(f"capabilities must be a Mapping, got {type(capabilities).__name__}.")
 
         # Validate cross-field request identity consistency
         if plan.request_id != request.request_id:
@@ -83,13 +92,13 @@ class Pravaha:
                     message=f"Planned capability '{cap_id}' is not registered in Kosh.",
                 )
 
-            if cap_id not in capabilities:
+            if cap_id not in self._capabilities:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message=f"Executable capability '{cap_id}' is not provided in capabilities mapping.",
                 )
 
-            executable_cap = capabilities[cap_id]
+            executable_cap = self._capabilities[cap_id]
             if not isinstance(executable_cap, Capability):
                 raise TypeError(
                     f"Provided capability '{cap_id}' does not implement Capability protocol, "
@@ -104,16 +113,15 @@ class Pravaha:
 
             validated_capabilities.append(executable_cap)
 
-        # Execute pipeline in plan order
+        # Execute pipeline in plan order through Yantra
         prior_result: Result | None = None
         for cap in validated_capabilities:
-            result = cap.execute(request=request, context=context, prior_result=prior_result)
-            if not isinstance(result, Result):
-                raise TypeError(
-                    f"Capability '{cap.declaration.capability_id}' execute() must return a Result instance, "
-                    f"got {type(result).__name__}."
-                )
-            prior_result = result
+            prior_result = self._yantra.execute(
+                capability=cap,
+                request=request,
+                context=context,
+                prior_result=prior_result,
+            )
 
         assert prior_result is not None  # plan.capability_ids is guaranteed non-empty by CapabilityPlan contract
         return prior_result
