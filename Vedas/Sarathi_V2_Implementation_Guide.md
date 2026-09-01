@@ -1,6 +1,6 @@
 # Sarathi V2 — Implementation Guide
 
-**Specification Updated:** 31-08-2026, 09:21 PM IST (Asia/Kolkata)
+**Specification Updated:** 01-09-2026, 11:45 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for implementation order, physical structure, wiring, testing, dependencies, and architecture status.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -183,18 +183,16 @@ Sarathi/
 │       ├── yantra/
 │       │   ├── manager.py
 │       │   ├── devices.py
-│       │   ├── resources.py
-│       │   └── executor.py
+│       │   └── resources.py
 │       ├── darpana/
 │       │   ├── service.py
-│       │   ├── records.py
-│       │   ├── tracer.py
 │       │   ├── maruti.py
 │       │   ├── pramana.py
-│       │   ├── recorder.py
 │       │   └── exporters/
 │       ├── mukha/
-│       │   ├── renderer.py
+│       │   ├── app.py
+│       │   ├── presenter.py
+│       │   ├── state.py
 │       │   └── components.py
 │       ├── smriti/
 │       │   ├── key.py
@@ -203,9 +201,7 @@ Sarathi/
 │       │   └── policy.py
 │       ├── kavacha/
 │       │   ├── service.py
-│       │   ├── policy.py
-│       │   ├── verifier.py
-│       │   └── vault.py
+│       │   └── policy.py
 │       ├── sutra/
 │       │   ├── loader.py
 │       │   └── settings.py
@@ -239,12 +235,18 @@ Sarathi/
 │   ├── Telemetry/                 # Darpana history
 │   └── Cache/                     # Smriti reusable-result state
 ├── tests/
-│   ├── artifacts/
+│   ├── agni/
+│   ├── configuration/
+│   ├── contracts/
+│   ├── dosh/
+│   ├── kernel/
+│   ├── mukha/
 │   ├── native_extraction/
 │   ├── ocr/
-│   ├── font_conversion/
-│   ├── translation/
-│   └── bank_statements/
+│   ├── security/
+│   ├── shakti/
+│   ├── telemetry/
+│   └── yantra/
 └── Vedas/
     ├── Sarathi_V2_Core_Runtime_Spec.md
     ├── Sarathi_V2_Shared_Services_Spec.md
@@ -259,10 +261,11 @@ Sarathi/
 ```
 
 This section defines the physical project layout only. Detailed Python ownership
-is defined once in **Python File Responsibilities** below. Dynamic data
-directories are intentionally shown as directories rather than exhaustive
-inventories. The shown `anubhava.toml` paths are conventions, not a requirement
-to create empty files.
+is defined once in **Python File Responsibilities** below. Tests follow the
+canonical owner/boundary they verify; capability-local acceptance tests remain
+under the relevant capability area. Dynamic data directories are intentionally
+shown as directories rather than exhaustive inventories. The shown `anubhava.toml`
+paths are conventions, not a requirement to create empty files.
 
 ------------------------------------------------------------------------
 ## Python File Responsibilities
@@ -305,33 +308,28 @@ This is the single authoritative map for Python-file ownership. Capability secti
 
 ### Yantra — Resource & Execution Manager
 
-- `yantra/manager.py` — public Yantra coordinator for execution requests.
-- `yantra/devices.py` — CPU/GPU/NPU and backend discovery normalized into device capability information.
-- `yantra/resources.py` — resource availability, best-fit allocation, limits, and spillover decisions.
-- `yantra/executor.py` — globally managed execution/worker facilities; capability algorithms do not live here.
+- `yantra/manager.py` — public Yantra coordinator for allocation, release, and approved capability execution.
+- `yantra/devices.py` — factual CPU/GPU/NPU/backend inventory and device information.
+- `yantra/resources.py` — allocation state, compatibility, limits, and resource decisions.
+- `yantra/executor.py` (optional/future) — globally managed execution worker facility; create only if a genuinely separate execution responsibility emerges.
 
 ### Darpana — Telemetry & Tracing
 
-- `darpana/service.py` — one public Darpana interface for canonical telemetry emission and access.
-- `darpana/records.py` — typed immutable records shared by Maruti and Pramana.
-- `darpana/tracer.py` — run, request, pipeline, capability, and nested-span context creation/propagation.
-- `darpana/maruti.py` — **Maruti — Runtime, Logging & Performance Telemetry** measurement and factual aggregation.
-- `darpana/pramana.py` — **Pramana — Confidence & Accuracy Telemetry** evidence recording and quality aggregation.
-- `darpana/recorder.py` — bounded live records and routing to configured exporters.
-- `darpana/exporters/jsonl.py` — sequential JSONL telemetry export.
-- `darpana/exporters/sqlite.py` — searchable historical telemetry export when configured.
+- `darpana/service.py` — one public Darpana service, bounded thread-safe telemetry snapshots/emission, and timing boundary.
+- `darpana/maruti.py` — **Maruti — Runtime, Logging & Performance Telemetry** measurement and factual record contracts.
+- `darpana/pramana.py` — **Pramana — Confidence & Accuracy Telemetry** evidence recording and quality record contracts.
+- `darpana/exporters/` (optional/future) — configured sequential (e.g. JSONL) or searchable historical (e.g. SQLite) export implementations when configured.
 
 ### Mukha — Console & Presentation
 
-- `mukha/renderer.py` — generic rendering of declaratively described screens/components.
-- `mukha/components.py` — reusable presentation components; capability algorithms remain in their capability.
+- `mukha/app.py` — Textual application, screens, navigation, and routing of typed user intents to canonical runtime owners; no capability algorithms or runtime ownership.
+- `mukha/presenter.py` — factual projection of canonical runtime/telemetry state into typed presentation views; no execution/lifecycle/security decisions.
+- `mukha/state.py` — typed immutable presentation/view-state contracts.
+- `mukha/components.py` — reusable presentation formatting and widgets.
 
 ### Smriti — Cache & Runtime State
 
-- `smriti/key.py` — canonical general result-cache key construction.
-- `smriti/memory.py` — small L1 in-memory result cache.
-- `smriti/store.py` — persistent L2 result-cache storage, initially SQLite.
-- `smriti/policy.py` — cache use, refresh, bypass, expiry, and minimal reuse policy.
+Smriti owns reusable results and bounded runtime state. Detailed cache modules (`key.py`, `memory.py`, `store.py`, `policy.py`) remain optional/future when general result caching is required.
 
 ### Anubhava — Validated Experience Data
 
@@ -342,10 +340,10 @@ is permitted.
 
 ### Kavacha — Security & Privacy
 
-- `kavacha/service.py` — single public Kavacha interface used by runtime/capabilities.
-- `kavacha/policy.py` — evaluates local/network/PII/external-processing/secret-access policy against declarations and requests.
-- `kavacha/verifier.py` — PII/sensitive-content verification, including the independent outbound gate before external processing.
-- `kavacha/vault.py` — secure local secret/credential boundary and authorized logical-name access.
+- `kavacha/service.py` — public Kavacha authorization and path/security validation boundary currently implemented.
+- `kavacha/policy.py` — security policy evaluation and typed policy decisions.
+- `kavacha/verifier.py` (optional/future) — PII/sensitive-content verification and outbound gate; create only when that distinct responsibility is implemented.
+- `kavacha/vault.py` (optional/future) — secure local secret/credential boundary; create only when that distinct responsibility is implemented.
 
 ### Sutra — Configuration
 
