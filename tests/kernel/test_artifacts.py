@@ -857,6 +857,30 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert not dest_path.exists()
         assert len(ws._committed_artifacts) == 0
 
+    def test_commit_staged_artifact_dual_failure_registers_surviving_artifact(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-dual-fail-test", requirement="ocr")
+        intent = ArtifactIntent(name="output.txt", role="text", media_type="text/plain")
+        staged_path = ws.stage_artifact(intent, b"output data")
+
+        dest_path = ws.output_dir / "output.txt"
+
+        # Mock Path.unlink to fail on both staged_path and dest_path
+        def mock_unlink_all(self: Path, *args: Any, **kwargs: Any) -> None:
+            raise OSError("Unlink completely failed")
+
+        with patch.object(Path, "unlink", new=mock_unlink_all):
+            with pytest.raises(DoshError) as exc_info:
+                ws.commit_staged_artifact(intent, staged_path)
+
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        assert "failed to roll back promoted artifact" in exc_info.value.message
+        # Destination file survived on disk and is deterministically tracked
+        assert dest_path.exists()
+        assert len(ws._committed_artifacts) == 1
+        assert ws._committed_artifacts[0].path == dest_path
+
     @pytest.mark.parametrize(
         ("bad_prov", "err_substr"),
         [
@@ -878,9 +902,55 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert err_substr in exc_info.value.message
 
-    def test_input_sources_overlap_with_output_or_staging_rejected(
-        self, boundary: ArtifactBoundary, tmp_path: Path
+    def test_provenance_and_warnings_with_none_optional_fields_serialize_safely(
+        self, boundary: ArtifactBoundary
     ) -> None:
+        ws = boundary.begin_run(run_id="run-prov-opt", requirement="ocr")
+        prov = ProvenanceRecord(
+            source_input_id=None,
+            source_file=None,
+            stage="ocr_stage",
+            plugin_id=None,
+            capability_id=None,
+            page_number=None,
+            region=None,
+            timestamp_utc=None,
+        )
+        warn = WarningRecord(
+            code="SAFE_WARN_CODE",
+            message="safe warning message",
+            stage=None,
+        )
+
+        manifest_path = ws.finalize(success=True, provenance=[prov], warnings=[warn])
+        assert manifest_path.exists()
+        manifest_dict = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        prov_out = manifest_dict["provenance"][0]
+        assert prov_out == {"stage": "ocr_stage"}
+        assert "plugin_id" not in prov_out
+        assert "capability_id" not in prov_out
+        assert "page_number" not in prov_out
+
+        warn_out = manifest_dict["warnings"][0]
+        assert warn_out == {"code": "SAFE_WARN_CODE"}
+        assert "stage" not in warn_out
+
+    def test_input_sources_overlap_with_output_or_staging_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        from sarathi.kavacha import Kavacha, SecurityPolicy
+        policy = SecurityPolicy(
+            allow_pii_access=False,
+            allow_network_access=False,
+            allow_external_processing=False,
+            allowed_secrets=(),
+        )
+        kavacha = Kavacha(policy)
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+        boundary = ArtifactBoundary(runtime_root=runtime_root, output_root=output_root, kavacha=kavacha)
+
         # Input source residing inside output root
         bad_input = boundary.output_root / "nested_input.txt"
         bad_input.parent.mkdir(parents=True, exist_ok=True)
@@ -895,6 +965,22 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
         assert "Unsafe source and destination overlap" in exc_info.value.message
         assert str(bad_input) not in exc_info.value.message
+
+    def test_input_sources_without_injected_kavacha_raises_invalid_configuration(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        input_file = tmp_path / "valid_input.txt"
+        input_file.write_text("data")
+
+        # boundary fixture has no injected kavacha
+        with pytest.raises(DoshError) as exc_info:
+            boundary.begin_run(
+                run_id="run-no-kavacha",
+                requirement="ocr",
+                input_sources=[input_file],
+            )
+        assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION
+        assert "Kavacha security service must be injected" in exc_info.value.message
 
     def test_begin_run_error_messages_do_not_echo_raw_values(
         self, boundary: ArtifactBoundary
