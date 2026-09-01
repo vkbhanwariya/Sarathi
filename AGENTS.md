@@ -21,6 +21,7 @@ the relevant Vedas files are the complete architectural authority.
 - Use existing public contracts/services unless the assigned milestone
   explicitly introduces its one canonical contract or owner.
 - If a required decision or contract is missing, stop and report it. Do not invent a workaround.
+- Prefer modern, idiomatic Python 3.13+ features and standard-library utilities where they genuinely simplify the implementation. Reduce repetitive if/elif/else chains, duplicated blocks, and boilerplate using appropriate constructs such as match/case, comprehensions, assignment expressions, contextlib, dataclasses, enums, mappings/dispatch tables, helper functions, and current standard-library APIs. Preserve readability, canonical ownership, behavior, validation order, exception semantics, and tests. Do not introduce abstraction or cleverness purely for style.
 
 ## Scope:
 - Implement only the requested milestone and the minimum necessary wiring.
