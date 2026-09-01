@@ -6,6 +6,7 @@ import csv
 import io
 from typing import Any
 import xml.etree.ElementTree as ET
+from zipfile import BadZipFile
 
 from bs4 import BeautifulSoup
 import charset_normalizer
@@ -83,8 +84,14 @@ def read_pdf(
                             )
                             page_tables.append(t_obj)
                             all_doc_tables.append(t_obj)
-            except Exception:
-                pass
+            except (pymupdf.FileDataError, ValueError):
+                warnings.append(
+                    WarningRecord(
+                        code="PDF_TABLE_DETECTION_SKIPPED",
+                        message="Vector table extraction skipped for page.",
+                        stage=_STAGE_NAME,
+                    )
+                )
 
             pages.append(
                 PageData(
@@ -135,7 +142,7 @@ def read_xlsx(
     reader_used = "python-calamine"
 
     try:
-        wb = python_calamine.CalamineWorkbook.from_object(data)
+        wb = python_calamine.CalamineWorkbook.from_object(io.BytesIO(data))
         for sheet_name in wb.sheet_names:
             sheet = wb.get_sheet_by_name(sheet_name)
             raw_rows = sheet.to_python()
@@ -162,7 +169,7 @@ def read_xlsx(
                     evidence={"reader": "python-calamine", "sheet": sheet_name, "row_count": len(raw_rows)},
                 )
             )
-    except Exception:
+    except (python_calamine.CalamineError, BadZipFile):
         # Fallback to openpyxl
         reader_used = "openpyxl"
         warnings.append(
@@ -273,7 +280,7 @@ def read_html_table(
     encoding = match.encoding if match and match.encoding else "utf-8"
     try:
         html_text = data.decode(encoding)
-    except Exception:
+    except (UnicodeDecodeError, LookupError):
         html_text = data.decode("utf-8", errors="replace")
 
     soup = BeautifulSoup(html_text, "html.parser")
@@ -409,7 +416,7 @@ def read_csv_or_text(
     encoding = match.encoding if match and match.encoding else "utf-8"
     try:
         text_content = data.decode(encoding)
-    except Exception:
+    except (UnicodeDecodeError, LookupError):
         text_content = data.decode("utf-8", errors="replace")
 
     provenances: list[ProvenanceRecord] = []
@@ -435,7 +442,7 @@ def read_csv_or_text(
                 )
             )
             parsed_tabular = True
-    except Exception:
+    except (pl.exceptions.PolarsError, csv.Error, UnicodeDecodeError):
         # Fallback to stdlib csv
         try:
             sample = text_content[:2048]
@@ -456,7 +463,7 @@ def read_csv_or_text(
                     )
                 )
                 parsed_tabular = True
-        except Exception:
+        except (csv.Error, UnicodeDecodeError):
             pass
 
     if not parsed_tabular:

@@ -550,6 +550,92 @@ class TestNativeExtraction:
             with pytest.raises(AttributeError, match="Bug in code"):
                 capability.execute(req, context)
 
+    def test_forced_value_error_does_not_become_ocr_requirement(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        pdf_path = tmp_path / "test_val.pdf"
+        doc_pdf = pymupdf.open()
+        doc_pdf.new_page().insert_text((50, 50), "Sample Text")
+        doc_pdf.save(str(pdf_path))
+        doc_pdf.close()
+
+        req = Request(
+            request_id="req-val-err",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-val",
+                    source_path=pdf_path,
+                    display_name="test_val.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+        )
+
+        with patch("sarathi.shakti.native_extraction.capability.read_pdf", side_effect=ValueError("Contract violation")):
+            with pytest.raises(ValueError, match="Contract violation"):
+                capability.execute(req, context)
+
+    def test_unexpected_xlsx_reader_failure_does_not_fall_back_or_request_ocr(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        xlsx_path = tmp_path / "test_xlsx.xlsx"
+        wb = openpyxl.Workbook()
+        wb.active.append(["Header", "Value"])
+        wb.save(str(xlsx_path))
+        wb.close()
+
+        req = Request(
+            request_id="req-xlsx-err",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-xlsx",
+                    source_path=xlsx_path,
+                    display_name="test_xlsx.xlsx",
+                    size_bytes=xlsx_path.stat().st_size,
+                ),
+            ),
+        )
+
+        # Programmer/system bug in Calamine reader must not fall back to openpyxl or request OCR
+        with patch("python_calamine.CalamineWorkbook.from_object", side_effect=TypeError("Unexpected type bug")):
+            with pytest.raises(TypeError, match="Unexpected type bug"):
+                capability.execute(req, context)
+
+    def test_pdf_table_detection_known_error_emits_warning_and_preserves_text(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        pdf_path = tmp_path / "table_err.pdf"
+        doc_pdf = pymupdf.open()
+        p = doc_pdf.new_page()
+        p.insert_text((50, 50), "Important statement body text")
+        doc_pdf.save(str(pdf_path))
+        doc_pdf.close()
+
+        req = Request(
+            request_id="req-tab-err",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-tab",
+                    source_path=pdf_path,
+                    display_name="table_err.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+        )
+
+        # Simulate a known table detection issue on find_tables
+        with patch.object(pymupdf.Page, "find_tables", side_effect=ValueError("Malformed vector graphics")):
+            res = capability.execute(req, context)
+
+        assert res.next_requirement is None
+        doc = res.data
+        assert isinstance(doc, CanonicalDocument)
+        assert "Important statement body text" in doc.pages[0].text
+        assert any(w.code == "PDF_TABLE_DETECTION_SKIPPED" for w in res.warnings)
+
     def test_unknown_binary_content_returns_controlled_unsupported_error(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:

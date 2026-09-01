@@ -44,7 +44,6 @@ _PARSE_EXCEPTIONS = (
     ET.ParseError,
     csv.Error,
     UnicodeDecodeError,
-    ValueError,
 )
 
 
