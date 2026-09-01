@@ -1,0 +1,57 @@
+# State Bank of India (SBI) Statement Profile
+profile_id: "sbi"
+bank_name: "State Bank of India"
+aliases:
+  - "state bank of india"
+  - "sbi"
+  - "state bank"
+
+identification_keywords:
+  - "state bank of india"
+  - "sbi"
+  - "onlinesbi"
+  - "sbi.co.in"
+  - "sbicap"
+
+headers:
+  date:
+    - "txn date"
+    - "transaction date"
+    - "value date"
+    - "date"
+  description:
+    - "description"
+    - "narration"
+    - "particulars"
+  reference_number:
+    - "ref no./cheque no."
+    - "ref no/cheque no"
+    - "ref no"
+    - "ref no."
+    - "cheque no"
+    - "chq no"
+  debit:
+    - "debit"
+    - "withdrawal amount"
+    - "debit amount"
+    - "dr"
+  credit:
+    - "credit"
+    - "deposit amount"
+    - "credit amount"
+    - "cr"
+  balance:
+    - "balance"
+    - "running balance"
+    - "balance (inr)"
+
+date_formats:
+  - "%d %b %Y"
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+
+metadata_patterns:
+  account_number: '(?:Account\s*(?:Number|No\.?)?|Account\s*Statement\s*for\s*Account)\s*[:\-]?\s*([0-9Xx\*]{8,18})'
+  account_holder: 'Account\s*Name\s*[:\-]?\s*([^\n]+)'
+  ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})'
+  cif: 'CIF(?:\s*No\.?)?\s*[:\-]?\s*([0-9]{11})'
