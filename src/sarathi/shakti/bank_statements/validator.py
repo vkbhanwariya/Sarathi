@@ -2,7 +2,7 @@
 
 Validates:
 1. Transaction invariants (date, debit/credit presence, non-negative Decimal)
-2. Running balance continuity (B_i = B_{i-1} + C_i - D_i)
+2. Running balance continuity (B_i = B_{i-1} + C_i - D_i) in chronological or reverse-chronological order
 3. Statement reconciliation (Opening + Credits - Debits = Closing)
 """
 
@@ -23,7 +23,6 @@ def validate_transaction(transaction: Transaction) -> tuple[ValidationStatus, tu
     issues: list[ValidationIssue] = []
     status = ValidationStatus.VALID
 
-    # Invariant: At least one of debit or credit must be present
     if transaction.debit is None and transaction.credit is None:
         issues.append(
             ValidationIssue(
@@ -34,7 +33,6 @@ def validate_transaction(transaction: Transaction) -> tuple[ValidationStatus, tu
         )
         status = ValidationStatus.WARNING
 
-    # Invariant: Both debit and credit cannot be non-zero simultaneously
     if transaction.debit is not None and transaction.credit is not None:
         if transaction.debit > Decimal("0") and transaction.credit > Decimal("0"):
             issues.append(
@@ -50,29 +48,33 @@ def validate_transaction(transaction: Transaction) -> tuple[ValidationStatus, tu
 
 
 def validate_statement_balances(statement: BankStatement) -> BankStatement:
-    """Validate sequential running balance continuity and statement-level reconciliation.
-
-    Running balance rule:
-    Current Balance = Previous Balance + Credit - Debit
-    """
+    """Validate running balance continuity and statement-level reconciliation."""
     transactions = list(statement.transactions)
     validated_transactions: list[Transaction] = []
     statement_issues: list[ValidationIssue] = list(statement.issues)
 
-    prev_balance: Decimal | None = statement.opening_balance
-    total_debits = Decimal("0")
-    total_credits = Decimal("0")
+    if not transactions:
+        return statement
 
-    for idx, tx in enumerate(transactions):
+    # Check if transactions appear in reverse chronological order
+    is_reverse = len(transactions) >= 2 and all(
+        transactions[i].transaction_date >= transactions[i + 1].transaction_date for i in range(len(transactions) - 1)
+    )
+
+    total_debits = sum((tx.debit or Decimal("0") for tx in transactions), Decimal("0"))
+    total_credits = sum((tx.credit or Decimal("0") for tx in transactions), Decimal("0"))
+
+    # Validate Running Balance continuity (chronologically)
+    ordered_txns = list(reversed(transactions)) if is_reverse else transactions
+    prev_balance: Decimal | None = statement.opening_balance
+
+    for idx, tx in enumerate(ordered_txns):
         tx_status, tx_issues_list = validate_transaction(tx)
         issues = list(tx_issues_list)
 
         debit_amt = tx.debit or Decimal("0")
         credit_amt = tx.credit or Decimal("0")
-        total_debits += debit_amt
-        total_credits += credit_amt
 
-        # Validate Running Balance continuity
         if tx.running_balance is not None and prev_balance is not None:
             expected_balance = prev_balance + credit_amt - debit_amt
             if tx.running_balance != expected_balance:
@@ -85,11 +87,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                             f"got {tx.running_balance} (difference {diff})."
                         ),
                         severity="warning",
-                        context={
-                            "expected": str(expected_balance),
-                            "actual": str(tx.running_balance),
-                            "diff": str(diff),
-                        },
+                        context={"expected": str(expected_balance), "actual": str(tx.running_balance), "diff": str(diff)},
                     )
                 )
                 if tx_status == ValidationStatus.VALID:
@@ -121,6 +119,9 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
             )
         )
 
+    # Re-order back to original presentation order
+    final_txns = list(reversed(validated_transactions)) if is_reverse else validated_transactions
+
     # Validate Statement Reconciliation: Opening + Credits - Debits == Closing
     if statement.opening_balance is not None and statement.closing_balance is not None:
         expected_closing = statement.opening_balance + total_credits - total_debits
@@ -134,16 +135,12 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                         f"got {statement.closing_balance} (difference {reconcile_diff})."
                     ),
                     severity="warning",
-                    context={
-                        "expected_closing": str(expected_closing),
-                        "actual_closing": str(statement.closing_balance),
-                        "diff": str(reconcile_diff),
-                    },
+                    context={"expected_closing": str(expected_closing), "actual_closing": str(statement.closing_balance), "diff": str(reconcile_diff)},
                 )
             )
 
     overall_status = ValidationStatus.VALID
-    if any(t.status == ValidationStatus.WARNING for t in validated_transactions) or statement_issues:
+    if any(t.status == ValidationStatus.WARNING for t in final_txns) or statement_issues:
         overall_status = ValidationStatus.WARNING
 
     return BankStatement(
@@ -155,7 +152,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
         opening_balance=statement.opening_balance,
         closing_balance=statement.closing_balance,
         currency=statement.currency,
-        transactions=tuple(validated_transactions),
+        transactions=tuple(final_txns),
         status=overall_status,
         issues=tuple(statement_issues),
         provenance=statement.provenance,

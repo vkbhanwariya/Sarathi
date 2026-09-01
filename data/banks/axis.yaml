@@ -1,0 +1,50 @@
+# Axis Bank Statement Profile
+profile_id: "axis"
+bank_name: "Axis Bank"
+aliases:
+  - "axis bank"
+  - "axis"
+  - "axisbank"
+  - "uti bank"
+
+identification_keywords:
+  - "axis bank"
+  - "axisbank"
+  - "axisbank.com"
+
+headers:
+  date:
+    - "tran date"
+    - "value date"
+    - "date"
+  description:
+    - "particulars"
+    - "transaction details"
+    - "description"
+  cheque_number:
+    - "chq no"
+    - "cheque no"
+  reference_number:
+    - "ref no"
+    - "utr"
+  debit:
+    - "debit"
+    - "withdrawal"
+    - "dr"
+  credit:
+    - "credit"
+    - "deposit"
+    - "cr"
+  balance:
+    - "balance"
+    - "running balance"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+  - "%d %b %Y"
+
+metadata_patterns:
+  account_number: '(?:Account\s*Number|Account\s*No\.?|A/c\s*No\.?)\s*[:\-]?\s*([0-9]{15,16})'
+  account_holder: '(?:Name|Account\s*Title)\s*[:\-]?\s*([^\n]+)'
+  ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})'

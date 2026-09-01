@@ -1,7 +1,7 @@
 """Header Mapper for Bank Statements in Sarathi V2.
 
 Maps extracted table headers to canonical financial fields:
-- date, description, reference_number, cheque_number, debit, credit, balance
+- date, description, reference_number, cheque_number, debit, credit, amount, direction, balance
 
 Resolution hierarchy:
 1. Bank Exact Match
@@ -19,7 +19,10 @@ from typing import Any
 import yaml
 
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
-CANONICAL_FIELDS = ("date", "description", "reference_number", "cheque_number", "debit", "credit", "balance")
+CANONICAL_FIELDS = (
+    "date", "description", "reference_number", "cheque_number",
+    "debit", "credit", "amount", "direction", "balance"
+)
 
 
 @dataclass(frozen=True, slots=True)

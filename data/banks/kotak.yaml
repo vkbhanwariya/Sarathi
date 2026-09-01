@@ -1,0 +1,50 @@
+# Kotak Mahindra Bank Statement Profile
+profile_id: "kotak"
+bank_name: "Kotak Mahindra Bank"
+aliases:
+  - "kotak mahindra bank"
+  - "kotak"
+  - "kotak bank"
+  - "kotak mahindra"
+
+identification_keywords:
+  - "kotak mahindra bank"
+  - "kotak"
+  - "kotak.com"
+
+headers:
+  date:
+    - "date"
+    - "transaction date"
+    - "value date"
+  description:
+    - "narration"
+    - "description"
+    - "particulars"
+  reference_number:
+    - "chq / ref no"
+    - "chq/ref no"
+    - "ref no"
+  amount:
+    - "amount"
+    - "amount (inr)"
+    - "txn amount"
+  direction:
+    - "dr / cr"
+    - "dr/cr"
+    - "type"
+  balance:
+    - "balance"
+    - "balance (inr)"
+
+date_formats:
+  - "%d-%b-%Y"
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+  - "%d %b %Y"
+
+metadata_patterns:
+  account_number: '(?:Account\s*No(?:\.|\s*Number)?|A/c\s*No\.?)\s*[:\-]?\s*([0-9]{10})'
+  account_holder: '(?:Name|Account\s*Name)\s*[:\-]?\s*([^\n]+)'
+  ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})'
+  crn: 'CRN\s*[:\-]?\s*([0-9]{8,10})'

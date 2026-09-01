@@ -1,0 +1,53 @@
+# HDFC Bank Statement Profile
+profile_id: "hdfc"
+bank_name: "HDFC Bank"
+aliases:
+  - "hdfc bank"
+  - "hdfc"
+  - "hdfcbank"
+  - "housing development finance corporation"
+
+identification_keywords:
+  - "hdfc bank"
+  - "hdfcbank"
+  - "hdfcbank.com"
+  - "hdfc securities"
+
+headers:
+  date:
+    - "date"
+    - "value dt"
+    - "txn date"
+  description:
+    - "narration"
+    - "description"
+    - "particulars"
+  reference_number:
+    - "chq./ref.no."
+    - "chq/ref no"
+    - "ref no."
+  debit:
+    - "withdrawal amt."
+    - "withdrawal amt"
+    - "withdrawal amount"
+    - "debit"
+  credit:
+    - "deposit amt."
+    - "deposit amt"
+    - "deposit amount"
+    - "credit"
+  balance:
+    - "closing balance"
+    - "closing balance (inr)"
+    - "balance"
+
+date_formats:
+  - "%d/%m/%y"
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+
+metadata_patterns:
+  account_number: '(?:Account\s*No(?:\.|\s*Number)?|A/c\s*No\.?)\s*[:\-]?\s*([0-9]{14})'
+  account_holder: '(?:Name|Account\s*Holder)\s*[:\-]?\s*([^\n]+)'
+  cust_id: 'Cust\s*ID\s*[:\-]?\s*([0-9]{8,10})'
+  ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})'
