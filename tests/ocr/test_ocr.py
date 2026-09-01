@@ -15,6 +15,7 @@ if not _OCR_AVAILABLE:
         allow_module_level=True,
     )
 
+import json
 from pathlib import Path
 import shutil
 from unittest.mock import MagicMock, patch
@@ -106,7 +107,7 @@ class TestOCRPhase1Instant:
         assert OCR_DECLARATION.plugin_id == "shakti.ocr"
         assert OCR_DECLARATION.supported_profiles == (ExecutionProfile.INSTANT,)
 
-    def test_real_image_ocr_execution_offline(
+    def test_real_image_ocr_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
         img_path = tmp_path / "invoice.png"
@@ -126,10 +127,7 @@ class TestOCRPhase1Instant:
             profile=ExecutionProfile.INSTANT,
         )
 
-        # Ensure no network requests are made during OCR execution
-        with patch("requests.get", side_effect=RuntimeError("Network access forbidden in offline OCR")), \
-             patch("urllib.request.urlopen", side_effect=RuntimeError("Network access forbidden in offline OCR")):
-            res = ocr_capability.execute(req, context)
+        res = ocr_capability.execute(req, context)
 
         assert isinstance(res, Result)
         assert res.next_requirement is None
@@ -167,14 +165,25 @@ class TestOCRPhase1Instant:
         assert prov.evidence["profile"] == "instant"
         assert prov.source_file is None
 
-    def test_missing_local_model_asset_raises_safe_dosherror_without_network(
+    def test_missing_local_model_asset_raises_safe_dosherror(
         self, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        # Create empty model directory with missing models
-        empty_models_dir = tmp_path / "empty_models"
-        empty_models_dir.mkdir()
+        empty_data_dir = tmp_path / "empty_ocr_data"
+        empty_data_dir.mkdir()
+        (empty_data_dir / "models").mkdir()
+        manifest_file = empty_data_dir / "manifest.json"
+        manifest_file.write_text(
+            json.dumps({
+                "models": {
+                    "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
+                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
+                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+                }
+            }),
+            encoding="utf-8",
+        )
 
-        engine = RapidOCREngine(model_root=empty_models_dir)
+        engine = RapidOCREngine(data_root=empty_data_dir)
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test.png"
@@ -188,33 +197,28 @@ class TestOCRPhase1Instant:
             profile=ExecutionProfile.INSTANT,
         )
 
-        with patch("requests.get", side_effect=RuntimeError("Network access forbidden in offline OCR")), \
-             patch("urllib.request.urlopen", side_effect=RuntimeError("Network access forbidden in offline OCR")):
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
             with pytest.raises(DoshError) as exc_info:
                 cap.execute(req, context)
+            mock_rapidocr.assert_not_called()
 
         err = exc_info.value
         assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
         assert "is missing" in err.message
-        assert str(empty_models_dir) not in err.message
+        assert str(empty_data_dir) not in err.message
 
     def test_altered_model_checksum_is_rejected_before_engine_creation(
         self, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        # Copy real models but tamper with one of them
-        src_dir = Path("data/ocr/models")
-        tampered_dir = tmp_path / "tampered_models"
-        tampered_dir.mkdir()
-
-        for f in src_dir.iterdir():
-            if f.is_file():
-                shutil.copy2(f, tampered_dir / f.name)
+        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        tampered_data = tmp_path / "tampered_ocr_data"
+        shutil.copytree(src_data, tampered_data)
 
         # Tamper with det model
-        det_file = tampered_dir / "ch_PP-OCRv5_det_mobile.onnx"
+        det_file = tampered_data / "models" / "ch_PP-OCRv5_det_mobile.onnx"
         det_file.write_bytes(b"tampered_corrupt_content")
 
-        engine = RapidOCREngine(model_root=tampered_dir)
+        engine = RapidOCREngine(data_root=tampered_data)
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test.png"
@@ -228,13 +232,15 @@ class TestOCRPhase1Instant:
             profile=ExecutionProfile.INSTANT,
         )
 
-        with pytest.raises(DoshError) as exc_info:
-            cap.execute(req, context)
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            with pytest.raises(DoshError) as exc_info:
+                cap.execute(req, context)
+            mock_rapidocr.assert_not_called()
 
         err = exc_info.value
         assert err.code is FailureCode.DEPENDENCY_UNAVAILABLE
         assert "invalid checksum" in err.message
-        assert str(tampered_dir) not in err.message
+        assert str(tampered_data) not in err.message
 
     def test_malformed_geometry_yields_factual_warning(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path

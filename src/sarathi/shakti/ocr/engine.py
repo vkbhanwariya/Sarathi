@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import math
 from pathlib import Path
 from typing import Any
@@ -21,22 +22,8 @@ from sarathi.sankalpa import (
 _STAGE_NAME = "ocr"
 _PLUGIN_ID = "shakti.ocr"
 _CAPABILITY_ID = "ocr"
-_DEFAULT_MODEL_DIR = Path("data") / "ocr" / "models"
-
-_EXPECTED_MODELS: dict[str, dict[str, str]] = {
-    "det": {
-        "filename": "ch_PP-OCRv5_det_mobile.onnx",
-        "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
-    },
-    "rec": {
-        "filename": "ch_PP-OCRv5_rec_mobile.onnx",
-        "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
-    },
-    "cls": {
-        "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
-        "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
-    },
-}
+_CANONICAL_DATA_ROOT = Path(__file__).resolve().parents[4] / "data" / "ocr"
+_REQUIRED_MODEL_KEYS = ("det", "rec", "cls")
 
 
 def extract_images_from_bytes(data: bytes) -> list[Any]:
@@ -73,13 +60,78 @@ def extract_images_from_bytes(data: bytes) -> list[Any]:
 class RapidOCREngine:
     """Instance-owned RapidOCR + PP-OCRv5 + OpenVINO engine adapter."""
 
-    def __init__(self, model_root: Path | None = None) -> None:
-        self._model_root: Path = model_root if model_root is not None else _DEFAULT_MODEL_DIR
+    def __init__(self, data_root: Path | None = None) -> None:
+        self._data_root: Path = data_root.resolve() if data_root is not None else _CANONICAL_DATA_ROOT
         self._engine: Any = None
 
     def _get_engine(self) -> Any:
-        """Lazily initialize the underlying RapidOCR engine instance after verifying assets."""
+        """Lazily initialize the underlying RapidOCR engine instance after verifying assets against manifest.json."""
         if self._engine is None:
+            manifest_file = self._data_root / "manifest.json"
+            models_dir = self._data_root / "models"
+
+            if not manifest_file.is_file():
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Required local OCR model manifest is missing.",
+                )
+
+            try:
+                manifest_dict = json.loads(manifest_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Failed to read or parse local OCR model manifest.",
+                ) from exc
+
+            if not isinstance(manifest_dict, dict) or "models" not in manifest_dict or not isinstance(manifest_dict["models"], dict):
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Local OCR model manifest has an invalid structure.",
+                )
+
+            models_meta = manifest_dict["models"]
+            verified_paths: dict[str, str] = {}
+
+            for key in _REQUIRED_MODEL_KEYS:
+                if key not in models_meta or not isinstance(models_meta[key], dict):
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Local OCR model manifest missing required model entry '{key}'.",
+                    )
+                entry = models_meta[key]
+                filename = entry.get("filename")
+                expected_sha256 = entry.get("sha256")
+
+                if not filename or not isinstance(filename, str) or not expected_sha256 or not isinstance(expected_sha256, str):
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Local OCR model manifest entry '{key}' is malformed.",
+                    )
+
+                model_path = models_dir / filename
+                if not model_path.is_file():
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Required local OCR model asset '{filename}' is missing.",
+                    )
+
+                try:
+                    actual_sha256 = hashlib.sha256(model_path.read_bytes()).hexdigest()
+                except OSError as exc:
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Failed to read local OCR model asset '{filename}'.",
+                    ) from exc
+
+                if actual_sha256 != expected_sha256:
+                    raise DoshError(
+                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                        message=f"Local OCR model asset '{filename}' has invalid checksum.",
+                    )
+
+                verified_paths[key] = str(model_path)
+
             try:
                 from rapidocr import RapidOCR
                 from rapidocr.inference_engine.base import EngineType
@@ -89,33 +141,6 @@ class RapidOCREngine:
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="OCR dependencies are not installed. Install with 'uv add --optional ocr'.",
                 ) from exc
-
-            verified_paths: dict[str, str] = {}
-            for model_key, model_meta in _EXPECTED_MODELS.items():
-                model_filename = model_meta["filename"]
-                model_path = self._model_root / model_filename
-
-                if not model_path.is_file():
-                    raise DoshError(
-                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Required local OCR model asset '{model_filename}' is missing.",
-                    )
-
-                try:
-                    actual_sha256 = hashlib.sha256(model_path.read_bytes()).hexdigest()
-                except OSError as exc:
-                    raise DoshError(
-                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Failed to read local OCR model asset '{model_filename}'.",
-                    ) from exc
-
-                if actual_sha256 != model_meta["sha256"]:
-                    raise DoshError(
-                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Local OCR model asset '{model_filename}' has invalid checksum.",
-                    )
-
-                verified_paths[model_key] = str(model_path)
 
             params: dict[str, Any] = {
                 "Det.engine_type": EngineType.OPENVINO,
