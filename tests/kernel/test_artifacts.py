@@ -1215,3 +1215,55 @@ class TestNestedArtifactsAndManifestLastBoundary:
             boundary.begin_run(run_id="run-ts-2", requirement="ocr", timestamp=naive_dt)
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert "timestamp must be timezone-aware" in exc_info.value.message
+
+    def test_unexpected_non_os_error_in_writer_propagates_unchanged(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-unexpected-err", requirement="ocr")
+        intent = ArtifactIntent(name="test.txt", role="text", media_type="text/plain")
+
+        # Programming defect inside write method (e.g. KeyError or RuntimeError, not OSError)
+        with patch.object(Path, "open", side_effect=KeyError("Uncaught dictionary defect")):
+            with pytest.raises(KeyError, match="Uncaught dictionary defect"):
+                ws.commit_artifact(intent, b"content")
+
+        # Staged write as well
+        with patch.object(Path, "open", side_effect=RuntimeError("Programmer assertion failure")):
+            with pytest.raises(RuntimeError, match="Programmer assertion failure"):
+                ws.stage_artifact(intent, b"content")
+
+    def test_root_and_path_resolution_os_error_becomes_safe_dosh_without_raw_path(
+        self, tmp_path: Path
+    ) -> None:
+        secret_path = tmp_path / "secret_top_secret_root"
+        with patch.object(Path, "resolve", side_effect=PermissionError(f"Locked {secret_path}")):
+            with pytest.raises(DoshError) as exc_info:
+                ArtifactBoundary(runtime_root="Runtime", output_root="Output")
+
+        err = exc_info.value
+        assert err.code is FailureCode.INVALID_CONFIGURATION
+        assert "Failed to inspect" in err.message
+        assert str(secret_path) not in err.message
+        assert "Locked" not in err.message
+        assert err.__cause__ is not None
+        assert isinstance(err.__cause__, PermissionError)
+
+    def test_partial_artifact_stat_failure_during_finalize_raises_safe_dosh_without_raw_path(
+        self, boundary: ArtifactBoundary, tmp_path: Path
+    ) -> None:
+        ws = boundary.begin_run(run_id="run-stat-fail", requirement="ocr", preserve_partial=True)
+        intent = ArtifactIntent(name="part.json", role="partial", media_type="application/json")
+        ws.preserve_partial_artifact(intent, b'{"partial": true}')
+
+        secret_path = tmp_path / "secret_partial_path"
+        with patch.object(Path, "stat", side_effect=PermissionError(f"Locked {secret_path}")):
+            with pytest.raises(DoshError) as exc_info:
+                ws.finalize(success=False)
+
+        err = exc_info.value
+        assert err.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to inspect partial artifact for manifest generation." in err.message
+        assert str(secret_path) not in err.message
+        assert "Locked" not in err.message
+        assert err.__cause__ is not None
+        assert isinstance(err.__cause__, PermissionError)
