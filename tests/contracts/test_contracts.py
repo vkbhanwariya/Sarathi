@@ -7,6 +7,7 @@ from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactRef,
     CanonicalDocument,
+    Capability,
     CapabilityDeclaration,
     ConfidenceValue,
     CustomProfileOptions,
@@ -681,6 +682,7 @@ class TestDomainAgnosticContracts:
             "ArtifactIntent",
             "ArtifactRef",
             "CanonicalDocument",
+            "Capability",
             "CapabilityDeclaration",
             "ConfidenceValue",
             "CustomProfileOptions",
@@ -702,3 +704,85 @@ class TestDomainAgnosticContracts:
         assert set(sankalpa_module.__all__) == expected_exports
         for name in expected_exports:
             assert hasattr(sankalpa_module, name)
+
+
+class TestCapabilityProtocol:
+    def test_conforming_minimal_capability_satisfies_protocol(self) -> None:
+        decl = CapabilityDeclaration(
+            capability_id="test_cap",
+            plugin_id="test.plugin",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+
+        class ConformingCapability:
+            def __init__(self, declaration: CapabilityDeclaration) -> None:
+                self.declaration = declaration
+
+            def execute(
+                self,
+                request: Request,
+                context: ExecutionContext,
+                prior_result: Result | None = None,
+            ) -> Result:
+                return Result(data={"processed": True, "had_prior": prior_result is not None})
+
+        cap = ConformingCapability(decl)
+        assert isinstance(cap, Capability)
+        assert cap.declaration == decl
+
+        req = Request(
+            request_id="req-1",
+            requirement="test_cap",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("sample.txt"),
+                    display_name="Sample",
+                    size_bytes=10,
+                ),
+            ),
+        )
+        ctx = ExecutionContext(
+            run_id="run-1",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-1",
+        )
+
+        # First stage: prior_result is None
+        res1 = cap.execute(req, ctx, None)
+        assert isinstance(res1, Result)
+        assert res1.data == {"processed": True, "had_prior": False}
+
+        # Subsequent stage: prior_result is a Result
+        res2 = cap.execute(req, ctx, res1)
+        assert isinstance(res2, Result)
+        assert res2.data == {"processed": True, "had_prior": True}
+
+    def test_malformed_implementations_do_not_satisfy_protocol(self) -> None:
+        decl = CapabilityDeclaration(
+            capability_id="test_cap",
+            plugin_id="test.plugin",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+
+        class MissingDeclaration:
+            def execute(
+                self,
+                request: Request,
+                context: ExecutionContext,
+                prior_result: Result | None = None,
+            ) -> Result:
+                return Result()
+
+        class MissingExecute:
+            def __init__(self) -> None:
+                self.declaration = decl
+
+        assert not isinstance(MissingDeclaration(), Capability)
+        assert not isinstance(MissingExecute(), Capability)
+        assert not isinstance("not_a_capability", Capability)
+        assert not isinstance(123, Capability)
+        assert not isinstance(None, Capability)

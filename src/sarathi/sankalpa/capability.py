@@ -14,9 +14,47 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, runtime_checkable
 
 from sarathi.sankalpa.execution_profile import ExecutionProfile
+
+if TYPE_CHECKING:
+    from sarathi.sankalpa.context import ExecutionContext
+    from sarathi.sankalpa.request import Request
+    from sarathi.sankalpa.result import Result
+
+
+@runtime_checkable
+class Capability(Protocol):
+    """Canonical executable Capability protocol for Sarathi V2.
+
+    The single canonical interface for executable plugin capabilities in Shakti.
+    Exposes an immutable declaration and an execute method transforming an input
+    request and execution context into a canonical Result.
+    """
+
+    @property
+    def declaration(self) -> CapabilityDeclaration:
+        """Declared capability metadata and execution preferences."""
+        ...
+
+    def execute(
+        self,
+        request: Request,
+        context: ExecutionContext,
+        prior_result: Result | None = None,
+    ) -> Result:
+        """Execute capability logic on the provided request and context.
+
+        Args:
+            request: The canonical processing request.
+            context: The runtime execution context and tracing metadata.
+            prior_result: Optional result from a preceding pipeline stage (None if first stage).
+
+        Returns:
+            Canonical Result containing document data, artifact intents, confidence, and provenance.
+        """
+        ...
 
 
 class DeviceType(StrEnum):

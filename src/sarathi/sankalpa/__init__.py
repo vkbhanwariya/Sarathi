@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from sarathi.sankalpa.artifact import ArtifactIntent, ArtifactRef, InputRef
 from sarathi.sankalpa.capability import (
+    Capability,
     CapabilityDeclaration,
     DeviceRequirement,
     DeviceType,
@@ -43,6 +44,7 @@ __all__ = [
     "ArtifactIntent",
     "ArtifactRef",
     "CanonicalDocument",
+    "Capability",
     "CapabilityDeclaration",
     "ConfidenceValue",
     "CustomProfileOptions",
