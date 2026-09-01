@@ -317,7 +317,21 @@ class TestPranaLifecycle:
         assert start_ids == ("c1", "c2")
 
     def test_nabhi_exports(self) -> None:
-        expected = {"ArtifactBoundary", "CapabilityPlan", "Dvara", "Kosh", "Manthan", "Prana", "Pravaha"}
+        expected = {
+            "ArtifactBoundary",
+            "CapabilityPlan",
+            "Dvara",
+            "Kosh",
+            "LifecycleAction",
+            "LifecycleActionType",
+            "Manthan",
+            "Prana",
+            "Pravaha",
+            "QuarantineRecord",
+            "QuarantineStatus",
+            "QuarantineStore",
+            "RetryPolicy",
+        }
         assert set(nabhi_module.__all__) == expected
         for name in expected:
             assert hasattr(nabhi_module, name)

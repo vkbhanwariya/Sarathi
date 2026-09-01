@@ -740,9 +740,15 @@ class TestPublicExport:
             "CapabilityPlan",
             "Dvara",
             "Kosh",
+            "LifecycleAction",
+            "LifecycleActionType",
             "Manthan",
             "Prana",
             "Pravaha",
+            "QuarantineRecord",
+            "QuarantineStatus",
+            "QuarantineStore",
+            "RetryPolicy",
         }
         assert set(nabhi_module.__all__) == expected
         assert hasattr(nabhi_module, "ArtifactBoundary")
