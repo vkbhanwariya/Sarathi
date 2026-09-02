@@ -76,15 +76,29 @@ class DeviceInventory:
         return iter(self.devices)
 
     @classmethod
-    def default_inventory(cls) -> DeviceInventory:
-        """Create a factual default inventory using system CPU capacity."""
+    def default_inventory(cls, detect_accelerators: bool = False) -> DeviceInventory:
+        """Create a factual default inventory using system CPU capacity, optionally including hardware accelerators."""
         import os
 
         count_fn = getattr(os, "process_cpu_count", None)
         cpu_count = count_fn() if callable(count_fn) else os.cpu_count()
         actual_capacity = max(1, cpu_count or 1)
-        return cls(
-            [
-                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=actual_capacity),
-            ]
-        )
+
+        devices: list[DeviceInfo] = [
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=actual_capacity),
+        ]
+
+        if detect_accelerators:
+            try:
+                import openvino as ov
+
+                core = ov.Core()
+                available = core.available_devices
+                if "GPU" in available:
+                    devices.append(DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=2))
+                if "NPU" in available:
+                    devices.append(DeviceInfo(device_id="npu-0", device_type=DeviceType.NPU, capacity=2))
+            except Exception:
+                pass
+
+        return cls(devices)

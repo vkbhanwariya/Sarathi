@@ -31,6 +31,7 @@ from sarathi.mukha.state import (
     InputSelectionView,
     RunSummaryView,
     RunViewState,
+    WorkerPageView,
 )
 from sarathi.mukha.web.native_picker import NativePicker
 from sarathi.sankalpa import (
@@ -259,6 +260,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             requirement = body.get("requirement", "read_native")
             profile_str = body.get("profile", "instant")
             recursive = bool(body.get("recursive", True))
+            custom_options = body.get("custom_options")
+            if not isinstance(custom_options, dict):
+                custom_options = None
 
             if not isinstance(raw_paths, list) or not raw_paths:
                 self._send_json(400, {"ok": False, "error": "No input paths provided."})
@@ -284,7 +288,11 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
             try:
                 run_id = self.mukha_app.start_run(
-                    paths=paths, requirement=requirement, profile=prof, recursive=recursive
+                    paths=paths,
+                    requirement=requirement,
+                    profile=prof,
+                    recursive=recursive,
+                    custom_options=custom_options,
                 )
                 if run_id is None:
                     self._send_json(
@@ -503,6 +511,42 @@ class MukhaWebServer:
                 for idx, inp in enumerate(inputs)
             )
 
+            stage_names = {
+                "ocr": "Optical Character Recognition (OCR)",
+                "read_native": "Native Document Extraction",
+                "bank_statements": "Bank Statement Normalization",
+                "font_conversion": "Legacy Font Conversion",
+                "translation": "Machine Translation",
+            }
+            active_stage = stage_names.get(active_req.requirement, active_req.requirement) if active_req else "Processing"
+
+            allocated_device = "CPU"
+            try:
+                import openvino as ov
+
+                core = ov.Core()
+                avail = core.available_devices
+                if "GPU" in avail:
+                    allocated_device = "GPU"
+                elif "NPU" in avail:
+                    allocated_device = "NPU"
+            except Exception:
+                pass
+
+            if is_alive and inputs:
+                active_workers = (
+                    WorkerPageView(
+                        worker_id="1",
+                        file_display_name=inputs[0].display_name,
+                        stage=active_stage,
+                        device_type=allocated_device,
+                        elapsed_ns=max(0, now_ns - start_ns),
+                        status="active",
+                    ),
+                )
+            else:
+                active_workers = ()
+
             active_run_view = MukhaPresenter.build_monitor_view(
                 run_id=active_run_id,
                 status=status,
@@ -511,6 +555,7 @@ class MukhaWebServer:
                 files=files,
                 maruti_records=maruti_recs,
                 pramana_records=pramana_recs,
+                active_workers=active_workers,
             )
 
         # Capability availability facts
@@ -575,6 +620,7 @@ class MukhaWebServer:
         requirement: str = "read_native",
         profile: ExecutionProfile = ExecutionProfile.INSTANT,
         recursive: bool = True,
+        custom_options: Mapping[str, Any] | None = None,
     ) -> str | None:
         """Start a document processing run on a background worker thread.
 
@@ -605,6 +651,7 @@ class MukhaWebServer:
                 inputs=inputs,
                 profile=profile,
                 cancellation_token=token,
+                custom_options=custom_options or {},
             )
 
             self._active_run_id = run_id
@@ -624,14 +671,6 @@ class MukhaWebServer:
 
                     with self._lock:
                         self._last_result = result
-                        self._terminal_status = "SUCCESS"
-                        if run_id not in self._confirmed_artifacts:
-                            self._confirmed_artifacts[run_id] = {}
-                        for art in result.artifacts:
-                            if isinstance(art, ArtifactRef):
-                                self._confirmed_artifacts[run_id][art.artifact_id] = art
-                                if art.path and art.path.parent.exists():
-                                    self._run_output_roots[run_id] = art.path.parent
                         if result.metadata.get("output_dir"):
                             self._run_output_roots[run_id] = Path(result.metadata["output_dir"])
 
@@ -707,7 +746,7 @@ class MukhaWebServer:
             return False
 
     def reveal_output_directory(self, run_id: str) -> bool:
-        """Safely reveal the confirmed run output folder in Windows Explorer / OS file manager."""
+        """Safely reveal the confirmed run output folder in Windows Explorer / OS file manager in the foreground."""
         with self._lock:
             target_dir = self._run_output_roots.get(run_id)
         if target_dir is None or not target_dir.is_dir():
@@ -715,7 +754,21 @@ class MukhaWebServer:
 
         try:
             if sys.platform == "win32":
-                os.startfile(str(target_dir))
+                subprocess.Popen(["explorer.exe", str(target_dir)])
+                try:
+                    subprocess.run(
+                        [
+                            "powershell",
+                            "-NoProfile",
+                            "-Command",
+                            "(New-Object -ComObject WScript.Shell).AppActivate('Explorer')",
+                        ],
+                        capture_output=True,
+                        timeout=2.0,
+                        check=False,
+                    )
+                except Exception:
+                    pass
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", str(target_dir)])
             else:

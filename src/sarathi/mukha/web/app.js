@@ -16,6 +16,7 @@
         isRecursive: true,
         activeRunId: null,
         activeRunStatus: "idle",
+        lastAutoNavigatedRunId: null,
         lastState: null,
         pollIntervalMs: 500,
         pollTimer: null,
@@ -39,6 +40,8 @@
         inputCountsBadge: document.getElementById("input-counts-badge"),
         reqCards: document.querySelectorAll(".req-card"),
         selectProfile: document.getElementById("select-profile"),
+        ocrLangRow: document.getElementById("ocr-lang-row"),
+        selectOcrLang: document.getElementById("select-ocr-lang"),
         preflightSummary: document.getElementById("preflight-summary"),
         preflightIssues: document.getElementById("preflight-issues"),
         btnStartRun: document.getElementById("btn-start-run"),
@@ -118,6 +121,9 @@
         elements.screens.forEach((view) => {
             view.classList.toggle("active", view.id === `screen-${screenName}`);
         });
+        if (screenName === "home" && state.selectedPaths.length > 0 && state.activeRunStatus !== "RUNNING") {
+            elements.btnStartRun.disabled = false;
+        }
     }
 
     // Setup Global Keyboard Shortcuts (F1 - F5)
@@ -273,16 +279,22 @@
         if (state.selectedPaths.length === 0) return;
 
         elements.btnStartRun.disabled = true;
-        const res = await apiPost("/api/runs", {
+        const payload = {
             paths: state.selectedPaths,
             requirement: state.currentRequirement,
             profile: state.currentProfile,
             recursive: state.isRecursive,
-        });
+        };
+        if (state.currentRequirement === "ocr" && elements.selectOcrLang) {
+            payload.custom_options = { lang: elements.selectOcrLang.value };
+        }
+
+        const res = await apiPost("/api/runs", payload);
 
         if (res.ok && res.run_id) {
             state.activeRunId = res.run_id;
             state.activeRunStatus = "RUNNING";
+            state.lastAutoNavigatedRunId = null;
             switchScreen("monitor");
             pollState();
         } else {
@@ -421,8 +433,21 @@
                     .join("");
             }
 
-            // Auto-transition to summary upon completion
-            if (activeRun.status !== "RUNNING" && state.currentScreen === "monitor" && appState.terminal_summary) {
+            if (activeRun.status !== "RUNNING") {
+                state.activeRunStatus = activeRun.status;
+                if (state.selectedPaths.length > 0) {
+                    elements.btnStartRun.disabled = false;
+                }
+            }
+
+            // Auto-transition to summary once upon completion
+            if (
+                activeRun.status !== "RUNNING" &&
+                state.currentScreen === "monitor" &&
+                appState.terminal_summary &&
+                state.lastAutoNavigatedRunId !== activeRun.run_id
+            ) {
+                state.lastAutoNavigatedRunId = activeRun.run_id;
                 switchScreen("summary");
             }
         }
@@ -563,6 +588,10 @@
                 elements.reqCards.forEach((c) => c.classList.remove("active"));
                 card.classList.add("active");
                 state.currentRequirement = card.dataset.req;
+                updateOcrLangRowVisibility();
+                if (state.selectedPaths.length > 0 && state.activeRunStatus !== "RUNNING") {
+                    elements.btnStartRun.disabled = false;
+                }
             });
         });
 
@@ -577,8 +606,19 @@
         elements.btnOpenOutputFolder.addEventListener("click", handleOpenOutputFolder);
         elements.btnReturnHome.addEventListener("click", () => switchScreen("home"));
 
+        updateOcrLangRowVisibility();
+
         // Begin Initial State Polling
         pollState();
+    }
+
+    function updateOcrLangRowVisibility() {
+        if (!elements.ocrLangRow) return;
+        if (state.currentRequirement === "ocr") {
+            elements.ocrLangRow.classList.remove("hidden");
+        } else {
+            elements.ocrLangRow.classList.add("hidden");
+        }
     }
 
     // Start on DOM Ready

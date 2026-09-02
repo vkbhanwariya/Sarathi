@@ -9,6 +9,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "polars>=1.44.1",
     "pymupdf>=1.28.2",
+    "pytesseract>=0.3.13",
     "python-calamine>=0.8.2",
     "pyyaml>=6.0.2",
     "xlrd>=2.0.2",
@@ -23,6 +24,7 @@ ocr = [
     "numpy>=2.0.0",
     "openvino>=2025.0.0",
     "pillow>=11.0.0",
+    "pytesseract>=0.3.13",
     "rapidocr>=3.9.0",
 ]
 translation = [

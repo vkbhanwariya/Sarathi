@@ -66,14 +66,25 @@ class OCRCapability:
                 message=f"Profile '{request.profile.value}' is not supported by OCR capability.",
             )
 
-        # Validate custom options if CUSTOM profile
-        if request.profile == ExecutionProfile.CUSTOM and request.custom_options:
-            opt_engine = request.custom_options.get("engine")
-            if opt_engine is not None and opt_engine != "rapidocr":
-                raise DoshError(
-                    code=FailureCode.VALIDATION_FAILED,
-                    message=f"Requested OCR engine '{opt_engine}' is not supported or not installed.",
-                )
+        # Validate custom options
+        if request.custom_options:
+            if request.profile == ExecutionProfile.CUSTOM:
+                opt_engine = request.custom_options.get("engine")
+                if opt_engine is not None and opt_engine != "rapidocr":
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Requested OCR engine '{opt_engine}' is not supported or not installed.",
+                    )
+            opt_lang = request.custom_options.get("lang")
+            if opt_lang is not None:
+                clean_lang = str(opt_lang).lower().strip()
+                from sarathi.shakti.ocr.engine import _ALL_SUPPORTED_LANGS
+
+                if clean_lang not in _ALL_SUPPORTED_LANGS:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Requested OCR language '{opt_lang}' is not supported. Supported languages: 'devanagari', 'en_v6', 'en'.",
+                    )
 
         # Inspect prior_result for existing usable native documents using structural pattern matching
         prior_docs: dict[str, CanonicalDocument] = {}

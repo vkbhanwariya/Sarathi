@@ -23,6 +23,22 @@
       "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
       "size_bytes": 16631306
     },
+    "rec_devanagari": {
+      "filename": "devanagari_PP-OCRv5_rec_mobile.onnx",
+      "ocr_version": "PP-OCRv5",
+      "task_type": "rec",
+      "model_type": "mobile",
+      "sha256": "d6f0a906580e3fa6b324a318718f1f31f268b6ea8ef985f91c2012a37f52c91e",
+      "size_bytes": 7940361
+    },
+    "rec_v6_en": {
+      "filename": "PP-OCRv6_rec_small.onnx",
+      "ocr_version": "PP-OCRv6",
+      "task_type": "rec",
+      "model_type": "small",
+      "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+      "size_bytes": 21234383
+    },
     "cls": {
       "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
       "ocr_version": "PP-OCRv2.0",
