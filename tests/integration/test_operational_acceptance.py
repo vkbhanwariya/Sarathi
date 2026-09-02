@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+
 import pytest
 
 from sarathi.__main__ import main as cli_main
@@ -31,7 +31,6 @@ from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
     ArtifactRef,
-    Capability,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
@@ -39,9 +38,7 @@ from sarathi.sankalpa import (
     Result,
 )
 from sarathi.shakti.darshana import DarshanaCapability
-from sarathi.shakti.native_extraction import NativeExtractionCapability
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION as NATIVE_DECLARATION
-from sarathi.sutra import Settings
 
 
 @pytest.fixture
@@ -181,9 +178,7 @@ class TestOperationalAcceptanceE2E:
                 assert r.outcome == "success"
                 assert r.duration_ns >= 0
 
-    def test_e2e_real_artifact_commitment_through_agni_execute(
-        self, workspace_dirs: tuple[Path, Path, Path]
-    ) -> None:
+    def test_e2e_real_artifact_commitment_through_agni_execute(self, workspace_dirs: tuple[Path, Path, Path]) -> None:
         """Test full artifact lifecycle executed exclusively through Agni.execute()."""
         input_dir, runtime_dir, output_dir = workspace_dirs
         sample_file = input_dir / "input.txt"
@@ -327,9 +322,7 @@ class TestOperationalAcceptanceE2E:
             assert any(r.phase_name == "capability_execution" and r.outcome == "failure" for r in maruti_recs)
             assert any(r.phase_name == "quarantine_lifecycle" and r.run_id == ctx.run_id for r in maruti_recs)
 
-    def test_e2e_security_root_overlap_failure_path(
-        self, workspace_dirs: tuple[Path, Path, Path]
-    ) -> None:
+    def test_e2e_security_root_overlap_failure_path(self, workspace_dirs: tuple[Path, Path, Path]) -> None:
         """Test security failure path: input inside runtime staging root is rejected."""
         input_dir, runtime_dir, output_dir = workspace_dirs
         staged_file = runtime_dir / "Work" / "staged.txt"
@@ -409,9 +402,7 @@ class TestOperationalAcceptanceE2E:
         captured = capsys.readouterr()
         assert "Error: UNSUPPORTED" in captured.err
 
-    def test_e2e_no_duplicate_kosh_or_telemetry_path(
-        self, workspace_dirs: tuple[Path, Path, Path]
-    ) -> None:
+    def test_e2e_no_duplicate_kosh_or_telemetry_path(self, workspace_dirs: tuple[Path, Path, Path]) -> None:
         """Verify no duplicate Kosh, service, or telemetry path is created during runtime lifecycle."""
         input_dir, runtime_dir, output_dir = workspace_dirs
         darpana = Darpana(capacity=500)

@@ -18,19 +18,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 from sarathi.__main__ import main as cli_main
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana, TerminalRunHistoryStore, TerminalRunSummary
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.mukha import MukhaPresenter, intake_from_paths
 from sarathi.sankalpa import (
-    CanonicalDocument,
     CancellationToken,
+    CanonicalDocument,
     ExecutionContext,
-    ExecutionProfile,
     InputRef,
     PageData,
     Request,
@@ -85,7 +84,9 @@ def test_intake_from_paths_canonical_and_pure_presenter(tmp_path: Path) -> None:
     assert pf_p.eligible_count == 2
 
 
-def test_cli_intake_uses_effective_sutra_roots_and_prevents_self_ingestion(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_intake_uses_effective_sutra_roots_and_prevents_self_ingestion(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Proves CLI resolves effective roots from configuration and excludes them from ingestion."""
     rt_dir = tmp_path / "ConfiguredRuntime"
     out_dir = tmp_path / "ConfiguredOutput"

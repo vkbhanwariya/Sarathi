@@ -1,19 +1,18 @@
 """Tests for Cooperative Cancellation, Device Release, Partial Retention, and Telemetry."""
 
 import json
-from pathlib import Path
-import threading
 import time
+from pathlib import Path
+
 import pytest
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
-    CanonicalDocument,
     CancellationToken,
+    CanonicalDocument,
     ExecutionContext,
-    ExecutionProfile,
     InputRef,
     PageData,
     Request,
@@ -108,6 +107,7 @@ def test_cancellation_during_pipeline_execution(tmp_path: Path) -> None:
     class Stage1Cap:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -126,6 +126,7 @@ def test_cancellation_during_pipeline_execution(tmp_path: Path) -> None:
     class Stage2Cap:
         def __init__(self) -> None:
             from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
             self.executed = False
 

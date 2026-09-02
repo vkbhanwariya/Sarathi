@@ -1,18 +1,18 @@
 """Comprehensive unit tests for Nabhi — Canonical Artifact Boundary (ArtifactBoundary & RunWorkspace)."""
 
-from datetime import datetime, timezone
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
-import stat
 from typing import Any
 from unittest.mock import patch
+
 import pytest
 
+import sarathi.nabhi as nabhi_module
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import ArtifactBoundary
 from sarathi.nabhi.artifacts import RunWorkspace
-import sarathi.nabhi as nabhi_module
 from sarathi.sankalpa import ArtifactIntent, ArtifactRef, InputRef, ProvenanceRecord, WarningRecord
 
 
@@ -30,9 +30,7 @@ def boundary(workspace_roots: tuple[Path, Path]) -> ArtifactBoundary:
 
 
 class TestArtifactBoundaryInitialization:
-    def test_explicit_boundary_initialization_and_properties(
-        self, workspace_roots: tuple[Path, Path]
-    ) -> None:
+    def test_explicit_boundary_initialization_and_properties(self, workspace_roots: tuple[Path, Path]) -> None:
         runtime_root, output_root = workspace_roots
         boundary = ArtifactBoundary(runtime_root=runtime_root, output_root=output_root)
         assert boundary.runtime_root == runtime_root.resolve()
@@ -126,9 +124,7 @@ class TestRunWorkspaceLifecycle:
                 boundary.begin_run(run_id=invalid_run_id, requirement="ocr")
             assert exc_info.value.code is FailureCode.VALIDATION_FAILED
 
-    def test_custom_output_root_in_begin_run(
-        self, boundary: ArtifactBoundary, tmp_path: Path
-    ) -> None:
+    def test_custom_output_root_in_begin_run(self, boundary: ArtifactBoundary, tmp_path: Path) -> None:
         custom_out = tmp_path / "CustomOutput"
         ws = boundary.begin_run(run_id="run-custom", requirement="bank_statements", output_root=custom_out)
         assert ws.output_dir.is_relative_to(custom_out.resolve())
@@ -140,9 +136,7 @@ class TestRunWorkspaceLifecycle:
             boundary.begin_run(run_id="run-bad", requirement="ocr", output_root=nested_in_runtime)
         assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION
 
-    def test_unique_run_directory_creation_on_same_timestamp(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_unique_run_directory_creation_on_same_timestamp(self, boundary: ArtifactBoundary) -> None:
         fixed_time = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
         ws1 = boundary.begin_run(run_id="run-a", requirement="ocr", timestamp=fixed_time)
         ws2 = boundary.begin_run(run_id="run-b", requirement="ocr", timestamp=fixed_time)
@@ -205,9 +199,7 @@ class TestStagingAndCommit:
         # Staging directory is completely removed on finalization
         assert not ws.staging_dir.exists()
 
-    def test_staged_commit_uses_streaming_not_whole_file_reads(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_staged_commit_uses_streaming_not_whole_file_reads(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-stream", requirement="ocr")
         intent = ArtifactIntent(name="big.bin", role="data", media_type="application/octet-stream")
         content = b"X" * 200000
@@ -257,8 +249,12 @@ class TestStagingAndCommit:
         self, boundary: ArtifactBoundary
     ) -> None:
         ws = boundary.begin_run(run_id="run-dup-stage", requirement="ocr")
-        intent1 = ArtifactIntent(name="staged.txt", role="temp", media_type="text/plain", relative_path="sub/staged.txt")
-        intent2 = ArtifactIntent(name="staged2.txt", role="temp", media_type="text/plain", relative_path="sub/staged.txt")
+        intent1 = ArtifactIntent(
+            name="staged.txt", role="temp", media_type="text/plain", relative_path="sub/staged.txt"
+        )
+        intent2 = ArtifactIntent(
+            name="staged2.txt", role="temp", media_type="text/plain", relative_path="sub/staged.txt"
+        )
 
         # 1. Stage original file
         path1 = ws.stage_artifact(intent1, b"original staging payload")
@@ -315,7 +311,13 @@ class TestStagingAndCommit:
 
 class TestSecurityAndPathEscapeValidation:
     def test_path_traversal_attempts_rejected(self, boundary: ArtifactBoundary) -> None:
-        for bad_rel in ("../escape.txt", "../../root.txt", "sub/../../escape.txt", "/etc/passwd", "C:\\Windows\\out.txt"):
+        for bad_rel in (
+            "../escape.txt",
+            "../../root.txt",
+            "sub/../../escape.txt",
+            "/etc/passwd",
+            "C:\\Windows\\out.txt",
+        ):
             with pytest.raises((DoshError, ValueError)):
                 ArtifactIntent(name="bad", role="data", media_type="text/plain", relative_path=bad_rel)
 
@@ -404,12 +406,31 @@ class TestManifestSafetyAndOrdering:
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert "already finalized" in exc_info.value.message
 
-    def test_malformed_warning_entry_is_rejected_in_finalize(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_malformed_warning_entry_is_rejected_in_finalize(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-warn-bad", requirement="ocr")
         with pytest.raises(TypeError, match="must be a WarningRecord"):
             ws.finalize(success=True, warnings=[{"code": "BAD_TYPE"}])  # type: ignore
+
+    def test_finalize_in_memory_validation_error_preserves_artifacts_on_disk(
+        self, boundary: ArtifactBoundary
+    ) -> None:
+        """In-memory validation failures in finalize must abort before performing filesystem cleanup/deletions."""
+        ws = boundary.begin_run(run_id="run-val-order", requirement="ocr")
+        intent = ArtifactIntent(name="important.txt", role="data", media_type="text/plain")
+        ref = ws.commit_artifact(intent, b"critical data payload")
+        assert ref.path.exists()
+
+        # Finalize on failed run with invalid warning code (fails in-memory validation)
+        invalid_warn = WarningRecord(code="INVALID CODE WITH SPACES", message="bad code")
+        with pytest.raises(DoshError) as exc_info:
+            ws.finalize(success=False, warnings=[invalid_warn])
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+
+        # Because in-memory validation failed first, disk cleanup was not executed and artifacts remain intact
+        assert ref.path.exists()
+        assert ref.path.read_bytes() == b"critical data payload"
+        assert ws.is_finalized is False
+
 
 
 class TestCleanupAndPartialPreservation:
@@ -451,15 +472,17 @@ class TestCleanupAndPartialPreservation:
         assert preserved_path.exists()
         assert not ws2.staging_dir.exists()
 
-    def test_manifest_write_failure_cleans_unfinalized_run(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_manifest_write_failure_cleans_unfinalized_run(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-manifest-err", requirement="ocr")
         ws.stage_artifact(ArtifactIntent(name="tmp.bin", role="temp", media_type="text/plain"), b"staging data")
         intent = ArtifactIntent(name="test.txt", role="text", media_type="text/plain")
-        ref = ws.commit_artifact(intent, b"some content")
+        ws.commit_artifact(intent, b"some content")
 
-        with patch.object(RunWorkspace, "_write_bytes_atomically", side_effect=DoshError(FailureCode.EXECUTION_FAILED, "Disk write error")):
+        with patch.object(
+            RunWorkspace,
+            "_write_bytes_atomically",
+            side_effect=DoshError(FailureCode.EXECUTION_FAILED, "Disk write error"),
+        ):
             with pytest.raises(DoshError) as exc_info:
                 ws.finalize(success=True)
 
@@ -496,7 +519,11 @@ class TestCleanupAndPartialPreservation:
         ws.commit_artifact(ArtifactIntent(name="test.txt", role="text", media_type="text/plain"), b"data")
 
         secret_path = tmp_path / "secret_write_dir"
-        with patch.object(RunWorkspace, "_write_bytes_atomically", side_effect=DoshError(FailureCode.EXECUTION_FAILED, "Disk write error")):
+        with patch.object(
+            RunWorkspace,
+            "_write_bytes_atomically",
+            side_effect=DoshError(FailureCode.EXECUTION_FAILED, "Disk write error"),
+        ):
             with patch("shutil.rmtree", side_effect=PermissionError(f"Locked {secret_path}")):
                 with pytest.raises(DoshError) as exc_info:
                     ws.finalize(success=True)
@@ -521,7 +548,7 @@ class TestCleanupAndPartialPreservation:
                 ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
                 b"temp data",
             )
-            ref = ws.commit_artifact(
+            ws.commit_artifact(
                 ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
                 b"committed output",
             )
@@ -545,7 +572,7 @@ class TestCleanupAndPartialPreservation:
                 ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
                 b"temp data",
             )
-            ref = ws.commit_artifact(
+            ws.commit_artifact(
                 ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
                 b"normal output",
             )
@@ -571,7 +598,9 @@ class TestCleanupAndPartialPreservation:
         with patch("shutil.rmtree", side_effect=PermissionError(f"Locked {secret_path}")):
             with pytest.raises(DoshError) as exc_info:
                 with boundary.begin_run(run_id="run-exit-clean-err", requirement="ocr") as ws:
-                    ws.stage_artifact(ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp")
+                    ws.stage_artifact(
+                        ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp"
+                    )
 
         err = exc_info.value
         assert err.code is FailureCode.EXECUTION_FAILED
@@ -581,9 +610,7 @@ class TestCleanupAndPartialPreservation:
         assert err.__cause__ is not None
         assert isinstance(err.__cause__, PermissionError)
 
-    def test_context_manager_cleans_staging_and_committed_output_on_exception(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_context_manager_cleans_staging_and_committed_output_on_exception(self, boundary: ArtifactBoundary) -> None:
         staging_dir = None
         output_dir = None
         try:
@@ -594,7 +621,7 @@ class TestCleanupAndPartialPreservation:
                     ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"),
                     b"temp data",
                 )
-                ref = ws.commit_artifact(
+                ws.commit_artifact(
                     ArtifactIntent(name="out.txt", role="text", media_type="text/plain"),
                     b"some committed output",
                 )
@@ -619,7 +646,7 @@ class TestCleanupAndPartialPreservation:
                 staging_dir = ws.staging_dir
                 output_dir = ws.output_dir
                 intent_normal = ArtifactIntent(name="normal.txt", role="text", media_type="text/plain")
-                ref = ws.commit_artifact(intent_normal, b"normal output")
+                ws.commit_artifact(intent_normal, b"normal output")
 
                 intent_partial = ArtifactIntent(name="part.json", role="partial", media_type="application/json")
                 partial_file = ws.preserve_partial_artifact(intent_partial, b'{"part": 1}')
@@ -645,7 +672,9 @@ class TestCleanupAndPartialPreservation:
         with patch("shutil.rmtree", side_effect=PermissionError(f"Staging dir locked in {secret_leak_str}")):
             with pytest.raises(RuntimeError) as exc_info:
                 with boundary.begin_run(run_id="run-ctx-clean-err", requirement="ocr") as ws:
-                    ws.stage_artifact(ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp")
+                    ws.stage_artifact(
+                        ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp"
+                    )
                     raise RuntimeError("Primary algorithm failure")
 
             primary_err = exc_info.value
@@ -655,9 +684,7 @@ class TestCleanupAndPartialPreservation:
                     assert secret_leak_str not in note
                     assert "Staging dir locked" not in note
 
-    def test_cleanup_failure_is_observable_on_direct_call(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_cleanup_failure_is_observable_on_direct_call(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-clean-err", requirement="ocr")
         ws.stage_artifact(ArtifactIntent(name="t.bin", role="temp", media_type="application/octet-stream"), b"temp")
 
@@ -670,9 +697,7 @@ class TestCleanupAndPartialPreservation:
 
 
 class TestInputSourceImmutability:
-    def test_input_files_are_strictly_unmodified_and_unmoved(
-        self, boundary: ArtifactBoundary, tmp_path: Path
-    ) -> None:
+    def test_input_files_are_strictly_unmodified_and_unmoved(self, boundary: ArtifactBoundary, tmp_path: Path) -> None:
         input_file = tmp_path / "original_input.pdf"
         original_content = b"%PDF-1.4 Mock input file bytes"
         input_file.write_bytes(original_content)
@@ -691,6 +716,7 @@ class TestInputSourceImmutability:
         ws.finalize(success=True)
 
         # Assert input file is completely untouched
+        assert input_ref.source_path == input_file
         assert input_file.exists()
         assert input_file.read_bytes() == original_content
         input_stat_after = input_file.stat()
@@ -699,16 +725,16 @@ class TestInputSourceImmutability:
 
 
 class TestPrivacyAndErrorSafety:
-    def test_filesystem_failure_paths_do_not_leak_raw_paths(
-        self, boundary: ArtifactBoundary, tmp_path: Path
-    ) -> None:
+    def test_filesystem_failure_paths_do_not_leak_raw_paths(self, boundary: ArtifactBoundary, tmp_path: Path) -> None:
         secret_folder = tmp_path / "secret_folder_abc"
         secret_folder.mkdir()
         ws = boundary.begin_run(run_id="run-priv-err", requirement="ocr")
 
         with patch.object(Path, "open", side_effect=OSError(f"Access denied to {secret_folder}")):
             with pytest.raises(DoshError) as exc_info:
-                ws.commit_artifact(ArtifactIntent(name="x.bin", role="data", media_type="application/octet-stream"), b"data")
+                ws.commit_artifact(
+                    ArtifactIntent(name="x.bin", role="data", media_type="application/octet-stream"), b"data"
+                )
 
         err_msg = exc_info.value.message
         assert str(secret_folder) not in err_msg
@@ -781,9 +807,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         part_rel_paths = [p["relative_path"] for p in manifest_dict["partial_artifacts"]]
         assert "partial/partial_a/partial_b/partial_c/checkpoint.bin" in part_rel_paths
 
-    def test_manifest_last_and_workspace_locked_after_finalize(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_manifest_last_and_workspace_locked_after_finalize(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-manifest-last-lock", requirement="ocr")
         intent = ArtifactIntent(name="text.txt", role="text", media_type="text/plain")
 
@@ -835,9 +859,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert input_file.exists()
         assert input_file.read_bytes() == b"INPUT_BYTES_DO_NOT_DELETE"
 
-    def test_commit_staged_artifact_rollback_on_staging_unlink_failure(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_commit_staged_artifact_rollback_on_staging_unlink_failure(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-rollback-test", requirement="ocr")
         intent = ArtifactIntent(name="output.txt", role="text", media_type="text/plain")
         staged_path = ws.stage_artifact(intent, b"output data")
@@ -861,9 +883,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert not dest_path.exists()
         assert len(ws.committed_artifacts) == 0
 
-    def test_commit_staged_artifact_dual_failure_registers_surviving_artifact(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_commit_staged_artifact_dual_failure_registers_surviving_artifact(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-dual-fail-test", requirement="ocr")
         intent = ArtifactIntent(name="output.txt", role="text", media_type="text/plain")
         staged_path = ws.stage_artifact(intent, b"output data")
@@ -889,11 +909,26 @@ class TestNestedArtifactsAndManifestLastBoundary:
         ("bad_prov", "err_substr"),
         [
             (ProvenanceRecord(stage="stage/slash", plugin_id="p1", capability_id="c1"), "invalid stage identifier"),
-            (ProvenanceRecord(stage="s1", plugin_id="plugin..double", capability_id="c1"), "invalid plugin_id identifier"),
-            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="cap/slash"), "invalid capability_id identifier"),
-            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", region="region:colon"), "invalid region identifier"),
-            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", source_input_id="path/to/file"), "invalid source_input_id identifier"),
-            (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", timestamp_utc="not-a-timestamp"), "invalid timestamp_utc format"),
+            (
+                ProvenanceRecord(stage="s1", plugin_id="plugin..double", capability_id="c1"),
+                "invalid plugin_id identifier",
+            ),
+            (
+                ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="cap/slash"),
+                "invalid capability_id identifier",
+            ),
+            (
+                ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", region="region:colon"),
+                "invalid region identifier",
+            ),
+            (
+                ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", source_input_id="path/to/file"),
+                "invalid source_input_id identifier",
+            ),
+            (
+                ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", timestamp_utc="not-a-timestamp"),
+                "invalid timestamp_utc format",
+            ),
             (ProvenanceRecord(stage="s1", plugin_id="p1", capability_id="c1", page_number=-1), "invalid page_number"),
         ],
     )
@@ -968,10 +1003,9 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert warn_out == {"code": "SAFE_WARN_CODE"}
         assert "stage" not in warn_out
 
-    def test_input_sources_overlap_with_output_or_staging_rejected(
-        self, tmp_path: Path
-    ) -> None:
+    def test_input_sources_overlap_with_output_or_staging_rejected(self, tmp_path: Path) -> None:
         from sarathi.kavacha import Kavacha, SecurityPolicy
+
         policy = SecurityPolicy(
             allow_pii_access=False,
             allow_network_access=False,
@@ -998,9 +1032,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert "Unsafe source and destination overlap" in exc_info.value.message
         assert str(bad_input) not in exc_info.value.message
 
-    def test_artifact_boundary_init_validates_kavacha_before_creating_directories(
-        self, tmp_path: Path
-    ) -> None:
+    def test_artifact_boundary_init_validates_kavacha_before_creating_directories(self, tmp_path: Path) -> None:
         runtime_root = tmp_path / "nonexistent_runtime"
         output_root = tmp_path / "nonexistent_output"
 
@@ -1036,9 +1068,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert "Kavacha security service must be injected" in exc_info.value.message
         assert not custom_output.exists()
 
-    def test_begin_run_error_messages_do_not_echo_raw_values(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_begin_run_error_messages_do_not_echo_raw_values(self, boundary: ArtifactBoundary) -> None:
         malicious_run_id = "../../../etc/passwd"
         with pytest.raises(DoshError) as exc_run:
             boundary.begin_run(run_id=malicious_run_id, requirement="ocr")
@@ -1083,9 +1113,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
 
         assert not custom_output.exists()
 
-    def test_begin_run_overlap_with_custom_output_root_leaves_root_absent(
-        self, tmp_path: Path
-    ) -> None:
+    def test_begin_run_overlap_with_custom_output_root_leaves_root_absent(self, tmp_path: Path) -> None:
         from sarathi.kavacha import Kavacha, SecurityPolicy
 
         policy = SecurityPolicy(
@@ -1139,9 +1167,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert not (ws.output_dir / "test.txt").exists()
         assert len(ws.committed_artifacts) == 0
 
-    def test_finalize_rejects_non_bool_success_before_mutation(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_finalize_rejects_non_bool_success_before_mutation(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-finalize-type", requirement="ocr")
         staged_file = ws.stage_artifact(
             ArtifactIntent(name="temp.txt", role="temp", media_type="text/plain"),
@@ -1178,9 +1204,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert err.__cause__ is not None
         assert hasattr(err, "__cleanup_cause__")
 
-    def test_preserve_partial_foreign_path_rejected(
-        self, boundary: ArtifactBoundary, tmp_path: Path
-    ) -> None:
+    def test_preserve_partial_foreign_path_rejected(self, boundary: ArtifactBoundary, tmp_path: Path) -> None:
         ws = boundary.begin_run(run_id="run-foreign-part", requirement="ocr", preserve_partial=True)
         foreign_file = tmp_path / "foreign_data.txt"
         foreign_file.write_text("outside data")
@@ -1191,7 +1215,10 @@ class TestNestedArtifactsAndManifestLastBoundary:
             ws.preserve_partial_artifact(intent, foreign_file)
 
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
-        assert "Partial artifact source path must reside strictly within this run's staging directory." in exc_info.value.message
+        assert (
+            "Partial artifact source path must reside strictly within this run's staging directory."
+            in exc_info.value.message
+        )
         assert not (ws.output_dir / "partial" / "part.json").exists()
 
     def test_begin_run_timestamp_validation(self, boundary: ArtifactBoundary) -> None:
@@ -1199,15 +1226,14 @@ class TestNestedArtifactsAndManifestLastBoundary:
             boundary.begin_run(run_id="run-ts-1", requirement="ocr", timestamp="2026-09-01")  # type: ignore
 
         from datetime import datetime as dt
+
         naive_dt = dt(2026, 9, 1, 12, 0, 0)
         with pytest.raises(DoshError) as exc_info:
             boundary.begin_run(run_id="run-ts-2", requirement="ocr", timestamp=naive_dt)
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert "timestamp must be timezone-aware" in exc_info.value.message
 
-    def test_unexpected_non_os_error_in_writer_propagates_unchanged(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_unexpected_non_os_error_in_writer_propagates_unchanged(self, boundary: ArtifactBoundary) -> None:
         ws = boundary.begin_run(run_id="run-unexpected-err", requirement="ocr")
         intent = ArtifactIntent(name="test.txt", role="text", media_type="text/plain")
 
@@ -1221,9 +1247,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
             with pytest.raises(RuntimeError, match="Programmer assertion failure"):
                 ws.stage_artifact(intent, b"content")
 
-    def test_root_and_path_resolution_os_error_becomes_safe_dosh_without_raw_path(
-        self, tmp_path: Path
-    ) -> None:
+    def test_root_and_path_resolution_os_error_becomes_safe_dosh_without_raw_path(self, tmp_path: Path) -> None:
         secret_path = tmp_path / "secret_top_secret_root"
         with patch.object(Path, "resolve", side_effect=PermissionError(f"Locked {secret_path}")):
             with pytest.raises(DoshError) as exc_info:
@@ -1257,9 +1281,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert err.__cause__ is not None
         assert isinstance(err.__cause__, PermissionError)
 
-    def test_artifact_boundary_invalid_darpana_causes_zero_root_creation(
-        self, tmp_path: Path
-    ) -> None:
+    def test_artifact_boundary_invalid_darpana_causes_zero_root_creation(self, tmp_path: Path) -> None:
         runtime_root = tmp_path / "NonExistentRuntime"
         output_root = tmp_path / "NonExistentOutput"
 

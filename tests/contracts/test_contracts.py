@@ -1,11 +1,13 @@
 """Comprehensive unit tests for Sankalpa — Canonical Contracts."""
 
 from pathlib import Path
+
 import pytest
 
+import sarathi.sankalpa as sankalpa_module
 from sarathi.sankalpa import (
-    ArtifactPayload,
     ArtifactIntent,
+    ArtifactPayload,
     ArtifactRef,
     CanonicalDocument,
     Capability,
@@ -27,7 +29,6 @@ from sarathi.sankalpa import (
     TextSpan,
     WarningRecord,
 )
-import sarathi.sankalpa as sankalpa_module
 
 
 class TestExecutionProfile:
@@ -414,14 +415,14 @@ class TestRequestContracts:
 
         # Invalid requirement identifiers
         for invalid_req in (
-            "Bank_Statements",     # uppercase
-            "bank statements",     # space
-            "bank/statement",      # slash
-            "bank\\statement",     # backslash
-            "bank.statement",      # dot
-            "../bank",             # path traversal
-            "",                    # empty
-            "   ",                 # whitespace
+            "Bank_Statements",  # uppercase
+            "bank statements",  # space
+            "bank/statement",  # slash
+            "bank\\statement",  # backslash
+            "bank.statement",  # dot
+            "../bank",  # path traversal
+            "",  # empty
+            "   ",  # whitespace
         ):
             with pytest.raises(ValueError, match="safe stable identifier"):
                 Request(request_id="r1", requirement=invalid_req, inputs=(inp,))
@@ -649,7 +650,6 @@ class TestResultContracts:
             warn.context["extra"] = "val"  # type: ignore
         with pytest.raises(TypeError):
             res.metadata["run"] = "test"  # type: ignore
-
 
     def test_artifact_payload_contract(self) -> None:
         intent = ArtifactIntent(name="report.txt", role="report", media_type="text/plain")

@@ -1,7 +1,8 @@
-from typing import Any
 """Tests for Bilingual Sentence Translation Regression across both directions."""
 
 from pathlib import Path
+from typing import Any
+
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode

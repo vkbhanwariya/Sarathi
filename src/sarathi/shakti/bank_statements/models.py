@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import date, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
@@ -31,6 +31,8 @@ class DuplicateDecision(StrEnum):
     PROVEN_DUPLICATE = "proven_duplicate"
     PROBABLE_DUPLICATE = "probable_duplicate"
     DISTINCT = "distinct"
+    PROVEN = "proven_duplicate"
+    PROBABLE = "probable_duplicate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +148,10 @@ class Transaction:
     issues: tuple[ValidationIssue, ...] = ()
     provenance: tuple[ProvenanceRecord, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    posting_date: date | None = None
+    value_date: date | None = None
+    transaction_datetime: datetime | None = None
+    sequence_id: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.transaction_date, date):
@@ -157,7 +163,19 @@ class Transaction:
         if not self.bank_name or not isinstance(self.bank_name, str):
             raise ValueError("bank_name must be a non-empty string.")
         if self.account_identity is not None and not isinstance(self.account_identity, AccountIdentity):
-            raise TypeError(f"account_identity must be an AccountIdentity instance or None, got {type(self.account_identity)}.")
+            raise TypeError(
+                f"account_identity must be an AccountIdentity instance or None, got {type(self.account_identity)}."
+            )
+        if self.posting_date is not None and not isinstance(self.posting_date, date):
+            raise TypeError(f"posting_date must be a date instance or None, got {type(self.posting_date)}.")
+        if self.value_date is not None and not isinstance(self.value_date, date):
+            raise TypeError(f"value_date must be a date instance or None, got {type(self.value_date)}.")
+        if self.transaction_datetime is not None and not isinstance(self.transaction_datetime, datetime):
+            raise TypeError(
+                f"transaction_datetime must be a datetime instance or None, got {type(self.transaction_datetime)}."
+            )
+        if isinstance(self.sequence_id, bool) or not isinstance(self.sequence_id, int):
+            raise TypeError(f"sequence_id must be an integer, got {type(self.sequence_id)}.")
 
         _validate_decimal(self.debit, "debit", non_negative=True)
         _validate_decimal(self.credit, "credit", non_negative=True)
@@ -185,6 +203,12 @@ class BankStatement:
     issues: tuple[ValidationIssue, ...] = ()
     provenance: tuple[ProvenanceRecord, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    statement_id: str | None = None
+    account_holder: str | None = None
+    account_type: str | None = None
+    branch: str | None = None
+    ifsc: str | None = None
+    balance_as_on: Decimal | None = None
 
     def __post_init__(self) -> None:
         if not self.bank_name or not isinstance(self.bank_name, str):
@@ -192,10 +216,13 @@ class BankStatement:
         if not self.bank_profile or not isinstance(self.bank_profile, str):
             raise ValueError("bank_profile must be a non-empty string.")
         if self.account_identity is not None and not isinstance(self.account_identity, AccountIdentity):
-            raise TypeError(f"account_identity must be an AccountIdentity instance or None, got {type(self.account_identity)}.")
+            raise TypeError(
+                f"account_identity must be an AccountIdentity instance or None, got {type(self.account_identity)}."
+            )
 
         _validate_decimal(self.opening_balance, "opening_balance")
         _validate_decimal(self.closing_balance, "closing_balance")
+        _validate_decimal(self.balance_as_on, "balance_as_on")
 
         object.__setattr__(self, "transactions", _validate_seq(self.transactions, Transaction, "transactions"))
         object.__setattr__(self, "issues", _validate_seq(self.issues, ValidationIssue, "issues"))
@@ -213,6 +240,7 @@ class BankStatementConsolidationResult:
     total_credit: Decimal
     status: ValidationStatus = ValidationStatus.VALID
     issues: tuple[ValidationIssue, ...] = ()
+    transactions: tuple[Transaction, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "statements", _validate_seq(self.statements, BankStatement, "statements"))
@@ -220,3 +248,4 @@ class BankStatementConsolidationResult:
             raise TypeError(f"total_debit must be a Decimal, got {type(self.total_debit)}.")
         if not isinstance(self.total_credit, Decimal):
             raise TypeError(f"total_credit must be a Decimal, got {type(self.total_credit)}.")
+        object.__setattr__(self, "transactions", _validate_seq(self.transactions, Transaction, "transactions"))

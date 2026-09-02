@@ -2,8 +2,8 @@
 
 import pytest
 
-from sarathi.dosh import DoshError, FailureCode
 import sarathi.dosh as dosh_module
+from sarathi.dosh import DoshError, FailureCode
 
 
 class TestFailureCode:

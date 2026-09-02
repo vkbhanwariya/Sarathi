@@ -69,12 +69,8 @@ def _get_reader(
 
 def _has_usable_content(doc: CanonicalDocument) -> bool:
     """Check whether a CanonicalDocument contains usable text or table data."""
-    has_text = bool(doc.text and doc.text.strip()) or any(
-        bool(p.text and p.text.strip()) for p in doc.pages
-    )
-    has_tables = any(
-        len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables
-    ) or any(
+    has_text = bool(doc.text and doc.text.strip()) or any(bool(p.text and p.text.strip()) for p in doc.pages)
+    has_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables) or any(
         any(len(t.rows) > 0 or len(t.headers) > 0 for t in p.tables) for p in doc.pages
     )
     return has_text or has_tables

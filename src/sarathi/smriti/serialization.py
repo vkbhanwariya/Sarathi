@@ -74,15 +74,17 @@ def serialize_result(result: Result) -> str:
 
     payloads_list = []
     for p in result.artifact_payloads:
-        payloads_list.append({
-            "intent": {
-                "name": p.intent.name,
-                "role": p.intent.role,
-                "media_type": p.intent.media_type,
-                "metadata": dict(p.intent.metadata),
-            },
-            "content_b64": base64.b64encode(p.content).decode("ascii"),
-        })
+        payloads_list.append(
+            {
+                "intent": {
+                    "name": p.intent.name,
+                    "role": p.intent.role,
+                    "media_type": p.intent.media_type,
+                    "metadata": dict(p.intent.metadata),
+                },
+                "content_b64": base64.b64encode(p.content).decode("ascii"),
+            }
+        )
 
     provenance_list = [
         {

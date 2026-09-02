@@ -3,21 +3,8 @@
 import importlib.util
 from pathlib import Path
 from typing import Any
+
 import pytest
-
-_OCR_AVAILABLE = bool(
-    importlib.util.find_spec("rapidocr")
-    and importlib.util.find_spec("openvino")
-    and importlib.util.find_spec("PIL")
-    and importlib.util.find_spec("numpy")
-)
-
-if not _OCR_AVAILABLE:
-    pytest.skip(
-        "Advanced OCR tests require optional OCR dependencies (rapidocr, openvino, PIL, numpy).",
-        allow_module_level=True,
-    )
-
 from PIL import Image, ImageDraw, ImageFont
 
 from sarathi.dosh import DoshError, FailureCode
@@ -33,6 +20,19 @@ from sarathi.sankalpa import (
 from sarathi.shakti.ocr import OCRCapability
 from sarathi.shakti.ocr.engine import RapidOCREngine, TesseractFallbackAdapter
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION, PLUGIN_INFO
+
+_OCR_AVAILABLE = bool(
+    importlib.util.find_spec("rapidocr")
+    and importlib.util.find_spec("openvino")
+    and importlib.util.find_spec("PIL")
+    and importlib.util.find_spec("numpy")
+)
+
+if not _OCR_AVAILABLE:
+    pytest.skip(
+        "Advanced OCR tests require optional OCR dependencies (rapidocr, openvino, PIL, numpy).",
+        allow_module_level=True,
+    )
 
 
 class MockTesseractAdapter(TesseractFallbackAdapter):
@@ -93,7 +93,9 @@ def test_accurate_profile_executes_and_preserves_clean_cases(tmp_path: Path) -> 
 
     cap = OCRCapability()
     ctx = ExecutionContext("run-acc-1", "req-acc-1", "t-acc", "s-acc")
-    inp = InputRef(input_id="inp-acc-1", source_path=img_path, display_name="clean_order.png", size_bytes=img_path.stat().st_size)
+    inp = InputRef(
+        input_id="inp-acc-1", source_path=img_path, display_name="clean_order.png", size_bytes=img_path.stat().st_size
+    )
 
     req = Request(
         request_id="req-acc-1",
@@ -277,6 +279,7 @@ def test_tesseract_adapter_plain_text_has_none_confidence(monkeypatch: pytest.Mo
 def test_tesseract_adapter_handles_subprocess_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Proves subprocess error raises DoshError(EXECUTION_FAILED)."""
     import subprocess
+
     adapter = TesseractFallbackAdapter(executable_path="mock_tesseract.exe")
     monkeypatch.setattr(adapter, "is_available", lambda: True)
 
@@ -327,7 +330,9 @@ def test_custom_profile_validation_rejects_unsupported_engine(tmp_path: Path) ->
 
     cap = OCRCapability()
     ctx = ExecutionContext("run-cust-1", "req-cust-1", "t-cust", "s-cust")
-    inp = InputRef(input_id="inp-cust-1", source_path=img_path, display_name="doc.png", size_bytes=img_path.stat().st_size)
+    inp = InputRef(
+        input_id="inp-cust-1", source_path=img_path, display_name="doc.png", size_bytes=img_path.stat().st_size
+    )
 
     bad_req = Request(
         request_id="req-cust-1",
@@ -350,7 +355,9 @@ def test_custom_profile_executes_valid_options(tmp_path: Path) -> None:
 
     cap = OCRCapability()
     ctx = ExecutionContext("run-cust-2", "req-cust-2", "t-cust", "s-cust")
-    inp = InputRef(input_id="inp-cust-2", source_path=img_path, display_name="doc.png", size_bytes=img_path.stat().st_size)
+    inp = InputRef(
+        input_id="inp-cust-2", source_path=img_path, display_name="doc.png", size_bytes=img_path.stat().st_size
+    )
 
     valid_req = Request(
         request_id="req-cust-2",
@@ -443,7 +450,7 @@ def test_tesseract_adapter_real_subprocess_execution_with_tsv_parsing(tmp_path: 
         "5\t1\t1\t1\t1\t2\t65\t10\t60\t20\t92.0\tWORLD\n"
     )
     shim_script.write_text(
-        f'import sys\nsys.stdout.write({repr(tsv_content)})\nsys.exit(0)\n',
+        f"import sys\nsys.stdout.write({repr(tsv_content)})\nsys.exit(0)\n",
         encoding="utf-8",
     )
 
@@ -475,7 +482,7 @@ def test_tesseract_adapter_tsv_invalid_confidence_adversarial(tmp_path: Path) ->
         "5\t1\t1\t1\t1\t4\t195\t10\t60\t20\t80.0\tWORD4\n"
     )
     shim_script.write_text(
-        f'import sys\nsys.stdout.write({repr(tsv_content)})\nsys.exit(0)\n',
+        f"import sys\nsys.stdout.write({repr(tsv_content)})\nsys.exit(0)\n",
         encoding="utf-8",
     )
 

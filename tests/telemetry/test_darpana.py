@@ -1,11 +1,10 @@
 """Unit tests for Darpana - Telemetry & Tracing Service in Sarathi V2."""
 
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
 import pytest
 
-import sarathi.darpana as darpana_module
 from sarathi.darpana import (
     AccuracyValue,
     Darpana,
@@ -20,14 +19,11 @@ from sarathi.nabhi import (
     Kosh,
     Manthan,
     Pravaha,
-    QuarantineRecord,
-    QuarantineStatus,
     QuarantineStore,
     RetryPolicy,
 )
 from sarathi.sankalpa import (
     ArtifactIntent,
-    Capability,
     CapabilityDeclaration,
     ConfidenceValue,
     DeviceRequirement,
@@ -40,7 +36,6 @@ from sarathi.sankalpa import (
     Request,
     Result,
     SecurityDeclaration,
-    WarningRecord,
 )
 from sarathi.shakti.darshana import DarshanaCapability
 from sarathi.shakti.native_extraction import NativeExtractionCapability
@@ -355,9 +350,11 @@ class TestDarpanaGlobalWiring:
         self, execution_context: ExecutionContext
     ) -> None:
         darpana = Darpana(capacity=10)
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inventory, darpana=darpana)
 
         with pytest.raises(TypeError, match="requirement must be a DeviceRequirement instance"):
@@ -370,9 +367,11 @@ class TestDarpanaGlobalWiring:
         self, execution_context: ExecutionContext
     ) -> None:
         darpana = Darpana(capacity=10)
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inventory, darpana=darpana)
 
         with pytest.raises(TypeError, match="allocation must be an Allocation instance"):
@@ -394,14 +393,16 @@ class TestDarpanaGlobalWiring:
 
         # 2. Sutra loader
         conf_file = tmp_path / "settings.toml"
-        conf_file.write_text('[pipeline]\nmax_retries = 2\n', encoding="utf-8")
+        conf_file.write_text("[pipeline]\nmax_retries = 2\n", encoding="utf-8")
         settings = load_settings(conf_file, darpana=darpana, context=execution_context)
         assert settings.get_section("pipeline")["max_retries"] == 2
 
         # 3. Yantra & Pravaha setup
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inventory, darpana=darpana)
         manthan = Manthan(kosh)
 
@@ -508,9 +509,11 @@ class TestDarpanaGlobalWiring:
         )
         kosh.register_capability(extract_decl)
 
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inventory, darpana=darpana)
         manthan = Manthan(kosh)
 
@@ -582,7 +585,9 @@ class TestDarpanaGlobalWiring:
         kosh.register_capability(extract_decl)
 
         class FlakyTelemetryCapability(MockTelemetryCapability):
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 self.call_count += 1
                 if self.call_count == 1:
                     raise DoshError(FailureCode.EXECUTION_FAILED, "Temporary flake")
@@ -592,9 +597,11 @@ class TestDarpanaGlobalWiring:
                 )
 
         flaky_cap = FlakyTelemetryCapability(extract_decl)
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inventory, darpana=darpana)
         manthan = Manthan(kosh)
         q_store = QuarantineStore(tmp_path / "quarantine")
@@ -675,9 +682,11 @@ class TestDarpanaGlobalWiring:
             extract_decl,
             fail_error=DoshError(FailureCode.EXECUTION_FAILED, "Permanent failure"),
         )
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inventory, darpana=darpana)
         manthan = Manthan(kosh)
         q_store = QuarantineStore(tmp_path / "quarantine")

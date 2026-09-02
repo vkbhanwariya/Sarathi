@@ -128,7 +128,9 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
             bank_name=None,
             account_identity=None,
             matched_keywords=tuple(non_bank_matches),
-            reasons=("Document matched multiple non-bank document indicators (e.g. invoice/credit card/loan schedule).",),
+            reasons=(
+                "Document matched multiple non-bank document indicators (e.g. invoice/credit card/loan schedule).",
+            ),
         )
 
     matched_keywords: list[str] = [kw for kw in _BANK_INDICATORS if kw in full_text]
@@ -161,7 +163,9 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
     if not has_transaction_headers and document.text:
         for line in document.text.splitlines():
             l_lower = line.lower()
-            if ("date" in l_lower or "txn" in l_lower) and ("debit" in l_lower or "credit" in l_lower or "balance" in l_lower):
+            if ("date" in l_lower or "txn" in l_lower) and (
+                "debit" in l_lower or "credit" in l_lower or "balance" in l_lower
+            ):
                 has_transaction_headers = True
                 break
 

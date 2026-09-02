@@ -7,6 +7,7 @@ Exposes:
 from __future__ import annotations
 
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sarathi.sankalpa import (
@@ -152,6 +153,7 @@ class Yantra:
             context.cancellation_token.check_cancelled()
 
         allocation = self.allocate(capability.declaration.device_requirement, context=context)
+        exec_exc: BaseException | None = None
         try:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
@@ -179,5 +181,31 @@ class Yantra:
                     f"got {type(result).__name__}."
                 )
             return result
+        except BaseException as exc:
+            exec_exc = exc
+            raise
         finally:
-            self.release(allocation, context=context)
+            try:
+                self.release(allocation, context=context)
+            except Exception as rel_err:
+                if exec_exc is not None:
+                    exec_exc.add_note(f"Additionally, resource release failed: {rel_err}")
+                    if self._darpana is not None:
+                        from sarathi.darpana import MarutiRecord
+
+                        self._darpana.record_maruti(
+                            MarutiRecord(
+                                run_id=context.run_id,
+                                request_id=context.request_id,
+                                trace_id=context.trace_id,
+                                span_id=context.span_id,
+                                phase_name="device_release_failure",
+                                component="yantra.manager",
+                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                duration_ns=0,
+                                outcome="failure",
+                                attributes={"error_type": type(rel_err).__name__},
+                            )
+                        )
+                else:
+                    raise rel_err

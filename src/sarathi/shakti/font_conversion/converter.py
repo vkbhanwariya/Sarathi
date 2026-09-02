@@ -12,7 +12,7 @@ from sarathi.shakti.font_conversion.detector import load_font_profiles
 
 _CANONICAL_FONTS_DIR = Path(__file__).resolve().parents[4] / "data" / "fonts"
 _CANONICAL_ANUBHAVA_PATH = Path(__file__).resolve().parents[4] / "data" / "font_conversion" / "anubhava.toml"
-_KRUTI_CONSONANTS = ('(?:[DPRFYOCLHEUI]|x~)?(?:\\[k|\\?k|Fk|/k|Hk|\'k|\\"k|\\.k|[dxptTVBMrnuc;jyo\\?ghKs])')
+_KRUTI_CONSONANTS = "(?:[DPRFYOCLHEUI]|x~)?(?:\\[k|\\?k|Fk|/k|Hk|'k|\\\"k|\\.k|[dxptTVBMrnuc;jyo\\?ghKs])"
 _REPH_DEVANAGARI_RE = re.compile(r"([ऀ-ॿ])Z")
 
 

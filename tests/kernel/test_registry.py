@@ -2,9 +2,9 @@
 
 import pytest
 
+import sarathi.nabhi as nabhi_module
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import Kosh
-import sarathi.nabhi as nabhi_module
 from sarathi.sankalpa import (
     CapabilityDeclaration,
     ExecutionProfile,

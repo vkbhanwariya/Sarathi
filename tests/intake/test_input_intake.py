@@ -1,6 +1,7 @@
 """Tests for Canonical Input Intake, Discovery, Exclusion, and CLI Parity."""
 
 from pathlib import Path
+
 import pytest
 
 from sarathi.__main__ import main
@@ -141,7 +142,9 @@ def test_intake_kavacha_destination_overlap_enforcement(tmp_path: Path) -> None:
     assert exc_info.value.code is FailureCode.SECURITY_DENIED
 
 
-def test_cli_intake_folder_and_recursive_parity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_intake_folder_and_recursive_parity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Test CLI execution with folder input and --recursive flag."""
     folder = tmp_path / "cli_inbox"
     sub = folder / "sub"
@@ -156,24 +159,36 @@ def test_cli_intake_folder_and_recursive_parity(tmp_path: Path, monkeypatch: pyt
     output_root = tmp_path / "Output"
 
     # 1. Without --recursive -> finds only doc1.txt
-    exit_code = main([
-        "--input", str(folder),
-        "--runtime-root", str(runtime_root),
-        "--output-root", str(output_root),
-        "--requirement", "read_native",
-    ])
+    exit_code = main(
+        [
+            "--input",
+            str(folder),
+            "--runtime-root",
+            str(runtime_root),
+            "--output-root",
+            str(output_root),
+            "--requirement",
+            "read_native",
+        ]
+    )
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Status: Success" in captured.out
 
     # 2. With --recursive -> processes doc1 and doc2
-    exit_code_rec = main([
-        "--input", str(folder),
-        "--recursive",
-        "--runtime-root", str(runtime_root),
-        "--output-root", str(output_root),
-        "--requirement", "read_native",
-    ])
+    exit_code_rec = main(
+        [
+            "--input",
+            str(folder),
+            "--recursive",
+            "--runtime-root",
+            str(runtime_root),
+            "--output-root",
+            str(output_root),
+            "--requirement",
+            "read_native",
+        ]
+    )
     assert exit_code_rec == 0
     captured_rec = capsys.readouterr()
     assert "Status: Success" in captured_rec.out

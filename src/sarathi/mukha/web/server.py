@@ -7,19 +7,19 @@ modern Web UI without external dependencies, frameworks, or cloud leaks.
 
 from __future__ import annotations
 
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.resources
 import json
 import mimetypes
 import os
-from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Any
 import urllib.parse
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
@@ -136,7 +136,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             return None
 
         if length > self.MAX_BODY_SIZE:
-            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Request body exceeds size limit."})
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Request body exceeds size limit."}
+            )
             return None
 
         raw_body = self.rfile.read(length)
@@ -281,7 +283,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
 
             paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
             try:
-                run_id = self.mukha_app.start_run(paths=paths, requirement=requirement, profile=prof, recursive=recursive)
+                run_id = self.mukha_app.start_run(
+                    paths=paths, requirement=requirement, profile=prof, recursive=recursive
+                )
                 if run_id is None:
                     self._send_json(
                         409,

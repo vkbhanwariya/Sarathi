@@ -71,9 +71,7 @@ class DeviceType(StrEnum):
         for member in cls:
             if member.value == normalized:
                 return member
-        raise ValueError(
-            f"Invalid device type: {value!r}. Allowed devices: {[d.value for d in cls]}"
-        )
+        raise ValueError(f"Invalid device type: {value!r}. Allowed devices: {[d.value for d in cls]}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,9 +127,7 @@ class DeviceRequirement:
         object.__setattr__(self, "preferred_devices", tuple(preferred))
 
         if self.estimated_memory_bytes is not None and self.estimated_memory_bytes < 0:
-            raise ValueError(
-                f"estimated_memory_bytes cannot be negative (got {self.estimated_memory_bytes})."
-            )
+            raise ValueError(f"estimated_memory_bytes cannot be negative (got {self.estimated_memory_bytes}).")
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,9 +158,13 @@ class CapabilityDeclaration:
         if isinstance(self.supported_profiles, set):
             raise TypeError("supported_profiles must be an ordered sequence (list or tuple), not a set.")
         if not isinstance(self.supported_profiles, (list, tuple)):
-            raise TypeError(f"supported_profiles must be a sequence of ExecutionProfile, got {type(self.supported_profiles)}.")
+            raise TypeError(
+                f"supported_profiles must be a sequence of ExecutionProfile, got {type(self.supported_profiles)}."
+            )
         if not self.supported_profiles:
-            raise ValueError("supported_profiles cannot be empty; capabilities must explicitly declare their supported profiles.")
+            raise ValueError(
+                "supported_profiles cannot be empty; capabilities must explicitly declare their supported profiles."
+            )
 
         profiles: list[ExecutionProfile] = []
         seen_profiles: set[ExecutionProfile] = set()
@@ -177,17 +177,15 @@ class CapabilityDeclaration:
         object.__setattr__(self, "supported_profiles", tuple(profiles))
 
         if isinstance(self.supported_input_types, (list, tuple)):
-            cleaned_inputs = tuple(
-                t.strip().lower() for t in self.supported_input_types if t and t.strip()
-            )
+            cleaned_inputs = tuple(t.strip().lower() for t in self.supported_input_types if t and t.strip())
             object.__setattr__(self, "supported_input_types", cleaned_inputs)
         else:
-            raise TypeError(f"supported_input_types must be a sequence of strings, got {type(self.supported_input_types)}.")
+            raise TypeError(
+                f"supported_input_types must be a sequence of strings, got {type(self.supported_input_types)}."
+            )
 
         if isinstance(self.prerequisites, (list, tuple)):
-            cleaned_prereqs = tuple(
-                p.strip() for p in self.prerequisites if p and p.strip()
-            )
+            cleaned_prereqs = tuple(p.strip() for p in self.prerequisites if p and p.strip())
             object.__setattr__(self, "prerequisites", cleaned_prereqs)
         else:
             raise TypeError(f"prerequisites must be a sequence of strings, got {type(self.prerequisites)}.")

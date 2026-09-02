@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import io
 from contextlib import nullcontext
 from decimal import Decimal
-import io
 from pathlib import Path
 from typing import Sequence
 
@@ -19,12 +19,12 @@ from sarathi.sankalpa import (
     TableData,
     WarningRecord,
 )
-from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 from sarathi.shakti.bank_statements.consolidator import (
     build_parquet_artifact,
     build_xlsx_artifact,
     consolidate_statements,
 )
+from sarathi.shakti.bank_statements.converter import parse_date, parse_decimal_amount
 from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.detector import detect_bank_statement, load_bank_profiles
 from sarathi.shakti.bank_statements.mapper import HeaderMapper
@@ -35,8 +35,8 @@ from sarathi.shakti.bank_statements.models import (
     ValidationIssue,
     ValidationStatus,
 )
-from sarathi.shakti.bank_statements.normalizer import parse_date, parse_decimal_amount
 from sarathi.shakti.bank_statements.plugin import CAPABILITY_DECLARATION
+from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 from sarathi.shakti.bank_statements.table_locator import (
     TableType,
     classify_table,
@@ -76,7 +76,9 @@ class BankStatementCapability:
         docs: list[CanonicalDocument]
         if isinstance(prior_result.data, CanonicalDocument):
             docs = [prior_result.data]
-        elif isinstance(prior_result.data, (tuple, list)) and all(isinstance(d, CanonicalDocument) for d in prior_result.data):
+        elif isinstance(prior_result.data, (tuple, list)) and all(
+            isinstance(d, CanonicalDocument) for d in prior_result.data
+        ):
             docs = list(prior_result.data)
         else:
             raise DoshError(
@@ -100,8 +102,11 @@ class BankStatementCapability:
 
         for doc in docs:
             det_scope = (
-                self._darpana.time_scope(context=context, phase_name="bank_detection", component="shakti.bank_statements")
-                if self._darpana else nullcontext()
+                self._darpana.time_scope(
+                    context=context, phase_name="bank_detection", component="shakti.bank_statements"
+                )
+                if self._darpana
+                else nullcontext()
             )
             with det_scope:
                 detection = detect_bank_statement(doc, banks_dir=self._banks_dir)
@@ -121,7 +126,10 @@ class BankStatementCapability:
             )
 
             dedup_res = deduplicate_transactions(raw_txns)
-            doc_prov = tuple(p for p in prior_result.provenance if p.source_input_id == doc.source_input_id) or prior_result.provenance
+            doc_prov = (
+                tuple(p for p in prior_result.provenance if p.source_input_id == doc.source_input_id)
+                or prior_result.provenance
+            )
 
             statement = validate_statement_balances(
                 BankStatement(
@@ -157,18 +165,32 @@ class BankStatementCapability:
         bank_name: str,
         account_identity: AccountIdentity | None,
     ) -> tuple[list[Transaction], Decimal | None, Decimal | None, list[ValidationIssue]]:
-        all_tables: list[tuple[int, TableData]] = [(p_idx + 1, t) for p_idx, p in enumerate(doc.pages) for t in p.tables]
+        all_tables: list[tuple[int, TableData]] = [
+            (p_idx + 1, t) for p_idx, p in enumerate(doc.pages) for t in p.tables
+        ]
         all_tables.extend((1, t) for t in doc.tables if not any(t == e[1] for e in all_tables))
 
         if not all_tables and doc.text:
             import csv
+
             try:
                 reader = csv.reader(io.StringIO(doc.text))
                 rows = [r for r in reader if any(cell.strip() for cell in r)]
                 for r_idx, r in enumerate(rows):
                     r_str = " ".join(str(c).lower() for c in r)
-                    if ("date" in r_str or "txn" in r_str) and any(k in r_str for k in ("debit", "credit", "balance", "amount")):
-                        all_tables.append((1, TableData(name="text_table", headers=tuple(rows[r_idx]), rows=tuple(tuple(x) for x in rows[r_idx + 1:]))))
+                    if ("date" in r_str or "txn" in r_str) and any(
+                        k in r_str for k in ("debit", "credit", "balance", "amount")
+                    ):
+                        all_tables.append(
+                            (
+                                1,
+                                TableData(
+                                    name="text_table",
+                                    headers=tuple(rows[r_idx]),
+                                    rows=tuple(tuple(x) for x in rows[r_idx + 1 :]),
+                                ),
+                            )
+                        )
                         break
             except (csv.Error, ValueError):
                 pass
@@ -195,8 +217,7 @@ class BankStatementCapability:
             hdr_cells, data_rows = extracted_table
 
             mappings = {
-                m.canonical_field: m.column_index
-                for m in self._mapper.map_headers(hdr_cells, profile_id=profile_id)
+                m.canonical_field: m.column_index for m in self._mapper.map_headers(hdr_cells, profile_id=profile_id)
             }
             d_col, desc_col = mappings.get("date"), mappings.get("description")
             dr_col, cr_col = mappings.get("debit"), mappings.get("credit")
@@ -207,16 +228,19 @@ class BankStatementCapability:
             if d_col is None or not (any(c is not None for c in (dr_col, cr_col, b_col)) or amt_col is not None):
                 continue
 
+            amt_indices = [c for c in (dr_col, cr_col, amt_col, b_col) if c is not None]
             for row_idx, row in enumerate(data_rows, start=1):
                 row_cells = [str(c) for c in row]
-                match classify_row(row_cells, date_col_idx=d_col):
+                match classify_row(row_cells, date_col_idx=d_col, amount_col_indices=amt_indices):
                     case RowType.OPENING_BALANCE:
                         open_bal = parse_decimal_amount(_get_cell(row_cells, b_col)) or open_bal
                     case RowType.CLOSING_BALANCE:
                         close_bal = parse_decimal_amount(_get_cell(row_cells, b_col)) or close_bal
                     case RowType.CONTINUATION:
                         if raw_txns:
-                            cont_text = _get_cell(row_cells, desc_col) or " ".join(c.strip() for c in row_cells if c.strip())
+                            cont_text = _get_cell(row_cells, desc_col) or " ".join(
+                                c.strip() for c in row_cells if c.strip()
+                            )
                             if cont_text:
                                 prev = raw_txns[-1]
                                 updated_desc = f"{prev.description} {cont_text}".strip()
@@ -239,6 +263,10 @@ class BankStatementCapability:
                                 )
                     case RowType.TRANSACTION:
                         tx_date = parse_date(_get_cell(row_cells, d_col))
+                        # Inherit date from previous transaction if row has financial figures but lacks a date
+                        if tx_date is None and raw_txns:
+                            tx_date = raw_txns[-1].transaction_date
+
                         if tx_date is not None:
                             tx_debit = parse_decimal_amount(_get_cell(row_cells, dr_col))
                             tx_credit = parse_decimal_amount(_get_cell(row_cells, cr_col))
@@ -271,10 +299,11 @@ class BankStatementCapability:
                             tx_status = ValidationStatus.VALID
                             tx_issues: list[ValidationIssue] = []
                             if tx_debit is None and tx_credit is None:
-                                tx_status = ValidationStatus.WARNING
+                                tx_status = ValidationStatus.INVALID
                                 tx_iss = ValidationIssue(
                                     code="MISSING_AMOUNT",
                                     message=f"Row {row_idx}: Transaction amount direction could not be determined.",
+                                    severity="error",
                                     context={"row_index": row_idx},
                                 )
                                 tx_issues.append(tx_iss)

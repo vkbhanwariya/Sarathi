@@ -48,9 +48,26 @@ def compute_prior_result_digest(prior_result: Result | None) -> str:
 
     if isinstance(prior_result.data, CanonicalDocument):
         doc = prior_result.data
-        text_hash = hashlib.sha256(doc.text.encode("utf-8")).hexdigest()
+        doc_hasher = hashlib.sha256()
+        doc_hasher.update(doc.text.encode("utf-8"))
+
+        for page in doc.pages:
+            doc_hasher.update(f":p{page.page_number}:{page.text}:".encode("utf-8"))
+            for span in page.spans:
+                doc_hasher.update(f":s{span.text}:{span.confidence}:".encode("utf-8"))
+            for tbl in page.tables:
+                doc_hasher.update(f":th{'|'.join(tbl.headers)}:".encode("utf-8"))
+                for row in tbl.rows:
+                    doc_hasher.update(f":tr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
+
+        for tbl in doc.tables:
+            doc_hasher.update(f":dth{'|'.join(tbl.headers)}:".encode("utf-8"))
+            for row in tbl.rows:
+                doc_hasher.update(f":dtr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
+
+        content_hash = doc_hasher.hexdigest()
         prov_hash = "|".join(f"{p.capability_id}:{p.stage}" for p in prior_result.provenance)
-        material = f"{doc.document_id}:{doc.detected_type}:{len(doc.pages)}:{len(doc.tables)}:{text_hash}:{prov_hash}"
+        material = f"{doc.document_id}:{doc.detected_type}:{len(doc.pages)}:{len(doc.tables)}:{content_hash}:{prov_hash}"
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     # Generic factual type representation
@@ -68,8 +85,8 @@ def compute_cache_key(
     """Compute canonical deterministic cache key for a capability execution attempt."""
     fingerprint = compute_input_fingerprint(request.inputs)
     options = custom_options if custom_options is not None else request.custom_options
-    options_str = json.dumps(dict(options), sort_keys=True) if options else ""
-    metadata_str = json.dumps(dict(request.metadata), sort_keys=True) if request.metadata else ""
+    options_str = json.dumps(dict(options), sort_keys=True, default=str) if options else ""
+    metadata_str = json.dumps(dict(request.metadata), sort_keys=True, default=str) if request.metadata else ""
     prior_digest = compute_prior_result_digest(prior_result)
 
     content = (

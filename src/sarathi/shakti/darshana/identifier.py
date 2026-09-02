@@ -197,7 +197,11 @@ def identify_bytes(data: bytes | bytearray, *, extension_hint: str | None = None
         )
 
     # Standalone raw BIFF stream without OLE header
-    if clean_bytes.startswith(b"\x09\x08") or clean_bytes.startswith(b"\x09\x04") or clean_bytes.startswith(b"\x09\x02"):
+    if (
+        clean_bytes.startswith(b"\x09\x08")
+        or clean_bytes.startswith(b"\x09\x04")
+        or clean_bytes.startswith(b"\x09\x02")
+    ):
         return IdentificationFacts(
             media_type="application/vnd.ms-excel",
             format_name="xls_legacy",

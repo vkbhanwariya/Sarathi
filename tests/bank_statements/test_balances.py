@@ -2,7 +2,6 @@
 
 from datetime import date
 from decimal import Decimal
-import pytest
 
 from sarathi.shakti.bank_statements.models import (
     BankStatement,

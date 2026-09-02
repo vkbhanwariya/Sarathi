@@ -2,27 +2,19 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
 import pytest
 
-from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
-    DeviceRequirement,
-    DeviceType,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
     Request,
-    Result,
-    SecurityDeclaration,
 )
 from sarathi.shakti.darshana import (
-    CAPABILITY_DECLARATION,
     DarshanaCapability,
     IdentificationFacts,
-    PLUGIN_INFO,
-    identify_bytes,
     identify_file,
     identify_input,
     identify_request,

@@ -178,9 +178,7 @@ class RunWorkspace:
         self._staging_dir: Path = staging_dir
         self._output_dir: Path = output_dir
         self._preserve_partial: bool = preserve_partial
-        self._start_time_utc: datetime = (
-            start_time_utc if start_time_utc is not None else datetime.now(timezone.utc)
-        )
+        self._start_time_utc: datetime = start_time_utc if start_time_utc is not None else datetime.now(timezone.utc)
         self._darpana: Darpana | None = darpana
         self._context: ExecutionContext | None = context
 
@@ -796,7 +794,9 @@ class RunWorkspace:
         if not isinstance(success, bool):
             raise TypeError(f"success must be a bool, got {type(success).__name__}.")
 
-        effective_status = status if isinstance(status, str) and status.strip() else ("completed" if success else "failed")
+        effective_status = (
+            status if isinstance(status, str) and status.strip() else ("completed" if success else "failed")
+        )
 
         if metadata is not None and not isinstance(metadata, Mapping):
             raise TypeError(f"metadata must be a Mapping or None, got {type(metadata).__name__}.")
@@ -807,34 +807,7 @@ class RunWorkspace:
                 message="Run workspace is already finalized.",
             )
 
-        if not success or effective_status in ("failed", "cancelled"):
-            # Clean up ordinary committed artifacts from disk on failure or cancellation
-            for art in self._committed_artifacts:
-                try:
-                    if art.path.exists():
-                        art.path.unlink(missing_ok=True)
-                except OSError as err:
-                    raise DoshError(
-                        code=FailureCode.EXECUTION_FAILED,
-                        message="Failed to clean up committed artifacts on failed/cancelled run.",
-                    ) from err
-            self._committed_artifacts.clear()
-            self._committed_relative_paths.clear()
-
-            # Clean up partial artifacts if not preserving partials
-            if not self._preserve_partial:
-                partial_dir = self._output_dir / "partial"
-                if partial_dir.exists():
-                    try:
-                        shutil.rmtree(partial_dir)
-                    except OSError as err:
-                        raise DoshError(
-                            code=FailureCode.EXECUTION_FAILED,
-                            message="Failed to clean up partial directory on failed/cancelled run.",
-                        ) from err
-                self._partial_artifacts.clear()
-                self._partial_relative_paths.clear()
-
+        is_failure_or_cancelled = not success or effective_status in ("failed", "cancelled")
         partial_manifest_entries: list[dict[str, Any]] = []
         if self._preserve_partial:
             for p in self._partial_artifacts:
@@ -858,17 +831,21 @@ class RunWorkspace:
             "status": effective_status,
             "created_at_utc": self._start_time_utc.isoformat(),
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
-            "artifacts": [
-                {
-                    "artifact_id": art.artifact_id,
-                    "role": art.role,
-                    "media_type": art.media_type,
-                    "relative_path": str(art.path.relative_to(self._output_dir)).replace("\\", "/"),
-                    "size_bytes": art.size_bytes,
-                    "checksum_sha256": art.checksum_sha256,
-                }
-                for art in self._committed_artifacts
-            ],
+            "artifacts": (
+                []
+                if is_failure_or_cancelled
+                else [
+                    {
+                        "artifact_id": art.artifact_id,
+                        "role": art.role,
+                        "media_type": art.media_type,
+                        "relative_path": str(art.path.relative_to(self._output_dir)).replace("\\", "/"),
+                        "size_bytes": art.size_bytes,
+                        "checksum_sha256": art.checksum_sha256,
+                    }
+                    for art in self._committed_artifacts
+                ]
+            ),
             "partial_artifacts": partial_manifest_entries,
         }
 
@@ -971,20 +948,29 @@ class RunWorkspace:
 
         # Only after all validation and serialization succeed do we perform final filesystem cleanup
         try:
+            if not success or effective_status in ("failed", "cancelled"):
+                # Clean up ordinary committed artifacts from disk on failure or cancellation
+                for art in self._committed_artifacts:
+                    if art.path.exists():
+                        art.path.unlink(missing_ok=True)
+                self._committed_artifacts.clear()
+                self._committed_relative_paths.clear()
+
+                # Clean up partial artifacts if not preserving partials
+                if not self._preserve_partial:
+                    partial_dir = self._output_dir / "partial"
+                    if partial_dir.exists():
+                        shutil.rmtree(partial_dir)
+                    self._partial_artifacts.clear()
+                    self._partial_relative_paths.clear()
+
             if self._staging_dir.exists():
                 shutil.rmtree(self._staging_dir)
             self._staged_relative_paths.clear()
-
-            if not success and not self._preserve_partial:
-                partial_dir = self._output_dir / "partial"
-                if partial_dir.exists():
-                    shutil.rmtree(partial_dir)
-                self._partial_artifacts.clear()
-                self._partial_relative_paths.clear()
         except OSError as exc:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
-                message="Failed to clean up staging directory during finalization.",
+                message="Failed to clean up staging or artifacts during finalization.",
             ) from exc
 
         manifest_file = self._output_dir / "run-manifest.json"
@@ -1081,6 +1067,7 @@ class ArtifactBoundary:
 
         if kavacha is not None:
             from sarathi.kavacha import Kavacha as KavachaService
+
             if not isinstance(kavacha, KavachaService):
                 raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
 
@@ -1182,13 +1169,13 @@ class ArtifactBoundary:
         if input_sources is None:
             raise TypeError("input_sources cannot be None; pass a sequence or omit.")
         if not isinstance(input_sources, (list, tuple)):
-            raise TypeError(f"input_sources must be a sequence of Path, str, or InputRef, got {type(input_sources).__name__}.")
+            raise TypeError(
+                f"input_sources must be a sequence of Path, str, or InputRef, got {type(input_sources).__name__}."
+            )
 
         for i, src in enumerate(input_sources):
             if not isinstance(src, (Path, str, InputRef)):
-                raise TypeError(
-                    f"input_sources[{i}] must be a Path, str, or InputRef, got {type(src).__name__}."
-                )
+                raise TypeError(f"input_sources[{i}] must be a Path, str, or InputRef, got {type(src).__name__}.")
 
         if input_sources and self._kavacha is None:
             raise DoshError(

@@ -133,7 +133,9 @@ class Result:
                     raise TypeError(f"artifact_payloads[{i}] must be an ArtifactPayload, got {type(payload)}.")
             object.__setattr__(self, "artifact_payloads", tuple(self.artifact_payloads))
         else:
-            raise TypeError(f"artifact_payloads must be a sequence of ArtifactPayload, got {type(self.artifact_payloads)}.")
+            raise TypeError(
+                f"artifact_payloads must be a sequence of ArtifactPayload, got {type(self.artifact_payloads)}."
+            )
 
         if isinstance(self.artifacts, (list, tuple)):
             for i, art in enumerate(self.artifacts):

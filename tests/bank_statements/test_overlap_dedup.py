@@ -110,3 +110,74 @@ def test_sparse_balance_continuity_derivation() -> None:
     validated = validate_statement_balances(stmt)
     assert len(validated.issues) == 0
     assert validated.status.value == "valid"
+
+
+def test_consolidate_statements_flattens_and_sorts_chronologically() -> None:
+    """consolidate_statements flattens all valid transactions and sorts by (transaction_date, posting_date, sequence_id)."""
+    from sarathi.shakti.bank_statements.consolidator import consolidate_statements
+    from sarathi.shakti.bank_statements.models import ValidationStatus
+
+    ident = create_account_identity("SBI", "111122223333")
+
+    tx_invalid = Transaction(
+        transaction_date=date(2026, 1, 1),
+        description="Invalid Missing Amounts",
+        bank_name="SBI",
+        account_identity=ident,
+        status=ValidationStatus.INVALID,
+    )
+    tx_jan2 = Transaction(
+        transaction_date=date(2026, 1, 2),
+        description="Jan 2 Tx",
+        bank_name="SBI",
+        debit=Decimal("100.00"),
+        sequence_id=1,
+        account_identity=ident,
+    )
+    tx_jan5 = Transaction(
+        transaction_date=date(2026, 1, 5),
+        description="Jan 5 Tx",
+        bank_name="SBI",
+        credit=Decimal("500.00"),
+        sequence_id=2,
+        account_identity=ident,
+    )
+    stmt1 = BankStatement(
+        bank_name="SBI",
+        bank_profile="sbi",
+        account_identity=ident,
+        transactions=(tx_jan5, tx_jan2, tx_invalid),
+    )
+
+    tx_jan3_late_post = Transaction(
+        transaction_date=date(2026, 1, 3),
+        posting_date=date(2026, 1, 4),
+        description="Jan 3 Late Posting",
+        bank_name="SBI",
+        debit=Decimal("50.00"),
+        sequence_id=1,
+        account_identity=ident,
+    )
+    tx_jan3_same_post = Transaction(
+        transaction_date=date(2026, 1, 3),
+        posting_date=date(2026, 1, 3),
+        description="Jan 3 Same Day Posting",
+        bank_name="SBI",
+        credit=Decimal("300.00"),
+        sequence_id=2,
+        account_identity=ident,
+    )
+    stmt2 = BankStatement(
+        bank_name="SBI",
+        bank_profile="sbi",
+        account_identity=ident,
+        transactions=(tx_jan3_late_post, tx_jan3_same_post),
+    )
+
+    res = consolidate_statements([stmt1, stmt2])
+    # tx_invalid excluded from valid transactions
+    assert len(res.transactions) == 4
+    assert res.transactions[0].description == "Jan 2 Tx"
+    assert res.transactions[1].description == "Jan 3 Same Day Posting"
+    assert res.transactions[2].description == "Jan 3 Late Posting"
+    assert res.transactions[3].description == "Jan 5 Tx"

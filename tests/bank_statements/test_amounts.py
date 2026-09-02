@@ -1,9 +1,18 @@
 """Tests for Decimal Amount Normalization and Cleaning."""
 
 from decimal import Decimal
+
 import pytest
 
-from sarathi.shakti.bank_statements.normalizer import parse_decimal_amount
+from sarathi.shakti.bank_statements.converter import parse_decimal_amount
+
+
+def test_normalizer_deprecated_wrapper() -> None:
+    from sarathi.shakti.bank_statements import normalizer
+
+    with pytest.deprecated_call():
+        res = normalizer.parse_decimal_amount("100.00")
+    assert res == Decimal("100.00")
 
 
 def test_parse_valid_decimal_amounts() -> None:

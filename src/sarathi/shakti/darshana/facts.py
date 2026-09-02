@@ -46,7 +46,9 @@ class IdentificationFacts:
 
         if self.byte_signature is not None:
             if not isinstance(self.byte_signature, str):
-                raise TypeError(f"byte_signature must be a string when provided, got {type(self.byte_signature).__name__}.")
+                raise TypeError(
+                    f"byte_signature must be a string when provided, got {type(self.byte_signature).__name__}."
+                )
             clean_sig = self.byte_signature.strip()
             if not clean_sig:
                 raise ValueError("byte_signature must be a non-empty string when provided.")
@@ -54,7 +56,9 @@ class IdentificationFacts:
 
         if self.encoding_hint is not None:
             if not isinstance(self.encoding_hint, str):
-                raise TypeError(f"encoding_hint must be a string when provided, got {type(self.encoding_hint).__name__}.")
+                raise TypeError(
+                    f"encoding_hint must be a string when provided, got {type(self.encoding_hint).__name__}."
+                )
             clean_enc = self.encoding_hint.strip().lower()
             if not clean_enc:
                 raise ValueError("encoding_hint must be a non-empty string when provided.")
@@ -62,7 +66,9 @@ class IdentificationFacts:
 
         if self.extension_hint is not None:
             if not isinstance(self.extension_hint, str):
-                raise TypeError(f"extension_hint must be a string when provided, got {type(self.extension_hint).__name__}.")
+                raise TypeError(
+                    f"extension_hint must be a string when provided, got {type(self.extension_hint).__name__}."
+                )
             clean_ext = self.extension_hint.strip().lower()
             if clean_ext.startswith("."):
                 clean_ext = clean_ext[1:]

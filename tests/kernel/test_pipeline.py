@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
@@ -21,7 +22,6 @@ from sarathi.nabhi import (
 )
 from sarathi.sankalpa import (
     ArtifactIntent,
-    Capability,
     CapabilityDeclaration,
     DeviceRequirement,
     DeviceType,
@@ -86,7 +86,9 @@ class MockExecutableCapability:
         if self.transform_data_fn:
             new_data = self.transform_data_fn(prior_data)
         else:
-            new_data = f"{prior_data}+{self.declaration.capability_id}" if prior_data else self.declaration.capability_id
+            new_data = (
+                f"{prior_data}+{self.declaration.capability_id}" if prior_data else self.declaration.capability_id
+            )
 
         prior_warnings = prior_result.warnings if prior_result is not None else ()
         new_warnings = list(prior_warnings)
@@ -173,9 +175,11 @@ def manthan(kosh: Kosh) -> Manthan:
 
 @pytest.fixture
 def yantra() -> Yantra:
-    inv = DeviceInventory([
-        DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-    ])
+    inv = DeviceInventory(
+        [
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+        ]
+    )
     return Yantra(inv)
 
 
@@ -305,7 +309,9 @@ class TestPravahaPipelineEngine:
                 self.declaration = c_native
                 self.calls = 0
 
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 self.calls += 1
                 execution_order.append("read_native")
                 if prior_result is None or not prior_result.data:
@@ -316,7 +322,8 @@ class TestPravahaPipelineEngine:
                     )
                 return Result(
                     data=f"native+{prior_result.data}",
-                    provenance=prior_result.provenance + (ProvenanceRecord(stage="native", evidence={"detail": "resumed"}),),
+                    provenance=prior_result.provenance
+                    + (ProvenanceRecord(stage="native", evidence={"detail": "resumed"}),),
                     next_requirement=None,
                 )
 
@@ -391,7 +398,9 @@ class TestPravahaPipelineEngine:
                 self.declaration = c_native
                 self.calls = 0
 
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 self.calls += 1
                 if prior_result is None or not prior_result.data:
                     return Result(data="native", next_requirement="ocr")
@@ -906,7 +915,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
         c1_decl, _, _, _, _ = cap_decls
 
         class FlakyCapability(MockExecutableCapability):
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 self.call_count += 1
                 if self.call_count == 1:
                     raise DoshError(FailureCode.EXECUTION_FAILED, "Temporary flake")
@@ -1197,7 +1208,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
         c1_decl, _, _, _, _ = cap_decls
 
         class FlakyCapability(MockExecutableCapability):
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 self.call_count += 1
                 return Result(data=("retry_success",))
 
@@ -1327,7 +1340,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
 
         # Stage 1 capability execution succeeds and commits an artifact to the active RunWorkspace
         class Stage1ProducerCapability(MockExecutableCapability):
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 intent = ArtifactIntent(
                     name="stage1_report.txt",
                     role="report",
@@ -1339,7 +1354,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
 
         # Stage 2 capability fails with classified non-retryable error
         class Stage2FailingCapability(MockExecutableCapability):
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 raise DoshError(FailureCode.EXECUTION_FAILED, "Stage 2 execution failure")
 
         step1_cap = Stage1ProducerCapability(c1_decl)
@@ -1374,12 +1391,17 @@ class TestPravahaFailureLifecycleAndQuarantine:
     def test_quarantine_is_not_smriti_or_cache(self) -> None:
         """Prove architecturally that quarantine does not import, reference, or use Smriti caching."""
         import sys
-        import sarathi.nabhi.quarantine as q_mod
+
         import sarathi.nabhi.pravaha as p_mod
+        import sarathi.nabhi.quarantine as q_mod
 
         assert not hasattr(q_mod, "Smriti")
         assert not hasattr(p_mod, "Smriti")
-        assert "sarathi.smriti" not in sys.modules or sys.modules["sarathi.smriti"] is None or not hasattr(sys.modules.get("sarathi.smriti"), "get_cached_result")
+        assert (
+            "sarathi.smriti" not in sys.modules
+            or sys.modules["sarathi.smriti"] is None
+            or not hasattr(sys.modules.get("sarathi.smriti"), "get_cached_result")
+        )
 
     def test_retry_action_mismatched_request_id_fails_before_mutation(
         self,
@@ -1743,9 +1765,6 @@ class TestPravahaFailureLifecycleAndQuarantine:
         sample_context: ExecutionContext,
     ) -> None:
         from sarathi.kavacha import Kavacha, SecurityPolicy
-
-        c1_decl, _, _, _, _ = cap_decls
-        cap = MockExecutableCapability(c1_decl)
 
         # Restrictive policy denying external processing or custom secrets
         policy = SecurityPolicy(

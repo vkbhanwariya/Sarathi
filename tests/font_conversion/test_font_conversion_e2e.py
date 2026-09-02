@@ -1,7 +1,6 @@
 """End-to-End Operational Acceptance Test for Roopa Font Conversion."""
 
 from pathlib import Path
-import pytest
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana

@@ -147,9 +147,7 @@ class Pravaha:
         from sarathi.darpana import AccuracyValue, PramanaRecord
 
         accuracy_val = (
-            result.metadata.get("accuracy")
-            if isinstance(result.metadata.get("accuracy"), AccuracyValue)
-            else None
+            result.metadata.get("accuracy") if isinstance(result.metadata.get("accuracy"), AccuracyValue) else None
         )
 
         if result.confidence is not None or accuracy_val is not None:
@@ -498,6 +496,7 @@ class Pravaha:
 
                 # Smriti cache check
                 cache_key = None
+                cached_result = None
                 if self._smriti is not None:
                     from sarathi.darpana import MarutiRecord
 
@@ -535,126 +534,124 @@ class Pravaha:
                             )
                         )
 
-                    if cached_result is not None:
-                        prior_result = cached_result
-                        completed_capability_ids.add(cap.declaration.capability_id)
-                        continue
-
-                try:
-                    scope = (
-                        self._darpana.time_scope(
-                            context=current_ctx,
-                            phase_name="pipeline_stage",
-                            component="nabhi.pravaha",
-                            attributes={
-                                "capability_id": cap.declaration.capability_id,
-                                "plugin_id": cap.declaration.plugin_id,
-                            },
-                        )
-                        if self._darpana is not None
-                        else nullcontext()
-                    )
-                    with scope:
-                        prior_result = self._yantra.execute(
-                            capability=cap,
-                            request=current_request,
-                            context=current_ctx,
-                            prior_result=prior_result,
-                        )
-
-                    # Check cancellation immediately after Yantra execution before caching or continuation
-                    if current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled:
-                        current_ctx.cancellation_token.check_cancelled()
-
-                    if self._smriti is not None and cache_key is not None:
-                        self._smriti.put(cache_key, prior_result)
-
-                    self._record_pramana_if_available(cap, prior_result, current_ctx)
-
-                except DoshError as dosh_err:
-                    is_cancelled = bool(dosh_err.context.get("cancelled")) or (
-                        current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled
-                    )
-                    if is_cancelled:
-                        raise dosh_err
-
-                    current_attempt = 0
-                    is_retry_allowed = self._retry_policy.is_retryable(dosh_err.code, current_attempt)
-
-                    if not is_retry_allowed:
-                        # Non-retryable or zero-retries policy: mark terminal quarantine if store configured
-                        if self._quarantine_store is not None:
-                            rec = QuarantineRecord(
-                                quarantine_id=quar_id,
-                                input_hash=input_hash,
-                                run_id=current_ctx.run_id,
-                                request_id=current_ctx.request_id,
-                                trace_id=current_ctx.trace_id,
-                                capability_id=cap.declaration.capability_id,
-                                plugin_id=cap.declaration.plugin_id,
-                                failure_code=dosh_err.code,
-                                profile=current_ctx.profile.value,
-                                attempt_count=current_attempt,
-                                max_retries=self._retry_policy.max_retries,
-                                status=QuarantineStatus.TERMINAL,
-                                created_at_utc=datetime.now(timezone.utc).isoformat(),
-                                updated_at_utc=datetime.now(timezone.utc).isoformat(),
-                            )
-                            with self._quarantine_transition_scope(
+                if cached_result is not None:
+                    prior_result = cached_result
+                else:
+                    try:
+                        scope = (
+                            self._darpana.time_scope(
                                 context=current_ctx,
-                                capability_id=rec.capability_id,
-                                lifecycle_status=QuarantineStatus.TERMINAL.value,
-                                attempt_count=rec.attempt_count,
-                                max_retries=rec.max_retries,
-                            ):
-                                self._quarantine_store.quarantine(rec)
-                        raise dosh_err
-
-                    # Retry is allowed: initialize quarantine record and loop through canonical retry path
-                    init_rec = QuarantineRecord(
-                        quarantine_id=quar_id,
-                        input_hash=input_hash,
-                        run_id=current_ctx.run_id,
-                        request_id=current_ctx.request_id,
-                        trace_id=current_ctx.trace_id,
-                        capability_id=cap.declaration.capability_id,
-                        plugin_id=cap.declaration.plugin_id,
-                        failure_code=dosh_err.code,
-                        profile=current_ctx.profile.value,
-                        attempt_count=current_attempt,
-                        max_retries=self._retry_policy.max_retries,
-                        status=QuarantineStatus.QUARANTINED,
-                        created_at_utc=datetime.now(timezone.utc).isoformat(),
-                        updated_at_utc=datetime.now(timezone.utc).isoformat(),
-                    )
-                    assert self._quarantine_store is not None  # Enforced by __init__ when max_retries > 0
-                    with self._quarantine_transition_scope(
-                        context=current_ctx,
-                        capability_id=init_rec.capability_id,
-                        lifecycle_status=QuarantineStatus.QUARANTINED.value,
-                        attempt_count=init_rec.attempt_count,
-                        max_retries=init_rec.max_retries,
-                    ):
-                        self._quarantine_store.quarantine(init_rec)
-
-                    curr_rec = init_rec
-                    last_err: DoshError = dosh_err
-                    while self._retry_policy.is_retryable(last_err.code, curr_rec.attempt_count):
-                        try:
-                            retry_res, updated_rec = self._execute_retry_attempt(
-                                cap=cap,
+                                phase_name="pipeline_stage",
+                                component="nabhi.pravaha",
+                                attributes={
+                                    "capability_id": cap.declaration.capability_id,
+                                    "plugin_id": cap.declaration.plugin_id,
+                                },
+                            )
+                            if self._darpana is not None
+                            else nullcontext()
+                        )
+                        with scope:
+                            prior_result = self._yantra.execute(
+                                capability=cap,
                                 request=current_request,
                                 context=current_ctx,
-                                record=curr_rec,
                                 prior_result=prior_result,
                             )
-                            prior_result = retry_res
-                            break
-                        except DoshError as retry_err:
-                            last_err = retry_err
-                            curr_rec = self._quarantine_store.get_record(curr_rec.quarantine_id) or curr_rec
-                            if not self._retry_policy.is_retryable(last_err.code, curr_rec.attempt_count):
-                                raise retry_err
+
+                        # Check cancellation immediately after Yantra execution before caching or continuation
+                        if current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled:
+                            current_ctx.cancellation_token.check_cancelled()
+
+                        if self._smriti is not None and cache_key is not None:
+                            self._smriti.put(cache_key, prior_result)
+
+                        self._record_pramana_if_available(cap, prior_result, current_ctx)
+
+                    except DoshError as dosh_err:
+                        is_cancelled = bool(dosh_err.context.get("cancelled")) or (
+                            current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled
+                        )
+                        if is_cancelled:
+                            raise dosh_err
+
+                        current_attempt = 0
+                        is_retry_allowed = self._retry_policy.is_retryable(dosh_err.code, current_attempt)
+
+                        if not is_retry_allowed:
+                            # Non-retryable or zero-retries policy: mark terminal quarantine if store configured
+                            if self._quarantine_store is not None:
+                                rec = QuarantineRecord(
+                                    quarantine_id=quar_id,
+                                    input_hash=input_hash,
+                                    run_id=current_ctx.run_id,
+                                    request_id=current_ctx.request_id,
+                                    trace_id=current_ctx.trace_id,
+                                    capability_id=cap.declaration.capability_id,
+                                    plugin_id=cap.declaration.plugin_id,
+                                    failure_code=dosh_err.code,
+                                    profile=current_ctx.profile.value,
+                                    attempt_count=current_attempt,
+                                    max_retries=self._retry_policy.max_retries,
+                                    status=QuarantineStatus.TERMINAL,
+                                    created_at_utc=datetime.now(timezone.utc).isoformat(),
+                                    updated_at_utc=datetime.now(timezone.utc).isoformat(),
+                                )
+                                with self._quarantine_transition_scope(
+                                    context=current_ctx,
+                                    capability_id=rec.capability_id,
+                                    lifecycle_status=QuarantineStatus.TERMINAL.value,
+                                    attempt_count=rec.attempt_count,
+                                    max_retries=rec.max_retries,
+                                ):
+                                    self._quarantine_store.quarantine(rec)
+                            raise dosh_err
+
+                        # Retry is allowed: initialize quarantine record and loop through canonical retry path
+                        init_rec = QuarantineRecord(
+                            quarantine_id=quar_id,
+                            input_hash=input_hash,
+                            run_id=current_ctx.run_id,
+                            request_id=current_ctx.request_id,
+                            trace_id=current_ctx.trace_id,
+                            capability_id=cap.declaration.capability_id,
+                            plugin_id=cap.declaration.plugin_id,
+                            failure_code=dosh_err.code,
+                            profile=current_ctx.profile.value,
+                            attempt_count=current_attempt,
+                            max_retries=self._retry_policy.max_retries,
+                            status=QuarantineStatus.QUARANTINED,
+                            created_at_utc=datetime.now(timezone.utc).isoformat(),
+                            updated_at_utc=datetime.now(timezone.utc).isoformat(),
+                        )
+                        assert self._quarantine_store is not None  # Enforced by __init__ when max_retries > 0
+                        with self._quarantine_transition_scope(
+                            context=current_ctx,
+                            capability_id=init_rec.capability_id,
+                            lifecycle_status=QuarantineStatus.QUARANTINED.value,
+                            attempt_count=init_rec.attempt_count,
+                            max_retries=init_rec.max_retries,
+                        ):
+                            self._quarantine_store.quarantine(init_rec)
+
+                        curr_rec = init_rec
+                        last_err: DoshError = dosh_err
+                        while self._retry_policy.is_retryable(last_err.code, curr_rec.attempt_count):
+                            try:
+                                retry_res, updated_rec = self._execute_retry_attempt(
+                                    cap=cap,
+                                    request=current_request,
+                                    context=current_ctx,
+                                    record=curr_rec,
+                                    prior_result=prior_result,
+                                )
+                                prior_result = retry_res
+                                break
+                            except DoshError as retry_err:
+                                last_err = retry_err
+                                curr_rec = self._quarantine_store.get_record(curr_rec.quarantine_id) or curr_rec
+                                if not self._retry_policy.is_retryable(last_err.code, curr_rec.attempt_count):
+                                    raise retry_err
 
                 if prior_result.next_requirement is not None:
                     break
@@ -678,9 +675,9 @@ class Pravaha:
             # Determine resumption stages
             current_cap_id = cap.declaration.capability_id
             resuming_stages = (
-                (current_cap_id,) + current_plan.capability_ids[executed_stage_idx + 1:]
+                (current_cap_id,) + current_plan.capability_ids[executed_stage_idx + 1 :]
                 if prior_result.resume_self
-                else current_plan.capability_ids[executed_stage_idx + 1:]
+                else current_plan.capability_ids[executed_stage_idx + 1 :]
             )
 
             # Resolve next plan for next_req_id through Manthan

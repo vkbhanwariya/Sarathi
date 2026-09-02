@@ -1,7 +1,5 @@
 """Tests for Bank Statement Header Mapping."""
 
-import pytest
-
 from sarathi.shakti.bank_statements.mapper import HeaderMapper
 
 

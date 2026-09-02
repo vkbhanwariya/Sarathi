@@ -1,14 +1,12 @@
 """Tests for Retained Safe Run History, Privacy Guarantees, Reopening, and Storage Isolation."""
 
 from pathlib import Path
+
 import pytest
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana, TerminalRunSummary
-from sarathi.darpana.history import TerminalRunHistoryStore
-from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
-    CancellationToken,
     InputRef,
     Request,
 )
@@ -163,7 +161,6 @@ def test_history_storage_failure_isolation(tmp_path: Path) -> None:
 
 def test_agni_execution_records_history_via_sutra_settings(tmp_path: Path) -> None:
     """Test end-to-end Agni execution automatically writes run history when enabled in Sutra."""
-    history_file = tmp_path / "history.jsonl"
     settings = Settings(
         data={
             "telemetry": {
@@ -198,9 +195,49 @@ def test_agni_execution_records_history_via_sutra_settings(tmp_path: Path) -> No
         assert history[0].status == "completed"
         assert history[0].artifact_count >= 0
 
-    # 2. Reopen Darpana on resolved history file in Runtime/Telemetry and confirm run is preserved
     resolved_history_file = tmp_path / "Runtime" / "Telemetry" / "custom_history.jsonl"
     reopened_darpana = Darpana(capacity=100, history_path=resolved_history_file, history_format="jsonl")
     reopened_history = reopened_darpana.query_run_history(limit=5)
     assert len(reopened_history) == 1
     assert reopened_history[0].request_id == "req-e2e-hist"
+
+
+def test_agni_failure_sanitizes_request_id_and_preserves_root_exception(tmp_path: Path) -> None:
+    """When pipeline fails, request_id is safely sanitized and the root error is not masked."""
+    from sarathi.dosh import DoshError
+
+    settings = Settings(
+        data={
+            "telemetry": {
+                "history_enabled": True,
+                "history_path": "failure_history.jsonl",
+                "history_format": "jsonl",
+            }
+        }
+    )
+
+    with Agni(
+        settings=settings,
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+    ) as agni:
+        doc_file = tmp_path / "doc.txt"
+        doc_file.write_text("sample content", encoding="utf-8")
+
+        # Request with requirement that fails Manthan resolution
+        req = Request(
+            request_id="req-failing-test",
+            requirement="nonexistent_capability",
+            inputs=(InputRef("inp-1", doc_file, "doc.txt", 14),),
+        )
+        with pytest.raises(DoshError) as exc_info:
+            agni.execute(req)
+
+        # Root error is preserved
+        assert "No capability registered" in exc_info.value.message
+
+        # Failure summary was safely recorded
+        history = agni.darpana.query_run_history(limit=5)
+        assert len(history) == 1
+        assert history[0].status == "failed"
+        assert history[0].request_id == "req-failing-test"

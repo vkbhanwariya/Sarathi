@@ -84,9 +84,7 @@ def read_pdf(
                     extracted_rows = tab.extract()
                     if extracted_rows and len(extracted_rows) > 0:
                         headers = tuple(str(h or "") for h in extracted_rows[0])
-                        data_rows = tuple(
-                            tuple(val for val in row) for row in extracted_rows[1:]
-                        )
+                        data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
                         t_obj = TableData(
                             name=f"Page_{page_num}_Table_{t_idx}",
                             headers=headers,
@@ -233,9 +231,7 @@ def read_xls_legacy(
     rb = xlrd.open_workbook(file_contents=data)
     for sheet_idx in range(rb.nsheets):
         sheet = rb.sheet_by_index(sheet_idx)
-        rows_list: list[tuple[Any, ...]] = [
-            tuple(sheet.row_values(r)) for r in range(sheet.nrows)
-        ]
+        rows_list: list[tuple[Any, ...]] = [tuple(sheet.row_values(r)) for r in range(sheet.nrows)]
         if rows_list and len(rows_list) > 0:
             headers = tuple(str(c or "") for c in rows_list[0])
             data_rows = tuple(rows_list[1:])

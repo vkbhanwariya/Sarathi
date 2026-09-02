@@ -1,10 +1,11 @@
 from pathlib import Path
 from typing import Any
+
 import pytest
 
+import sarathi.yantra as yantra_module
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
-    Capability,
     CapabilityDeclaration,
     DeviceRequirement,
     DeviceType,
@@ -13,7 +14,6 @@ from sarathi.sankalpa import (
     InputRef,
     Request,
     Result,
-    WarningRecord,
 )
 from sarathi.yantra import (
     Allocation,
@@ -21,7 +21,6 @@ from sarathi.yantra import (
     DeviceInventory,
     Yantra,
 )
-import sarathi.yantra as yantra_module
 
 
 class TestDeviceInfoAndInventory:
@@ -84,10 +83,12 @@ class TestDeviceInfoAndInventory:
 class TestResourceAllocation:
     @pytest.fixture
     def inventory(self) -> DeviceInventory:
-        return DeviceInventory([
-            DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=1),
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=2),
-        ])
+        return DeviceInventory(
+            [
+                DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=1),
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=2),
+            ]
+        )
 
     def test_preferred_device_allocated_first(self, inventory: DeviceInventory) -> None:
         yantra = Yantra(inventory)
@@ -127,9 +128,9 @@ class TestResourceAllocation:
         )
 
         # 1 GPU + 2 CPU = 3 slots total
-        alloc1 = yantra.allocate(req)  # GPU slot 1/1
-        alloc2 = yantra.allocate(req)  # CPU slot 1/2
-        alloc3 = yantra.allocate(req)  # CPU slot 2/2
+        yantra.allocate(req)  # GPU slot 1/1
+        yantra.allocate(req)  # CPU slot 1/2
+        yantra.allocate(req)  # CPU slot 2/2
 
         # 4th allocation should fail with RESOURCE_UNAVAILABLE
         with pytest.raises(DoshError) as exc_info:
@@ -260,9 +261,7 @@ class TestResourceAllocation:
         with pytest.raises(TypeError, match="inventory must be a DeviceInventory instance"):
             Yantra("invalid_inventory")  # type: ignore
 
-        inv = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=1)
-        ])
+        inv = DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=1)])
         yantra = Yantra(inv)
 
         with pytest.raises(TypeError, match="requirement must be a DeviceRequirement"):
@@ -282,9 +281,7 @@ class TestResourceAllocation:
 class TestYantraExecution:
     @pytest.fixture
     def inventory_1_slot(self) -> DeviceInventory:
-        return DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=1)
-        ])
+        return DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=1)])
 
     @pytest.fixture
     def sample_request(self) -> Request:
@@ -436,7 +433,12 @@ class TestYantraExecution:
             yantra.execute(capability=BadReturnCapability(), request=sample_request, context="not_a_ctx")  # type: ignore
 
         with pytest.raises(TypeError, match="prior_result must be a Result"):
-            yantra.execute(capability=BadReturnCapability(), request=sample_request, context=sample_context, prior_result="not_a_res")  # type: ignore
+            yantra.execute(
+                capability=BadReturnCapability(),
+                request=sample_request,
+                context=sample_context,
+                prior_result="not_a_res",
+            )  # type: ignore
 
         # Bad return type raises TypeError and releases allocation
         with pytest.raises(TypeError, match="must return a Result instance"):
@@ -445,3 +447,37 @@ class TestYantraExecution:
         # Capacity is restored
         alloc = yantra.allocate(decl.device_requirement)
         yantra.release(alloc)
+
+    def test_execute_preserves_original_exception_when_release_fails(
+        self,
+        inventory_1_slot: DeviceInventory,
+        sample_request: Request,
+        sample_context: ExecutionContext,
+    ) -> None:
+        """When capability fails and release also fails, the capability's primary exception is preserved."""
+        from unittest.mock import patch
+
+        yantra = Yantra(inventory_1_slot)
+        decl = CapabilityDeclaration(
+            capability_id="test_cap",
+            plugin_id="test.plugin",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
+        primary_err = RuntimeError("Real capability crash")
+
+        class FailingCap:
+            def __init__(self) -> None:
+                self.declaration = decl
+
+            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Any:
+                raise primary_err
+
+        with patch.object(yantra, "release", side_effect=OSError("Device bus failure on release")):
+            with pytest.raises(RuntimeError) as exc_info:
+                yantra.execute(capability=FailingCap(), request=sample_request, context=sample_context)
+
+        # The primary error from capability is preserved, not masked by the release failure
+        assert exc_info.value is primary_err
+        # Note attached with release failure details
+        assert any("Device bus failure on release" in note for note in getattr(primary_err, "__notes__", []))

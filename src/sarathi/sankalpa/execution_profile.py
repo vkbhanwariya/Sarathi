@@ -30,10 +30,7 @@ class ExecutionProfile(StrEnum):
         for member in cls:
             if member.value == normalized:
                 return member
-        raise ValueError(
-            f"Invalid execution profile: {value!r}. "
-            f"Allowed profiles: {[p.value for p in cls]}"
-        )
+        raise ValueError(f"Invalid execution profile: {value!r}. Allowed profiles: {[p.value for p in cls]}")
 
 
 @dataclass(frozen=True, slots=True)

@@ -139,9 +139,7 @@ class TestMukhaInputAndIntakeTruth:
         dir_f = tmp_path / "somedir"
         dir_f.mkdir()
 
-        refs, sel, pf = MukhaPresenter.intake_from_paths(
-            [valid_f1, valid_f2, missing_f, dir_f, valid_f1]
-        )
+        refs, sel, pf = MukhaPresenter.intake_from_paths([valid_f1, valid_f2, missing_f, dir_f, valid_f1])
 
         assert len(refs) == 2
         assert refs[0].display_name == "doc1.pdf"
@@ -310,8 +308,16 @@ class TestMukhaTelemetryAndRuntimeTruth:
 
     def test_five_second_rule_for_long_running_operations(self) -> None:
         workers = [
-            WorkerPageView(worker_id="w-1", file_display_name="fast.pdf", stage="OCR", device_type="GPU", elapsed_ns=2_000_000_000),
-            WorkerPageView(worker_id="w-2", file_display_name="slow.pdf", stage="Inference", device_type="CPU", elapsed_ns=8_000_000_000),
+            WorkerPageView(
+                worker_id="w-1", file_display_name="fast.pdf", stage="OCR", device_type="GPU", elapsed_ns=2_000_000_000
+            ),
+            WorkerPageView(
+                worker_id="w-2",
+                file_display_name="slow.pdf",
+                stage="Inference",
+                device_type="CPU",
+                elapsed_ns=8_000_000_000,
+            ),
         ]
 
         state = MukhaPresenter.build_monitor_view(
@@ -465,3 +471,43 @@ class TestMukhaSummaryAndArtifactsTruth:
         )
 
         assert len(summary.artifacts) == 0
+
+    def test_monitor_view_terminal_status_casing_resilient(self) -> None:
+        """Terminal file counting and status sticky logic is resilient to casing differences."""
+        from sarathi.mukha.state import FileRunView, RunViewState
+
+        files = [
+            FileRunView(input_id="f1", display_name="f1.pdf", ordinal=1, status="success", elapsed_ns=10, current_stage="done"),
+            FileRunView(input_id="f2", display_name="f2.pdf", ordinal=2, status="SUCCESS", elapsed_ns=10, current_stage="done"),
+            FileRunView(input_id="f3", display_name="f3.pdf", ordinal=3, status="Completed", elapsed_ns=10, current_stage="done"),
+            FileRunView(input_id="f4", display_name="f4.pdf", ordinal=4, status="FAILED", elapsed_ns=10, current_stage="err"),
+            FileRunView(input_id="f5", display_name="f5.pdf", ordinal=5, status="running", elapsed_ns=10, current_stage="ocr"),
+        ]
+
+        # Prior terminal state
+        prev_state = RunViewState(
+            run_id="run-1",
+            status="completed",
+            elapsed_ns=1000,
+            terminal_files=3,
+            total_files=5,
+            current_focus=None,
+            files=(),
+            active_workers=(),
+            device_progress=(),
+            long_running=(),
+        )
+
+        monitor = MukhaPresenter.build_monitor_view(
+            run_id="run-1",
+            status="in_progress",
+            started_at_ns=0,
+            now_ns=1000,
+            files=files,
+            current_state=prev_state,
+        )
+
+        # 4 files are terminal (f1, f2, f3, f4), f5 is running
+        assert monitor.terminal_files == 4
+        # Since prev_state was "completed" (terminal), effective_status is sticky
+        assert monitor.status == "completed"

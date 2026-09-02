@@ -96,11 +96,14 @@ class TranslationCapability:
 
         # Resolve translation direction
         req_direction = request.metadata.get("direction") if request.metadata else None
-        direction = self._detector.resolve_direction(full_text, requested_direction=str(req_direction) if req_direction else None)
+        direction = self._detector.resolve_direction(
+            full_text, requested_direction=str(req_direction) if req_direction else None
+        )
 
         scope = (
             self._darpana.time_scope(context=context, phase_name="translation", component="shakti.translation")
-            if self._darpana else nullcontext()
+            if self._darpana
+            else nullcontext()
         )
         with scope:
             # 1. Translate main document text
@@ -116,11 +119,14 @@ class TranslationCapability:
                         cell_res = self._engine.translate(str(cell), direction=direction)
                         r_cells.append(cell_res.translated_text)
                     t_rows.append(tuple(r_cells))
-                t_headers = tuple(
-                    self._engine.translate(str(h), direction=direction).translated_text
-                    for h in t.headers
-                ) if t.headers else ()
-                converted_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
+                t_headers = (
+                    tuple(self._engine.translate(str(h), direction=direction).translated_text for h in t.headers)
+                    if t.headers
+                    else ()
+                )
+                converted_tables.append(
+                    TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata)
+                )
 
             # 3. Translate page text if present
             converted_pages: list[PageData] = []
@@ -130,11 +136,24 @@ class TranslationCapability:
                 for t in p.tables:
                     t_rows = []
                     for row in t.rows:
-                        r_cells = [self._engine.translate(str(cell), direction=direction).translated_text for cell in row]
+                        r_cells = [
+                            self._engine.translate(str(cell), direction=direction).translated_text for cell in row
+                        ]
                         t_rows.append(tuple(r_cells))
-                    t_headers = tuple(self._engine.translate(str(h), direction=direction).translated_text for h in t.headers) if t.headers else ()
+                    t_headers = (
+                        tuple(self._engine.translate(str(h), direction=direction).translated_text for h in t.headers)
+                        if t.headers
+                        else ()
+                    )
                     p_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
-                converted_pages.append(PageData(page_number=p.page_number, text=p_res.translated_text, tables=tuple(p_tables), metadata=p.metadata))
+                converted_pages.append(
+                    PageData(
+                        page_number=p.page_number,
+                        text=p_res.translated_text,
+                        tables=tuple(p_tables),
+                        metadata=p.metadata,
+                    )
+                )
 
             translated_doc = CanonicalDocument(
                 document_id=doc.document_id,

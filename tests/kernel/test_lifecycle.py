@@ -1,11 +1,10 @@
 """Unit tests for Nabhi — Core Kernel: Prana Lifecycle Manager."""
 
-from typing import Any
 import pytest
 
+import sarathi.nabhi as nabhi_module
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import Prana
-import sarathi.nabhi as nabhi_module
 
 
 class MockComponent:
@@ -156,9 +155,7 @@ class TestPranaLifecycle:
 
         assert len(prana) == 0
 
-    def test_start_failure_triggers_reverse_cleanup_and_preserves_error_and_traceback(
-        self, prana: Prana
-    ) -> None:
+    def test_start_failure_triggers_reverse_cleanup_and_preserves_error_and_traceback(self, prana: Prana) -> None:
         events: list[str] = []
         original_err = RuntimeError("Component 2 failed to initialize")
 
@@ -198,9 +195,7 @@ class TestPranaLifecycle:
         prana.close_all()
         assert events == []
 
-    def test_failed_start_is_never_retried_in_subsequent_start_all(
-        self, prana: Prana
-    ) -> None:
+    def test_failed_start_is_never_retried_in_subsequent_start_all(self, prana: Prana) -> None:
         events: list[str] = []
         err_c2 = RuntimeError("c2 startup failure")
 
@@ -240,9 +235,7 @@ class TestPranaLifecycle:
         assert c1.close_count == 1
         assert c2.close_count == 0
 
-    def test_close_failure_still_attempts_remaining_cleanup_and_raises_first(
-        self, prana: Prana
-    ) -> None:
+    def test_close_failure_still_attempts_remaining_cleanup_and_raises_first(self, prana: Prana) -> None:
         events: list[str] = []
         err_c3 = RuntimeError("Close failed on c3")
         err_c2 = ValueError("Close failed on c2")

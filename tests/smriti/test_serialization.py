@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+
 import pytest
 
 from sarathi.sankalpa import (

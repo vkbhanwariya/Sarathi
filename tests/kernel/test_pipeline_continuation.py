@@ -1,8 +1,7 @@
 """End-to-end integration tests for dynamic pipeline continuation on scanned inputs."""
 
-from pathlib import Path
 from decimal import Decimal
-import pytest
+from pathlib import Path
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana
@@ -74,7 +73,7 @@ def test_bank_statement_scanned_continuation_e2e(tmp_path: Path) -> None:
     execution_order: list[str] = []
 
     native_mock = ScannedNativeReaderMock()
-    
+
     ocr_table = TableData(
         name="transactions",
         headers=("Txn Date", "Description", "Debit", "Credit", "Balance"),
@@ -99,6 +98,7 @@ def test_bank_statement_scanned_continuation_e2e(tmp_path: Path) -> None:
     class TrackingNativeCapability:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -108,6 +108,7 @@ def test_bank_statement_scanned_continuation_e2e(tmp_path: Path) -> None:
     class TrackingOCRCapability:
         def __init__(self) -> None:
             from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -185,6 +186,7 @@ def test_font_conversion_scanned_continuation_e2e(tmp_path: Path) -> None:
     class TrackingNativeCapability:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -194,6 +196,7 @@ def test_font_conversion_scanned_continuation_e2e(tmp_path: Path) -> None:
     class TrackingOCRCapability:
         def __init__(self) -> None:
             from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -242,7 +245,7 @@ def test_font_conversion_scanned_continuation_e2e(tmp_path: Path) -> None:
 
 def test_generic_arbitrary_capability_continuation(tmp_path: Path) -> None:
     """Proves generic continuation with arbitrary capability IDs (no domain names hardcoded)."""
-    from sarathi.sankalpa import CapabilityDeclaration, PluginInfo, SecurityDeclaration
+    from sarathi.sankalpa import CapabilityDeclaration
 
     input_file = tmp_path / "generic_input.txt"
     input_file.write_text("generic input data", encoding="utf-8")
@@ -274,7 +277,9 @@ def test_generic_arbitrary_capability_continuation(tmp_path: Path) -> None:
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
             execution_trace.append("alpha_cap")
-            return Result(data={"final_result": "alpha_completed", "prior": prior_result.data if prior_result else None})
+            return Result(
+                data={"final_result": "alpha_completed", "prior": prior_result.data if prior_result else None}
+            )
 
     class BetaCap:
         def __init__(self) -> None:
@@ -334,6 +339,7 @@ def test_translation_font_conversion_continuation_e2e(tmp_path: Path) -> None:
     class MockNativeCap:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -350,6 +356,7 @@ def test_translation_font_conversion_continuation_e2e(tmp_path: Path) -> None:
     class MockFontConvCap:
         def __init__(self) -> None:
             from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -367,6 +374,7 @@ def test_translation_font_conversion_continuation_e2e(tmp_path: Path) -> None:
     class MockTranslationCap:
         def __init__(self) -> None:
             from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -419,6 +427,7 @@ def test_font_conversion_ocr_continuation_e2e(tmp_path: Path) -> None:
     class MockNativeEmptyCap:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -435,6 +444,7 @@ def test_font_conversion_ocr_continuation_e2e(tmp_path: Path) -> None:
     class MockOCRCap:
         def __init__(self) -> None:
             from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -451,6 +461,7 @@ def test_font_conversion_ocr_continuation_e2e(tmp_path: Path) -> None:
     class MockFontConvCap:
         def __init__(self) -> None:
             from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -499,6 +510,7 @@ def test_translation_ocr_continuation_e2e(tmp_path: Path) -> None:
     class MockNativeEmptyCap:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -515,6 +527,7 @@ def test_translation_ocr_continuation_e2e(tmp_path: Path) -> None:
     class MockOCRCap:
         def __init__(self) -> None:
             from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -531,6 +544,7 @@ def test_translation_ocr_continuation_e2e(tmp_path: Path) -> None:
     class MockTranslationCap:
         def __init__(self) -> None:
             from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -567,3 +581,80 @@ def test_translation_ocr_continuation_e2e(tmp_path: Path) -> None:
 
     assert execution_order == ["read_native", "translation", "ocr", "translation"]
     assert res.data.text == "Hello World"
+
+
+def test_pipeline_continuation_with_cached_handoff(tmp_path: Path) -> None:
+    """A cache hit returning next_requirement evaluates handoff identically to cold execution."""
+    from sarathi.smriti import SmritiCache, compute_cache_key
+
+    input_file = tmp_path / "scanned_cache.pdf"
+    input_file.write_bytes(b"%PDF-1.4 scanned")
+
+    execution_order = []
+
+    class MockNativeHandoffCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.native_extraction import CAPABILITY_DECLARATION
+
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("native_cold")
+            doc = CanonicalDocument(
+                document_id="doc-native",
+                source_input_id=request.inputs[0].input_id,
+                text="",
+                pages=(PageData(page_number=1, text="", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc, next_requirement="ocr")
+
+    class MockOCRCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.ocr import CAPABILITY_DECLARATION
+
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("ocr")
+            doc = CanonicalDocument(
+                document_id="doc-ocr",
+                source_input_id=request.inputs[0].input_id,
+                text="OCR Recovered Text",
+                pages=(PageData(page_number=1, text="OCR Recovered Text", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    cache = SmritiCache(cache_dir=tmp_path / "cache")
+    req = Request(
+        request_id="req-cached-handoff",
+        requirement="ocr",
+        inputs=(InputRef("inp-1", input_file, "scanned_cache.pdf", 16),),
+    )
+    doc_cached = CanonicalDocument(
+        document_id="doc-native-cached",
+        source_input_id="inp-1",
+        text="",
+        pages=(PageData(page_number=1, text="", tables=()),),
+        tables=(),
+    )
+    cached_res = Result(data=doc_cached, next_requirement="ocr")
+    key = compute_cache_key(req, "read_native", "1.0.0")
+    cache.put(key, cached_res)
+
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        capabilities={
+            "read_native": MockNativeHandoffCap(),
+            "ocr": MockOCRCap(),
+        },
+        smriti=cache,
+    )
+
+    res = agni.execute(req)
+    # native_cold was NOT called due to cache hit, but handoff to ocr occurred!
+    assert "native_cold" not in execution_order
+    assert "ocr" in execution_order
+    assert res.data.text == "OCR Recovered Text"

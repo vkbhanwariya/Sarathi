@@ -56,9 +56,8 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
 
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 namelist = zf.namelist()
-                if (
-                    "[Content_Types].xml" in namelist
-                    and any("xl/workbook" in name or "xl/worksheets" in name for name in namelist)
+                if "[Content_Types].xml" in namelist and any(
+                    "xl/workbook" in name or "xl/worksheets" in name for name in namelist
                 ):
                     return DetectedFormat.XLSX
                 # If it's a generic zip without spreadsheet structure, treat as unknown

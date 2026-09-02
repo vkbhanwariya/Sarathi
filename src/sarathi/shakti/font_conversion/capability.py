@@ -62,7 +62,9 @@ class FontConversionCapability:
         is_batch = False
         if isinstance(prior_result.data, CanonicalDocument):
             docs = [prior_result.data]
-        elif isinstance(prior_result.data, (tuple, list)) and all(isinstance(d, CanonicalDocument) for d in prior_result.data):
+        elif isinstance(prior_result.data, (tuple, list)) and all(
+            isinstance(d, CanonicalDocument) for d in prior_result.data
+        ):
             docs = list(prior_result.data)
             is_batch = True
         else:
@@ -100,13 +102,18 @@ class FontConversionCapability:
                 full_text = "\n".join(p.text for p in doc.pages if p.text)
 
             scope = (
-                self._darpana.time_scope(context=context, phase_name="font_conversion", component="shakti.font_conversion")
-                if self._darpana else nullcontext()
+                self._darpana.time_scope(
+                    context=context, phase_name="font_conversion", component="shakti.font_conversion"
+                )
+                if self._darpana
+                else nullcontext()
             )
             with scope:
                 # 1. Detect legacy font profile
                 font_hint = request.metadata.get("font") if request.metadata else None
-                detected_profile, conf = self._detector.detect(full_text, font_hint=str(font_hint) if font_hint else None)
+                detected_profile, conf = self._detector.detect(
+                    full_text, font_hint=str(font_hint) if font_hint else None
+                )
 
                 if detected_profile is None:
                     # No legacy font detected; keep original document
@@ -145,21 +152,33 @@ class FontConversionCapability:
                         r_cells: list[str] = []
                         for cell in row:
                             c_prot, c_spans = self._protector.protect(str(cell))
-                            c_conv = self._protector.restore(self._converter.convert(c_prot, profile_id=detected_profile), c_spans)
+                            c_conv = self._protector.restore(
+                                self._converter.convert(c_prot, profile_id=detected_profile), c_spans
+                            )
                             r_cells.append(c_conv)
                         t_rows.append(tuple(r_cells))
-                    t_headers = tuple(
-                        self._protector.restore(self._converter.convert(h_prot, profile_id=detected_profile), h_spans)
-                        for h in t.headers
-                        for h_prot, h_spans in [self._protector.protect(str(h))]
-                    ) if t.headers else ()
-                    converted_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
+                    t_headers = (
+                        tuple(
+                            self._protector.restore(
+                                self._converter.convert(h_prot, profile_id=detected_profile), h_spans
+                            )
+                            for h in t.headers
+                            for h_prot, h_spans in [self._protector.protect(str(h))]
+                        )
+                        if t.headers
+                        else ()
+                    )
+                    converted_tables.append(
+                        TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata)
+                    )
 
                 # Convert pages if present
                 converted_pages: list[PageData] = []
                 for p in doc.pages:
                     p_text_prot, p_spans = self._protector.protect(p.text)
-                    p_conv = self._protector.restore(self._converter.convert(p_text_prot, profile_id=detected_profile), p_spans)
+                    p_conv = self._protector.restore(
+                        self._converter.convert(p_text_prot, profile_id=detected_profile), p_spans
+                    )
 
                     p_page_tables: list[TableData] = []
                     for t in p.tables:
@@ -168,16 +187,30 @@ class FontConversionCapability:
                             r_cells = []
                             for cell in row:
                                 c_prot, c_spans = self._protector.protect(str(cell))
-                                c_conv = self._protector.restore(self._converter.convert(c_prot, profile_id=detected_profile), c_spans)
+                                c_conv = self._protector.restore(
+                                    self._converter.convert(c_prot, profile_id=detected_profile), c_spans
+                                )
                                 r_cells.append(c_conv)
                             t_rows.append(tuple(r_cells))
-                        t_headers = tuple(
-                            self._protector.restore(self._converter.convert(h_prot, profile_id=detected_profile), h_spans)
-                            for h in t.headers
-                            for h_prot, h_spans in [self._protector.protect(str(h))]
-                        ) if t.headers else ()
-                        p_page_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
-                    converted_pages.append(PageData(page_number=p.page_number, text=p_conv, tables=tuple(p_page_tables), metadata=p.metadata))
+                        t_headers = (
+                            tuple(
+                                self._protector.restore(
+                                    self._converter.convert(h_prot, profile_id=detected_profile), h_spans
+                                )
+                                for h in t.headers
+                                for h_prot, h_spans in [self._protector.protect(str(h))]
+                            )
+                            if t.headers
+                            else ()
+                        )
+                        p_page_tables.append(
+                            TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata)
+                        )
+                    converted_pages.append(
+                        PageData(
+                            page_number=p.page_number, text=p_conv, tables=tuple(p_page_tables), metadata=p.metadata
+                        )
+                    )
 
                 converted_doc = CanonicalDocument(
                     document_id=doc.document_id,
@@ -198,7 +231,11 @@ class FontConversionCapability:
                 )
                 all_provs.append(prov)
 
-                artifact_name = "Converted_Document.txt" if len(docs) == 1 else f"Converted_{doc.source_input_id or doc.document_id}.txt"
+                artifact_name = (
+                    "Converted_Document.txt"
+                    if len(docs) == 1
+                    else f"Converted_{doc.source_input_id or doc.document_id}.txt"
+                )
                 payloads.append(
                     ArtifactPayload(
                         intent=ArtifactIntent(name=artifact_name, role="converted_text", media_type="text/plain"),

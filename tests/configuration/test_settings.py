@@ -1,12 +1,13 @@
 """Unit tests for Sutra — Configuration."""
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
+
 import pytest
 
+import sarathi.sutra as sutra_module
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sutra import Settings, load_settings
-import sarathi.sutra as sutra_module
 
 
 class TestSettings:

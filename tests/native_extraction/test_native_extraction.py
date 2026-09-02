@@ -1,28 +1,27 @@
 """Unit tests for Shruti — Read / Native Extraction capability."""
 
-from pathlib import Path
 import struct
 import sys
+from pathlib import Path
 from unittest.mock import patch
+
+import openpyxl
+import pymupdf
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionContext,
-    ExecutionProfile,
     InputRef,
     Request,
     Result,
-    TableData,
 )
 from sarathi.shakti.native_extraction import (
     CAPABILITY_DECLARATION,
-    NativeExtractionCapability,
     PLUGIN_INFO,
+    NativeExtractionCapability,
 )
-import openpyxl
-import pymupdf
 
 
 @pytest.fixture
@@ -572,7 +571,9 @@ class TestNativeExtraction:
             ),
         )
 
-        with patch("sarathi.shakti.native_extraction.capability.read_pdf", side_effect=ValueError("Contract violation")):
+        with patch(
+            "sarathi.shakti.native_extraction.capability.read_pdf", side_effect=ValueError("Contract violation")
+        ):
             with pytest.raises(ValueError, match="Contract violation"):
                 capability.execute(req, context)
 

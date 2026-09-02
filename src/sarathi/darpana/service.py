@@ -200,3 +200,8 @@ class Darpana:
         """Return an immutable snapshot of recent Pramana quality observations."""
         with self._lock:
             return tuple(self._pramana_history)
+
+    def close(self) -> None:
+        """Flush and close underlying persistent history store if configured."""
+        if self._history_store is not None:
+            self._history_store.close()

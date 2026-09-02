@@ -1,8 +1,9 @@
 """Tests verifying recovery and absence of speculative frameworks in Roopa."""
 
 from pathlib import Path
-from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
 from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result
+from sarathi.shakti.font_conversion.capability import FontConversionCapability
 
 
 def test_unsupported_encoding_returns_original_document_safely() -> None:

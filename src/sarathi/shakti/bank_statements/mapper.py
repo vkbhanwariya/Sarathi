@@ -23,8 +23,15 @@ from sarathi.dosh import DoshError, FailureCode
 
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
 CANONICAL_FIELDS = (
-    "date", "description", "reference_number", "cheque_number",
-    "debit", "credit", "amount", "direction", "balance"
+    "date",
+    "description",
+    "reference_number",
+    "cheque_number",
+    "debit",
+    "credit",
+    "amount",
+    "direction",
+    "balance",
 )
 
 
@@ -45,11 +52,15 @@ class HeaderMapper:
     def __init__(self, banks_dir: Path | None = None) -> None:
         self._banks_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
         self._common_config = self._load_yaml(self._banks_dir / "common.yaml")
-        self._profiles = {
-            data["profile_id"]: data
-            for f in self._banks_dir.glob("*.yaml")
-            if f.name != "common.yaml" and isinstance((data := self._load_yaml(f)), dict) and "profile_id" in data
-        } if self._banks_dir.exists() else {}
+        self._profiles = (
+            {
+                data["profile_id"]: data
+                for f in self._banks_dir.glob("*.yaml")
+                if f.name != "common.yaml" and isinstance((data := self._load_yaml(f)), dict) and "profile_id" in data
+            }
+            if self._banks_dir.exists()
+            else {}
+        )
 
     @staticmethod
     def _load_yaml(path: Path) -> dict[str, Any]:
