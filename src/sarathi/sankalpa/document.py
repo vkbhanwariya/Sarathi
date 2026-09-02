@@ -11,10 +11,10 @@ Does NOT embed PDF, OCR, spreadsheet, bank, translation, or capability-specific 
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
+from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,9 +5,9 @@ Normalizes monetary amounts into Python Decimal (never float), dates, and times.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
-import re
 from typing import Any
 
 _DATE_FORMATS = (

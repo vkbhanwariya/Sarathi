@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import sqlite3
 import threading
 import time
+from pathlib import Path
 
 from sarathi.sankalpa import Result
-from sarathi.smriti.key import CacheKey, compute_cache_key
+from sarathi.smriti.key import CacheKey
 from sarathi.smriti.memory import MemoryCache
 from sarathi.smriti.policy import CachePolicy
 from sarathi.smriti.serialization import (

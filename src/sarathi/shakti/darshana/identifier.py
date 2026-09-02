@@ -8,10 +8,10 @@ Does not extract content, run OCR, convert fonts, translate, or make business cl
 from __future__ import annotations
 
 import io
-from pathlib import Path
 import re
-from typing import BinaryIO
 import zipfile
+from pathlib import Path
+from typing import BinaryIO
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import InputRef, Request

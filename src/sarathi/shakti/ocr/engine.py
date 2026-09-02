@@ -6,17 +6,16 @@ import hashlib
 import io
 import json
 import math
-from pathlib import Path
 import re
 import stat
-from typing import Any, Mapping
 import unicodedata
+from pathlib import Path
+from typing import Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     ConfidenceValue,
     ExecutionProfile,
-    TableData,
     PageData,
     ProvenanceRecord,
     TextSpan,
@@ -48,8 +47,8 @@ def _is_safe_filename(name: Any) -> bool:
 
 def extract_images_from_bytes(data: bytes) -> list[Any]:
     """Convert input file bytes (PDF or Image) into a list of PIL RGB images."""
-    from PIL import Image, UnidentifiedImageError
     import pymupdf
+    from PIL import Image, UnidentifiedImageError
 
     # 1. Check if PDF
     if data.startswith(b"%PDF-") or b"%PDF-" in data[:1024]:

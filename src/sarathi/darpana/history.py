@@ -9,16 +9,15 @@ Zero document content, raw filesystem paths, secrets, or raw exceptions are reta
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
-import tempfile
 import threading
-from typing import Any, Sequence
 import uuid
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
 
 _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 _SAFE_ISO_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$")
@@ -204,8 +203,8 @@ class TerminalRunHistoryStore:
                     # Atomic write
                     temp_file = self._path.parent / f".tmp_{uuid.uuid4().hex}_{self._path.name}"
                     with open(temp_file, "w", encoding="utf-8") as f:
-                        for l in tail_lines:
-                            f.write(l + "\n")
+                        for line in tail_lines:
+                            f.write(line + "\n")
                         f.flush()
                         os.fsync(f.fileno())
                     temp_file.replace(self._path)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,

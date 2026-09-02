@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -25,7 +24,6 @@ from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
     TranslatorBackend,
 )
-from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
 

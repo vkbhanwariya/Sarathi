@@ -13,29 +13,35 @@ from typing import TYPE_CHECKING
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
 from sarathi.sankalpa import CapabilityDeclaration, ExecutionContext, PluginInfo
+from sarathi.shakti.bank_statements.plugin import (
+    CAPABILITY_DECLARATION as BANK_STATEMENTS_CAPABILITY,
+)
+from sarathi.shakti.bank_statements.plugin import (
+    PLUGIN_INFO as BANK_STATEMENTS_PLUGIN,
+)
 from sarathi.shakti.darshana.plugin import (
     CAPABILITY_DECLARATION as DARSHANA_CAPABILITY,
+)
+from sarathi.shakti.darshana.plugin import (
     PLUGIN_INFO as DARSHANA_PLUGIN,
+)
+from sarathi.shakti.font_conversion.plugin import (
+    CAPABILITY_DECLARATION as FONT_CONVERSION_CAPABILITY,
+)
+from sarathi.shakti.font_conversion.plugin import (
+    PLUGIN_INFO as FONT_CONVERSION_PLUGIN,
 )
 from sarathi.shakti.native_extraction.plugin import (
     CAPABILITY_DECLARATION as NATIVE_CAPABILITY,
+)
+from sarathi.shakti.native_extraction.plugin import (
     PLUGIN_INFO as NATIVE_PLUGIN,
 )
 from sarathi.shakti.ocr.plugin import (
     CAPABILITY_DECLARATION as OCR_CAPABILITY,
+)
+from sarathi.shakti.ocr.plugin import (
     PLUGIN_INFO as OCR_PLUGIN,
-)
-from sarathi.shakti.bank_statements.plugin import (
-    CAPABILITY_DECLARATION as BANK_STATEMENTS_CAPABILITY,
-    PLUGIN_INFO as BANK_STATEMENTS_PLUGIN,
-)
-from sarathi.shakti.font_conversion.plugin import (
-    CAPABILITY_DECLARATION as FONT_CONVERSION_CAPABILITY,
-    PLUGIN_INFO as FONT_CONVERSION_PLUGIN,
-)
-from sarathi.shakti.translation.plugin import (
-    CAPABILITY_DECLARATION as TRANSLATION_CAPABILITY,
-    PLUGIN_INFO as TRANSLATION_PLUGIN,
 )
 
 if TYPE_CHECKING:

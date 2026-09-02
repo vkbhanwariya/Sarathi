@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
 import tomllib
 import unicodedata
+from pathlib import Path
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.font_conversion.detector import load_font_profiles
-from sarathi.shakti.font_conversion.models import LegacyFontProfile
 
 _CANONICAL_FONTS_DIR = Path(__file__).resolve().parents[4] / "data" / "fonts"
 _CANONICAL_ANUBHAVA_PATH = Path(__file__).resolve().parents[4] / "data" / "font_conversion" / "anubhava.toml"

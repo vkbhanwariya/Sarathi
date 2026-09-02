@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from enum import Enum
-from pathlib import Path
 import re
 import zipfile
+from enum import Enum
+from pathlib import Path
 
 
 class DetectedFormat(Enum):

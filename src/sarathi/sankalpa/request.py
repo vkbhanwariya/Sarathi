@@ -6,11 +6,11 @@ Kept domain-agnostic.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from sarathi.sankalpa.artifact import InputRef
 from sarathi.sankalpa.cancellation import CancellationToken

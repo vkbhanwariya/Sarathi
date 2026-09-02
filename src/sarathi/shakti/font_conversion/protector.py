@@ -22,7 +22,7 @@ _NUM_RE = re.compile(r"(?:Rs\.?|₹|\$|€|£)?\s*\b\d{1,3}(?:,\d{2,3})*(?:\.\d+
 _PERCENT_RE = re.compile(r"\b\d+%\b|\(\d+%\)")
 _ID_RE = re.compile(r"\b[A-Z0-9_-]{4,}\b")
 
-_KRUTI_CHARS = set("[k?/~+\ñòóôõö÷øùúûüZ")
+_KRUTI_CHARS = set(r"[k?/~+\ñòóôõö÷øùúûüZ")
 _KRUTI_DIGRAPHS = (
     "[k", "vk", "vks", "vkS", "Fk", "/k", "Hk", "'k", "\"k", ";Z", "jZ", ";k", "D;",
     "x~", "LVs", "cSa", ".k", "fdr", "fd", "fr", "fn", "fc", "f[", "fH", "fF", "fD", "fV", "fp", "ft",
