@@ -66,6 +66,53 @@ class MukhaPresenter:
         )
 
     @staticmethod
+    def audit_capability_status(
+        data_root: Path | None = None,
+    ) -> dict[str, tuple[bool, str]]:
+        """Audit availability status of built-in capabilities without false promises.
+
+        Returns dict mapping capability_id -> (is_available, status_or_reason).
+        """
+        import importlib.util
+
+        base_data = data_root or Path(__file__).resolve().parents[3] / "data"
+        statuses: dict[str, tuple[bool, str]] = {}
+
+        # 1. Native Extraction
+        statuses["read_native"] = (True, "Ready (Standard Extraction)")
+
+        # 2. Base OCR
+        ocr_installed = (
+            importlib.util.find_spec("rapidocr") is not None
+            and importlib.util.find_spec("openvino") is not None
+            and importlib.util.find_spec("PIL") is not None
+        )
+        ocr_manifest = base_data / "ocr" / "manifest.json"
+        if ocr_installed and ocr_manifest.exists():
+            statuses["ocr"] = (True, "Ready (RapidOCR + OpenVINO)")
+        else:
+            statuses["ocr"] = (False, "Unavailable (Missing OCR extra dependencies or models)")
+
+        # 3. Bank Statements
+        statuses["bank_statements"] = (True, "Ready (SBI, HDFC profiles)")
+
+        # 4. Font Conversion
+        font_map = base_data / "fonts" / "krutidev010.json"
+        if font_map.exists():
+            statuses["font_conversion"] = (True, "Ready (KrutiDev mapping pack)")
+        else:
+            statuses["font_conversion"] = (False, "Unavailable (Missing font mapping packs)")
+
+        # 5. Translation
+        trans_models = base_data / "translation" / "models"
+        if trans_models.exists() and trans_models.is_dir():
+            statuses["translation"] = (True, "Ready (IndicTrans2 CTranslate2)")
+        else:
+            statuses["translation"] = (False, "Unavailable (Model weights missing in data/translation/models/)")
+
+        return statuses
+
+    @staticmethod
     def build_startup_view(
         is_initializing: bool,
         current_stage: str,

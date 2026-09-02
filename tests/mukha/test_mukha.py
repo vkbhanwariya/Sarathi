@@ -6,6 +6,7 @@ import threading
 import time
 from unittest.mock import MagicMock
 import pytest
+from textual.widgets import Input
 
 from sarathi.darpana import Darpana, MarutiRecord, PramanaRecord
 from sarathi.dosh import DoshError, FailureCode
@@ -917,3 +918,63 @@ class TestMukhaInteractiveFlowAndCancellation:
                 assert app.app_state.input_selection.total_files == 2
 
         asyncio.run(_run())
+
+    def test_interactive_add_paths_and_switch_requirement(self, tmp_path: Path) -> None:
+        doc1 = tmp_path / "doc1.txt"
+        doc1.write_text("Document 1 content", encoding="utf-8")
+
+        mock_agni = MagicMock()
+        mock_agni.kavacha = Kavacha(
+            policy=SecurityPolicy(
+                allow_pii_access=False,
+                allow_network_access=False,
+                allow_external_processing=False,
+                allowed_secrets=(),
+            )
+        )
+        mock_agni.runtime_root = tmp_path / "Runtime"
+        mock_agni.output_root = tmp_path / "Output"
+        mock_agni.darpana = Darpana(capacity=1000)
+
+        sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+        init_state = MukhaPresenter.build_home_view(
+            requirement="read_native",
+            input_selection=sel,
+        )
+
+        app = MukhaApp(initial_state=init_state, agni=mock_agni)
+
+        async def _run() -> None:
+            async with app.run_test() as pilot:
+                assert isinstance(app.screen, HomeScreen)
+                assert app.app_state.input_selection.total_files == 0
+
+                # 1. Add valid path interactively
+                app.action_add_paths(str(doc1))
+                await pilot.pause()
+
+                assert app.app_state.input_selection.total_files == 1
+                assert app._pending_request is not None
+                assert len(app._pending_request.inputs) == 1
+
+                # 2. Switch requirement
+                app.action_select_requirement("bank_statements")
+                await pilot.pause()
+
+                assert app.app_state.requirement == "bank_statements"
+                assert app._pending_request.requirement == "bank_statements"
+
+                # 3. Open artifacts action does not crash
+                app.action_open_artifacts()
+
+        asyncio.run(_run())
+
+    def test_audit_capability_status_truthfulness(self) -> None:
+        statuses = MukhaPresenter.audit_capability_status()
+        assert "read_native" in statuses
+        assert statuses["read_native"][0] is True
+        assert "bank_statements" in statuses
+        assert statuses["bank_statements"][0] is True
+        assert "font_conversion" in statuses
+        assert "ocr" in statuses
+        assert "translation" in statuses
