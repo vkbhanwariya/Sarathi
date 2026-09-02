@@ -7,11 +7,11 @@ Runs runtime execution off the event loop via Textual worker threads.
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
 import time
-from typing import TYPE_CHECKING, Any
 import uuid
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
@@ -564,6 +564,7 @@ class MukhaApp(App):
         """Start execution asynchronously on a background worker thread and switch to Monitor."""
         if self._agni is not None and self._pending_request is not None:
             from dataclasses import replace
+
             from sarathi.sankalpa import CancellationToken
 
             cancel_token = self._pending_request.cancellation_token or CancellationToken()

@@ -7,9 +7,8 @@ from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
-    Capability,
-    CapabilityDeclaration,
     CanonicalDocument,
+    CapabilityDeclaration,
     ConfidenceValue,
     ExecutionContext,
     ExecutionProfile,

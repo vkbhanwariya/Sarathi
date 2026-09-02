@@ -11,7 +11,6 @@ or global singletons.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
 
 from sarathi.sankalpa import SecurityDeclaration
 

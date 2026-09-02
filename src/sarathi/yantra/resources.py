@@ -10,10 +10,9 @@ benchmarking, or execution.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import threading
 import uuid
-from typing import Mapping
+from dataclasses import dataclass
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceRequirement, DeviceType

@@ -13,21 +13,21 @@ Maintains failure state only; contains no execution, hardware scheduling, cachin
 
 from __future__ import annotations
 
+import json
+import re
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-import json
 from pathlib import Path
-import re
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
-import uuid
+from typing import TYPE_CHECKING, Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import ExecutionContext, Request
 from sarathi.sutra import Settings
 
 if TYPE_CHECKING:
-    from sarathi.nabhi.manthan import CapabilityPlan
+    pass
 
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 

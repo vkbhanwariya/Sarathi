@@ -6,11 +6,11 @@ Float arithmetic is strictly prohibited.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import date, time
 from decimal import Decimal
 from enum import StrEnum
-import hashlib
 from types import MappingProxyType
 from typing import Any, Mapping
 

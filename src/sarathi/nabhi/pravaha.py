@@ -10,14 +10,12 @@ device allocation, UI rendering, telemetry persistence, caching, or security pol
 
 from __future__ import annotations
 
-from contextlib import nullcontext
-from datetime import datetime, timezone
 import hashlib
 import re
 import time
-from typing import TYPE_CHECKING, Mapping
-
-from sarathi.smriti import SmritiCache, compute_cache_key
+from contextlib import nullcontext
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
@@ -31,6 +29,7 @@ from sarathi.nabhi.quarantine import (
     RetryPolicy,
 )
 from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
+from sarathi.smriti import SmritiCache, compute_cache_key
 from sarathi.yantra import Yantra
 
 if TYPE_CHECKING:
@@ -442,7 +441,6 @@ class Pravaha:
 
             # Execute pipeline in plan order through Yantra with failure lifecycle handling
             executed_stage_idx: int = -1
-            originating_capability_id: str | None = None
 
             for stage_idx, cap in enumerate(validated_capabilities):
                 executed_stage_idx = stage_idx
@@ -648,7 +646,6 @@ class Pravaha:
                                 raise retry_err
 
                 if prior_result.next_requirement is not None:
-                    originating_capability_id = cap.declaration.capability_id
                     break
                 else:
                     completed_capability_ids.add(cap.declaration.capability_id)

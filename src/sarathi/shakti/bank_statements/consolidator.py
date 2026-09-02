@@ -9,20 +9,18 @@ Wrapped into canonical ArtifactPayloads for atomic commitment via Nabhi.
 
 from __future__ import annotations
 
-from decimal import Decimal
 import io
-from pathlib import Path
+from decimal import Decimal
 from typing import Sequence
 
 import openpyxl
-from openpyxl.styles import Font, PatternFill
 import polars as pl
+from openpyxl.styles import Font, PatternFill
 
 from sarathi.sankalpa import ArtifactIntent, ArtifactPayload
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
     BankStatementConsolidationResult,
-    Transaction,
     ValidationStatus,
 )
 

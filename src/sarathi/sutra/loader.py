@@ -7,9 +7,9 @@ or malformed files.
 
 from __future__ import annotations
 
+import tomllib
 from contextlib import nullcontext
 from pathlib import Path
-import tomllib
 from typing import TYPE_CHECKING, Union
 
 from sarathi.dosh import DoshError, FailureCode

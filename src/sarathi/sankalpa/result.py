@@ -17,9 +17,9 @@ Confidence Rules:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
 import re
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 

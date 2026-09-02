@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.kavacha.policy import SecurityDecision, SecurityPolicy
+from sarathi.kavacha.policy import SecurityPolicy
 from sarathi.sankalpa import InputRef, SecurityDeclaration
 
 

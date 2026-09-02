@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Any
 import xml.etree.ElementTree as ET
+from typing import Any
 from zipfile import BadZipFile
 
-from bs4 import BeautifulSoup
 import charset_normalizer
 import openpyxl
 import polars as pl
 import pymupdf
 import python_calamine
 import xlrd
+from bs4 import BeautifulSoup
 
 from sarathi.sankalpa import (
     CanonicalDocument,

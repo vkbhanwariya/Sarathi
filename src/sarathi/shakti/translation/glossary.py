@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Mapping
+
 import yaml
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.shakti.translation.models import GlossaryEntry, TranslationDirection
+from sarathi.shakti.translation.models import TranslationDirection
 
 _CANONICAL_GLOSSARY_DIR = Path(__file__).resolve().parents[4] / "data" / "translation"
 

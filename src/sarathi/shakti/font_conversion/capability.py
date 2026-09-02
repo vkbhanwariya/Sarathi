@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -22,7 +21,6 @@ from sarathi.sankalpa import (
 )
 from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import LegacyFontDetector
-from sarathi.shakti.font_conversion.models import FontConversionResult
 from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.font_conversion.protector import TextProtector
 from sarathi.shakti.font_conversion.validator import FontConversionValidator

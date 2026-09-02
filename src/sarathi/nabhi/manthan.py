@@ -11,11 +11,10 @@ resource allocation, telemetry, retry, quarantine, caching, or security enforcem
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
-from sarathi.sankalpa import CapabilityDeclaration, Request
+from sarathi.sankalpa import Request
 
 
 @dataclass(frozen=True, slots=True)

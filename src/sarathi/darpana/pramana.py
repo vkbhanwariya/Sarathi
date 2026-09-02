@@ -10,8 +10,8 @@ Never stores raw document text, file paths, or fabricated scores.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 

@@ -6,12 +6,12 @@ Hands execution strictly to Agni composition root.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from sarathi.agni import Agni
 from sarathi.dosh import DoshError
-from sarathi.sankalpa import ExecutionProfile, InputRef, Request
+from sarathi.sankalpa import ExecutionProfile, Request
 
 
 def main(argv: list[str] | None = None) -> int:
