@@ -197,6 +197,17 @@ class NativeExtractionCapability:
             for inp, doc in zip(request.inputs, extracted_docs):
                 if doc.text:
                     stem = Path(inp.display_name).stem if inp.display_name else inp.input_id
+                    if len(doc.pages) > 1:
+                        page_sections = []
+                        for p in doc.pages:
+                            heading = f"--- Page {p.page_number} ---"
+                            if p.text:
+                                page_sections.append(f"{heading}\n{p.text}")
+                            else:
+                                page_sections.append(heading)
+                        txt_content = "\n\n".join(page_sections)
+                    else:
+                        txt_content = doc.text
                     payloads.append(
                         ArtifactPayload(
                             intent=ArtifactIntent(
@@ -204,7 +215,7 @@ class NativeExtractionCapability:
                                 role="extracted_text",
                                 media_type="text/plain",
                             ),
-                            content=doc.text.encode("utf-8"),
+                            content=txt_content.encode("utf-8"),
                         )
                     )
 

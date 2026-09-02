@@ -59,6 +59,8 @@
         focusDeviceType: document.getElementById("focus-device-type"),
         focusDuration: document.getElementById("focus-duration"),
         deviceThroughputTbody: document.getElementById("device-throughput-tbody"),
+        activeWorkersCount: document.getElementById("active-workers-count"),
+        activeWorkersTbody: document.getElementById("active-workers-tbody"),
         pipelineCounts: document.getElementById("pipeline-counts"),
         filePipelineTbody: document.getElementById("file-pipeline-tbody"),
 
@@ -378,7 +380,23 @@
             // Progress Bar
             const total = activeRun.total_files || 1;
             const done = activeRun.terminal_files || 0;
-            const pct = Math.min(100, Math.round((done / total) * 100));
+            let pct = Math.min(100, Math.round((done / total) * 100));
+            if (activeRun.status === "RUNNING" && pct < 100 && activeRun.files && activeRun.files.length > 0) {
+                for (const f of activeRun.files) {
+                    const match = (f.current_stage || "").match(/Page (\d+)\/(\d+)/);
+                    if (match) {
+                        const curP = parseInt(match[1], 10);
+                        const totP = parseInt(match[2], 10);
+                        if (totP > 0) {
+                            const pageFraction = (curP - 0.5) / totP;
+                            const fileBasePct = ((f.ordinal - 1) / total) * 100;
+                            const fileSpanPct = (1 / total) * 100;
+                            pct = Math.min(95, Math.round(fileBasePct + pageFraction * fileSpanPct));
+                            break;
+                        }
+                    }
+                }
+            }
             elements.monitorProgressBar.style.width = `${pct}%`;
 
             // Focus Stage
@@ -409,6 +427,30 @@
                         <td>${formatDuration(dp.avg_duration_ns)}</td>
                     </tr>`)
                     .join("");
+            }
+
+            // Active Parallel Workers Table
+            if (activeRun.active_workers && activeRun.active_workers.length > 0) {
+                elements.activeWorkersCount.textContent = `${activeRun.active_workers.length} Active`;
+                elements.activeWorkersTbody.innerHTML = activeRun.active_workers
+                    .map((w) => {
+                        const devBadge = (w.device_type === "GPU" || w.device_type === "NPU")
+                            ? `<span class="badge badge-emerald">${escapeHtml(w.device_type)}</span>`
+                            : `<span class="badge">${escapeHtml(w.device_type || "CPU")}</span>`;
+                        const pageText = w.page_number ? `<span class="badge badge-indigo">Page ${w.page_number}</span>` : "—";
+                        return `<tr>
+                            <td><strong>Worker ${escapeHtml(w.worker_id)}</strong></td>
+                            <td>${escapeHtml(w.file_display_name || "—")}</td>
+                            <td>${pageText}</td>
+                            <td>${escapeHtml(w.stage || "—")}</td>
+                            <td>${devBadge}</td>
+                            <td><span class="badge badge-indigo">${escapeHtml(w.status || "active")}</span></td>
+                        </tr>`;
+                    })
+                    .join("");
+            } else {
+                elements.activeWorkersCount.textContent = "0 Active";
+                elements.activeWorkersTbody.innerHTML = '<tr class="empty-row"><td colspan="6">No active workers.</td></tr>';
             }
 
             // Document Pipeline Table

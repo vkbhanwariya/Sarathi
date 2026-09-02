@@ -414,6 +414,23 @@ class MukhaWebServer:
         self._terminal_status: str | None = None
         self._confirmed_artifacts: dict[str, dict[str, ArtifactRef]] = {}
         self._run_output_roots: dict[str, Path] = {}
+        self._live_progress: dict[str, Any] = {}
+        self._live_workers: dict[str, dict[str, Any]] = {}
+
+    def _detect_allocated_device(self) -> str:
+        """Detect the best hardware accelerator available for execution."""
+        try:
+            import openvino as ov
+
+            core = ov.Core()
+            avail = core.available_devices
+            if "GPU" in avail:
+                return "GPU"
+            if "NPU" in avail:
+                return "NPU"
+        except Exception:
+            pass
+        return "CPU"
 
     @property
     def output_root(self) -> Path:
@@ -498,19 +515,6 @@ class MukhaWebServer:
             status = "RUNNING" if is_alive else (term_status or "SUCCESS")
             maruti_recs, pramana_recs = self._get_run_telemetry(active_run_id)
 
-            inputs = active_req.inputs if active_req else ()
-            files = tuple(
-                FileRunView(
-                    input_id=inp.input_id,
-                    display_name=inp.display_name,
-                    ordinal=idx + 1,
-                    status=status,
-                    elapsed_ns=max(0, now_ns - start_ns),
-                    current_stage="Processing" if is_alive else "Completed",
-                )
-                for idx, inp in enumerate(inputs)
-            )
-
             stage_names = {
                 "ocr": "Optical Character Recognition (OCR)",
                 "read_native": "Native Document Extraction",
@@ -519,31 +523,72 @@ class MukhaWebServer:
                 "translation": "Machine Translation",
             }
             active_stage = stage_names.get(active_req.requirement, active_req.requirement) if active_req else "Processing"
+            allocated_device = self._detect_allocated_device()
 
-            allocated_device = "CPU"
-            try:
-                import openvino as ov
+            with self._lock:
+                live_prog = dict(self._live_progress)
+                live_workers = dict(self._live_workers)
 
-                core = ov.Core()
-                avail = core.available_devices
-                if "GPU" in avail:
-                    allocated_device = "GPU"
-                elif "NPU" in avail:
-                    allocated_device = "NPU"
-            except Exception:
-                pass
+            curr_page = live_prog.get("page_number")
+            tot_pages = live_prog.get("total_pages")
+            curr_file = live_prog.get("file_display_name")
+
+            inputs = active_req.inputs if active_req else ()
+            files_list = []
+            for idx, inp in enumerate(inputs):
+                if is_alive:
+                    if curr_file and (inp.display_name == curr_file or inp.input_id == curr_file):
+                        if curr_page and tot_pages:
+                            f_stage = f"{active_stage} (Page {curr_page}/{tot_pages})"
+                        elif curr_page:
+                            f_stage = f"{active_stage} (Page {curr_page})"
+                        else:
+                            f_stage = active_stage
+                    else:
+                        f_stage = active_stage
+                else:
+                    f_stage = "Completed"
+
+                files_list.append(
+                    FileRunView(
+                        input_id=inp.input_id,
+                        display_name=inp.display_name,
+                        ordinal=idx + 1,
+                        status=status,
+                        elapsed_ns=max(0, now_ns - start_ns),
+                        current_stage=f_stage,
+                    )
+                )
+            files = tuple(files_list)
 
             if is_alive and inputs:
-                active_workers = (
-                    WorkerPageView(
-                        worker_id="1",
-                        file_display_name=inputs[0].display_name,
-                        stage=active_stage,
-                        device_type=allocated_device,
-                        elapsed_ns=max(0, now_ns - start_ns),
-                        status="active",
-                    ),
-                )
+                if live_workers:
+                    workers_list = []
+                    for wid, winfo in sorted(live_workers.items(), key=lambda kv: kv[0]):
+                        workers_list.append(
+                            WorkerPageView(
+                                worker_id=str(wid),
+                                file_display_name=winfo.get("file_display_name") or inputs[0].display_name,
+                                page_number=winfo.get("page_number"),
+                                stage=winfo.get("stage", active_stage),
+                                device_type=winfo.get("device_type", allocated_device),
+                                elapsed_ns=max(0, now_ns - winfo.get("updated_ns", start_ns)),
+                                status="active",
+                            )
+                        )
+                    active_workers = tuple(workers_list)
+                else:
+                    active_workers = (
+                        WorkerPageView(
+                            worker_id="1",
+                            file_display_name=curr_file or inputs[0].display_name,
+                            page_number=curr_page,
+                            stage=active_stage,
+                            device_type=allocated_device,
+                            elapsed_ns=max(0, now_ns - start_ns),
+                            status="active",
+                        ),
+                    )
             else:
                 active_workers = ()
 
@@ -641,6 +686,36 @@ class MukhaWebServer:
             if not inputs:
                 return None
 
+            # Reset live progress tracking for active run
+            self._live_progress = {}
+            self._live_workers = {}
+
+            def _on_progress(
+                file_display_name: str,
+                page_number: int,
+                total_pages: int,
+                worker_id: str = "1",
+                stage: str = "Optical Character Recognition (OCR)",
+                device_type: str | None = None,
+            ) -> None:
+                with self._lock:
+                    now = time.perf_counter_ns()
+                    dev = device_type or self._detect_allocated_device()
+                    info = {
+                        "worker_id": str(worker_id),
+                        "file_display_name": file_display_name,
+                        "page_number": page_number,
+                        "total_pages": total_pages,
+                        "stage": stage,
+                        "device_type": dev,
+                        "updated_ns": now,
+                    }
+                    self._live_progress = info
+                    self._live_workers[str(worker_id)] = info
+
+            effective_custom_options = dict(custom_options or {})
+            effective_custom_options["progress_callback"] = _on_progress
+
             import uuid
 
             run_id = f"run_{uuid.uuid4().hex[:12]}"
@@ -651,7 +726,7 @@ class MukhaWebServer:
                 inputs=inputs,
                 profile=profile,
                 cancellation_token=token,
-                custom_options=custom_options or {},
+                custom_options=effective_custom_options,
             )
 
             self._active_run_id = run_id

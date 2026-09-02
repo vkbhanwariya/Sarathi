@@ -281,8 +281,9 @@ class MukhaPresenter:
 
         for w in active_workers:
             is_long = w.elapsed_ns >= _FIVE_SECONDS_NS
+            page_part = f" (Page {w.page_number})" if w.page_number is not None else ""
             op = OperationView(
-                operation_name=f"Worker {w.worker_id} - {w.file_display_name}",
+                operation_name=f"Worker {w.worker_id} - {w.file_display_name}{page_part}",
                 stage=w.stage,
                 device_type=w.device_type,
                 elapsed_ns=w.elapsed_ns,

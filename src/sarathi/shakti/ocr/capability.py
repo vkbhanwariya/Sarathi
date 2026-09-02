@@ -143,21 +143,100 @@ class OCRCapability:
                     message="Unsupported content format for OCR.",
                 )
 
-            # Perform OCR on each page image using instance-owned engine
-            pages = []
-            for page_idx, img in enumerate(images, 1):
-                page_data, prov, _, page_warnings = self._engine.ocr_page(
-                    img,
-                    page_idx,
-                    inp.input_id,
-                    profile=request.profile,
-                    custom_options=request.custom_options,
-                )
-                pages.append(page_data)
-                all_provenance.append(prov)
-                all_warnings.extend(page_warnings)
+            # Check for progress callback
+            progress_cb = None
+            if request.custom_options and callable(request.custom_options.get("progress_callback")):
+                progress_cb = request.custom_options["progress_callback"]
 
-            full_text = "\n\n".join(p.text for p in pages if p.text)
+            # Perform OCR on each page image
+            # If multiple pages and running on real engine, execute concurrently with thread-local engines
+            pages = []
+            if len(images) > 1 and self._engine._engine is None:
+                import os
+                import threading
+                from concurrent.futures import ThreadPoolExecutor
+
+                thread_local = threading.local()
+
+                def _get_worker_engine() -> RapidOCREngine:
+                    if not hasattr(thread_local, "engine"):
+                        thread_local.engine = RapidOCREngine(
+                            data_root=self._engine._data_root,
+                            tesseract_adapter=self._engine._tesseract,
+                            default_lang=self._engine._default_lang,
+                        )
+                    return thread_local.engine
+
+                def _process_page(item: tuple[int, Any]) -> tuple[int, PageData, ProvenanceRecord, list[WarningRecord]]:
+                    p_idx, p_img = item
+                    if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                        context.cancellation_token.check_cancelled()
+
+                    w_id = str(threading.get_ident() % 1000)
+                    if progress_cb is not None:
+                        progress_cb(
+                            file_display_name=inp.display_name,
+                            page_number=p_idx,
+                            total_pages=len(images),
+                            worker_id=w_id,
+                            stage="Optical Character Recognition (OCR)",
+                        )
+
+                    eng = _get_worker_engine()
+                    p_data, p_prov, _, p_warns = eng.ocr_page(
+                        p_img,
+                        p_idx,
+                        inp.input_id,
+                        profile=request.profile,
+                        custom_options=request.custom_options,
+                    )
+                    return p_idx, p_data, p_prov, p_warns
+
+                max_workers = min(len(images), max(1, min(4, os.cpu_count() or 4)))
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures_results = list(executor.map(_process_page, enumerate(images, 1)))
+
+                futures_results.sort(key=lambda r: r[0])
+                for _, page_data, prov, page_warnings in futures_results:
+                    pages.append(page_data)
+                    all_provenance.append(prov)
+                    all_warnings.extend(page_warnings)
+            else:
+                for page_idx, img in enumerate(images, 1):
+                    if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                        context.cancellation_token.check_cancelled()
+
+                    if progress_cb is not None:
+                        progress_cb(
+                            file_display_name=inp.display_name,
+                            page_number=page_idx,
+                            total_pages=len(images),
+                            worker_id="1",
+                            stage="Optical Character Recognition (OCR)",
+                        )
+
+                    page_data, prov, _, page_warnings = self._engine.ocr_page(
+                        img,
+                        page_idx,
+                        inp.input_id,
+                        profile=request.profile,
+                        custom_options=request.custom_options,
+                    )
+                    pages.append(page_data)
+                    all_provenance.append(prov)
+                    all_warnings.extend(page_warnings)
+
+            if len(pages) > 1:
+                page_sections = []
+                for p in pages:
+                    heading = f"--- Page {p.page_number} ---"
+                    if p.text:
+                        page_sections.append(f"{heading}\n{p.text}")
+                    else:
+                        page_sections.append(heading)
+                full_text = "\n\n".join(page_sections)
+            else:
+                full_text = "\n\n".join(p.text for p in pages if p.text)
             all_tables = tuple(t for p in pages for t in p.tables)
             ocr_doc = CanonicalDocument(
                 document_id=f"doc-{inp.input_id}",
