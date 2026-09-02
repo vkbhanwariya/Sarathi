@@ -33,7 +33,6 @@ from sarathi.shakti.native_extraction import NativeExtractionCapability
 from sarathi.shakti.ocr import OCRCapability
 from sarathi.shakti.bank_statements import BankStatementCapability
 from sarathi.shakti.font_conversion import FontConversionCapability
-from sarathi.shakti.translation import TranslationCapability
 from sarathi.sutra import Settings, load_settings
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 
@@ -505,7 +504,7 @@ class Agni:
                             success=False,
                             status=term_status,
                         )
-                    except Exception as cleanup_exc:
+                    except (OSError, DoshError) as cleanup_exc:
                         if self._darpana is not None:
                             from sarathi.darpana import MarutiRecord
 
@@ -523,11 +522,6 @@ class Agni:
                                     attributes={"error_type": type(cleanup_exc).__name__},
                                 )
                             )
-                        if not hasattr(proc_exc, "__cleanup_cause__"):
-                            try:
-                                proc_exc.__cleanup_cause__ = cleanup_exc  # type: ignore[attr-defined]
-                            except Exception:
-                                pass
 
                     if self._darpana is not None:
                         from sarathi.darpana import TerminalRunSummary

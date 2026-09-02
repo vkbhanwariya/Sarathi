@@ -440,7 +440,11 @@ class Pravaha:
                 validated_capabilities.append(executable_cap)
 
             # Execute pipeline in plan order through Yantra with failure lifecycle handling
-            for cap in validated_capabilities:
+            executed_stage_idx: int = -1
+            originating_capability_id: str | None = None
+
+            for stage_idx, cap in enumerate(validated_capabilities):
+                executed_stage_idx = stage_idx
                 current_ctx = context
 
                 # Cancellation check before stage execution
@@ -649,25 +653,27 @@ class Pravaha:
                 )
             seen_requirements.add(next_req_id)
 
-            if request.requirement not in ("read_native", "identify", next_req_id) and originating_capability_id == request.requirement:
-                current_plan = CapabilityPlan(
-                    request_id=request.request_id,
-                    capability_ids=(next_req_id, request.requirement),
-                )
-            else:
-                # Construct next Request with updated requirement
-                current_request = Request(
-                    request_id=current_request.request_id,
-                    requirement=next_req_id,
-                    inputs=current_request.inputs,
-                    profile=current_request.profile,
-                    custom_options=current_request.custom_options,
-                    output_root=current_request.output_root,
-                    preserve_partial=current_request.preserve_partial,
-                    metadata=current_request.metadata,
-                )
-                # Resolve next plan through Manthan
-                current_plan = self._manthan.resolve(current_request)
+            # Generic continuation: resume exact paused plan suffix
+            resuming_stages = current_plan.capability_ids[executed_stage_idx + 1:]
+
+            # Resolve next plan for next_req_id through Manthan
+            current_request = Request(
+                request_id=current_request.request_id,
+                requirement=next_req_id,
+                inputs=current_request.inputs,
+                profile=current_request.profile,
+                custom_options=current_request.custom_options,
+                output_root=current_request.output_root,
+                preserve_partial=current_request.preserve_partial,
+                cancellation_token=current_request.cancellation_token,
+                metadata=current_request.metadata,
+            )
+            next_plan = self._manthan.resolve(current_request)
+
+            current_plan = CapabilityPlan(
+                request_id=request.request_id,
+                capability_ids=next_plan.capability_ids + resuming_stages,
+            )
 
     def apply_lifecycle_action(
         self,

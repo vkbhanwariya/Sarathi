@@ -162,11 +162,11 @@ class OCRCapability:
 
         result_data: Any = final_docs[0] if len(final_docs) == 1 else tuple(final_docs)
 
-        # Aggregate overall measured confidence across OCR pages via concise comprehension
+        # Aggregate overall measured confidence across OCR pages only when all pages have factual unaltered RapidOCR mean
+        all_ocr_pages = [p for doc in final_docs for p in doc.pages]
         scores: list[float] = [
             float(p.metadata["confidence"])
-            for doc in final_docs
-            for p in doc.pages
+            for p in all_ocr_pages
             if isinstance(p.metadata.get("confidence"), (int, float))
         ]
 
@@ -181,9 +181,16 @@ class OCRCapability:
                     "page_count": len(scores),
                 },
             )
-            if scores
+            if (scores and len(scores) == len(all_ocr_pages))
             else None
         )
+
+        metadata: dict[str, Any] = {
+            "ocr_coverage": {
+                "total_pages": len(all_ocr_pages),
+                "unaltered_rapidocr_pages": len(scores),
+            }
+        }
 
         return Result(
             data=result_data,
@@ -191,4 +198,5 @@ class OCRCapability:
             warnings=tuple(all_warnings),
             provenance=tuple(all_provenance),
             next_requirement=None,
+            metadata=metadata,
         )

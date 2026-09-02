@@ -36,7 +36,7 @@ class ScannedNativeReaderMock:
             tables=(),
             detected_type="scanned_pdf",
         )
-        return Result(data=doc)
+        return Result(data=doc, next_requirement="ocr")
 
 
 class ScannedOCRReaderMock:
@@ -143,8 +143,8 @@ def test_bank_statement_scanned_continuation_e2e(tmp_path: Path) -> None:
 
     result = agni.execute(req)
 
-    # 1. Verify exact execution order: read_native -> bank_statements -> ocr -> bank_statements
-    assert execution_order == ["read_native", "bank_statements", "ocr", "bank_statements"]
+    # 1. Verify exact execution order: read_native -> ocr -> bank_statements
+    assert execution_order == ["read_native", "ocr", "bank_statements"]
     assert native_mock.call_count == 1  # Not re-run!
     assert ocr_mock.call_count == 1
 
@@ -229,8 +229,8 @@ def test_font_conversion_scanned_continuation_e2e(tmp_path: Path) -> None:
 
     result = agni.execute(req)
 
-    # 1. Verify exact execution order: read_native -> font_conversion -> ocr -> font_conversion
-    assert execution_order == ["read_native", "font_conversion", "ocr", "font_conversion"]
+    # 1. Verify exact execution order: read_native -> ocr -> font_conversion
+    assert execution_order == ["read_native", "ocr", "font_conversion"]
     assert native_mock.call_count == 1
     assert ocr_mock.call_count == 1
 
@@ -238,3 +238,82 @@ def test_font_conversion_scanned_continuation_e2e(tmp_path: Path) -> None:
     assert isinstance(result.data, CanonicalDocument)
     doc: CanonicalDocument = result.data
     assert "भारतीय राजनीति" in doc.text
+
+
+def test_generic_arbitrary_capability_continuation(tmp_path: Path) -> None:
+    """Proves generic continuation with arbitrary capability IDs (no domain names hardcoded)."""
+    from sarathi.sankalpa import CapabilityDeclaration, PluginInfo, SecurityDeclaration
+
+    input_file = tmp_path / "generic_input.txt"
+    input_file.write_text("generic input data", encoding="utf-8")
+
+    execution_trace: list[str] = []
+
+    class InitCap:
+        def __init__(self) -> None:
+            self.declaration = CapabilityDeclaration(
+                capability_id="init_cap",
+                plugin_id="plugin.init",
+                version="1.0.0",
+                supported_profiles=(ExecutionProfile.INSTANT,),
+            )
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_trace.append("init_cap")
+            return Result(data={"stage": "init_done"}, next_requirement="beta_cap")
+
+    class AlphaCap:
+        def __init__(self) -> None:
+            self.declaration = CapabilityDeclaration(
+                capability_id="alpha_cap",
+                plugin_id="plugin.alpha",
+                version="1.0.0",
+                prerequisites=("init_cap",),
+                supported_profiles=(ExecutionProfile.INSTANT,),
+            )
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_trace.append("alpha_cap")
+            return Result(data={"final_result": "alpha_completed", "prior": prior_result.data if prior_result else None})
+
+    class BetaCap:
+        def __init__(self) -> None:
+            self.declaration = CapabilityDeclaration(
+                capability_id="beta_cap",
+                plugin_id="plugin.beta",
+                version="1.0.0",
+                supported_profiles=(ExecutionProfile.INSTANT,),
+            )
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_trace.append("beta_cap")
+            return Result(data={"beta_processed": True, "input_received": prior_result.data if prior_result else None})
+
+    init = InitCap()
+    alpha = AlphaCap()
+    beta = BetaCap()
+
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        input_root=tmp_path / "Input",
+        capabilities={
+            "init_cap": init,
+            "alpha_cap": alpha,
+            "beta_cap": beta,
+        },
+    )
+
+    req = Request(
+        request_id="req-generic-cont",
+        requirement="alpha_cap",
+        inputs=(InputRef("inp-gen", input_file, "generic_input.txt", input_file.stat().st_size),),
+        profile=ExecutionProfile.INSTANT,
+    )
+
+    result = agni.execute(req)
+
+    assert execution_trace == ["init_cap", "beta_cap", "alpha_cap"]
+    assert isinstance(result.data, dict)
+    assert result.data["final_result"] == "alpha_completed"
+    assert result.data["prior"]["beta_processed"] is True

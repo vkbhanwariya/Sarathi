@@ -67,6 +67,9 @@ class Request:
         if not isinstance(self.profile, ExecutionProfile):
             object.__setattr__(self, "profile", ExecutionProfile.from_string(str(self.profile)))
 
+        if not isinstance(self.preserve_partial, bool):
+            raise TypeError(f"preserve_partial must be a bool, got {type(self.preserve_partial).__name__}.")
+
         if self.output_root is not None and not isinstance(self.output_root, Path):
             object.__setattr__(self, "output_root", Path(self.output_root))
 
