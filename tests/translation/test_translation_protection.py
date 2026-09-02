@@ -1,14 +1,15 @@
+from typing import Any
 """Tests for Translation Span Protection and Restoration."""
 
-from sarathi.shakti.translation.engine import TranslationEngine
+from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.protector import TranslationProtector
 from sarathi.shakti.translation.validator import TranslationValidator
 
 
-def test_factual_spans_and_identifiers_preserved_byte_for_byte() -> None:
+def test_factual_spans_and_identifiers_preserved_byte_for_byte(test_backend: Any) -> None:
     protector = TranslationProtector()
-    engine = TranslationEngine(protector=protector)
+    engine = CTranslate2TranslationEngine(backend=test_backend, protector=protector)
     validator = TranslationValidator()
 
     sample = (
@@ -26,6 +27,3 @@ def test_factual_spans_and_identifiers_preserved_byte_for_byte() -> None:
     assert "(100%)" in translated
     assert "https://sbi.co.in/txn" in translated
     assert "contact@gov.in" in translated
-
-    # Verify custom/legal terminology
-    assert "Account Number" in translated

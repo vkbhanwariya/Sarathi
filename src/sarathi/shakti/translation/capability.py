@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-from sarathi.darpana import AccuracyValue, Darpana, PramanaRecord
-from sarathi.sankalpa import ConfidenceValue
+from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     ArtifactIntent,
@@ -23,10 +20,12 @@ from sarathi.sankalpa import (
     TableData,
     WarningRecord,
 )
-from sarathi.shakti.translation.anubhava import TranslationAnubhavaStore
 from sarathi.shakti.translation.detector import LanguageDetector
-from sarathi.shakti.translation.engine import TranslationEngine
-from sarathi.shakti.translation.glossary import GlossaryStore
+from sarathi.shakti.translation.engine import (
+    CTranslate2TranslationEngine,
+    TranslationEngine,
+    TranslatorBackend,
+)
 from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
@@ -39,18 +38,16 @@ class TranslationCapability:
     def __init__(
         self,
         darpana: Darpana | None = None,
-        glossary_dir: Path | None = None,
-        anubhava_dir: Path | None = None,
+        data_root: Path | None = None,
+        backend: TranslatorBackend | None = None,
     ) -> None:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
         self._detector = LanguageDetector()
-        self._glossary = GlossaryStore(glossary_dir=glossary_dir)
-        self._anubhava = TranslationAnubhavaStore(anubhava_dir=anubhava_dir)
         self._protector = TranslationProtector()
-        self._engine = TranslationEngine(
-            glossary=self._glossary,
-            anubhava=self._anubhava,
+        self._engine = CTranslate2TranslationEngine(
+            data_root=data_root,
+            backend=backend,
             protector=self._protector,
         )
         self._validator = TranslationValidator()
@@ -170,32 +167,9 @@ class TranslationCapability:
                 content=t_res.translated_text.encode("utf-8"),
             )
 
-            # Record Pramana telemetry to Darpana if available
-            if self._darpana is not None:
-                pramana_rec = PramanaRecord(
-                    run_id=context.run_id,
-                    request_id=context.request_id,
-                    trace_id=context.trace_id,
-                    span_id=context.span_id,
-                    capability_id="translation",
-                    stage="translation",
-                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
-                    confidence=ConfidenceValue(score=1.0, method="exact_dictionary_alignment", evidence={"protected_spans": t_res.protected_spans_count}),
-                    accuracy=AccuracyValue(
-                        score=1.0,
-                        method="exact_span_validation",
-                        evidence={"protected_spans": t_res.protected_spans_count},
-                    ),
-                    attributes={
-                        "direction": direction.value,
-                        "protected_spans": t_res.protected_spans_count,
-                    },
-                )
-                self._darpana.record_pramana(pramana_rec)
-
             return Result(
                 data=translated_doc,
                 artifact_payloads=(payload,),
-                confidence=ConfidenceValue(score=1.0, method="exact_dictionary_alignment", evidence={"protected_spans": t_res.protected_spans_count}),
+                confidence=None,
                 provenance=base_prov + (prov,),
             )

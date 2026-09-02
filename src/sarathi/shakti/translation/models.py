@@ -43,12 +43,11 @@ class GlossaryEntry:
 
 @dataclass(frozen=True, slots=True)
 class TranslationResult:
-    """Internal result of a translation operation."""
+    """Result of a translation operation."""
 
     translated_text: str
     source_language: Language
     target_language: Language
     direction: TranslationDirection
     protected_spans_count: int
-    quality_score: float
     metadata: Mapping[str, object]
