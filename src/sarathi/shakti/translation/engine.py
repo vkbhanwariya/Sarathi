@@ -98,8 +98,9 @@ class CTranslate2TranslationEngine:
             )
 
         try:
-            import ctranslate2
-            import sentencepiece
+            import importlib
+            ctranslate2 = importlib.import_module("ctranslate2")
+            sentencepiece = importlib.import_module("sentencepiece")
         except ImportError as exc:
             raise DoshError(
                 code=FailureCode.DEPENDENCY_UNAVAILABLE,
