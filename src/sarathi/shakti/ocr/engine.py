@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 import re
 import stat
-from typing import Any
+from typing import Any, Mapping
 import unicodedata
 
 from sarathi.dosh import DoshError, FailureCode
