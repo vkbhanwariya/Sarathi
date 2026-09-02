@@ -11,7 +11,11 @@ from sarathi.sankalpa import Result
 from sarathi.smriti.key import CacheKey, compute_cache_key
 from sarathi.smriti.memory import MemoryCache
 from sarathi.smriti.policy import CachePolicy
-from sarathi.smriti.serialization import deserialize_result, serialize_result
+from sarathi.smriti.serialization import (
+    deserialize_result,
+    is_cacheable_result,
+    serialize_result,
+)
 
 
 class SQLiteCacheStore:
@@ -72,15 +76,22 @@ class SQLiteCacheStore:
                 "UPDATE smriti_entries SET accessed_at = ? WHERE key_hash = ?",
                 (now, key.key_hash),
             )
-            return deserialize_result(data_json)
+            try:
+                return deserialize_result(data_json)
+            except Exception:
+                # Corrupted or unparseable entry: prune safely
+                conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
+                return None
 
     def put(self, key: CacheKey, result: Result) -> None:
         """Store serialized result in SQLite store and enforce L2 capacity limits."""
+        if not is_cacheable_result(result):
+            return
+
         data_json = serialize_result(result)
         now = time.time()
 
         with self._lock, self._get_connection() as conn:
-            # Check capacity and evict oldest accessed if needed
             count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
             if count >= self._policy.max_entries_l2:
                 conn.execute("""
@@ -122,25 +133,29 @@ class SmritiCache:
         if cache_dir is not None:
             self._l2 = SQLiteCacheStore(db_path=cache_dir / "smriti.db", policy=self._policy)
 
-    def get(self, key: CacheKey) -> Result | None:
-        """Two-tier lookup: L1 Memory -> L2 SQLite with promotion to L1."""
-        # 1. L1 Memory check
+    def get_with_tier(self, key: CacheKey) -> tuple[Result | None, str | None]:
+        """Two-tier lookup returning result and source tier ('l1' or 'l2')."""
         res = self._l1.get(key)
         if res is not None:
-            return res
+            return res, "l1"
 
-        # 2. L2 SQLite check
         if self._l2 is not None:
             res_l2 = self._l2.get(key)
             if res_l2 is not None:
-                # Promote to L1
                 self._l1.put(key, res_l2)
-                return res_l2
+                return res_l2, "l2"
 
-        return None
+        return None, None
+
+    def get(self, key: CacheKey) -> Result | None:
+        """Two-tier lookup: L1 Memory -> L2 SQLite with promotion to L1."""
+        res, _ = self.get_with_tier(key)
+        return res
 
     def put(self, key: CacheKey, result: Result) -> None:
-        """Write through both L1 Memory and L2 SQLite cache."""
+        """Write through both L1 Memory and L2 SQLite cache if cacheable."""
+        if not is_cacheable_result(result):
+            return
         self._l1.put(key, result)
         if self._l2 is not None:
             self._l2.put(key, result)

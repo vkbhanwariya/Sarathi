@@ -1,4 +1,4 @@
-"""E2E Pipeline Integration Tests with Smriti Caching."""
+"""E2E Pipeline Integration and Telemetry Tests with Smriti Caching."""
 
 from pathlib import Path
 
@@ -15,7 +15,7 @@ from sarathi.sankalpa import (
 from sarathi.smriti import SmritiCache
 
 
-def test_pipeline_caches_and_reuses_results(tmp_path: Path) -> None:
+def test_pipeline_caches_and_records_factual_telemetry(tmp_path: Path) -> None:
     runtime_dir = tmp_path / "Runtime"
     output_dir = tmp_path / "Output"
     darpana = Darpana(capacity=200)
@@ -45,17 +45,27 @@ def test_pipeline_caches_and_reuses_results(tmp_path: Path) -> None:
         profile=ExecutionProfile.INSTANT,
     )
 
+    # Run 1: Cold execution (miss recorded)
     ctx1 = ExecutionContext("run-1", "req-smriti-1", "t-1", "s-1")
-
-    # Run 1: Cold execution (populates Smriti cache)
     res1 = agni.execute(req, context=ctx1)
     assert isinstance(res1, Result)
     assert isinstance(res1.data, CanonicalDocument)
     assert res1.data.text == "Hello from Smriti verified cache pipeline!"
 
-    # Run 2: Warm execution (hits Smriti cache)
+    recs1 = [r for r in darpana.maruti_records() if r.run_id == "run-1" and r.phase_name == "cache.lookup"]
+    assert len(recs1) >= 1
+    assert recs1[0].attributes["outcome"] == "miss"
+    assert recs1[0].attributes["capability_id"] == "read_native"
+
+    # Run 2: Warm execution (hit recorded)
     ctx2 = ExecutionContext("run-2", "req-smriti-1", "t-2", "s-2")
     res2 = agni.execute(req, context=ctx2)
     assert isinstance(res2, Result)
     assert isinstance(res2.data, CanonicalDocument)
     assert res2.data.text == "Hello from Smriti verified cache pipeline!"
+
+    recs2 = [r for r in darpana.maruti_records() if r.run_id == "run-2" and r.phase_name == "cache.lookup"]
+    assert len(recs2) >= 1
+    assert recs2[0].attributes["outcome"] == "hit"
+    assert recs2[0].attributes["cache_tier"] in ("l1", "l2")
+    assert recs2[0].attributes["capability_id"] == "read_native"

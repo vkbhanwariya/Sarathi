@@ -6,11 +6,11 @@ from collections import OrderedDict
 from dataclasses import dataclass
 import threading
 import time
-from typing import Any
 
 from sarathi.sankalpa import Result
 from sarathi.smriti.key import CacheKey
 from sarathi.smriti.policy import CachePolicy
+from sarathi.smriti.serialization import is_cacheable_result
 
 
 @dataclass(slots=True)
@@ -48,6 +48,9 @@ class MemoryCache:
 
     def put(self, key: CacheKey, result: Result) -> None:
         """Store result in memory, evicting LRU items if at capacity."""
+        if not is_cacheable_result(result):
+            return
+
         with self._lock:
             now = time.time()
             if key.key_hash in self._cache:
