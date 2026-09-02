@@ -111,7 +111,6 @@ class TestOCRPhase1Instant:
         assert OCR_DECLARATION.supported_profiles == (
             ExecutionProfile.INSTANT,
             ExecutionProfile.ACCURATE,
-            ExecutionProfile.LAYOUT_PRESERVING,
             ExecutionProfile.CUSTOM,
         )
 

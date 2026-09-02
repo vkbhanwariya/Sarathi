@@ -26,7 +26,6 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
-        ExecutionProfile.LAYOUT_PRESERVING,
         ExecutionProfile.CUSTOM,
     ),
     device_requirement=DeviceRequirement(
