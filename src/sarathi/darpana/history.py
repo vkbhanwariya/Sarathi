@@ -186,27 +186,25 @@ class TerminalRunHistoryStore:
             try:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
                 if self._format == "jsonl":
-                    # Read existing records without loading unbounded memory
-                    existing_lines: list[str] = []
+                    from collections import deque
+
+                    # Read only bounded tail into memory
+                    tail_lines: deque[str] = deque(maxlen=self._max_records)
                     if self._path.exists():
                         with open(self._path, "r", encoding="utf-8") as f:
                             for line in f:
                                 stripped = line.strip()
                                 if stripped:
-                                    existing_lines.append(stripped)
+                                    tail_lines.append(stripped)
 
-                    # Append new record
+                    # Append new record (deque automatically maintains maxlen=self._max_records)
                     new_line = json.dumps(summary.to_dict(), ensure_ascii=False)
-                    existing_lines.append(new_line)
-
-                    # Keep only bounded tail
-                    if len(existing_lines) > self._max_records:
-                        existing_lines = existing_lines[-self._max_records:]
+                    tail_lines.append(new_line)
 
                     # Atomic write
                     temp_file = self._path.parent / f".tmp_{uuid.uuid4().hex}_{self._path.name}"
                     with open(temp_file, "w", encoding="utf-8") as f:
-                        for l in existing_lines:
+                        for l in tail_lines:
                             f.write(l + "\n")
                         f.flush()
                         os.fsync(f.fileno())
@@ -252,35 +250,35 @@ class TerminalRunHistoryStore:
                                 (self._max_records,),
                             )
                     return True
-            except (OSError, sqlite3.Error, json.JSONDecodeError):
+            except (OSError, sqlite3.Error):
                 return False
         return False
 
     def query(self, limit: int = 50) -> tuple[TerminalRunSummary, ...]:
-        """Query recent terminal run summaries ordered from newest to oldest."""
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
-            raise ValueError(f"limit must be a positive integer, got {limit!r}.")
-
-        if not self._path.exists():
-            return ()
+        """Query recent terminal runs in reverse chronological order up to limit."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            raise ValueError("limit must be a positive integer.")
 
         with self._lock:
             try:
+                results: list[TerminalRunSummary] = []
                 if self._format == "jsonl":
-                    results: list[TerminalRunSummary] = []
-                    lines: list[str] = []
+                    if not self._path.exists():
+                        return ()
+
+                    from collections import deque
+
+                    bounded_tail: deque[str] = deque(maxlen=limit)
                     with open(self._path, "r", encoding="utf-8") as f:
                         for line in f:
                             s = line.strip()
                             if s:
-                                lines.append(s)
+                                bounded_tail.append(s)
 
-                    for line in reversed(lines):
+                    for line in reversed(bounded_tail):
                         try:
                             data = json.loads(line)
                             results.append(TerminalRunSummary.from_dict(data))
-                            if len(results) >= limit:
-                                break
                         except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                             continue
                     return tuple(results)

@@ -143,6 +143,7 @@ class TesseractFallbackAdapter:
 
             # Check for TSV format header
             if lines and ("\tconf\ttext" in lines[0] or lines[0].startswith("level\t")):
+                has_invalid_conf = False
                 for line in lines[1:]:
                     parts = line.split("\t")
                     if len(parts) >= 12:
@@ -155,17 +156,20 @@ class TesseractFallbackAdapter:
                                 # Tesseract TSV confidence is valid only when finite and within raw 0..100; convert once to 0..1
                                 if not math.isnan(conf_num) and not math.isinf(conf_num) and 0.0 <= conf_num <= 100.0:
                                     conf_scores.append(conf_num / 100.0)
+                                else:
+                                    has_invalid_conf = True
                             except (ValueError, TypeError):
-                                pass
+                                has_invalid_conf = True
                 if not words:
                     raise DoshError(
                         code=FailureCode.EXECUTION_FAILED,
                         message="Tesseract fallback produced unusable output.",
                     )
                 text = unicodedata.normalize("NFC", " ".join(words))
-                measured_conf = (sum(conf_scores) / len(conf_scores)) if (conf_scores and len(conf_scores) == len(words)) else (
-                    (sum(conf_scores) / len(conf_scores)) if conf_scores else None
-                )
+                if has_invalid_conf or len(conf_scores) != len(words) or not conf_scores:
+                    measured_conf = None
+                else:
+                    measured_conf = sum(conf_scores) / len(conf_scores)
                 return text, measured_conf
             else:
                 # Fallback for plain text output without TSV confidence
@@ -476,6 +480,14 @@ class RapidOCREngine:
                             tess_res = self._tesseract.recognize_crop(cropped)
                             if tess_res is not None:
                                 tess_text, tess_conf = tess_res
+                                if tess_conf is None:
+                                    warnings.append(
+                                        WarningRecord(
+                                            code="OCR_FALLBACK_CONFIDENCE_UNAVAILABLE",
+                                            message="Tesseract fallback confidence score is unavailable.",
+                                            stage=_STAGE_NAME,
+                                        )
+                                    )
                                 if tess_conf is not None and tess_conf > span.confidence:
                                     spans[idx] = TextSpan(
                                         text=tess_text,

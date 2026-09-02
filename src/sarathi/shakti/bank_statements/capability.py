@@ -76,7 +76,7 @@ class BankStatementCapability:
         base_prov: tuple[ProvenanceRecord, ...] = prior_result.provenance
 
         if not doc.text.strip() and not any(p.tables for p in doc.pages) and doc.pages:
-            return Result(data=doc, next_requirement="ocr")
+            return Result(data=doc, next_requirement="ocr", resume_self=True)
 
         det_scope = (
             self._darpana.time_scope(context=context, phase_name="bank_detection", component="shakti.bank_statements")

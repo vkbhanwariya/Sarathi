@@ -722,13 +722,10 @@ class RunWorkspace:
 
             # 4. If output directory is empty (no preserved partials), remove it
             if self._output_dir.exists():
-                try:
-                    partial_dir = self._output_dir / "partial"
-                    has_partials = self._preserve_partial and partial_dir.exists() and any(partial_dir.iterdir())
-                    if not has_partials:
-                        shutil.rmtree(self._output_dir)
-                except OSError:
-                    pass
+                partial_dir = self._output_dir / "partial"
+                has_partials = self._preserve_partial and partial_dir.exists() and any(partial_dir.iterdir())
+                if not has_partials:
+                    shutil.rmtree(self._output_dir)
         except OSError as exc:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
@@ -1025,6 +1022,23 @@ class RunWorkspace:
                 try:
                     self._cleanup_run_on_failure()
                 except (OSError, DoshError):
+                    if self._darpana is not None and self._context is not None:
+                        from sarathi.darpana import MarutiRecord
+
+                        self._darpana.record_maruti(
+                            MarutiRecord(
+                                run_id=self._context.run_id,
+                                request_id=self._context.request_id,
+                                trace_id=self._context.trace_id,
+                                span_id=self._context.span_id,
+                                phase_name="artifact.cleanup_failure",
+                                component="nabhi.artifacts",
+                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                duration_ns=0,
+                                outcome="failure",
+                                attributes={"error": "cleanup_failed_during_exception"},
+                            )
+                        )
                     # Preserve original exception while attaching safe cleanup-failure note if supported
                     if exc_val is not None and hasattr(exc_val, "add_note"):
                         exc_val.add_note("Failed to clean up run workspace upon exception.")

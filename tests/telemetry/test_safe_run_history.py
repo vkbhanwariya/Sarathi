@@ -168,7 +168,7 @@ def test_agni_execution_records_history_via_sutra_settings(tmp_path: Path) -> No
         data={
             "telemetry": {
                 "history_enabled": True,
-                "history_path": str(history_file),
+                "history_path": "custom_history.jsonl",
                 "history_format": "jsonl",
             }
         }
@@ -198,8 +198,9 @@ def test_agni_execution_records_history_via_sutra_settings(tmp_path: Path) -> No
         assert history[0].status == "completed"
         assert history[0].artifact_count >= 0
 
-    # 2. Reopen Darpana on history file and confirm run is preserved
-    reopened_darpana = Darpana(capacity=100, history_path=history_file, history_format="jsonl")
+    # 2. Reopen Darpana on resolved history file in Runtime/Telemetry and confirm run is preserved
+    resolved_history_file = tmp_path / "Runtime" / "Telemetry" / "custom_history.jsonl"
+    reopened_darpana = Darpana(capacity=100, history_path=resolved_history_file, history_format="jsonl")
     reopened_history = reopened_darpana.query_run_history(limit=5)
     assert len(reopened_history) == 1
     assert reopened_history[0].request_id == "req-e2e-hist"

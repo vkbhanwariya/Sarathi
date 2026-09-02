@@ -403,6 +403,7 @@ class Pravaha:
         current_request: Request = request
         prior_result: Result | None = None
         seen_requirements: set[str] = {request.requirement}
+        completed_capability_ids: set[str] = set()
 
         while True:
             # Pre-execution validation: validate all planned capabilities against Kosh and executable bindings
@@ -527,6 +528,7 @@ class Pravaha:
 
                     if cached_result is not None:
                         prior_result = cached_result
+                        completed_capability_ids.add(cap.declaration.capability_id)
                         continue
 
                 try:
@@ -648,6 +650,8 @@ class Pravaha:
                 if prior_result.next_requirement is not None:
                     originating_capability_id = cap.declaration.capability_id
                     break
+                else:
+                    completed_capability_ids.add(cap.declaration.capability_id)
 
             assert prior_result is not None  # plan.capability_ids is guaranteed non-empty by CapabilityPlan contract
 
@@ -663,8 +667,13 @@ class Pravaha:
                 )
             seen_requirements.add(next_req_id)
 
-            # Generic continuation: resume exact paused plan suffix
-            resuming_stages = current_plan.capability_ids[executed_stage_idx + 1:]
+            # Determine resumption stages
+            current_cap_id = cap.declaration.capability_id
+            resuming_stages = (
+                (current_cap_id,) + current_plan.capability_ids[executed_stage_idx + 1:]
+                if prior_result.resume_self
+                else current_plan.capability_ids[executed_stage_idx + 1:]
+            )
 
             # Resolve next plan for next_req_id through Manthan
             current_request = Request(
@@ -680,9 +689,14 @@ class Pravaha:
             )
             next_plan = self._manthan.resolve(current_request)
 
+            # Filter out already completed prerequisites from next_plan
+            unexecuted_next_stages = tuple(
+                cid for cid in next_plan.capability_ids if cid not in completed_capability_ids
+            )
+
             current_plan = CapabilityPlan(
                 request_id=request.request_id,
-                capability_ids=next_plan.capability_ids + resuming_stages,
+                capability_ids=unexecuted_next_stages + resuming_stages,
             )
 
     def apply_lifecycle_action(

@@ -87,8 +87,12 @@ def serialize_result(result: Result) -> str:
     provenance_list = [
         {
             "source_input_id": pr.source_input_id,
-            "capability_id": pr.capability_id,
+            "source_file": pr.source_file,
             "stage": pr.stage,
+            "plugin_id": pr.plugin_id,
+            "capability_id": pr.capability_id,
+            "page_number": pr.page_number,
+            "region": pr.region,
             "evidence": dict(pr.evidence),
             "timestamp_utc": pr.timestamp_utc,
         }
@@ -120,6 +124,7 @@ def serialize_result(result: Result) -> str:
         "warnings": warnings_list,
         "provenance": provenance_list,
         "next_requirement": result.next_requirement,
+        "resume_self": result.resume_self,
         "metadata": dict(result.metadata),
     }
     return json.dumps(raw, indent=None, sort_keys=True)
@@ -153,7 +158,7 @@ def deserialize_result(json_str: str) -> Result:
             )
         )
 
-    tables = [
+    doc_tables = [
         TableData(
             name=t["name"],
             headers=tuple(t["headers"]),
@@ -164,49 +169,54 @@ def deserialize_result(json_str: str) -> Result:
     ]
 
     data_obj = CanonicalDocument(
-        document_id=d.get("document_id", "doc-cached"),
-        source_input_id=d.get("source_input_id", "inp-cached"),
-        text=d.get("text", ""),
+        document_id=d["document_id"],
+        source_input_id=d["source_input_id"],
+        text=d["text"],
+        detected_type=d.get("detected_type"),
         pages=tuple(pages),
-        tables=tuple(tables),
-        detected_type=d.get("detected_type", "document"),
+        tables=tuple(doc_tables),
         metadata=MappingProxyType(d.get("metadata", {})),
     )
 
-    payloads = []
-    for pl in raw.get("artifact_payloads", []):
-        intent_raw = pl["intent"]
-        intent = ArtifactIntent(
-            name=intent_raw["name"],
-            role=intent_raw["role"],
-            media_type=intent_raw["media_type"],
-            metadata=MappingProxyType(intent_raw.get("metadata", {})),
+    payloads = [
+        ArtifactPayload(
+            intent=ArtifactIntent(
+                name=p["intent"]["name"],
+                role=p["intent"]["role"],
+                media_type=p["intent"]["media_type"],
+                metadata=MappingProxyType(p["intent"].get("metadata", {})),
+            ),
+            content=base64.b64decode(p["content_b64"].encode("ascii")),
         )
-        content = base64.b64decode(pl["content_b64"].encode("ascii"))
-        payloads.append(ArtifactPayload(intent=intent, content=content))
-
-    provs = [
-        ProvenanceRecord(
-            source_input_id=pr.get("source_input_id"),
-            capability_id=pr.get("capability_id", "cached"),
-            stage=pr.get("stage", "cached"),
-            evidence=MappingProxyType(pr.get("evidence", {})),
-            timestamp_utc=pr.get("timestamp_utc"),
-        )
-        for pr in raw.get("provenance", [])
+        for p in raw.get("artifact_payloads", [])
     ]
 
     warns = [
         WarningRecord(
             code=w["code"],
             message=w["message"],
-            stage=w.get("stage", "cached"),
+            stage=w.get("stage"),
             context=MappingProxyType(w.get("context", {})),
         )
         for w in raw.get("warnings", [])
     ]
 
-    conf: ConfidenceValue | None = None
+    provs = [
+        ProvenanceRecord(
+            source_input_id=pr.get("source_input_id"),
+            source_file=pr.get("source_file"),
+            stage=pr.get("stage"),
+            plugin_id=pr.get("plugin_id"),
+            capability_id=pr.get("capability_id"),
+            page_number=pr.get("page_number"),
+            region=pr.get("region"),
+            evidence=MappingProxyType(pr.get("evidence", {})),
+            timestamp_utc=pr.get("timestamp_utc"),
+        )
+        for pr in raw.get("provenance", [])
+    ]
+
+    conf = None
     if raw.get("confidence"):
         conf = ConfidenceValue(
             score=raw["confidence"]["score"],
@@ -222,5 +232,6 @@ def deserialize_result(json_str: str) -> Result:
         warnings=tuple(warns),
         provenance=tuple(provs),
         next_requirement=raw.get("next_requirement"),
+        resume_self=bool(raw.get("resume_self", False)),
         metadata=MappingProxyType(raw.get("metadata", {})),
     )

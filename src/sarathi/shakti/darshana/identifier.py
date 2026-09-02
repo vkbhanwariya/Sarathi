@@ -357,6 +357,7 @@ def identify_request(request: Request) -> Request:
         custom_options=request.custom_options,
         output_root=request.output_root,
         preserve_partial=request.preserve_partial,
+        cancellation_token=request.cancellation_token,
         metadata=request.metadata,
     )
 

@@ -67,7 +67,7 @@ class TranslationCapability:
 
         # If document is empty and needs OCR
         if not doc.text.strip() and not any(p.tables for p in doc.pages) and not doc.tables and doc.pages:
-            return Result(data=doc, next_requirement="ocr")
+            return Result(data=doc, next_requirement="ocr", resume_self=True)
 
         full_text = doc.text
         if not full_text.strip() and doc.tables:
@@ -86,6 +86,7 @@ class TranslationCapability:
             return Result(
                 data=doc,
                 next_requirement="font_conversion",
+                resume_self=True,
                 warnings=(
                     WarningRecord(
                         code="LEGACY_FONT_DETECTED",
