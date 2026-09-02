@@ -1149,3 +1149,49 @@ class TestOCRPhase1Instant:
             assert progress_calls[0]["page_number"] == 1
             assert progress_calls[0]["total_pages"] == 2
             assert progress_calls[1]["page_number"] == 2
+
+    def test_ocr_accurate_mode_none_stdout_graceful_handling(
+        self, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        mock_tess = MagicMock()
+        mock_tess.is_available.return_value = True
+        mock_tess.recognize_crop.side_effect = DoshError(
+            code=FailureCode.EXECUTION_FAILED,
+            message="Tesseract fallback execution returned non-zero exit status.",
+        )
+
+        engine = RapidOCREngine(data_root=canonical_src, tesseract_adapter=mock_tess)
+        cap = OCRCapability(engine=engine)
+
+        img_path = tmp_path / "test_weak.png"
+        _create_sample_image("Weak Text", img_path)
+
+        req = Request(
+            request_id="req-accurate",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-weak",
+                    source_path=img_path,
+                    display_name="test_weak.png",
+                    size_bytes=img_path.stat().st_size,
+                ),
+            ),
+            profile=ExecutionProfile.ACCURATE,
+        )
+
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            mock_instance = MagicMock()
+            mock_output = MagicMock()
+            mock_output.txts = ("Weak Text",)
+            mock_output.boxes = ([[0.0, 0.0], [50.0, 0.0], [50.0, 20.0], [0.0, 20.0]],)
+            mock_output.scores = (0.50,)  # Weak confidence (< 0.65) triggers fallback
+            mock_instance.return_value = mock_output
+            mock_rapidocr.return_value = mock_instance
+
+            res = cap.execute(req, context)
+            assert isinstance(res, Result)
+            assert "Weak Text" in res.data.text
+            warn_codes = [w.code for w in res.warnings]
+            assert "OCR_FALLBACK_FAILED" in warn_codes

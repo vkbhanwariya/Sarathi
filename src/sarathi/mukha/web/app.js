@@ -39,9 +39,12 @@
         selectedInputsTbody: document.getElementById("selected-inputs-tbody"),
         inputCountsBadge: document.getElementById("input-counts-badge"),
         reqCards: document.querySelectorAll(".req-card"),
+        profileRow: document.getElementById("profile-row"),
         selectProfile: document.getElementById("select-profile"),
         ocrLangRow: document.getElementById("ocr-lang-row"),
         selectOcrLang: document.getElementById("select-ocr-lang"),
+        fontModeRow: document.getElementById("font-mode-row"),
+        selectFontMode: document.getElementById("select-font-mode"),
         preflightSummary: document.getElementById("preflight-summary"),
         preflightIssues: document.getElementById("preflight-issues"),
         btnStartRun: document.getElementById("btn-start-run"),
@@ -281,14 +284,17 @@
         if (state.selectedPaths.length === 0) return;
 
         elements.btnStartRun.disabled = true;
+        const profileToSend = state.currentRequirement === "ocr" ? state.currentProfile : "instant";
         const payload = {
             paths: state.selectedPaths,
             requirement: state.currentRequirement,
-            profile: state.currentProfile,
+            profile: profileToSend,
             recursive: state.isRecursive,
         };
         if (state.currentRequirement === "ocr" && elements.selectOcrLang) {
             payload.custom_options = { lang: elements.selectOcrLang.value };
+        } else if (state.currentRequirement === "font_conversion" && elements.selectFontMode) {
+            payload.custom_options = { font_mode: elements.selectFontMode.value };
         }
 
         const res = await apiPost("/api/runs", payload);
@@ -630,7 +636,7 @@
                 elements.reqCards.forEach((c) => c.classList.remove("active"));
                 card.classList.add("active");
                 state.currentRequirement = card.dataset.req;
-                updateOcrLangRowVisibility();
+                updateRequirementOptionsVisibility();
                 if (state.selectedPaths.length > 0 && state.activeRunStatus !== "RUNNING") {
                     elements.btnStartRun.disabled = false;
                 }
@@ -648,18 +654,36 @@
         elements.btnOpenOutputFolder.addEventListener("click", handleOpenOutputFolder);
         elements.btnReturnHome.addEventListener("click", () => switchScreen("home"));
 
-        updateOcrLangRowVisibility();
+        updateRequirementOptionsVisibility();
 
         // Begin Initial State Polling
         pollState();
     }
 
-    function updateOcrLangRowVisibility() {
-        if (!elements.ocrLangRow) return;
-        if (state.currentRequirement === "ocr") {
-            elements.ocrLangRow.classList.remove("hidden");
-        } else {
-            elements.ocrLangRow.classList.add("hidden");
+    function updateRequirementOptionsVisibility() {
+        // Profile row: visible strictly for OCR
+        if (elements.profileRow) {
+            if (state.currentRequirement === "ocr") {
+                elements.profileRow.classList.remove("hidden");
+            } else {
+                elements.profileRow.classList.add("hidden");
+            }
+        }
+        // OCR model/lang row: visible strictly for OCR
+        if (elements.ocrLangRow) {
+            if (state.currentRequirement === "ocr") {
+                elements.ocrLangRow.classList.remove("hidden");
+            } else {
+                elements.ocrLangRow.classList.add("hidden");
+            }
+        }
+        // Font conversion mode row: visible strictly for Font Conversion
+        if (elements.fontModeRow) {
+            if (state.currentRequirement === "font_conversion") {
+                elements.fontModeRow.classList.remove("hidden");
+            } else {
+                elements.fontModeRow.classList.add("hidden");
+            }
         }
     }
 

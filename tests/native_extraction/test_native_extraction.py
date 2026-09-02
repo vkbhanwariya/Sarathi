@@ -247,6 +247,92 @@ class TestNativeExtraction:
         assert table.rows[1] == ("2026-01-02", "Rent", "15000")
         assert res.provenance[0].evidence["reader"] == "beautifulsoup4"
 
+    def test_docx_native_text_and_table_extraction(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        import zipfile
+
+        docx_path = tmp_path / "sample.docx"
+        doc_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>First Paragraph in Word</w:t></w:r></w:p>
+    <w:tbl>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>Header1</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>Header2</w:t></w:r></w:p></w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>Val1</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>Val2</w:t></w:r></w:p></w:tc>
+      </w:tr>
+    </w:tbl>
+  </w:body>
+</w:document>"""
+        with zipfile.ZipFile(docx_path, "w") as zf:
+            zf.writestr("word/document.xml", doc_xml)
+            zf.writestr("[Content_Types].xml", "<Types/>")
+
+        req = Request(
+            request_id="req-docx",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-docx",
+                    source_path=docx_path,
+                    display_name="sample.docx",
+                    size_bytes=docx_path.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+        assert isinstance(res, Result)
+        doc = res.data
+        assert isinstance(doc, CanonicalDocument)
+        assert doc.detected_type == "docx"
+        assert "First Paragraph in Word" in doc.text
+        assert len(doc.tables) == 1
+        assert doc.tables[0].headers == ("Header1", "Header2")
+        assert doc.tables[0].rows == (("Val1", "Val2"),)
+
+    def test_xlsx_autofilter_warning_and_text_population(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        xlsx_path = tmp_path / "filtered.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Transactions"
+        ws.append(["Date", "Desc", "Amount"])
+        ws.append(["2026-01-01", "Opening", 1000])
+        ws.append(["2026-01-02", "Expense", 200])
+        ws.auto_filter.ref = "A1:C3"
+        wb.save(str(xlsx_path))
+        wb.close()
+
+        req = Request(
+            request_id="req-filter",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-xlsx",
+                    source_path=xlsx_path,
+                    display_name="filtered.xlsx",
+                    size_bytes=xlsx_path.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+        assert isinstance(res, Result)
+        doc = res.data
+        assert isinstance(doc, CanonicalDocument)
+        assert doc.detected_type == "xlsx"
+        warn_codes = [w.code for w in res.warnings]
+        assert "EXCEL_FILTER_APPLIED" in warn_codes
+        assert "Transactions" in doc.text
+        assert "Opening" in doc.text
+
     def test_genuine_legacy_biff_xls_extraction(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:

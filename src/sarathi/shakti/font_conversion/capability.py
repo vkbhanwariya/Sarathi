@@ -115,59 +115,68 @@ class FontConversionCapability:
                     full_text, font_hint=str(font_hint) if font_hint else None
                 )
 
-                if detected_profile is None:
-                    # No legacy font detected; keep original document
-                    converted_docs.append(doc)
-                    all_warnings.append(
-                        WarningRecord(
-                            code="NO_LEGACY_FONT_DETECTED",
-                            message=f"No legacy font encoding detected in document '{doc.document_id}'.",
-                            stage="font_conversion",
+                target_mode = (
+                    request.custom_options.get("font_mode", "auto_unicode")
+                    if request.custom_options
+                    else "auto_unicode"
+                )
+
+                is_to_legacy = target_mode in ("to_krutidev", "to_devlys")
+                target_profile = (
+                    ("krutidev010" if target_mode == "to_krutidev" else "devlys010")
+                    if is_to_legacy
+                    else (detected_profile or "krutidev010")
+                )
+
+                if is_to_legacy:
+                    detected_profile = target_profile
+                    conf = 1.0
+                else:
+                    # Default: auto_unicode
+                    if detected_profile is None:
+                        # No legacy font detected; keep original document
+                        converted_docs.append(doc)
+                        all_warnings.append(
+                            WarningRecord(
+                                code="NO_LEGACY_FONT_DETECTED",
+                                message=f"No legacy font encoding detected in document '{doc.document_id}'.",
+                                stage="font_conversion",
+                            )
                         )
-                    )
-                    continue
+                        continue
 
-                # 2. Protect non-legacy spans
-                protected_text, spans = self._protector.protect(full_text)
+                total_spans_count = 0
 
-                # 3. Convert legacy text to Unicode
-                converted_raw = self._converter.convert(protected_text, profile_id=detected_profile)
+                def _conv_text(raw: str) -> str:
+                    nonlocal total_spans_count
+                    prot, c_spans = self._protector.protect(raw, protect_devanagari=not is_to_legacy)
+                    total_spans_count += len(c_spans)
+                    if is_to_legacy:
+                        if detected_profile is not None and detected_profile != target_profile:
+                            inter = self._converter.convert(prot, profile_id=detected_profile)
+                        else:
+                            inter = prot
+                        c_raw = self._converter.convert_to_legacy(inter, target_profile_id=target_profile)
+                    else:
+                        c_raw = self._converter.convert(prot, profile_id=detected_profile)
+                    restored = self._protector.restore(c_raw, c_spans)
+                    if not is_to_legacy:
+                        if not self._validator.validate_protection_integrity(restored, c_spans):
+                            raise DoshError(
+                                code=FailureCode.EXECUTION_FAILED,
+                                message="Protected span integrity validation failed during font conversion.",
+                            )
+                    return restored
 
-                # 4. Restore protected spans
-                final_text = self._protector.restore(converted_raw, spans)
-
-                # 5. Validate protection integrity
-                is_valid = self._validator.validate_protection_integrity(final_text, spans)
-                if not is_valid:
-                    raise DoshError(
-                        code=FailureCode.EXECUTION_FAILED,
-                        message="Protected span integrity validation failed during font conversion.",
-                    )
+                final_text = _conv_text(full_text)
 
                 # Convert tables if present
                 converted_tables: list[TableData] = []
                 for t in doc.tables:
                     t_rows: list[tuple[str, ...]] = []
                     for row in t.rows:
-                        r_cells: list[str] = []
-                        for cell in row:
-                            c_prot, c_spans = self._protector.protect(str(cell))
-                            c_conv = self._protector.restore(
-                                self._converter.convert(c_prot, profile_id=detected_profile), c_spans
-                            )
-                            r_cells.append(c_conv)
-                        t_rows.append(tuple(r_cells))
-                    t_headers = (
-                        tuple(
-                            self._protector.restore(
-                                self._converter.convert(h_prot, profile_id=detected_profile), h_spans
-                            )
-                            for h in t.headers
-                            for h_prot, h_spans in [self._protector.protect(str(h))]
-                        )
-                        if t.headers
-                        else ()
-                    )
+                        t_rows.append(tuple(_conv_text(str(cell)) for cell in row))
+                    t_headers = tuple(_conv_text(str(h)) for h in t.headers) if t.headers else ()
                     converted_tables.append(
                         TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata)
                     )
@@ -175,34 +184,11 @@ class FontConversionCapability:
                 # Convert pages if present
                 converted_pages: list[PageData] = []
                 for p in doc.pages:
-                    p_text_prot, p_spans = self._protector.protect(p.text)
-                    p_conv = self._protector.restore(
-                        self._converter.convert(p_text_prot, profile_id=detected_profile), p_spans
-                    )
-
+                    p_conv = _conv_text(p.text)
                     p_page_tables: list[TableData] = []
                     for t in p.tables:
-                        t_rows = []
-                        for row in t.rows:
-                            r_cells = []
-                            for cell in row:
-                                c_prot, c_spans = self._protector.protect(str(cell))
-                                c_conv = self._protector.restore(
-                                    self._converter.convert(c_prot, profile_id=detected_profile), c_spans
-                                )
-                                r_cells.append(c_conv)
-                            t_rows.append(tuple(r_cells))
-                        t_headers = (
-                            tuple(
-                                self._protector.restore(
-                                    self._converter.convert(h_prot, profile_id=detected_profile), h_spans
-                                )
-                                for h in t.headers
-                                for h_prot, h_spans in [self._protector.protect(str(h))]
-                            )
-                            if t.headers
-                            else ()
-                        )
+                        t_rows = [tuple(_conv_text(str(cell)) for cell in row) for row in t.rows]
+                        t_headers = tuple(_conv_text(str(h)) for h in t.headers) if t.headers else ()
                         p_page_tables.append(
                             TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata)
                         )
@@ -227,7 +213,11 @@ class FontConversionCapability:
                     source_input_id=doc.source_input_id,
                     capability_id="font_conversion",
                     stage="font_conversion",
-                    evidence={"profile_id": detected_profile, "confidence": conf, "protected_spans_count": len(spans)},
+                    evidence={
+                        "profile_id": detected_profile,
+                        "confidence": conf,
+                        "protected_spans_count": total_spans_count,
+                    },
                 )
                 all_provs.append(prov)
 

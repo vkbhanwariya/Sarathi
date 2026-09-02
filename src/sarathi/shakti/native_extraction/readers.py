@@ -209,12 +209,56 @@ def read_xlsx(
         finally:
             wb_px.close()
 
+    # Check for active filters and hidden rows across worksheets
+    filter_detected = False
+    filter_details: list[str] = []
+    try:
+        wb_filter_check = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=False)
+        try:
+            for ws_c in wb_filter_check.worksheets:
+                has_af = bool(ws_c.auto_filter and ws_c.auto_filter.ref)
+                has_hidden = any(ws_c.row_dimensions[r].hidden for r in ws_c.row_dimensions)
+                if has_af or has_hidden:
+                    filter_detected = True
+                    af_ref = ws_c.auto_filter.ref if has_af else "none"
+                    filter_details.append(f"{ws_c.title}(auto_filter={af_ref}, hidden_rows={has_hidden})")
+                    warnings.append(
+                        WarningRecord(
+                            code="EXCEL_FILTER_APPLIED",
+                            message=f"Worksheet '{ws_c.title}' has an AutoFilter ({af_ref}) or hidden rows. All rows are extracted.",
+                            stage=_STAGE_NAME,
+                        )
+                    )
+        finally:
+            wb_filter_check.close()
+    except Exception:
+        pass
+
+    # Build composite text from table headers and cells for downstream processing
+    composite_lines: list[str] = []
+    for t in tables:
+        if t.name:
+            composite_lines.append(f"--- Sheet: {t.name} ---")
+        if t.headers:
+            composite_lines.append(" | ".join(str(h) for h in t.headers if str(h).strip()))
+        for row in t.rows:
+            row_str = " | ".join(str(c) for c in row if c is not None and str(c).strip())
+            if row_str:
+                composite_lines.append(row_str)
+    full_text = "\n".join(composite_lines)
+
+    meta: dict[str, Any] = {"reader": reader_used}
+    if filter_detected:
+        meta["filter_applied"] = True
+        meta["filter_details"] = "; ".join(filter_details)
+
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",
         source_input_id=input_id,
+        text=full_text,
         tables=tuple(tables),
         detected_type="xlsx",
-        metadata={"reader": reader_used},
+        metadata=meta,
     )
     return canonical_doc, tuple(provenances), tuple(warnings)
 
@@ -485,5 +529,101 @@ def read_csv_or_text(
         tables=tuple(tables),
         text=text_content.strip() if not parsed_tabular else "",
         detected_type="csv_or_text",
+    )
+    return canonical_doc, tuple(provenances), tuple(warnings)
+
+
+def read_docx(
+    data: bytes,
+    input_id: str,
+) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
+    """Extract full text, paragraphs, and tables from a DOCX (OpenXML) document."""
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    tables: list[TableData] = []
+    paragraphs: list[str] = []
+    provenances: list[ProvenanceRecord] = []
+    warnings: list[WarningRecord] = []
+
+    _W_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    _P_TAG = f"{_W_NAMESPACE}p"
+    _R_TAG = f"{_W_NAMESPACE}r"
+    _T_TAG = f"{_W_NAMESPACE}t"
+    _TBL_TAG = f"{_W_NAMESPACE}tbl"
+    _TR_TAG = f"{_W_NAMESPACE}tr"
+    _TC_TAG = f"{_W_NAMESPACE}tc"
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            if "word/document.xml" not in zf.namelist():
+                raise DoshError(
+                    code=FailureCode.UNSUPPORTED,
+                    message="DOCX file is missing required word/document.xml.",
+                )
+            doc_xml = zf.read("word/document.xml")
+            tree = ET.fromstring(doc_xml)
+
+            body = tree.find(f"{_W_NAMESPACE}body")
+            if body is not None:
+                tbl_count = 0
+                for elem in body:
+                    if elem.tag == _P_TAG:
+                        p_text = "".join(t.text for t in elem.iter(_T_TAG) if t.text)
+                        if p_text.strip():
+                            paragraphs.append(p_text.strip())
+                    elif elem.tag == _TBL_TAG:
+                        tbl_count += 1
+                        raw_table_rows: list[tuple[str, ...]] = []
+                        for tr in elem.findall(_TR_TAG):
+                            row_cells: list[str] = []
+                            for tc in tr.findall(_TC_TAG):
+                                tc_text = "".join(t.text for t in tc.iter(_T_TAG) if t.text).strip()
+                                row_cells.append(tc_text)
+                            if any(row_cells):
+                                raw_table_rows.append(tuple(row_cells))
+
+                        if raw_table_rows:
+                            headers = raw_table_rows[0]
+                            data_rows = tuple(raw_table_rows[1:])
+                            tables.append(
+                                TableData(
+                                    name=f"Table_{tbl_count}",
+                                    headers=headers,
+                                    rows=data_rows,
+                                )
+                            )
+                            for r in raw_table_rows:
+                                paragraphs.append(" | ".join(r))
+
+            provenances.append(
+                ProvenanceRecord(
+                    source_input_id=input_id,
+                    stage=_STAGE_NAME,
+                    plugin_id=_PLUGIN_ID,
+                    capability_id=_CAPABILITY_ID,
+                    evidence={
+                        "reader": "docx_openxml",
+                        "paragraph_count": len(paragraphs),
+                        "table_count": len(tables),
+                    },
+                )
+            )
+    except Exception as exc:
+        if isinstance(exc, DoshError):
+            raise
+        raise DoshError(
+            code=FailureCode.CORRUPT_INPUT,
+            message="Failed to parse DOCX file structure.",
+        ) from exc
+
+    full_text = "\n".join(paragraphs)
+    canonical_doc = CanonicalDocument(
+        document_id=f"doc-{input_id}",
+        source_input_id=input_id,
+        text=full_text,
+        tables=tuple(tables),
+        detected_type="docx",
+        metadata={"reader": "docx_openxml"},
     )
     return canonical_doc, tuple(provenances), tuple(warnings)

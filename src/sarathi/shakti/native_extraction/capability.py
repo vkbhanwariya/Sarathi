@@ -29,6 +29,7 @@ from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_con
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.native_extraction.readers import (
     read_csv_or_text,
+    read_docx,
     read_html_table,
     read_pdf,
     read_spreadsheet_ml,
@@ -56,6 +57,8 @@ def _get_reader(
     match fmt:
         case DetectedFormat.PDF:
             return read_pdf
+        case DetectedFormat.DOCX:
+            return read_docx
         case DetectedFormat.XLSX:
             return read_xlsx
         case DetectedFormat.XLS_LEGACY:

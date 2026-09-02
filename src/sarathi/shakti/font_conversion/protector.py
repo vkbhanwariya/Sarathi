@@ -81,7 +81,7 @@ def _is_legacy_word(word: str) -> bool:
 class TextProtector:
     """Protects and restores non-legacy text spans during font conversion."""
 
-    def protect(self, text: str) -> tuple[str, list[ProtectedSpan]]:
+    def protect(self, text: str, protect_devanagari: bool = True) -> tuple[str, list[ProtectedSpan]]:
         """Identify protected spans, replace them with unique PUA placeholders, and return them."""
         protected_spans: list[ProtectedSpan] = []
         placeholder_idx = 0
@@ -98,8 +98,9 @@ class TextProtector:
         text = _URL_RE.sub(lambda m: _repl(m, "url"), text)
         text = _EMAIL_RE.sub(lambda m: _repl(m, "email"), text)
 
-        # 2. Protect existing Unicode Devanagari
-        text = _UNICODE_DEVANAGARI_RE.sub(lambda m: _repl(m, "unicode_devanagari"), text)
+        # 2. Protect existing Unicode Devanagari (only if not converting Unicode to legacy)
+        if protect_devanagari:
+            text = _UNICODE_DEVANAGARI_RE.sub(lambda m: _repl(m, "unicode_devanagari"), text)
 
         # 3. Protect Percentages, Dates, Numbers, and IDs
         text = _PERCENT_RE.sub(lambda m: _repl(m, "percent"), text)

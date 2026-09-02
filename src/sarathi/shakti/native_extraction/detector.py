@@ -10,6 +10,7 @@ from pathlib import Path
 
 class DetectedFormat(Enum):
     PDF = "pdf"
+    DOCX = "docx"
     XLSX = "xlsx"
     XLS_LEGACY = "xls_legacy"
     HTML_TABLE = "html_table"
@@ -49,18 +50,20 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
     if data.startswith(_OLE_MAGIC) or data.startswith(b"\x09\x08"):
         return DetectedFormat.XLS_LEGACY
 
-    # 3. ZIP / XLSX / XLSM detection
+    # 3. ZIP / DOCX / XLSX / XLSM detection
     if data.startswith(_ZIP_MAGIC):
         try:
             import io
 
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 namelist = zf.namelist()
+                if "word/document.xml" in namelist:
+                    return DetectedFormat.DOCX
                 if "[Content_Types].xml" in namelist and any(
                     "xl/workbook" in name or "xl/worksheets" in name for name in namelist
                 ):
                     return DetectedFormat.XLSX
-                # If it's a generic zip without spreadsheet structure, treat as unknown
+                # If it's a generic zip without docx/spreadsheet structure, treat as unknown
         except zipfile.BadZipFile:
             pass
 

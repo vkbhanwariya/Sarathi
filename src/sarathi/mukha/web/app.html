@@ -110,7 +110,7 @@
                                     <span class="req-status badge badge-emerald">Ready</span>
                                 </button>
                                 <button class="req-card" data-req="ocr">
-                                    <div class="req-title">Instant OCR</div>
+                                    <div class="req-title">OCR</div>
                                     <div class="req-desc">Local rapid image/PDF text recognition</div>
                                     <span id="ocr-status-badge" class="req-status badge">Checking...</span>
                                 </button>
@@ -126,8 +126,8 @@
                                 </button>
                             </div>
 
-                            <!-- Execution Profile -->
-                            <div class="form-row">
+                            <!-- Execution Profile (Visible only for OCR) -->
+                            <div id="profile-row" class="form-row hidden">
                                 <label class="form-label" for="select-profile">Execution Profile</label>
                                 <select id="select-profile" class="form-select">
                                     <option value="instant" selected>Instant (Highest Throughput)</option>
@@ -143,6 +143,16 @@
                                     <option value="devanagari" selected>Hindi / Devanagari + English (PP-OCRv5 Mobile)</option>
                                     <option value="en_v6">English / Latin (PP-OCRv6 Small)</option>
                                     <option value="en">English / Latin (PP-OCRv5 Mobile)</option>
+                                </select>
+                            </div>
+
+                            <!-- Font Conversion Target Mode Selection -->
+                            <div id="font-mode-row" class="form-row hidden">
+                                <label class="form-label" for="select-font-mode">Conversion Target</label>
+                                <select id="select-font-mode" class="form-select">
+                                    <option value="auto_unicode" selected>Auto-Detect & Convert to Unicode (Detects mixed legacy fonts and converts them to Unicode)</option>
+                                    <option value="to_krutidev">Convert to KrutiDev (Converts mixed-font content into KrutiDev encoding)</option>
+                                    <option value="to_devlys">Convert to DevLys (Converts mixed-font content into DevLys encoding)</option>
                                 </select>
                             </div>
 
