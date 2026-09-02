@@ -21,28 +21,31 @@ from sarathi.shakti.bank_statements.models import (
 def validate_transaction(transaction: Transaction) -> tuple[ValidationStatus, tuple[ValidationIssue, ...]]:
     """Validate single transaction invariants."""
     issues: list[ValidationIssue] = []
-    status = ValidationStatus.VALID
+    status = transaction.status
 
     if transaction.debit is None and transaction.credit is None:
-        issues.append(
-            ValidationIssue(
-                code="MISSING_AMOUNT",
-                message="Transaction must have at least one of debit or credit amount.",
-                severity="warning",
+        if not any(i.code == "MISSING_AMOUNT" for i in transaction.issues):
+            issues.append(
+                ValidationIssue(
+                    code="MISSING_AMOUNT",
+                    message="Transaction must have at least one of debit or credit amount.",
+                    severity="error",
+                )
             )
-        )
-        status = ValidationStatus.WARNING
+        status = ValidationStatus.INVALID
 
     if transaction.debit is not None and transaction.credit is not None:
         if transaction.debit > Decimal("0") and transaction.credit > Decimal("0"):
-            issues.append(
-                ValidationIssue(
-                    code="DUAL_DIRECTION_AMOUNT",
-                    message="Transaction cannot have both non-zero debit and credit amounts.",
-                    severity="warning",
+            if not any(i.code == "DUAL_DIRECTION_AMOUNT" for i in transaction.issues):
+                issues.append(
+                    ValidationIssue(
+                        code="DUAL_DIRECTION_AMOUNT",
+                        message="Transaction cannot have both non-zero debit and credit amounts.",
+                        severity="warning",
+                    )
                 )
-            )
-            status = ValidationStatus.WARNING
+            if status != ValidationStatus.INVALID:
+                status = ValidationStatus.WARNING
 
     return status, tuple(issues)
 
@@ -87,7 +90,11 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                             f"got {tx.running_balance} (difference {diff})."
                         ),
                         severity="warning",
-                        context={"expected": str(expected_balance), "actual": str(tx.running_balance), "diff": str(diff)},
+                        context={
+                            "expected": str(expected_balance),
+                            "actual": str(tx.running_balance),
+                            "diff": str(diff),
+                        },
                     )
                 )
                 if tx_status == ValidationStatus.VALID:
@@ -99,6 +106,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
             prev_balance = prev_balance + credit_amt - debit_amt
 
         statement_issues.extend(issues)
+        combined_tx_issues = tuple(list(tx.issues) + [i for i in issues if i not in tx.issues])
         validated_transactions.append(
             Transaction(
                 transaction_date=tx.transaction_date,
@@ -113,9 +121,13 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                 account_identity=tx.account_identity,
                 currency=tx.currency,
                 status=tx_status,
-                issues=tuple(issues),
+                issues=combined_tx_issues,
                 provenance=tx.provenance,
                 metadata=tx.metadata,
+                posting_date=tx.posting_date,
+                value_date=tx.value_date,
+                transaction_datetime=tx.transaction_datetime,
+                sequence_id=tx.sequence_id,
             )
         )
 
@@ -135,7 +147,11 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                         f"got {statement.closing_balance} (difference {reconcile_diff})."
                     ),
                     severity="warning",
-                    context={"expected_closing": str(expected_closing), "actual_closing": str(statement.closing_balance), "diff": str(reconcile_diff)},
+                    context={
+                        "expected_closing": str(expected_closing),
+                        "actual_closing": str(statement.closing_balance),
+                        "diff": str(reconcile_diff),
+                    },
                 )
             )
 

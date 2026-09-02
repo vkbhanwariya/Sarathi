@@ -66,7 +66,7 @@ def get_table_header_and_data_rows(
         return tuple(str(c) for c in table.headers), table.rows
 
     if hdr_idx >= 0 and len(table.rows) > hdr_idx:
-        return tuple(str(c) for c in table.rows[hdr_idx]), table.rows[hdr_idx + 1:]
+        return tuple(str(c) for c in table.rows[hdr_idx]), table.rows[hdr_idx + 1 :]
 
     return None
 

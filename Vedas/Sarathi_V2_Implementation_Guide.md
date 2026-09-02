@@ -387,7 +387,7 @@ Capability `plugin.py` files are thin capability boundaries: declaration, suppor
 - `shakti/bank_statements/table_locator.py` — classifies extracted tables as transaction, continuation, metadata, EOD/summary, or unrelated.
 - `shakti/bank_statements/row_classifier.py` — classifies raw rows as transaction, continuation, opening, closing, EOD, summary, repeated header, or noise before normalization.
 - `shakti/bank_statements/mapper.py` — maps source headers to canonical fields using bank exact → generic exact → bank fuzzy → generic fuzzy resolution and records mapping evidence.
-- `shakti/bank_statements/normalizer.py` — normalizes dates/time, narration, references, dirty monetary values, Debit/Credit direction, balances, and currency into canonical typed values.
+- `shakti/bank_statements/converter.py` — converts dates/time, narration, references, dirty monetary values, Debit/Credit direction, balances, and currency into canonical typed values.
 - `shakti/bank_statements/validator.py` — transaction invariants, Decimal financial continuity, opening/closing/EOD/source-total reconciliation, and inversion evidence.
 - `shakti/bank_statements/deduplicator.py` — overlap candidate evaluation and evidence-based PROVEN/PROBABLE/DISTINCT duplicate decisions while retaining provenance.
 - `shakti/bank_statements/consolidator.py` — account grouping, safe chronology, final unified statement construction, and canonical output preparation.

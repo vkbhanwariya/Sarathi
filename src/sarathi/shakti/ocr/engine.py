@@ -228,7 +228,11 @@ class RapidOCREngine:
                     message="Failed to read or parse local OCR model manifest.",
                 ) from exc
 
-            if not isinstance(manifest_dict, dict) or "models" not in manifest_dict or not isinstance(manifest_dict["models"], dict):
+            if (
+                not isinstance(manifest_dict, dict)
+                or "models" not in manifest_dict
+                or not isinstance(manifest_dict["models"], dict)
+            ):
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Local OCR model manifest has an invalid structure.",
@@ -263,7 +267,11 @@ class RapidOCREngine:
                 filename = entry.get("filename")
                 expected_sha256 = entry.get("sha256")
 
-                if not _is_safe_filename(filename) or not isinstance(expected_sha256, str) or not _HEX_64_PATTERN.match(expected_sha256):
+                if (
+                    not _is_safe_filename(filename)
+                    or not isinstance(expected_sha256, str)
+                    or not _HEX_64_PATTERN.match(expected_sha256)
+                ):
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
                         message="Local OCR model manifest contains invalid model entry.",
@@ -366,7 +374,11 @@ class RapidOCREngine:
                     if score_val is not None:
                         try:
                             score_float = float(score_val)
-                            if not math.isnan(score_float) and not math.isinf(score_float) and 0.0 <= score_float <= 1.0:
+                            if (
+                                not math.isnan(score_float)
+                                and not math.isinf(score_float)
+                                and 0.0 <= score_float <= 1.0
+                            ):
                                 conf = score_float
                                 conf_scores.append(conf)
                             else:
@@ -483,7 +495,12 @@ class RapidOCREngine:
 
                     min_x, min_y, max_x, max_y = span.bounding_box
                     w, h = image.size if hasattr(image, "size") else (int(max_x), int(max_y))
-                    box_crop = (max(0, int(min_x) - 2), max(0, int(min_y) - 2), min(w, int(max_x) + 2), min(h, int(max_y) + 2))
+                    box_crop = (
+                        max(0, int(min_x) - 2),
+                        max(0, int(min_y) - 2),
+                        min(w, int(max_x) + 2),
+                        min(h, int(max_y) + 2),
+                    )
 
                     if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(image, "crop"):
                         cropped = image.crop(box_crop)

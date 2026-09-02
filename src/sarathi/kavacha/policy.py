@@ -40,13 +40,9 @@ class SecurityPolicy:
 
     def __post_init__(self) -> None:
         if not isinstance(self.allow_pii_access, bool):
-            raise TypeError(
-                f"allow_pii_access must be a bool, got {type(self.allow_pii_access).__name__}."
-            )
+            raise TypeError(f"allow_pii_access must be a bool, got {type(self.allow_pii_access).__name__}.")
         if not isinstance(self.allow_network_access, bool):
-            raise TypeError(
-                f"allow_network_access must be a bool, got {type(self.allow_network_access).__name__}."
-            )
+            raise TypeError(f"allow_network_access must be a bool, got {type(self.allow_network_access).__name__}.")
         if not isinstance(self.allow_external_processing, bool):
             raise TypeError(
                 f"allow_external_processing must be a bool, got {type(self.allow_external_processing).__name__}."
@@ -82,9 +78,7 @@ class SecurityPolicy:
     def evaluate(self, declaration: SecurityDeclaration) -> SecurityDecision:
         """Evaluate a SecurityDeclaration against this policy and return a SecurityDecision."""
         if not isinstance(declaration, SecurityDeclaration):
-            raise TypeError(
-                f"declaration must be a SecurityDeclaration instance, got {type(declaration).__name__}."
-            )
+            raise TypeError(f"declaration must be a SecurityDeclaration instance, got {type(declaration).__name__}.")
 
         # 1. PII access check
         if declaration.pii_access and not self.allow_pii_access:

@@ -19,14 +19,34 @@ class RowType(StrEnum):
     NOISE = "noise"
 
 
-_HEADER_KEYWORDS = frozenset({"date", "txn date", "transaction date", "particulars", "description", "narration", "debit", "credit", "balance"})
+_HEADER_KEYWORDS = frozenset(
+    {"date", "txn date", "transaction date", "particulars", "description", "narration", "debit", "credit", "balance"}
+)
 _OPENING_KEYWORDS = frozenset({"opening balance", "b/f", "brought forward", "balance b/f", "opening bal"})
 _CLOSING_KEYWORDS = frozenset({"closing balance", "c/f", "carried forward", "balance c/f", "closing bal"})
 _SUMMARY_KEYWORDS = frozenset({"total", "grand total", "total transactions", "summary"})
 _DATE_RE = re.compile(r"\d{1,2}[/\-\s]\d{1,2}[/\-\s]\d{2,4}|\d{1,2}[/\-\s]+[a-zA-Z]{3,9}[/\-\s]+\d{2,4}")
+_NULL_WORDS = frozenset(("", "-", "--", "na", "n/a", "nil", "null"))
+_AMOUNT_CELL_RE = re.compile(
+    r"^\(?-?(?:[₹$€£]|rs\.?|inr)?\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,4})?\)?(?:\s*(?:dr\.?|cr\.?))?$|^-?\d+\.\d{2}$",
+    re.IGNORECASE,
+)
 
 
-def classify_row(row: Sequence[str], date_col_idx: int | None = None) -> RowType:
+def _is_financial_value(val: str) -> bool:
+    v = val.strip()
+    if not v or v.lower() in _NULL_WORDS:
+        return False
+    if _AMOUNT_CELL_RE.match(v):
+        return True
+    return bool(any(ch.isdigit() for ch in v) and re.search(r"\d+\.\d{2}", v))
+
+
+def classify_row(
+    row: Sequence[str],
+    date_col_idx: int | None = None,
+    amount_col_indices: Sequence[int] | None = None,
+) -> RowType:
     """Classify a single row of cell strings from an extracted table."""
     cleaned = [str(c).strip() for c in row]
     if not any(cleaned):
@@ -46,5 +66,15 @@ def classify_row(row: Sequence[str], date_col_idx: int | None = None) -> RowType
     check_cells = [cleaned[date_col_idx]] if date_col_idx is not None and date_col_idx < len(cleaned) else cleaned
     if any(_DATE_RE.search(c) for c in check_cells):
         return RowType.TRANSACTION
+
+    # A row with financial figures (Debit, Credit, Amount, or Balance) but no date
+    # is a distinct Transaction subject to date-inheritance resolution, never continuation.
+    if amount_col_indices:
+        for idx in amount_col_indices:
+            if idx is not None and idx < len(cleaned) and _is_financial_value(cleaned[idx]):
+                return RowType.TRANSACTION
+    else:
+        if any(_is_financial_value(c) for c in cleaned):
+            return RowType.TRANSACTION
 
     return RowType.CONTINUATION if len(row_str) > 3 else RowType.NOISE

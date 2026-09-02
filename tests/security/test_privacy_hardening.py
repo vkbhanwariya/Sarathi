@@ -2,13 +2,13 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 import pytest
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionContext,
@@ -20,7 +20,6 @@ from sarathi.sankalpa import (
     TableData,
 )
 from sarathi.shakti.bank_statements import BankStatementCapability
-
 
 SENTINEL_NAME = "SECRET_HOLDER_RAJESH_SHARMA_99"
 SENTINEL_ACC = "9876543210123"
@@ -37,10 +36,7 @@ def test_bank_statements_never_leak_pii_in_errors_manifest_or_provenance(tmp_pat
     input_file.write_bytes(b"%PDF-1.4 dummy")
 
     doc_text = (
-        f"STATE BANK OF INDIA\n"
-        f"Account Statement\n"
-        f"Account Number: {SENTINEL_ACC}\n"
-        f"Account Holder: {SENTINEL_NAME}\n"
+        f"STATE BANK OF INDIA\nAccount Statement\nAccount Number: {SENTINEL_ACC}\nAccount Holder: {SENTINEL_NAME}\n"
     )
     table = TableData(
         name="transactions",
@@ -63,6 +59,7 @@ def test_bank_statements_never_leak_pii_in_errors_manifest_or_provenance(tmp_pat
     class NativeMock:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -136,6 +133,7 @@ def test_bank_statements_unidentified_error_does_not_leak_document_content(tmp_p
     class NativeMock:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -178,6 +176,7 @@ def test_agni_partial_retention_on_failure_default_vs_explicit(tmp_path: Path) -
     class FailingCapability:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
@@ -243,6 +242,7 @@ def test_agni_failure_preserves_original_exception_when_cleanup_fails(tmp_path: 
     class FailingCapability:
         def __init__(self) -> None:
             from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
             self.declaration = CAPABILITY_DECLARATION
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:

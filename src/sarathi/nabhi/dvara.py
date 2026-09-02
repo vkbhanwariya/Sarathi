@@ -43,6 +43,12 @@ from sarathi.shakti.ocr.plugin import (
 from sarathi.shakti.ocr.plugin import (
     PLUGIN_INFO as OCR_PLUGIN,
 )
+from sarathi.shakti.translation.plugin import (
+    CAPABILITY_DECLARATION as TRANSLATION_CAPABILITY,
+)
+from sarathi.shakti.translation.plugin import (
+    PLUGIN_INFO as TRANSLATION_PLUGIN,
+)
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
@@ -122,6 +128,7 @@ class Dvara:
             (OCR_PLUGIN, (OCR_CAPABILITY,)),
             (BANK_STATEMENTS_PLUGIN, (BANK_STATEMENTS_CAPABILITY,)),
             (FONT_CONVERSION_PLUGIN, (FONT_CONVERSION_CAPABILITY,)),
+            (TRANSLATION_PLUGIN, (TRANSLATION_CAPABILITY,)),
         ]
 
         # 1. Preflight all built-ins against existing Kosh state
@@ -178,3 +185,29 @@ class Dvara:
             registered_ids.append(plugin.plugin_id)
 
         return tuple(registered_ids)
+
+    def register_capability(
+        self,
+        declaration: CapabilityDeclaration,
+        plugin: PluginInfo | None = None,
+    ) -> None:
+        """Register a single capability declaration and optional plugin into Kosh with validation."""
+        if not isinstance(declaration, CapabilityDeclaration):
+            raise TypeError(f"declaration must be a CapabilityDeclaration, got {type(declaration).__name__}.")
+
+        if plugin is None:
+            if not self._registry.has_plugin(declaration.plugin_id):
+                plugin = PluginInfo(
+                    plugin_id=declaration.plugin_id,
+                    name=declaration.plugin_id,
+                    version=declaration.version,
+                    capabilities=(declaration.capability_id,),
+                )
+        elif not isinstance(plugin, PluginInfo):
+            raise TypeError(f"plugin must be a PluginInfo instance or None, got {type(plugin).__name__}.")
+
+        if plugin is not None and not self._registry.has_plugin(plugin.plugin_id):
+            self._registry.register_plugin(plugin)
+
+        if not self._registry.has_capability(declaration.capability_id):
+            self._registry.register_capability(declaration)

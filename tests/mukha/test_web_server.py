@@ -151,13 +151,17 @@ class TestMukhaWebServerAPI:
 
     def test_native_browse_endpoints_mocked(self, web_server: MukhaWebServer) -> None:
         """POST /api/browse/files and /api/browse/folder call NativePicker."""
-        with patch("sarathi.mukha.web.server.NativePicker.browse_files", return_value=NativePickerResult(paths=("/doc.pdf",))):
+        with patch(
+            "sarathi.mukha.web.server.NativePicker.browse_files", return_value=NativePickerResult(paths=("/doc.pdf",))
+        ):
             status, data = _http_post(f"http://127.0.0.1:{web_server.resolved_port}/api/browse/files", data={})
             assert status == 200
             assert data["ok"] is True
             assert data["paths"] == ["/doc.pdf"]
 
-        with patch("sarathi.mukha.web.server.NativePicker.browse_folder", return_value=NativePickerResult(paths=("/folder",))):
+        with patch(
+            "sarathi.mukha.web.server.NativePicker.browse_folder", return_value=NativePickerResult(paths=("/folder",))
+        ):
             status, data = _http_post(f"http://127.0.0.1:{web_server.resolved_port}/api/browse/folder", data={})
             assert status == 200
             assert data["ok"] is True
@@ -166,7 +170,9 @@ class TestMukhaWebServerAPI:
     def test_intake_endpoint(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """POST /api/intake returns input selection and preflight validation."""
         test_file = tmp_path / "sample.csv"
-        test_file.write_text("Date,Narration,Withdrawal,Deposit,Balance\n2026-01-01,Opening,0,1000,1000\n", encoding="utf-8")
+        test_file.write_text(
+            "Date,Narration,Withdrawal,Deposit,Balance\n2026-01-01,Opening,0,1000,1000\n", encoding="utf-8"
+        )
 
         status, data = _http_post(
             f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
@@ -184,7 +190,9 @@ class TestMukhaWebServerAPI:
     ) -> None:
         """POST /api/runs starts execution and blocks concurrent interactive runs."""
         test_file = tmp_path / "statement.csv"
-        test_file.write_text("Date,Narration,Withdrawal,Deposit,Balance\n2026-01-01,Opening,0,1000,1000\n", encoding="utf-8")
+        test_file.write_text(
+            "Date,Narration,Withdrawal,Deposit,Balance\n2026-01-01,Opening,0,1000,1000\n", encoding="utf-8"
+        )
 
         # 1. Start Run
         status, data = _http_post(
@@ -248,13 +256,16 @@ class TestMukhaWebServerAPI:
         assert state["terminal_summary"]["status"] == "SUCCESS"
         assert state["terminal_summary"]["run_id"] == run_id
 
-    def test_cancelled_run_displays_cancelled_with_no_raw_exception(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+    def test_cancelled_run_displays_cancelled_with_no_raw_exception(
+        self, web_server: MukhaWebServer, tmp_path: Path
+    ) -> None:
         """Cancelled execution yields CANCELLED status without raw exception text."""
         test_file = tmp_path / "data.txt"
         test_file.write_text("Sample", encoding="utf-8")
 
         with patch.object(web_server._agni, "execute") as mock_exec:
             from sarathi.dosh import DoshError, FailureCode
+
             mock_exec.side_effect = DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Execution was cancelled.",
@@ -319,7 +330,9 @@ class TestMukhaWebServerAPI:
         assert data["ok"] is False
         assert "unavailable" in data["error"].lower()
 
-    def test_confirmed_artifact_download_and_containment_security(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+    def test_confirmed_artifact_download_and_containment_security(
+        self, web_server: MukhaWebServer, tmp_path: Path
+    ) -> None:
         """Artifact downloads stream confirmed artifacts and reject cross-run or outside paths."""
         from sarathi.sankalpa import ArtifactRef
 
@@ -349,13 +362,9 @@ class TestMukhaWebServerAPI:
         assert headers.get("X-Content-Type-Options") == "nosniff"
 
         # 2. Unknown artifact ID -> 404
-        status, _, _ = _http_get(
-            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/wrong_id"
-        )
+        status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/wrong_id")
         assert status == 404
 
         # 3. Wrong run ID -> 404
-        status, _, _ = _http_get(
-            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/wrong_run/artifacts/{art_id}"
-        )
+        status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/wrong_run/artifacts/{art_id}")
         assert status == 404

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
@@ -24,11 +25,9 @@ from sarathi.sankalpa import (
     ExecutionProfile,
     InputRef,
     PageData,
-    ProvenanceRecord,
     Request,
     Result,
     TableData,
-    TextSpan,
 )
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
 from sarathi.shakti.bank_statements.models import BankStatementConsolidationResult, ValidationStatus
@@ -141,7 +140,7 @@ class TestBankStatementsBatchIntegrity:
         assert res.data.total_credit == Decimal("0")
         assert res.data.statements[0].transactions[0].debit is None
         assert res.data.statements[0].transactions[0].credit is None
-        assert res.data.statements[0].transactions[0].status == ValidationStatus.WARNING
+        assert res.data.statements[0].transactions[0].status == ValidationStatus.INVALID
         assert any("MISSING_AMOUNT" in w.code for w in res.warnings)
 
 
@@ -174,7 +173,7 @@ class TestFingerprintAndPravahaIntegrity:
         from sarathi.nabhi.pravaha import Pravaha
         from sarathi.nabhi.quarantine import QuarantineRecord, QuarantineStatus, QuarantineStore
         from sarathi.sankalpa import CapabilityDeclaration, PluginInfo
-        from sarathi.yantra import DeviceInventory, Yantra
+        from sarathi.yantra import Yantra
 
         token = CancellationToken()
         token.cancel()
@@ -221,7 +220,9 @@ class TestFingerprintAndPravahaIntegrity:
             updated_at_utc="2026-01-01T00:00:00Z",
         )
 
-        ctx = ExecutionContext(run_id="run1", request_id="req1", trace_id="tr1", span_id="sp1", cancellation_token=token)
+        ctx = ExecutionContext(
+            run_id="run1", request_id="req1", trace_id="tr1", span_id="sp1", cancellation_token=token
+        )
         req = Request(
             request_id="req1",
             requirement="test_cap",

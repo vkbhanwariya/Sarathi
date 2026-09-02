@@ -1,6 +1,7 @@
 """Regression tests for strict approved-data handling and malformed configuration/data files."""
 
 from pathlib import Path
+
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode

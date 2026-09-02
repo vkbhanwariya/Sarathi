@@ -39,9 +39,7 @@ class DoshError(Exception):
         context: Mapping[str, Any] | None = None,
     ) -> None:
         if not isinstance(code, FailureCode):
-            raise TypeError(
-                f"code must be a FailureCode enum instance, got {type(code).__name__} ({code!r})."
-            )
+            raise TypeError(f"code must be a FailureCode enum instance, got {type(code).__name__} ({code!r}).")
 
         if not isinstance(message, str):
             raise TypeError(f"message must be a string, got {type(message).__name__}.")

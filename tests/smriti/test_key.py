@@ -104,3 +104,41 @@ def test_identical_canonical_inputs_produce_identical_key(tmp_path: Path) -> Non
     key2 = compute_cache_key(req2, "read_native", "1.0.0", prior_result=res)
 
     assert key1.key_hash == key2.key_hash
+
+
+def test_page_and_table_content_changes_cache_key(tmp_path: Path) -> None:
+    """Documents with identical overall text but different page/table contents produce different keys."""
+    from sarathi.sankalpa import PageData, TableData
+
+    inp = InputRef(input_id="inp-1", source_path=tmp_path / "p.txt", display_name="doc.txt", size_bytes=100)
+    req = Request(request_id="req-1", requirement="translation", inputs=(inp,))
+
+    # Doc 1: Page with Table A
+    t1 = TableData(headers=("Col1", "Col2"), rows=(("val1", "val2"),))
+    p1 = PageData(page_number=1, text="Same doc text", tables=(t1,))
+    doc1 = CanonicalDocument(document_id="d1", source_input_id="inp-1", text="Same doc text", pages=(p1,))
+
+    # Doc 2: Page with Table B (different cell values)
+    t2 = TableData(headers=("Col1", "Col2"), rows=(("diff1", "diff2"),))
+    p2 = PageData(page_number=1, text="Same doc text", tables=(t2,))
+    doc2 = CanonicalDocument(document_id="d1", source_input_id="inp-1", text="Same doc text", pages=(p2,))
+
+    key1 = compute_cache_key(req, "translation", "1.0.0", prior_result=Result(data=doc1))
+    key2 = compute_cache_key(req, "translation", "1.0.0", prior_result=Result(data=doc2))
+
+    assert key1.key_hash != key2.key_hash
+
+
+def test_non_primitive_options_and_metadata_serialization_safe(tmp_path: Path) -> None:
+    """Non-primitive objects (such as Path or custom classes) serialize safely using default=str."""
+    inp = InputRef(input_id="inp-1", source_path=tmp_path / "doc.txt", display_name="doc.txt", size_bytes=100)
+    req = Request(
+        request_id="req-nonprim",
+        requirement="ocr",
+        inputs=(inp,),
+        custom_options={"source_dir": tmp_path / "subdir"},
+        metadata={"target_path": tmp_path / "target"},
+    )
+    # Must not raise TypeError
+    key = compute_cache_key(req, "ocr", "1.0.0")
+    assert len(key.key_hash) == 64

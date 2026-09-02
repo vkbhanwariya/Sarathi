@@ -11,8 +11,8 @@ from typing import Sequence
 
 from sarathi.shakti.translation.models import TranslationSpan
 
-_PROT_START = "\uE000"
-_PROT_END = "\uE001"
+_PROT_START = "\ue000"
+_PROT_END = "\ue001"
 
 _URL_RE = re.compile(r"https?://\S+|www\.\S+")
 _EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}")
@@ -34,7 +34,9 @@ class TranslationProtector:
             nonlocal placeholder_idx
             original = match.group(0)
             placeholder = f"{_PROT_START}{chr(0xE100 + placeholder_idx)}{_PROT_END}"
-            protected_spans.append(TranslationSpan(placeholder=placeholder, original_text=original, span_type=span_type))
+            protected_spans.append(
+                TranslationSpan(placeholder=placeholder, original_text=original, span_type=span_type)
+            )
             placeholder_idx += 1
             return placeholder
 

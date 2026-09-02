@@ -60,9 +60,7 @@ class ExecutionContext:
                     f"got {type(self.cancellation_token).__name__}."
                 )
 
-    def child_span(
-        self, span_id: str, extra_metadata: Mapping[str, Any] | None = None
-    ) -> ExecutionContext:
+    def child_span(self, span_id: str, extra_metadata: Mapping[str, Any] | None = None) -> ExecutionContext:
         """Create a child execution context with this context as parent."""
         if not span_id or not span_id.strip():
             raise ValueError("span_id must be a non-empty string.")

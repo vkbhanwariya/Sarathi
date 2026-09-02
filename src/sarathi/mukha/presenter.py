@@ -34,7 +34,7 @@ from sarathi.sankalpa import ArtifactRef, InputRef, Request, Result
 
 # Operations running for 5 or more seconds are promoted to the long-running section
 _FIVE_SECONDS_NS = 5_000_000_000
-_TERMINAL_STATUSES = {"SUCCESS", "FAILED", "CANCELLED", "QUARANTINED"}
+_TERMINAL_STATUSES = {"SUCCESS", "COMPLETED", "FAILED", "CANCELLED", "QUARANTINED"}
 
 
 def format_duration_ns(duration_ns: int | None) -> str:
@@ -144,7 +144,10 @@ class MukhaPresenter:
         if trans_models.exists() and hi_en_model.exists() and en_hi_model.exists():
             statuses["translation"] = (True, "Ready (IndicTrans2 CTranslate2)")
         else:
-            statuses["translation"] = (False, "Unavailable (Local translation model assets missing in data/translation/models/)")
+            statuses["translation"] = (
+                False,
+                "Unavailable (Local translation model assets missing in data/translation/models/)",
+            )
 
         return statuses
 
@@ -278,7 +281,9 @@ class MukhaPresenter:
             if current_focus is None:
                 current_focus = op
 
-        terminal_files = sum(1 for f in files if f.status in ("success", "failed", "quarantined", "cancelled"))
+        terminal_files = sum(
+            1 for f in files if (f.status and f.status.upper() in _TERMINAL_STATUSES)
+        )
 
         return RunViewState(
             run_id=run_id,
@@ -376,10 +381,16 @@ class MukhaPresenter:
 
         # Confidence from result or pramana records
         all_confs = [pr.confidence.score for pr in pramana_records if pr.confidence is not None]
-        avg_confidence = (sum(all_confs) / len(all_confs)) if all_confs else (result.confidence.score if result.confidence else None)
+        avg_confidence = (
+            (sum(all_confs) / len(all_confs)) if all_confs else (result.confidence.score if result.confidence else None)
+        )
 
         # Accuracy remains None unless verified ground truth exists in metadata
-        verified_acc = result.metadata.get("verified_accuracy") if isinstance(result.metadata.get("verified_accuracy"), float) else None
+        verified_acc = (
+            result.metadata.get("verified_accuracy")
+            if isinstance(result.metadata.get("verified_accuracy"), float)
+            else None
+        )
 
         avg_dur_per_input = int(wall_time_ns / max(1, len(request.inputs))) if wall_time_ns > 0 else None
 
@@ -435,8 +446,7 @@ class MukhaPresenter:
                     device_map.setdefault(str(dev).upper(), []).append(r.duration_ns)
 
         stage_timings = tuple(
-            StageTimingView(stage_name=k, duration_ns=sum(v), call_count=len(v))
-            for k, v in sorted(stage_map.items())
+            StageTimingView(stage_name=k, duration_ns=sum(v), call_count=len(v)) for k, v in sorted(stage_map.items())
         )
 
         device_summaries = tuple(
@@ -467,11 +477,13 @@ class MukhaPresenter:
         conf_dist = tuple(conf_brackets.items())
 
         facts = list(system_facts)
-        facts.extend([
-            ("Total Maruti Records", str(len(maruti_records))),
-            ("Total Pramana Records", str(len(pramana_records))),
-            ("Measured Stages", str(len(stage_map))),
-        ])
+        facts.extend(
+            [
+                ("Total Maruti Records", str(len(maruti_records))),
+                ("Total Pramana Records", str(len(pramana_records))),
+                ("Measured Stages", str(len(stage_map))),
+            ]
+        )
 
         return InspectorViewState(
             run_id=run_id,

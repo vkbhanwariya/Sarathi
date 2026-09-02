@@ -2,8 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any
-from unittest.mock import patch
+
 import pytest
 
 from sarathi.__main__ import main as cli_main
@@ -11,12 +10,10 @@ from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha, SecurityPolicy
-from sarathi.nabhi import ArtifactBoundary, Dvara, Kosh, Manthan, Pravaha, Prana, QuarantineStore, RetryPolicy
+from sarathi.nabhi import ArtifactBoundary, Dvara, Kosh, Manthan, Prana, Pravaha, QuarantineStore, RetryPolicy
 from sarathi.sankalpa import (
-    Capability,
     CapabilityDeclaration,
     ConfidenceValue,
-    DeviceRequirement,
     DeviceType,
     ExecutionContext,
     ExecutionProfile,
@@ -29,10 +26,8 @@ from sarathi.sankalpa import (
 )
 from sarathi.shakti.native_extraction.plugin import (
     CAPABILITY_DECLARATION as NATIVE_CAPABILITY,
-    PLUGIN_INFO as NATIVE_PLUGIN,
 )
-from sarathi.sutra import Settings
-from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
+from sarathi.yantra import DeviceInventory, Yantra
 
 
 class MockControlledCapability:
@@ -140,8 +135,6 @@ class TestAgniBootstrap:
         assert yantra_inv.get_device("cpu-0") is not None
 
     def test_kavacha_denial_before_execution_raises_security_denied(self, tmp_path: Path) -> None:
-        runtime_dir = tmp_path / "Runtime"
-        output_dir = tmp_path / "Output"
         doc_file = tmp_path / "document.txt"
         doc_file.write_text("Secret content", encoding="utf-8")
 
@@ -190,7 +183,9 @@ class TestAgniBootstrap:
         plan = manthan.resolve(req)
 
         with pytest.raises(DoshError) as exc_info:
-            pravaha.execute(plan, req, ExecutionContext(run_id="run-1", request_id="req-sec-01", trace_id="tr-1", span_id="sp-1"))
+            pravaha.execute(
+                plan, req, ExecutionContext(run_id="run-1", request_id="req-sec-01", trace_id="tr-1", span_id="sp-1")
+            )
 
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
         assert mock_cap.call_count == 0
@@ -348,7 +343,9 @@ class TestAgniBootstrap:
             encoding="utf-8",
         )
 
-        agni = Agni(settings=cfg_file, runtime_root=tmp_path / "OverrideRuntime", output_root=tmp_path / "OverrideOutput")
+        agni = Agni(
+            settings=cfg_file, runtime_root=tmp_path / "OverrideRuntime", output_root=tmp_path / "OverrideOutput"
+        )
         assert agni.retry_policy.max_retries == 2
         assert agni.artifact_boundary.runtime_root == (tmp_path / "OverrideRuntime").resolve()
         assert agni.artifact_boundary.output_root == (tmp_path / "OverrideOutput").resolve()

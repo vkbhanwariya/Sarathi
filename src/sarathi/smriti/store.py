@@ -101,11 +101,14 @@ class SQLiteCacheStore:
                     )
                 """)
 
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO smriti_entries
                 (key_hash, capability_id, fingerprint, profile, data_json, created_at, accessed_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (key.key_hash, key.capability_id, key.fingerprint, key.profile, data_json, now, now))
+            """,
+                (key.key_hash, key.capability_id, key.fingerprint, key.profile, data_json, now, now),
+            )
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
         """Invalidate entries from persistent SQLite store."""

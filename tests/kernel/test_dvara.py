@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import Dvara, Kosh, Manthan
 from sarathi.sankalpa import (
     CapabilityDeclaration,
-    DeviceRequirement,
-    DeviceType,
     ExecutionProfile,
     InputRef,
     PluginInfo,
@@ -37,16 +36,19 @@ class TestDvaraConstructorAndRegistration:
         assert "shakti.darshana" in registered_ids
         assert "shakti.native_extraction" in registered_ids
         assert "shakti.ocr" in registered_ids
+        assert "shakti.translation" in registered_ids
 
         # Verify Kosh contains the plugins
         assert kosh.has_plugin("shakti.darshana")
         assert kosh.has_plugin("shakti.native_extraction")
         assert kosh.has_plugin("shakti.ocr")
+        assert kosh.has_plugin("shakti.translation")
 
         # Verify Kosh contains capabilities
         assert kosh.get_capability("identify") is not None
         assert kosh.get_capability("read_native") is not None
         assert kosh.get_capability("ocr") is not None
+        assert kosh.get_capability("translation") is not None
 
     def test_register_builtins_is_idempotent(self, kosh: Kosh) -> None:
         dvara = Dvara(kosh)

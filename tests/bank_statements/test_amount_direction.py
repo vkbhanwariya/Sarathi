@@ -1,16 +1,12 @@
 """Focused tests for Amount + Direction layout resolution."""
 
-from datetime import date
 from decimal import Decimal
-import io
 from pathlib import Path
-import pytest
 
-from sarathi.sankalpa import CanonicalDocument, ExecutionContext, ExecutionProfile, InputRef, Request, Result, TableData
+from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
-    BankStatementConsolidationResult,
     Transaction,
     ValidationStatus,
 )
@@ -36,14 +32,14 @@ def _execute_table(headers: tuple[str, ...], data_row: tuple[str, ...], profile_
 
 
 def test_amount_with_no_direction_is_unresolved() -> None:
-    """Amount without direction remains unresolved (debit=None, credit=None) and raises validation warning."""
+    """Amount without direction remains unresolved (debit=None, credit=None) and raises validation error/invalidity."""
     headers = ("Date", "Description", "Amount", "Balance")
     data_row = ("01/01/2026", "Unknown Transfer", "1,500.00", "10,000.00")
     tx = _execute_table(headers, data_row)
 
     assert tx.debit is None
     assert tx.credit is None
-    assert tx.status == ValidationStatus.WARNING
+    assert tx.status == ValidationStatus.INVALID
     assert any(i.code == "MISSING_AMOUNT" for i in tx.issues)
 
 
@@ -55,7 +51,7 @@ def test_amount_with_ambiguous_direction_is_unresolved() -> None:
 
     assert tx.debit is None
     assert tx.credit is None
-    assert tx.status == ValidationStatus.WARNING
+    assert tx.status == ValidationStatus.INVALID
     assert any(i.code == "MISSING_AMOUNT" for i in tx.issues)
 
 

@@ -27,7 +27,7 @@ from sarathi.nabhi import (
     QuarantineStore,
     RetryPolicy,
 )
-from sarathi.sankalpa import Capability, ExecutionContext, PluginInfo, Request, Result
+from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
 from sarathi.shakti.bank_statements import BankStatementCapability
 from sarathi.shakti.darshana import DarshanaCapability, identify_request
 from sarathi.shakti.font_conversion import FontConversionCapability
@@ -137,7 +137,9 @@ class Agni:
                     )
                 hist_path = resolved_hist
             else:
-                hist_path = hist_dir / ("history.db" if active_settings.telemetry_history_format == "sqlite" else "history.jsonl")
+                hist_path = hist_dir / (
+                    "history.db" if active_settings.telemetry_history_format == "sqlite" else "history.jsonl"
+                )
         else:
             hist_path = None
         active_darpana = darpana or Darpana(
@@ -178,19 +180,24 @@ class Agni:
                     raise TypeError(f"Capability '{cap_k}' does not implement Capability protocol.")
             active_capabilities = dict(capabilities)
         else:
+            from sarathi.shakti.translation import TranslationCapability
+
             active_capabilities = {
                 "identify": DarshanaCapability(),
                 "read_native": NativeExtractionCapability(),
                 "ocr": OCRCapability(),
                 "bank_statements": BankStatementCapability(darpana=active_darpana),
                 "font_conversion": FontConversionCapability(darpana=active_darpana),
+                "translation": TranslationCapability(darpana=active_darpana),
             }
 
         # 7. Validate Inventory - use factual default inventory
         active_inventory: DeviceInventory
         if inventory is not None:
             if not isinstance(inventory, DeviceInventory):
-                raise TypeError(f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}.")
+                raise TypeError(
+                    f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}."
+                )
             active_inventory = inventory
         else:
             active_inventory = Yantra.default_inventory()
@@ -227,17 +234,7 @@ class Agni:
 
         for cap_k, cap_v in self._capabilities.items():
             if not self._kosh.has_capability(cap_k):
-                decl = cap_v.declaration
-                if not self._kosh.has_plugin(decl.plugin_id):
-                    self._kosh.register_plugin(
-                        PluginInfo(
-                            plugin_id=decl.plugin_id,
-                            name=decl.plugin_id,
-                            version=decl.version,
-                            capabilities=(cap_k,),
-                        )
-                    )
-                self._kosh.register_capability(decl)
+                self._dvara.register_capability(cap_v.declaration)
 
         # Yantra & Manthan
         self._yantra: Yantra = Yantra(self._inventory, darpana=self._darpana)
@@ -367,12 +364,16 @@ class Agni:
             self._is_started = True
 
     def close(self) -> None:
-        """Close registered runtime components in reverse dependency order via Prana."""
-        if self._is_started:
-            try:
-                self._prana.close_all()
-            finally:
-                self._is_started = False
+        """Close registered runtime components in reverse dependency order via Prana and flush Darpana."""
+        try:
+            if self._is_started:
+                try:
+                    self._prana.close_all()
+                finally:
+                    self._is_started = False
+        finally:
+            if self._darpana is not None:
+                self._darpana.close()
 
     def stop(self) -> None:
         """Alias for close()."""
@@ -541,43 +542,21 @@ class Agni:
                 )
 
                 duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)
-                if self._darpana is not None and self._settings.telemetry_history_enabled:
-                    try:
-                        from sarathi.darpana import TerminalRunSummary
-
-                        safe_req_ref = re.sub(r"[^a-zA-Z0-9_.-]", "_", request.request_id) if request.request_id else exec_ctx.run_id
-                        summary = TerminalRunSummary(
-                            run_id=exec_ctx.run_id,
-                            request_id=safe_req_ref,
-                            requirement=request.requirement,
-                            profile=request.profile.value,
-                            status="completed",
-                            start_time_utc=t_start_utc,
-                            completed_at_utc=datetime.now(timezone.utc).isoformat(),
-                            duration_ms=duration_ms,
-                            artifact_count=len(workspace.committed_artifacts),
-                            warning_count=len(raw_result.warnings),
-                            has_masked_identity=False,
-                            output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
-                        )
-                        self._darpana.record_run_summary(summary)
-                    except Exception:
-                        from sarathi.darpana import MarutiRecord
-
-                        self._darpana.record_maruti(
-                            MarutiRecord(
-                                run_id=exec_ctx.run_id,
-                                request_id=exec_ctx.request_id,
-                                trace_id=exec_ctx.trace_id,
-                                span_id=exec_ctx.span_id,
-                                phase_name="telemetry.history_persistence_failure",
-                                component="agni",
-                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
-                                duration_ns=0,
-                                outcome="failure",
-                                attributes={"error": "history_recording_failed"},
-                            )
-                        )
+                out_dir_ref = (
+                    str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/")
+                    if workspace.output_dir
+                    else None
+                )
+                self._record_terminal_summary(
+                    exec_ctx=exec_ctx,
+                    request=request,
+                    status="completed",
+                    start_time_utc=t_start_utc,
+                    duration_ms=duration_ms,
+                    artifact_count=len(workspace.committed_artifacts),
+                    warning_count=len(raw_result.warnings),
+                    output_dir=out_dir_ref,
+                )
 
                 # 7. Return final Result with confirmed ArtifactRefs strictly from active workspace
                 return Result(
@@ -640,22 +619,74 @@ class Agni:
                                 )
                             )
 
-                    if self._darpana is not None:
-                        from sarathi.darpana import TerminalRunSummary
+                    out_dir_fail = None
+                    try:
+                        out_dir_fail = str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/")
+                    except Exception:
+                        pass
 
-                        summary = TerminalRunSummary(
-                            run_id=exec_ctx.run_id,
-                            request_id=request.request_id,
-                            requirement=request.requirement,
-                            profile=request.profile.value,
-                            status=term_status,
-                            start_time_utc=t_start_utc,
-                            completed_at_utc=datetime.now(timezone.utc).isoformat(),
-                            duration_ms=duration_ms,
-                            artifact_count=len(workspace.committed_artifacts),
-                            warning_count=0,
-                            has_masked_identity=False,
-                            output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
-                        )
-                        self._darpana.record_run_summary(summary)
+                    self._record_terminal_summary(
+                        exec_ctx=exec_ctx,
+                        request=request,
+                        status=term_status,
+                        start_time_utc=t_start_utc,
+                        duration_ms=duration_ms,
+                        artifact_count=len(getattr(workspace, "committed_artifacts", ())),
+                        warning_count=0,
+                        output_dir=out_dir_fail,
+                    )
                 raise
+
+    def _record_terminal_summary(
+        self,
+        exec_ctx: ExecutionContext,
+        request: Request,
+        status: str,
+        start_time_utc: str,
+        duration_ms: int,
+        artifact_count: int,
+        warning_count: int,
+        output_dir: str | None = None,
+    ) -> None:
+        """Safely record a sanitized TerminalRunSummary to Darpana without masking execution errors."""
+        if self._darpana is None or not self._settings.telemetry_history_enabled:
+            return
+
+        try:
+            from sarathi.darpana import TerminalRunSummary
+
+            raw_req = request.request_id if request and request.request_id else exec_ctx.run_id
+            safe_req = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_req) or exec_ctx.run_id
+
+            summary = TerminalRunSummary(
+                run_id=exec_ctx.run_id,
+                request_id=safe_req,
+                requirement=request.requirement,
+                profile=request.profile.value,
+                status=status,
+                start_time_utc=start_time_utc,
+                completed_at_utc=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration_ms,
+                artifact_count=artifact_count,
+                warning_count=warning_count,
+                has_masked_identity=False,
+                output_dir=output_dir,
+            )
+            self._darpana.record_run_summary(summary)
+        except Exception:
+            from sarathi.darpana import MarutiRecord
+
+            self._darpana.record_maruti(
+                MarutiRecord(
+                    run_id=exec_ctx.run_id,
+                    request_id=exec_ctx.request_id,
+                    trace_id=exec_ctx.trace_id,
+                    span_id=exec_ctx.span_id,
+                    phase_name="telemetry.history_persistence_failure",
+                    component="agni",
+                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                    duration_ns=0,
+                    outcome="failure",
+                    attributes={"error": "history_recording_failed"},
+                )
+            )

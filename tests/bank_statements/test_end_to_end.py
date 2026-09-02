@@ -1,10 +1,11 @@
 """End-to-End Operational Acceptance Test for Bank Statement Consolidation."""
 
-from datetime import date
-from decimal import Decimal
 import io
 import json
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
+
 import openpyxl
 import polars as pl
 import pytest
@@ -139,7 +140,9 @@ def test_e2e_sbi_bank_statement_consolidation(tmp_path: Path) -> None:
         profile=ExecutionProfile.ACCURATE,
     )
 
-    ctx = ExecutionContext(run_id="run-sbi-e2e", request_id="req-sbi-e2e", trace_id="trace-sbi-e2e", span_id="span-sbi-e2e")
+    ctx = ExecutionContext(
+        run_id="run-sbi-e2e", request_id="req-sbi-e2e", trace_id="trace-sbi-e2e", span_id="span-sbi-e2e"
+    )
 
     # Execute through canonical Agni path (read_native -> bank_statements)
     result = agni.execute(req, context=ctx)

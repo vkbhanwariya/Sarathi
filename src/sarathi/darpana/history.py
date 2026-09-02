@@ -55,7 +55,9 @@ class TerminalRunSummary:
         if not isinstance(self.start_time_utc, str) or not _SAFE_ISO_PATTERN.match(self.start_time_utc):
             raise ValueError(f"start_time_utc must be a valid ISO-8601 timestamp string, got {self.start_time_utc!r}.")
         if not isinstance(self.completed_at_utc, str) or not _SAFE_ISO_PATTERN.match(self.completed_at_utc):
-            raise ValueError(f"completed_at_utc must be a valid ISO-8601 timestamp string, got {self.completed_at_utc!r}.")
+            raise ValueError(
+                f"completed_at_utc must be a valid ISO-8601 timestamp string, got {self.completed_at_utc!r}."
+            )
         if isinstance(self.duration_ms, bool) or not isinstance(self.duration_ms, int) or self.duration_ms < 0:
             raise ValueError(f"duration_ms must be a non-negative integer, got {self.duration_ms!r}.")
         if isinstance(self.artifact_count, bool) or not isinstance(self.artifact_count, int) or self.artifact_count < 0:
@@ -65,7 +67,12 @@ class TerminalRunSummary:
         if not isinstance(self.has_masked_identity, bool):
             raise ValueError(f"has_masked_identity must be a bool, got {self.has_masked_identity!r}.")
         if self.output_dir is not None:
-            if not isinstance(self.output_dir, str) or "\\" in self.output_dir or ".." in self.output_dir or self.output_dir.startswith("/"):
+            if (
+                not isinstance(self.output_dir, str)
+                or "\\" in self.output_dir
+                or ".." in self.output_dir
+                or self.output_dir.startswith("/")
+            ):
                 raise ValueError(f"output_dir must be a safe relative run reference, got {self.output_dir!r}.")
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,9 +177,7 @@ class TerminalRunHistoryStore:
                     )
                     """
                 )
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_completed_at ON terminal_runs (completed_at_utc DESC)"
-                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_completed_at ON terminal_runs (completed_at_utc DESC)")
         except (OSError, sqlite3.Error):
             pass
 
@@ -327,3 +332,8 @@ class TerminalRunHistoryStore:
             if run.run_id == run_id:
                 return run
         return None
+
+    def close(self) -> None:
+        """Close any open resources held by the history store."""
+        with self._lock:
+            self._closed = True

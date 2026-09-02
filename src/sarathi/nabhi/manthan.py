@@ -114,18 +114,59 @@ class Manthan:
                         ),
                     )
 
-        planned_ids: list[str] = []
-        for prereq in capability.prerequisites:
-            prereq_cap = self._registry.get_capability(prereq)
-            if prereq_cap is None:
-                raise DoshError(
-                    code=FailureCode.UNSUPPORTED,
-                    message=f"Prerequisite capability '{prereq}' required by '{capability.capability_id}' is not registered.",
-                )
-            planned_ids.append(prereq_cap.capability_id)
-        planned_ids.append(capability.capability_id)
+        planned_ids = self._topological_sort(capability.capability_id)
 
         return CapabilityPlan(
             request_id=request.request_id,
-            capability_ids=tuple(planned_ids),
+            capability_ids=planned_ids,
         )
+
+    def _topological_sort(self, root_id: str) -> tuple[str, ...]:
+        """Perform recursive topological sort resolving all transitive prerequisites.
+
+        Detects and rejects cycles (A -> B -> A) and self-prerequisites (A -> A),
+        while safely pruning redundant transitive dependencies.
+        """
+        order: list[str] = []
+        visiting: list[str] = []
+        visited: set[str] = set()
+
+        def dfs(cap_id: str) -> None:
+            if cap_id in visiting:
+                cycle_str = " -> ".join(visiting + [cap_id])
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Circular prerequisite dependency cycle detected: {cycle_str}.",
+                )
+            if cap_id in visited:
+                return
+
+            cap = self._registry.get_capability(cap_id)
+            if cap is None:
+                parent = visiting[-1] if visiting else root_id
+                raise DoshError(
+                    code=FailureCode.UNSUPPORTED,
+                    message=f"Prerequisite capability '{cap_id}' required by '{parent}' is not registered.",
+                )
+
+            if cap_id in cap.prerequisites:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Self-prerequisite detected: capability '{cap_id}' cannot depend on itself.",
+                )
+
+            visiting.append(cap_id)
+            for prereq in cap.prerequisites:
+                if not prereq or not isinstance(prereq, str):
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Invalid prerequisite identifier '{prereq}' in capability '{cap_id}'.",
+                    )
+                dfs(prereq)
+            visiting.pop()
+
+            visited.add(cap_id)
+            order.append(cap_id)
+
+        dfs(root_id)
+        return tuple(order)

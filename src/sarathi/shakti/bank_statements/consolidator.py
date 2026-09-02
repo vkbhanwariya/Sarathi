@@ -21,6 +21,7 @@ from sarathi.sankalpa import ArtifactIntent, ArtifactPayload
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
     BankStatementConsolidationResult,
+    Transaction,
     ValidationStatus,
 )
 
@@ -29,11 +30,30 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
     """Consolidate multiple statements into a unified consolidation result in stable chronological order."""
     import datetime
 
+    # Flatten all valid transactions across statements into a single unified sequence
+    valid_txns: list[Transaction] = []
+    for stmt in statements:
+        for tx in stmt.transactions:
+            if tx.status != ValidationStatus.INVALID:
+                valid_txns.append(tx)
+
+    sorted_valid_txns = tuple(
+        sorted(
+            valid_txns,
+            key=lambda tx: (
+                tx.transaction_date,
+                getattr(tx, "posting_date", None) or tx.transaction_date,
+                getattr(tx, "sequence_id", 0) or 0,
+            ),
+        )
+    )
+
     def _earliest_tx_date(stmt: BankStatement) -> datetime.date:
         dates = [tx.transaction_date for tx in stmt.transactions if tx.transaction_date is not None]
         return min(dates) if dates else datetime.date.min
 
     sorted_statements = sorted(statements, key=_earliest_tx_date)
+    reordered_statements: list[BankStatement] = []
 
     total_debits = Decimal("0")
     total_credits = Decimal("0")
@@ -48,6 +68,41 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
             overall_status = ValidationStatus.WARNING
         all_issues.extend(stmt.issues)
 
+        # Sort transactions within each statement in chronological order
+        sorted_txs = tuple(
+            sorted(
+                stmt.transactions,
+                key=lambda tx: (
+                    tx.transaction_date,
+                    getattr(tx, "posting_date", None) or tx.transaction_date,
+                    getattr(tx, "sequence_id", 0) or 0,
+                ),
+            )
+        )
+        reordered_statements.append(
+            BankStatement(
+                bank_name=stmt.bank_name,
+                bank_profile=stmt.bank_profile,
+                account_identity=stmt.account_identity,
+                statement_period_start=stmt.statement_period_start,
+                statement_period_end=stmt.statement_period_end,
+                opening_balance=stmt.opening_balance,
+                closing_balance=stmt.closing_balance,
+                currency=stmt.currency,
+                transactions=sorted_txs,
+                status=stmt.status,
+                issues=stmt.issues,
+                provenance=stmt.provenance,
+                metadata=stmt.metadata,
+                statement_id=stmt.statement_id,
+                account_holder=stmt.account_holder,
+                account_type=stmt.account_type,
+                branch=stmt.branch,
+                ifsc=stmt.ifsc,
+                balance_as_on=stmt.balance_as_on,
+            )
+        )
+
         for tx in stmt.transactions:
             total_txns += 1
             if tx.debit is not None:
@@ -56,12 +111,13 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                 total_credits += tx.credit
 
     return BankStatementConsolidationResult(
-        statements=tuple(sorted_statements),
+        statements=tuple(reordered_statements),
         total_transactions=total_txns,
         total_debit=total_debits,
         total_credit=total_credits,
         status=overall_status,
         issues=tuple(all_issues),
+        transactions=sorted_valid_txns,
     )
 
 
@@ -104,22 +160,24 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
             currencies.append(tx.currency)
             statuses.append(tx.status.value)
 
-    df = pl.DataFrame({
-        "date": pl.Series("date", dates, dtype=pl.Utf8),
-        "time": pl.Series("time", times, dtype=pl.Utf8),
-        "description": pl.Series("description", descriptions, dtype=pl.Utf8),
-        "reference_number": pl.Series("reference_number", ref_nums, dtype=pl.Utf8),
-        "cheque_number": pl.Series("cheque_number", chq_nums, dtype=pl.Utf8),
-        "debit": pl.Series("debit", debits, dtype=pl.Decimal(38, 2)),
-        "credit": pl.Series("credit", credits, dtype=pl.Decimal(38, 2)),
-        "running_balance": pl.Series("running_balance", balances, dtype=pl.Decimal(38, 2)),
-        "bank_name": pl.Series("bank_name", bank_names, dtype=pl.Utf8),
-        "masked_account_number": pl.Series("masked_account_number", masked_accs, dtype=pl.Utf8),
-        "account_fingerprint": pl.Series("account_fingerprint", fingerprints, dtype=pl.Utf8),
-        "account_holder": pl.Series("account_holder", acc_holders, dtype=pl.Utf8),
-        "currency": pl.Series("currency", currencies, dtype=pl.Utf8),
-        "status": pl.Series("status", statuses, dtype=pl.Utf8),
-    })
+    df = pl.DataFrame(
+        {
+            "date": pl.Series("date", dates, dtype=pl.Utf8),
+            "time": pl.Series("time", times, dtype=pl.Utf8),
+            "description": pl.Series("description", descriptions, dtype=pl.Utf8),
+            "reference_number": pl.Series("reference_number", ref_nums, dtype=pl.Utf8),
+            "cheque_number": pl.Series("cheque_number", chq_nums, dtype=pl.Utf8),
+            "debit": pl.Series("debit", debits, dtype=pl.Decimal(38, 2)),
+            "credit": pl.Series("credit", credits, dtype=pl.Decimal(38, 2)),
+            "running_balance": pl.Series("running_balance", balances, dtype=pl.Decimal(38, 2)),
+            "bank_name": pl.Series("bank_name", bank_names, dtype=pl.Utf8),
+            "masked_account_number": pl.Series("masked_account_number", masked_accs, dtype=pl.Utf8),
+            "account_fingerprint": pl.Series("account_fingerprint", fingerprints, dtype=pl.Utf8),
+            "account_holder": pl.Series("account_holder", acc_holders, dtype=pl.Utf8),
+            "currency": pl.Series("currency", currencies, dtype=pl.Utf8),
+            "status": pl.Series("status", statuses, dtype=pl.Utf8),
+        }
+    )
 
     buf = io.BytesIO()
     df.write_parquet(buf)
@@ -140,8 +198,19 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
     ws.title = "Consolidated Statements"
 
     headers = [
-        "Date", "Time", "Description", "Reference No.", "Cheque No.",
-        "Debit", "Credit", "Running Balance", "Bank", "Masked Account", "Account Fingerprint", "Account Holder", "Status"
+        "Date",
+        "Time",
+        "Description",
+        "Reference No.",
+        "Cheque No.",
+        "Debit",
+        "Credit",
+        "Running Balance",
+        "Bank",
+        "Masked Account",
+        "Account Fingerprint",
+        "Account Holder",
+        "Status",
     ]
     ws.append(headers)
 
@@ -159,21 +228,23 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
         holder = ident.account_holder if ident else ""
 
         for tx in stmt.transactions:
-            ws.append([
-                tx.transaction_date.strftime("%d-%m-%Y"),
-                tx.transaction_time.strftime("%H:%M:%S") if tx.transaction_time else "",
-                tx.description,
-                tx.reference_number or "",
-                tx.cheque_number or "",
-                str(tx.debit) if tx.debit is not None else "",
-                str(tx.credit) if tx.credit is not None else "",
-                str(tx.running_balance) if tx.running_balance is not None else "",
-                tx.bank_name,
-                masked_acc or "",
-                fingerprint or "",
-                holder or "",
-                tx.status.value.upper(),
-            ])
+            ws.append(
+                [
+                    tx.transaction_date.strftime("%d-%m-%Y"),
+                    tx.transaction_time.strftime("%H:%M:%S") if tx.transaction_time else "",
+                    tx.description,
+                    tx.reference_number or "",
+                    tx.cheque_number or "",
+                    str(tx.debit) if tx.debit is not None else "",
+                    str(tx.credit) if tx.credit is not None else "",
+                    str(tx.running_balance) if tx.running_balance is not None else "",
+                    tx.bank_name,
+                    masked_acc or "",
+                    fingerprint or "",
+                    holder or "",
+                    tx.status.value.upper(),
+                ]
+            )
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -1,7 +1,50 @@
 """Unit and end-to-end integration tests for OCR Phase 1 (Instant profile)."""
 
 import importlib.util
+import json
+import shutil
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pymupdf
 import pytest
+from PIL import Image, ImageDraw
+
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.nabhi import Kosh, Manthan, Pravaha
+from sarathi.sankalpa import (
+    CanonicalDocument,
+    CapabilityDeclaration,
+    DeviceType,
+    ExecutionContext,
+    ExecutionProfile,
+    InputRef,
+    PageData,
+    ProvenanceRecord,
+    Request,
+    Result,
+)
+from sarathi.shakti.native_extraction import (
+    CAPABILITY_DECLARATION as NATIVE_DECLARATION,
+)
+from sarathi.shakti.native_extraction import (
+    PLUGIN_INFO as NATIVE_PLUGIN,
+)
+from sarathi.shakti.native_extraction import (
+    NativeExtractionCapability,
+)
+from sarathi.shakti.ocr import (
+    CAPABILITY_DECLARATION as OCR_DECLARATION,
+)
+from sarathi.shakti.ocr import (
+    PLUGIN_INFO as OCR_PLUGIN,
+)
+from sarathi.shakti.ocr import (
+    OCRCapability,
+    RapidOCREngine,
+)
+from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 
 _OCR_AVAILABLE = (
     importlib.util.find_spec("rapidocr") is not None
@@ -15,43 +58,6 @@ if not _OCR_AVAILABLE:
         "OCR optional dependencies (rapidocr, openvino, pillow, numpy) not installed. Run with --extra ocr to enable.",
         allow_module_level=True,
     )
-
-import json
-from pathlib import Path
-import shutil
-from typing import Any
-from unittest.mock import MagicMock, patch
-from PIL import Image, ImageDraw
-import pymupdf
-
-from sarathi.dosh import DoshError, FailureCode
-from sarathi.nabhi import Kosh, Manthan, Pravaha
-from sarathi.sankalpa import (
-    CapabilityDeclaration,
-    CanonicalDocument,
-    DeviceType,
-    ExecutionContext,
-    ExecutionProfile,
-    InputRef,
-    PageData,
-    ProvenanceRecord,
-    Request,
-    Result,
-    TextSpan,
-    WarningRecord,
-)
-from sarathi.shakti.native_extraction import (
-    CAPABILITY_DECLARATION as NATIVE_DECLARATION,
-    NativeExtractionCapability,
-    PLUGIN_INFO as NATIVE_PLUGIN,
-)
-from sarathi.shakti.ocr import (
-    CAPABILITY_DECLARATION as OCR_DECLARATION,
-    OCRCapability,
-    PLUGIN_INFO as OCR_PLUGIN,
-    RapidOCREngine,
-)
-from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 
 
 @pytest.fixture
@@ -172,9 +178,7 @@ class TestOCRPhase1Instant:
         assert prov.evidence["profile"] == "instant"
         assert prov.source_file is None
 
-    def test_explicit_injected_data_root(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_explicit_injected_data_root(self, context: ExecutionContext, tmp_path: Path) -> None:
         canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
         custom_data_dir = tmp_path / "custom_data_root"
         shutil.copytree(canonical_src, custom_data_dir)
@@ -187,7 +191,12 @@ class TestOCRPhase1Instant:
             request_id="req-inj",
             requirement="ocr",
             inputs=(
-                InputRef(input_id="inp-inj", source_path=img_path, display_name="invoice.png", size_bytes=img_path.stat().st_size),
+                InputRef(
+                    input_id="inp-inj",
+                    source_path=img_path,
+                    display_name="invoice.png",
+                    size_bytes=img_path.stat().st_size,
+                ),
             ),
             profile=ExecutionProfile.INSTANT,
         )
@@ -196,9 +205,7 @@ class TestOCRPhase1Instant:
         assert isinstance(res, Result)
         assert "INJECTED-ROOT-123" in res.data.pages[0].text
 
-    def test_missing_manifest_file_raises_safe_dosherror(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_missing_manifest_file_raises_safe_dosherror(self, context: ExecutionContext, tmp_path: Path) -> None:
         empty_dir = tmp_path / "no_manifest_dir"
         empty_dir.mkdir()
         engine = RapidOCREngine(data_root=empty_dir)
@@ -209,9 +216,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-no-manifest",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -222,9 +227,7 @@ class TestOCRPhase1Instant:
         assert "Required local OCR model manifest is missing." in err.message
         assert str(empty_dir) not in err.message
 
-    def test_malformed_manifest_json_raises_safe_dosherror(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_malformed_manifest_json_raises_safe_dosherror(self, context: ExecutionContext, tmp_path: Path) -> None:
         bad_json_dir = tmp_path / "bad_json_dir"
         bad_json_dir.mkdir()
         (bad_json_dir / "manifest.json").write_text("{not-valid-json", encoding="utf-8")
@@ -236,9 +239,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-bad-json",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -249,9 +250,7 @@ class TestOCRPhase1Instant:
         assert "Failed to read or parse local OCR model manifest." in err.message
         assert str(bad_json_dir) not in err.message
 
-    def test_manifest_invalid_structure_raises_safe_dosherror(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_manifest_invalid_structure_raises_safe_dosherror(self, context: ExecutionContext, tmp_path: Path) -> None:
         bad_struct_dir = tmp_path / "bad_struct_dir"
         bad_struct_dir.mkdir()
         (bad_struct_dir / "manifest.json").write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
@@ -263,9 +262,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-bad-struct",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -282,9 +279,18 @@ class TestOCRPhase1Instant:
         data_dir.mkdir()
         (data_dir / "models").mkdir()
         models = {
-            "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
-            "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
-            "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+            "det": {
+                "filename": "ch_PP-OCRv5_det_mobile.onnx",
+                "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+            },
+            "rec": {
+                "filename": "ch_PP-OCRv5_rec_mobile.onnx",
+                "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+            },
+            "cls": {
+                "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+                "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+            },
         }
         del models[missing_key]
         (data_dir / "manifest.json").write_text(json.dumps({"models": models}), encoding="utf-8")
@@ -297,9 +303,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-missing-key",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -329,9 +333,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id=f"req-missing-{missing_model}",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -345,9 +347,7 @@ class TestOCRPhase1Instant:
         assert "Required local OCR model asset is missing." in err.message
         assert str(partial_data) not in err.message
 
-    def test_model_asset_is_directory_raises_safe_dosherror(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_model_asset_is_directory_raises_safe_dosherror(self, context: ExecutionContext, tmp_path: Path) -> None:
         src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
         dir_data = tmp_path / "dir_model_data"
         shutil.copytree(src_data, dir_data)
@@ -365,9 +365,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-dir-model",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -401,9 +399,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-tampered",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -445,9 +441,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id=f"req-sym-{symlink_model}",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -461,9 +455,7 @@ class TestOCRPhase1Instant:
         assert str(sym_data) not in exc_info.value.message
         assert str(outside_model) not in exc_info.value.message
 
-    def test_symlinked_models_directory_rejected_safely(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_symlinked_models_directory_rejected_safely(self, context: ExecutionContext, tmp_path: Path) -> None:
         src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
         sym_data = tmp_path / "sym_models_dir_data"
         sym_data.mkdir()
@@ -484,9 +476,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-sym-dir",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -499,9 +489,7 @@ class TestOCRPhase1Instant:
         assert "invalid or a symlink" in exc_info.value.message
         assert str(sym_data) not in exc_info.value.message
 
-    def test_symlinked_manifest_file_rejected_safely(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_symlinked_manifest_file_rejected_safely(self, context: ExecutionContext, tmp_path: Path) -> None:
         src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
         sym_data = tmp_path / "sym_manifest_data"
         shutil.copytree(src_data, sym_data)
@@ -523,9 +511,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-sym-manifest",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -550,9 +536,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-explicit-paths",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -577,21 +561,30 @@ class TestOCRPhase1Instant:
             assert params["Rec.model_path"].endswith("ch_PP-OCRv5_rec_mobile.onnx")
             assert params["Cls.model_path"].endswith("ch_ppocr_mobile_v2.0_cls_mobile.onnx")
 
-    def test_traversal_filename_in_manifest_rejected_safely(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_traversal_filename_in_manifest_rejected_safely(self, context: ExecutionContext, tmp_path: Path) -> None:
         data_dir = tmp_path / "traversal_ocr_data"
         data_dir.mkdir()
         (data_dir / "models").mkdir()
         manifest_file = data_dir / "manifest.json"
         manifest_file.write_text(
-            json.dumps({
-                "models": {
-                    "det": {"filename": "../secret_file.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
-                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
-                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+            json.dumps(
+                {
+                    "models": {
+                        "det": {
+                            "filename": "../secret_file.onnx",
+                            "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+                        },
+                        "rec": {
+                            "filename": "ch_PP-OCRv5_rec_mobile.onnx",
+                            "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+                        },
+                        "cls": {
+                            "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+                            "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+                        },
+                    }
                 }
-            }),
+            ),
             encoding="utf-8",
         )
 
@@ -601,9 +594,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-trav",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -615,21 +606,30 @@ class TestOCRPhase1Instant:
         assert "../secret_file.onnx" not in err.message
         assert str(data_dir) not in err.message
 
-    def test_absolute_filename_in_manifest_rejected_safely(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_absolute_filename_in_manifest_rejected_safely(self, context: ExecutionContext, tmp_path: Path) -> None:
         data_dir = tmp_path / "abs_ocr_data"
         data_dir.mkdir()
         (data_dir / "models").mkdir()
         manifest_file = data_dir / "manifest.json"
         manifest_file.write_text(
-            json.dumps({
-                "models": {
-                    "det": {"filename": "/etc/shadow.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae"},
-                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
-                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+            json.dumps(
+                {
+                    "models": {
+                        "det": {
+                            "filename": "/etc/shadow.onnx",
+                            "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+                        },
+                        "rec": {
+                            "filename": "ch_PP-OCRv5_rec_mobile.onnx",
+                            "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+                        },
+                        "cls": {
+                            "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+                            "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+                        },
+                    }
                 }
-            }),
+            ),
             encoding="utf-8",
         )
 
@@ -639,9 +639,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-abs",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -660,13 +658,21 @@ class TestOCRPhase1Instant:
         (data_dir / "models").mkdir()
         manifest_file = data_dir / "manifest.json"
         manifest_file.write_text(
-            json.dumps({
-                "models": {
-                    "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "INVALID_CHECKSUM_NOT_64_HEX"},
-                    "rec": {"filename": "ch_PP-OCRv5_rec_mobile.onnx", "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5"},
-                    "cls": {"filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"},
+            json.dumps(
+                {
+                    "models": {
+                        "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "INVALID_CHECKSUM_NOT_64_HEX"},
+                        "rec": {
+                            "filename": "ch_PP-OCRv5_rec_mobile.onnx",
+                            "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+                        },
+                        "cls": {
+                            "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+                            "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+                        },
+                    }
                 }
-            }),
+            ),
             encoding="utf-8",
         )
 
@@ -676,9 +682,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-chk",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -714,9 +718,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-geom",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -749,9 +751,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-crash",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -774,9 +774,7 @@ class TestOCRPhase1Instant:
         req = Request(
             request_id="req-geom-fault",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.INSTANT,
         )
 
@@ -922,9 +920,7 @@ class TestOCRPhase1Instant:
         accurate_req = Request(
             request_id="req-acc",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=img_path, display_name="test.png", size_bytes=10),),
             profile=ExecutionProfile.ACCURATE,
         )
 
@@ -1010,9 +1006,7 @@ class TestOCRPhase1Instant:
             ocr_capability.execute(req, context)
         assert exc_info.value.code is FailureCode.UNSUPPORTED
 
-    def test_end_to_end_shruti_to_ocr_pipeline_flow(
-        self, tmp_path: Path
-    ) -> None:
+    def test_end_to_end_shruti_to_ocr_pipeline_flow(self, tmp_path: Path) -> None:
         # Create a scanned PDF (no native text)
         scanned_path = tmp_path / "scanned_invoice.pdf"
         _create_scanned_pdf("TOTAL-DUE-9999", scanned_path)
@@ -1025,9 +1019,11 @@ class TestOCRPhase1Instant:
         kosh.register_capability(OCR_DECLARATION)
 
         manthan = Manthan(kosh)
-        inv = DeviceInventory([
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inv = DeviceInventory(
+            [
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inv)
         capabilities = {
             "read_native": NativeExtractionCapability(),

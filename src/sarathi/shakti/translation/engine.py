@@ -32,7 +32,9 @@ def _load_translation_anubhava(data_root: Path) -> dict[str, dict[str, str]]:
         return {}
     corrections: dict[str, dict[str, str]] = {}
     for item in data.get("corrections", []):
-        if isinstance(item, dict) and (item.get("verified", False) or item.get("verified_on") or item.get("approved_by")):
+        if isinstance(item, dict) and (
+            item.get("verified", False) or item.get("verified_on") or item.get("approved_by")
+        ):
             dir_val = item.get("direction", "both")
             src = item.get("source", "")
             tgt = item.get("target", "")
@@ -99,6 +101,7 @@ class CTranslate2TranslationEngine:
 
         try:
             import importlib
+
             ctranslate2 = importlib.import_module("ctranslate2")
             sentencepiece = importlib.import_module("sentencepiece")
         except ImportError as exc:

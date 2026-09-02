@@ -11,8 +11,31 @@ _LATIN_RE = re.compile(r"[A-Za-z]")
 
 # Legacy font signatures (e.g. Kruti Dev markers)
 _LEGACY_SIGNATURES = (
-    "[k", "vk", "vks", "vkS", "Fk", "/k", "Hk", "'k", ";Z", "jZ", ";k", "D;",
-    "x~", "LVs", "cSa", ".k", "fdr", "fd", "fr", "fn", "fc", "f[", "fH", "fF", "fD"
+    "[k",
+    "vk",
+    "vks",
+    "vkS",
+    "Fk",
+    "/k",
+    "Hk",
+    "'k",
+    ";Z",
+    "jZ",
+    ";k",
+    "D;",
+    "x~",
+    "LVs",
+    "cSa",
+    ".k",
+    "fdr",
+    "fd",
+    "fr",
+    "fn",
+    "fc",
+    "f[",
+    "fH",
+    "fF",
+    "fD",
 )
 
 

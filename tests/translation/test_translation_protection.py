@@ -1,5 +1,6 @@
-from typing import Any
 """Tests for Translation Span Protection and Restoration."""
+
+from typing import Any
 
 from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 from sarathi.shakti.translation.models import TranslationDirection

@@ -1,6 +1,7 @@
 """Unit tests for Nabhi — Core Kernel: Manthan Capability Resolver."""
 
 from pathlib import Path
+
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
@@ -125,9 +126,7 @@ class TestManthanResolver:
         assert err.code is FailureCode.UNSUPPORTED
         assert "No capability registered for requirement 'unknown_requirement'" in err.message
 
-    def test_unsupported_execution_profile_rejected(
-        self, kosh: Kosh, sample_request: Request
-    ) -> None:
+    def test_unsupported_execution_profile_rejected(self, kosh: Kosh, sample_request: Request) -> None:
         # Request a profile not supported by "ocr" (which supports INSTANT, ACCURATE)
         req_profile = Request(
             request_id="req-profile",
@@ -168,9 +167,7 @@ class TestManthanResolver:
         assert err.code is FailureCode.UNSUPPORTED
         assert "Input 'inp-1' media type 'text/plain' is not supported" in err.message
 
-    def test_missing_media_type_rejected_when_capability_declares_supported_inputs(
-        self, kosh: Kosh
-    ) -> None:
+    def test_missing_media_type_rejected_when_capability_declares_supported_inputs(self, kosh: Kosh) -> None:
         req_no_media = Request(
             request_id="req-no-media",
             requirement="ocr",
@@ -282,9 +279,7 @@ class TestManthanResolver:
         plan = manthan.resolve(req_multi)
         assert plan.capability_ids == ("ocr",)
 
-    def test_manthan_does_not_mutate_kosh(
-        self, kosh: Kosh, sample_request: Request
-    ) -> None:
+    def test_manthan_does_not_mutate_kosh(self, kosh: Kosh, sample_request: Request) -> None:
         # Record baseline state of Kosh
         plugins_before = kosh.plugins()
         caps_before = kosh.capabilities()
@@ -298,3 +293,91 @@ class TestManthanResolver:
         assert len(kosh) == count_before
         assert kosh.plugins() == plugins_before
         assert kosh.capabilities() == caps_before
+
+    def test_recursive_topological_resolution_with_pruning(self) -> None:
+        """Transitive dependencies are resolved in recursive topological order with redundant prereqs pruned."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="topo.plugin",
+            name="Topo Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_a", "cap_b", "cap_c"),
+        )
+        registry.register_plugin(p)
+
+        # cap_c has no prereqs
+        # cap_b requires cap_c
+        # cap_a requires cap_b and cap_c (cap_c is redundant transitive)
+        c_cap = CapabilityDeclaration("cap_c", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,))
+        b_cap = CapabilityDeclaration("cap_b", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_c",))
+        a_cap = CapabilityDeclaration(
+            "cap_a", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_b", "cap_c")
+        )
+
+        registry.register_capability(c_cap)
+        registry.register_capability(b_cap)
+        registry.register_capability(a_cap)
+
+        manthan = Manthan(registry)
+        req = Request(
+            request_id="req-topo",
+            requirement="cap_a",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+        )
+        plan = manthan.resolve(req)
+        assert plan.capability_ids == ("cap_c", "cap_b", "cap_a")
+
+    def test_cycle_detection_raises_validation_failed(self) -> None:
+        """Dependency cycle cap_a -> cap_b -> cap_a raises structured VALIDATION_FAILED error."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="cycle.plugin",
+            name="Cycle Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_a", "cap_b"),
+        )
+        registry.register_plugin(p)
+
+        a_cap = CapabilityDeclaration("cap_a", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_b",))
+        b_cap = CapabilityDeclaration("cap_b", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",))
+        registry.register_capability(a_cap)
+        registry.register_capability(b_cap)
+
+        manthan = Manthan(registry)
+        req = Request(
+            request_id="req-cycle",
+            requirement="cap_a",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+        )
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Circular prerequisite dependency cycle detected" in exc_info.value.message
+
+    def test_self_prerequisite_raises_validation_failed(self) -> None:
+        """Self-prerequisite cap_a -> cap_a raises structured VALIDATION_FAILED error."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="self.plugin",
+            name="Self Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_a",),
+        )
+        registry.register_plugin(p)
+
+        a_cap = CapabilityDeclaration("cap_a", "self.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",))
+        registry.register_capability(a_cap)
+
+        manthan = Manthan(registry)
+        req = Request(
+            request_id="req-self",
+            requirement="cap_a",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+        )
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Self-prerequisite detected" in exc_info.value.message

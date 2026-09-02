@@ -33,9 +33,7 @@ class Kavacha:
             TypeError: If declaration is not a SecurityDeclaration.
         """
         if not isinstance(declaration, SecurityDeclaration):
-            raise TypeError(
-                f"declaration must be a SecurityDeclaration instance, got {type(declaration).__name__}."
-            )
+            raise TypeError(f"declaration must be a SecurityDeclaration instance, got {type(declaration).__name__}.")
 
         decision = self._policy.evaluate(declaration)
         if not decision.allowed:
@@ -69,7 +67,9 @@ class Kavacha:
             elif isinstance(destination_roots, (list, tuple)):
                 dest_list = [Path(d).resolve() for d in destination_roots]
             else:
-                raise TypeError(f"destination_roots must be a Path, str, or sequence, got {type(destination_roots).__name__}.")
+                raise TypeError(
+                    f"destination_roots must be a Path, str, or sequence, got {type(destination_roots).__name__}."
+                )
         except OSError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,

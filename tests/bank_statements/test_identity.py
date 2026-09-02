@@ -1,7 +1,5 @@
 """Tests for Bank Statement and Profile Detection."""
 
-from pathlib import Path
-
 from sarathi.sankalpa import CanonicalDocument, PageData, TableData
 from sarathi.shakti.bank_statements.detector import detect_bank_statement
 

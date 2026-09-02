@@ -81,8 +81,6 @@ class LifecycleAction:
         if self.request is not None and not isinstance(self.request, Request):
             raise TypeError(f"request must be a Request instance or None, got {type(self.request).__name__}.")
 
-
-
         if self.context is not None and not isinstance(self.context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance or None, got {type(self.context).__name__}.")
 
@@ -105,7 +103,9 @@ class RetryPolicy:
             raise ValueError(f"max_retries cannot be negative, got {self.max_retries}.")
 
         if not isinstance(self.retryable_codes, (list, tuple, set)):
-            raise TypeError(f"retryable_codes must be a sequence of FailureCode, got {type(self.retryable_codes).__name__}.")
+            raise TypeError(
+                f"retryable_codes must be a sequence of FailureCode, got {type(self.retryable_codes).__name__}."
+            )
 
         cleaned_codes: list[FailureCode] = []
         for i, code in enumerate(self.retryable_codes):

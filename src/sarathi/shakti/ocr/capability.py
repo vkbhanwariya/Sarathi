@@ -23,9 +23,7 @@ from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 
 def _is_usable_document(doc: CanonicalDocument) -> bool:
     """Check whether a CanonicalDocument contains usable text or table data."""
-    has_text = bool(doc.text and doc.text.strip()) or any(
-        bool(p.text and p.text.strip()) for p in doc.pages
-    )
+    has_text = bool(doc.text and doc.text.strip()) or any(bool(p.text and p.text.strip()) for p in doc.pages)
     has_tables = bool(doc.tables and len(doc.tables) > 0) or any(
         bool(p.tables and len(p.tables) > 0) for p in doc.pages
     )
@@ -81,11 +79,9 @@ class OCRCapability:
                 case CanonicalDocument() as doc:
                     prior_docs[doc.source_input_id] = doc
                 case tuple() | list() as items:
-                    prior_docs.update({
-                        item.source_input_id: item
-                        for item in items
-                        if isinstance(item, CanonicalDocument)
-                    })
+                    prior_docs.update(
+                        {item.source_input_id: item for item in items if isinstance(item, CanonicalDocument)}
+                    )
 
         final_docs: list[CanonicalDocument] = []
         all_provenance: list[ProvenanceRecord] = list(prior_result.provenance) if prior_result else []
