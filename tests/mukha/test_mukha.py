@@ -830,3 +830,90 @@ class TestMukhaAarambhaStartupOverlay:
                 await pilot.pause()
 
         asyncio.run(_run())
+
+
+class TestMukhaInteractiveFlowAndCancellation:
+    """Tests for interactive run execution, cancellation, and screen switching."""
+
+    def test_interactive_cancel_run_transitions_to_cancelled_summary(self, tmp_path: Path) -> None:
+        from sarathi.sankalpa import CancellationToken
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("cancel test", encoding="utf-8")
+        token = CancellationToken()
+
+        req = Request(
+            request_id="req-interactive-cancel",
+            requirement="read_native",
+            inputs=(InputRef("inp-1", test_file, "test.txt", 11),),
+            cancellation_token=token,
+        )
+
+        mock_agni = MagicMock()
+
+        def slow_execute(r: Request, context: ExecutionContext) -> Result:
+            # Simulate cooperative cancellation during work
+            for _ in range(50):
+                time.sleep(0.01)
+                if r.cancellation_token and r.cancellation_token.is_cancelled:
+                    raise DoshError(code=FailureCode.CANCELLED, message="Operation cancelled")
+            return Result(data="unreachable", artifacts=(), warnings=())
+
+        mock_agni.execute.side_effect = slow_execute
+        mock_agni.darpana = Darpana(capacity=1000)
+
+        sel = InputSelectionView(total_files=1, total_size_bytes=11, is_grouped=False)
+        actions = (AvailableActionView(action_id="start_run", label="Start Run"),)
+        init_state = MukhaPresenter.build_home_view(input_selection=sel, available_actions=actions)
+
+        app = MukhaApp(initial_state=init_state, agni=mock_agni, pending_request=req)
+
+        async def _run() -> None:
+            async with app.run_test() as pilot:
+                # 1. Start run from Home
+                await pilot.click("#btn-start_run")
+                await pilot.pause(0.05)
+
+                assert isinstance(app.screen, MonitorScreen)
+
+                # 2. Click cancel button
+                await pilot.click("#btn-cancel-run")
+                await pilot.pause(0.1)
+
+                # 3. Transitions cleanly to Summary with CANCELLED status
+                assert isinstance(app.screen, SummaryScreen)
+                assert app.app_state.terminal_summary is not None
+                assert app.app_state.terminal_summary.status == "CANCELLED"
+                assert "cancelled" in app.app_state.terminal_summary.failures[0].lower()
+
+        asyncio.run(_run())
+
+    def test_leaving_screens_preserves_application_state(self) -> None:
+        sel = InputSelectionView(total_files=2, total_size_bytes=4096, is_grouped=False)
+        init_state = MukhaPresenter.build_home_view(
+            requirement="read_native",
+            policy_label="Strict Policy",
+            input_selection=sel,
+        )
+
+        app = MukhaApp(initial_state=init_state)
+
+        async def _run() -> None:
+            async with app.run_test() as pilot:
+                assert isinstance(app.screen, HomeScreen)
+                assert app.app_state.requirement == "read_native"
+                assert app.app_state.input_selection.total_files == 2
+
+                # Switch to Review
+                app.action_switch_review()
+                await pilot.pause()
+                assert isinstance(app.screen, ParikshaScreen)
+
+                # Switch back to Home; state is preserved
+                app.action_switch_home()
+                await pilot.pause()
+                assert isinstance(app.screen, HomeScreen)
+                assert app.app_state.requirement == "read_native"
+                assert app.app_state.input_selection.total_files == 2
+
+        asyncio.run(_run())

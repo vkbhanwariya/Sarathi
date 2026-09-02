@@ -173,7 +173,7 @@ class MonitorScreen(Screen):
             yield dev_table
 
             with Horizontal(id="monitor-actions"):
-                yield Button("Cancel", id="btn-cancel-run", disabled=True)
+                yield Button("Cancel", id="btn-cancel-run", disabled=False)
                 yield Button("Summary", id="btn-goto-summary")
         yield Footer()
 
@@ -195,6 +195,8 @@ class MonitorScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-goto-summary":
             self.app.switch_to_summary()
+        elif event.button.id == "btn-cancel-run":
+            self.app.action_cancel_run()
 
 
 def _fmt_count(val: int | None) -> str:
@@ -420,19 +422,34 @@ class MukhaApp(App):
     def action_switch_inspector(self) -> None:
         self.switch_to_inspector()
 
+    def action_cancel_run(self) -> None:
+        """Request cooperative cancellation on the active request token."""
+        if self._pending_request is not None and self._pending_request.cancellation_token is not None:
+            self._pending_request.cancellation_token.cancel()
+        elif self._active_context is not None and self._active_context.cancellation_token is not None:
+            self._active_context.cancellation_token.cancel()
+
     def action_start_run(self) -> None:
         """Start execution asynchronously on a background worker thread and switch to Monitor."""
         if self._agni is not None and self._pending_request is not None:
+            from dataclasses import replace
+            from sarathi.sankalpa import CancellationToken
+
+            cancel_token = self._pending_request.cancellation_token or CancellationToken()
+            req = replace(self._pending_request, cancellation_token=cancel_token)
+            self._pending_request = req
+
             # Create factual ExecutionContext with real identity
             run_id = f"run_{uuid.uuid4().hex[:12]}"
             trace_id = f"tr_{uuid.uuid4().hex[:16]}"
             span_id = f"sp_{uuid.uuid4().hex[:16]}"
             context = ExecutionContext(
                 run_id=run_id,
-                request_id=self._pending_request.request_id,
+                request_id=req.request_id,
                 trace_id=trace_id,
                 span_id=span_id,
-                profile=self._pending_request.profile,
+                profile=req.profile,
+                cancellation_token=cancel_token,
             )
             self._active_context = context
             self._active_run_id = run_id
@@ -560,12 +577,23 @@ class MukhaApp(App):
         exc: Exception,
         elapsed_ns: int,
     ) -> None:
-        """Main thread callback for failed Agni execution with safe error messages."""
+        """Main thread callback for failed or cancelled Agni execution with safe error messages."""
         self._stop_monitor_timer()
 
-        if isinstance(exc, DoshError):
+        is_cancelled = (
+            (isinstance(exc, DoshError) and exc.context.get("cancelled") is True)
+            or (req.cancellation_token is not None and req.cancellation_token.is_cancelled)
+            or (ctx.cancellation_token is not None and ctx.cancellation_token.is_cancelled)
+        )
+
+        if is_cancelled:
+            status = "CANCELLED"
+            msg = "Execution cancelled by user"
+        elif isinstance(exc, DoshError):
+            status = "FAILED"
             msg = f"[{exc.code.value}] {exc.message}"
         else:
+            status = "FAILED"
             msg = f"Internal execution error ({type(exc).__name__})"
 
         darpana = getattr(self._agni, "darpana", None)
@@ -576,7 +604,7 @@ class MukhaApp(App):
         empty_res = SankalpaResult(data="", artifacts=(), warnings=())
         summary_view = MukhaPresenter.build_summary_view(
             run_id=ctx.run_id,
-            status="FAILED",
+            status=status,
             wall_time_ns=elapsed_ns,
             request=req,
             result=empty_res,

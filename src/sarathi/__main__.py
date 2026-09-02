@@ -74,12 +74,35 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Explicit request identifier",
     )
-
     args = parser.parse_args(argv)
 
     if not args.inputs:
-        parser.print_help(sys.stderr)
-        return 2
+        if argv is not None or not sys.stdin.isatty():
+            parser.print_help(sys.stderr)
+            return 2
+
+        # Interactive mode: launch MukhaApp connected to Agni bootstrap
+        try:
+            with Agni(
+                settings=Path(args.config) if args.config else None,
+                runtime_root=Path(args.runtime_root) if args.runtime_root else None,
+                output_root=Path(args.output_root) if args.output_root else None,
+            ) as agni:
+                from sarathi.mukha import MukhaApp, MukhaPresenter
+
+                home_view = MukhaPresenter.build_home_view(
+                    requirement=args.requirement,
+                    policy_label="Default Policy",
+                    selected_inputs=(),
+                )
+                app = MukhaApp(initial_state=home_view, agni=agni)
+                app.run()
+                return 0
+        except DoshError as dosh_err:
+            print(f"Configuration error: {dosh_err.code.name} - {dosh_err.message}", file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            return 130
 
     # 1. Strict profile parsing
     try:
