@@ -1,34 +1,40 @@
-"""Mukha Local Web Server for Sarathi V2.
+"""Mukha Local Web Server and HTTP Dispatcher for Sarathi V2.
 
-Implements a thin, loopback-bound ThreadingHTTPServer presenting canonical
-Mukha view models, native Windows file picking, and executing runs via Agni.
+Provides a thin, loopback-only (127.0.0.1) HTTP server that projects canonical
+Sarathi presentation state (MukhaPresenter, Darpana, Kavacha, Nabhi) into a single
+modern Web UI without external dependencies, frameworks, or cloud leaks.
 """
 
 from __future__ import annotations
 
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.resources
 import json
 import mimetypes
 import os
+from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
-import urllib.parse
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+import urllib.parse
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import (
     ApplicationViewState,
+    AvailableActionView,
+    FileRunView,
+    InputItemView,
     InputSelectionView,
     RunSummaryView,
     RunViewState,
 )
 from sarathi.mukha.web.native_picker import NativePicker
 from sarathi.sankalpa import (
+    ArtifactRef,
     CancellationToken,
     ExecutionProfile,
     Request,
@@ -37,41 +43,37 @@ from sarathi.sankalpa import (
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
+    from sarathi.darpana import MarutiRecord, PramanaRecord
 
 
 def _serialize_dataclass(obj: Any) -> Any:
-    """Safely and recursively serialize dataclass view models to JSON-friendly primitives."""
-    if obj is None:
-        return None
-    if isinstance(obj, (str, int, float, bool)):
+    """Recursively convert dataclasses and enums into JSON-serializable primitives."""
+    if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
+    if hasattr(obj, "value"):
+        return obj.value
+    if hasattr(obj, "__dataclass_fields__"):
+        res = {}
+        for k in obj.__dataclass_fields__:
+            val = getattr(obj, k)
+            res[k] = _serialize_dataclass(val)
+        return res
     if isinstance(obj, (list, tuple)):
         return [_serialize_dataclass(item) for item in obj]
     if isinstance(obj, dict):
         return {k: _serialize_dataclass(v) for k, v in obj.items()}
-    if hasattr(obj, "__dataclass_fields__"):
-        result: dict[str, Any] = {}
-        for field_name in obj.__dataclass_fields__:
-            val = getattr(obj, field_name)
-            result[field_name] = _serialize_dataclass(val)
-        return result
-    if hasattr(obj, "value"):  # Enums
-        return obj.value
     return str(obj)
 
 
 class MukhaHTTPHandler(BaseHTTPRequestHandler):
-    """Loopback-only HTTP request handler for Mukha Web Frontend."""
+    """Loopback-only HTTP request handler for the Mukha Web UI."""
 
-    server: MukhaWebServer  # type: ignore[assignment]
-
-    # Protocol defaults
-    server_version = "SarathiMukha/2.0"
-    MAX_BODY_SIZE = 1_048_576  # 1 MB
+    # Maximum payload size: 1 MB
+    MAX_BODY_SIZE = 1_048_576
 
     @property
     def mukha_app(self) -> MukhaWebServer:
-        """Access the parent MukhaWebServer instance safely."""
+        """Resolve the parent MukhaWebServer instance attached to the socket server."""
         return getattr(self.server, "mukha_server", self.server)  # type: ignore[no-any-return]
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -134,7 +136,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             return None
 
         if length > self.MAX_BODY_SIZE:
-            self._send_json(413, {"ok": False, "error": "Request body exceeds size limit."})
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Request body exceeds size limit."})
             return None
 
         raw_body = self.rfile.read(length)
@@ -226,15 +228,27 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                 return
 
             paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
-            inputs, input_selection, preflight = MukhaPresenter.intake_from_paths(paths, recursive=recursive)
-            self._send_json(
-                200,
-                {
-                    "ok": True,
-                    "input_selection": _serialize_dataclass(input_selection),
-                    "preflight": _serialize_dataclass(preflight),
-                },
-            )
+            try:
+                inputs, input_selection, preflight = MukhaPresenter.intake_from_paths(
+                    paths,
+                    kavacha=self.mukha_app.kavacha,
+                    runtime_root=self.mukha_app.runtime_root,
+                    output_root=self.mukha_app.output_root,
+                    recursive=recursive,
+                )
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "input_selection": _serialize_dataclass(input_selection),
+                        "preflight": _serialize_dataclass(preflight),
+                    },
+                )
+            except DoshError as dosh_err:
+                self._send_json(
+                    403 if dosh_err.code is FailureCode.SECURITY_DENIED else 400,
+                    {"ok": False, "error": f"{dosh_err.code.name}: {dosh_err.message}"},
+                )
             return
 
         # 4. POST /api/runs
@@ -254,15 +268,32 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": f"Invalid profile: {profile_str}"})
                 return
 
-            paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
-            run_id = self.mukha_app.start_run(paths=paths, requirement=requirement, profile=prof, recursive=recursive)
-            if run_id is None:
+            # Validate requirement availability before dispatching
+            caps_status = MukhaPresenter.audit_capability_status()
+            registered_caps = set(self.mukha_app.registered_capabilities)
+            is_avail, reason = caps_status.get(requirement, (False, "Capability unavailable."))
+            if not is_avail or requirement not in registered_caps:
                 self._send_json(
-                    409,
-                    {"ok": False, "error": "An interactive processing run is already active."},
+                    400,
+                    {"ok": False, "error": f"Selected requirement '{requirement}' is unavailable: {reason}"},
                 )
-            else:
-                self._send_json(200, {"ok": True, "run_id": run_id})
+                return
+
+            paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
+            try:
+                run_id = self.mukha_app.start_run(paths=paths, requirement=requirement, profile=prof, recursive=recursive)
+                if run_id is None:
+                    self._send_json(
+                        409,
+                        {"ok": False, "error": "An interactive processing run is already active."},
+                    )
+                else:
+                    self._send_json(200, {"ok": True, "run_id": run_id})
+            except DoshError as dosh_err:
+                self._send_json(
+                    403 if dosh_err.code is FailureCode.SECURITY_DENIED else 400,
+                    {"ok": False, "error": f"{dosh_err.code.name}: {dosh_err.message}"},
+                )
             return
 
         # 5. POST /api/runs/<run_id>/cancel
@@ -292,7 +323,6 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             resource = pkg.joinpath(filename)
             content = resource.read_bytes()
         except Exception:
-            # Fallback to local filesystem path
             local_path = Path(__file__).parent / filename
             if not local_path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND, f"Static resource {filename} missing.")
@@ -306,34 +336,34 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def _serve_confirmed_artifact(self, run_id: str, artifact_name: str) -> None:
-        """Stream confirmed artifact file safely from output root."""
-        out_root = self.mukha_app.output_root
-        if not out_root.is_dir():
-            self.send_error(HTTPStatus.NOT_FOUND, "Output root unavailable.")
+    def _serve_confirmed_artifact(self, run_id: str, artifact_id: str) -> None:
+        """Stream confirmed artifact file safely by resolving run_id and artifact_id."""
+        art_ref = self.mukha_app.get_confirmed_artifact(run_id, artifact_id)
+        if art_ref is None or not art_ref.path or not art_ref.path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND, "Confirmed artifact not found.")
             return
 
-        # Verify against traversal and ensure file exists under output root
-        target_file = (out_root / artifact_name).resolve()
+        target_file = art_ref.path.resolve()
+
+        # Strict containment validation
+        out_root = self.mukha_app.output_root.resolve()
+        runtime_root = self.mukha_app.runtime_root.resolve()
         try:
-            target_file.relative_to(out_root.resolve())
+            target_file.relative_to(out_root)
         except ValueError:
-            self.send_error(HTTPStatus.FORBIDDEN, "Access to file outside output root is denied.")
-            return
+            try:
+                target_file.relative_to(runtime_root)
+            except ValueError:
+                self.send_error(HTTPStatus.FORBIDDEN, "Access to file outside authorized roots is denied.")
+                return
 
-        if not target_file.is_file():
-            self.send_error(HTTPStatus.NOT_FOUND, "Confirmed artifact file not found on disk.")
-            return
-
-        mime_type, _ = mimetypes.guess_type(str(target_file))
-        if mime_type is None:
-            mime_type = "application/octet-stream"
-
+        mime_type = art_ref.media_type or mimetypes.guess_type(str(target_file))[0] or "application/octet-stream"
         file_size = target_file.stat().st_size
         self.send_response(200)
         self.send_header("Content-Type", mime_type)
         self.send_header("Content-Length", str(file_size))
         self.send_header("Content-Disposition", f'attachment; filename="{target_file.name}"')
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
 
         with open(target_file, "rb") as f:
@@ -363,16 +393,35 @@ class MukhaWebServer:
         # Concurrency & Active Run state
         self._lock = threading.Lock()
         self._active_run_id: str | None = None
+        self._active_request: Request | None = None
         self._active_token: CancellationToken | None = None
         self._active_thread: threading.Thread | None = None
         self._active_start_ns: int = 0
         self._last_result: Result | None = None
-        self._last_summary: RunSummaryView | None = None
+        self._terminal_summary: RunSummaryView | None = None
+        self._terminal_status: str | None = None
+        self._confirmed_artifacts: dict[str, dict[str, ArtifactRef]] = {}
+        self._run_output_roots: dict[str, Path] = {}
 
     @property
     def output_root(self) -> Path:
         """Resolve current configured output root."""
         return self._agni.output_root
+
+    @property
+    def runtime_root(self) -> Path:
+        """Resolve current configured runtime root."""
+        return self._agni.runtime_root
+
+    @property
+    def kavacha(self) -> Any:
+        """Resolve current security service."""
+        return self._agni.kavacha
+
+    @property
+    def registered_capabilities(self) -> tuple[str, ...]:
+        """Return registered capabilities from Kosh."""
+        return tuple(c.capability_id for c in self._agni.kosh.capabilities())
 
     @property
     def resolved_port(self) -> int:
@@ -383,6 +432,11 @@ class MukhaWebServer:
     def local_url(self) -> str:
         """Local URL to open in web browser."""
         return f"http://127.0.0.1:{self._resolved_port}/"
+
+    def get_confirmed_artifact(self, run_id: str, artifact_id: str) -> ArtifactRef | None:
+        """Look up confirmed ArtifactRef by run ID and artifact ID."""
+        with self._lock:
+            return self._confirmed_artifacts.get(run_id, {}).get(artifact_id)
 
     def start(self) -> None:
         """Start the loopback web server on a background thread."""
@@ -408,46 +462,107 @@ class MukhaWebServer:
             self._server_thread.join(timeout=2.0)
             self._server_thread = None
 
+    def _get_run_telemetry(self, run_id: str) -> tuple[tuple[MarutiRecord, ...], tuple[PramanaRecord, ...]]:
+        """Fetch telemetry records filtered strictly to the active run ID."""
+        if not self._agni.darpana:
+            return (), ()
+        maruti = tuple(r for r in self._agni.darpana.maruti_records() if r.run_id == run_id)
+        pramana = tuple(r for r in self._agni.darpana.pramana_records() if r.run_id == run_id)
+        return maruti, pramana
+
     def get_application_view_state(self) -> ApplicationViewState:
         """Build canonical typed ApplicationViewState projected from live facts."""
         with self._lock:
             active_run_id = self._active_run_id
+            active_req = self._active_request
             start_ns = self._active_start_ns
-            last_result = self._last_result
-            last_summary = self._last_summary
+            last_summary = self._terminal_summary
+            term_status = self._terminal_status
+            is_alive = self._active_thread is not None and self._active_thread.is_alive()
 
         active_run_view: RunViewState | None = None
         if active_run_id is not None:
             now_ns = time.perf_counter_ns()
-            is_alive = self._active_thread is not None and self._active_thread.is_alive()
-            status = "RUNNING" if is_alive else (last_result.status if last_result else "COMPLETED")
+            status = "RUNNING" if is_alive else (term_status or "SUCCESS")
+            maruti_recs, pramana_recs = self._get_run_telemetry(active_run_id)
 
-            maruti_recs = self._agni.darpana.maruti_records() if self._agni.darpana else ()
-            pramana_recs = self._agni.darpana.pramana_records() if self._agni.darpana else ()
+            inputs = active_req.inputs if active_req else ()
+            files = tuple(
+                FileRunView(
+                    input_id=inp.input_id,
+                    display_name=inp.display_name,
+                    ordinal=idx + 1,
+                    status=status,
+                    elapsed_ns=max(0, now_ns - start_ns),
+                    current_stage="Processing" if is_alive else "Completed",
+                )
+                for idx, inp in enumerate(inputs)
+            )
 
             active_run_view = MukhaPresenter.build_monitor_view(
                 run_id=active_run_id,
                 status=status,
                 started_at_ns=start_ns,
                 now_ns=now_ns,
-                files=(),
+                files=files,
                 maruti_records=maruti_recs,
                 pramana_records=pramana_recs,
             )
 
-        # Capability availability
-        available_actions = tuple(
-            MukhaPresenter.build_home_view().available_actions
-        )
+        # Capability availability facts
+        caps_status = MukhaPresenter.audit_capability_status()
+        registered_caps = set(self.registered_capabilities)
+
+        action_specs = [
+            ("read_native", "Native Extraction"),
+            ("bank_statements", "Bank Statements"),
+            ("ocr", "Optical Character Recognition (OCR)"),
+            ("font_conversion", "Font Conversion (Kruti Dev)"),
+            ("translation", "Language Translation"),
+        ]
+
+        available_actions = []
+        for act_id, act_label in action_specs:
+            is_avail, reason = caps_status.get(act_id, (False, "Unavailable"))
+            enabled = is_avail and (act_id in registered_caps)
+            disabled_reason = None if enabled else reason
+            available_actions.append(
+                AvailableActionView(
+                    action_id=act_id,
+                    label=act_label,
+                    is_enabled=enabled,
+                    disabled_reason=disabled_reason,
+                )
+            )
+
+        if active_req:
+            input_sel = InputSelectionView(
+                total_files=len(active_req.inputs),
+                total_size_bytes=sum(inp.size_bytes for inp in active_req.inputs),
+                is_grouped=False,
+                items=tuple(
+                    InputItemView(
+                        input_id=inp.input_id,
+                        display_name=inp.display_name,
+                        size_bytes=inp.size_bytes,
+                        media_type=inp.media_type,
+                    )
+                    for inp in active_req.inputs
+                ),
+            )
+        else:
+            input_sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+
+        current_screen = "monitor" if active_run_id and is_alive else ("summary" if last_summary else "home")
 
         return ApplicationViewState(
-            current_screen="monitor" if active_run_id and active_run_view and active_run_view.status == "RUNNING" else "home",
-            requirement="read_native",
+            current_screen=current_screen,
+            requirement=active_req.requirement if active_req else "read_native",
             policy_label="Local only",
-            input_selection=InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False),
+            input_selection=input_sel,
             active_run=active_run_view,
             terminal_summary=last_summary,
-            available_actions=available_actions,
+            available_actions=tuple(available_actions),
         )
 
     def start_run(
@@ -465,8 +580,14 @@ class MukhaWebServer:
             if self._active_thread is not None and self._active_thread.is_alive():
                 return None  # Busy
 
-            # Intake and resolve input references
-            inputs, input_selection, preflight = MukhaPresenter.intake_from_paths(paths, recursive=recursive)
+            # Intake and resolve input references with full canonical security checks
+            inputs, input_selection, preflight = MukhaPresenter.intake_from_paths(
+                paths,
+                kavacha=self.kavacha,
+                runtime_root=self.runtime_root,
+                output_root=self.output_root,
+                recursive=recursive,
+            )
             if not inputs:
                 return None
 
@@ -483,41 +604,84 @@ class MukhaWebServer:
             )
 
             self._active_run_id = run_id
+            self._active_request = request
             self._active_token = token
             self._active_start_ns = time.perf_counter_ns()
             self._last_result = None
-            self._last_summary = None
+            self._terminal_summary = None
+            self._terminal_status = None
 
             def _worker() -> None:
+                nonlocal run_id, request
                 try:
                     result = self._agni.execute(request)
-                    maruti_recs = self._agni.darpana.maruti_records() if self._agni.darpana else ()
-                    pramana_recs = self._agni.darpana.pramana_records() if self._agni.darpana else ()
+                    maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
 
-                    summary = MukhaPresenter.build_summary_view(
-                        run_id=run_id,
-                        status=result.status,
-                        wall_time_ns=wall_time_ns,
-                        request=request,
-                        result=result,
-                        successful_files=len(inputs) if result.status == "SUCCESS" else 0,
-                        warning_files=0,
-                        failed_files=0 if result.status == "SUCCESS" else len(inputs),
-                        maruti_records=maruti_recs,
-                        pramana_records=pramana_recs,
-                    )
                     with self._lock:
                         self._last_result = result
-                        self._last_summary = summary
-                except Exception as err:
-                    with self._lock:
-                        self._last_summary = RunSummaryView(
+                        self._terminal_status = "SUCCESS"
+                        if run_id not in self._confirmed_artifacts:
+                            self._confirmed_artifacts[run_id] = {}
+                        for art in result.artifacts:
+                            if isinstance(art, ArtifactRef):
+                                self._confirmed_artifacts[run_id][art.artifact_id] = art
+                                if art.path and art.path.parent.exists():
+                                    self._run_output_roots[run_id] = art.path.parent
+
+                        summary = MukhaPresenter.build_summary_view(
                             run_id=run_id,
-                            status="FAILURE",
-                            wall_time_ns=max(0, time.perf_counter_ns() - self._active_start_ns),
-                            total_inputs=len(inputs),
-                            failures=(str(err),),
+                            status="SUCCESS",
+                            wall_time_ns=wall_time_ns,
+                            request=request,
+                            result=result,
+                            successful_files=None,
+                            warning_files=None,
+                            failed_files=None,
+                            maruti_records=maruti_recs,
+                            pramana_records=pramana_recs,
+                        )
+                        self._terminal_summary = summary
+                except DoshError as dosh_err:
+                    is_cancelled = (
+                        (request.cancellation_token and request.cancellation_token.is_cancelled)
+                        or bool(dosh_err.context.get("cancelled"))
+                        or "cancelled" in dosh_err.message.lower()
+                    )
+                    status = "CANCELLED" if is_cancelled else "FAILED"
+                    failures = (
+                        ("Execution cancelled by user.",)
+                        if is_cancelled
+                        else (f"{dosh_err.code.name}: {dosh_err.message}",)
+                    )
+                    maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
+                    wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
+                    with self._lock:
+                        self._terminal_status = status
+                        self._terminal_summary = RunSummaryView(
+                            run_id=run_id,
+                            status=status,
+                            wall_time_ns=wall_time_ns,
+                            total_inputs=len(request.inputs),
+                            failures=failures,
+                            stage_timings=(),
+                            device_summaries=(),
+                            artifacts=(),
+                        )
+                except Exception:
+                    maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
+                    wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
+                    with self._lock:
+                        self._terminal_status = "FAILED"
+                        self._terminal_summary = RunSummaryView(
+                            run_id=run_id,
+                            status="FAILED",
+                            wall_time_ns=wall_time_ns,
+                            total_inputs=len(request.inputs),
+                            failures=("EXECUTION_FAILED: An unexpected error occurred during execution.",),
+                            stage_timings=(),
+                            device_summaries=(),
+                            artifacts=(),
                         )
 
             self._active_thread = threading.Thread(
@@ -537,18 +701,19 @@ class MukhaWebServer:
             return False
 
     def reveal_output_directory(self, run_id: str) -> bool:
-        """Safely reveal the confirmed output folder in Windows Explorer / OS file manager."""
-        out_dir = self.output_root
-        if not out_dir.is_dir():
+        """Safely reveal the confirmed run output folder in Windows Explorer / OS file manager."""
+        with self._lock:
+            target_dir = self._run_output_roots.get(run_id)
+        if target_dir is None or not target_dir.is_dir():
             return False
 
         try:
             if sys.platform == "win32":
-                os.startfile(str(out_dir))
+                os.startfile(str(target_dir))
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(out_dir)])
+                subprocess.Popen(["open", str(target_dir)])
             else:
-                subprocess.Popen(["xdg-open", str(out_dir)])
+                subprocess.Popen(["xdg-open", str(target_dir)])
             return True
         except Exception:
             return False

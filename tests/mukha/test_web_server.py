@@ -226,3 +226,136 @@ class TestMukhaWebServerAPI:
         )
         assert status == 200
         assert data["ok"] is True
+
+    def test_real_agni_execution_displays_success(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+        """Verify real Agni run completion sets SUCCESS terminal status without status field on Result."""
+        test_file = tmp_path / "data.txt"
+        test_file.write_text("Hello Sarathi V2", encoding="utf-8")
+
+        status, data = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+            data={"paths": [str(test_file)], "requirement": "read_native"},
+        )
+        assert status == 200
+        run_id = data["run_id"]
+
+        time.sleep(0.6)
+
+        status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+        assert status == 200
+        state = json.loads(body.decode("utf-8"))["state"]
+        assert state["terminal_summary"] is not None
+        assert state["terminal_summary"]["status"] == "SUCCESS"
+        assert state["terminal_summary"]["run_id"] == run_id
+
+    def test_cancelled_run_displays_cancelled_with_no_raw_exception(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+        """Cancelled execution yields CANCELLED status without raw exception text."""
+        test_file = tmp_path / "data.txt"
+        test_file.write_text("Sample", encoding="utf-8")
+
+        with patch.object(web_server._agni, "execute") as mock_exec:
+            from sarathi.dosh import DoshError, FailureCode
+            mock_exec.side_effect = DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Execution was cancelled.",
+                context={"cancelled": True},
+            )
+
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={"paths": [str(test_file)], "requirement": "read_native"},
+            )
+            assert status == 200
+            time.sleep(0.2)
+
+            status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+            state = json.loads(body.decode("utf-8"))["state"]
+            assert state["terminal_summary"]["status"] == "CANCELLED"
+            for failure in state["terminal_summary"]["failures"]:
+                assert "Traceback" not in failure
+                assert "Exception" not in failure
+
+    def test_run_scoped_telemetry_isolation(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+        """Verify Darpana telemetry queries are filtered strictly to the active run_id."""
+        test_file = tmp_path / "data.txt"
+        test_file.write_text("Hello Telemetry", encoding="utf-8")
+
+        status, data = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+            data={"paths": [str(test_file)], "requirement": "read_native"},
+        )
+        assert status == 200
+        run_id = data["run_id"]
+        time.sleep(0.6)
+
+        maruti, pramana = web_server._get_run_telemetry(run_id)
+        for r in maruti:
+            assert r.run_id == run_id
+        for p in pramana:
+            assert p.run_id == run_id
+
+    def test_runtime_and_output_paths_rejected_through_web_intake(self, web_server: MukhaWebServer) -> None:
+        """Web intake rejects configured runtime and output root directories."""
+        runtime_file = web_server.runtime_root / "temp.txt"
+        runtime_file.write_text("test", encoding="utf-8")
+
+        status, data = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
+            data={"paths": [str(runtime_file)]},
+        )
+        assert status in (400, 403)
+        assert data["ok"] is False
+
+    def test_unavailable_translation_cannot_start(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+        """Starting unavailable requirement (translation) is rejected with 400."""
+        test_file = tmp_path / "data.txt"
+        test_file.write_text("Test", encoding="utf-8")
+
+        status, data = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+            data={"paths": [str(test_file)], "requirement": "translation"},
+        )
+        assert status == 400
+        assert data["ok"] is False
+        assert "unavailable" in data["error"].lower()
+
+    def test_confirmed_artifact_download_and_containment_security(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+        """Artifact downloads stream confirmed artifacts and reject cross-run or outside paths."""
+        from sarathi.sankalpa import ArtifactRef
+
+        run_id = "run_test_art"
+        art_id = "art_123"
+        art_path = web_server.output_root / "test_artifact.txt"
+        art_path.write_text("Protected Content", encoding="utf-8")
+
+        ref = ArtifactRef(
+            artifact_id=art_id,
+            path=art_path,
+            role="report",
+            media_type="text/plain",
+            size_bytes=len("Protected Content"),
+            checksum_sha256="dummy",
+        )
+
+        with web_server._lock:
+            web_server._confirmed_artifacts[run_id] = {art_id: ref}
+
+        # 1. Successful download
+        status, body, headers = _http_get(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/{art_id}"
+        )
+        assert status == 200
+        assert body == b"Protected Content"
+        assert headers.get("X-Content-Type-Options") == "nosniff"
+
+        # 2. Unknown artifact ID -> 404
+        status, _, _ = _http_get(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/wrong_id"
+        )
+        assert status == 404
+
+        # 3. Wrong run ID -> 404
+        status, _, _ = _http_get(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/wrong_run/artifacts/{art_id}"
+        )
+        assert status == 404

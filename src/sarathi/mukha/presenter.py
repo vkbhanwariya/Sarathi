@@ -139,10 +139,12 @@ class MukhaPresenter:
 
         # 5. Translation
         trans_models = base_data / "translation" / "models"
-        if trans_models.exists() and trans_models.is_dir():
+        hi_en_model = trans_models / "hi-en"
+        en_hi_model = trans_models / "en-hi"
+        if trans_models.exists() and hi_en_model.exists() and en_hi_model.exists():
             statuses["translation"] = (True, "Ready (IndicTrans2 CTranslate2)")
         else:
-            statuses["translation"] = (False, "Unavailable (Model weights missing in data/translation/models/)")
+            statuses["translation"] = (False, "Unavailable (Local translation model assets missing in data/translation/models/)")
 
         return statuses
 
@@ -364,8 +366,9 @@ class MukhaPresenter:
             if isinstance(art, ArtifactRef):
                 confirmed_artifacts.append(
                     ArtifactOutcomeView(
+                        artifact_id=art.artifact_id,
                         role=art.role,
-                        display_name=art.path.name,
+                        display_name=art.path.name if art.path else art.artifact_id,
                         size_bytes=art.size_bytes,
                         sha256_hex=art.checksum_sha256,
                     )
