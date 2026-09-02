@@ -4,23 +4,44 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import tomllib
 import unicodedata
 
-from sarathi.shakti.font_conversion.anubhava import AnubhavaStore
 from sarathi.shakti.font_conversion.detector import load_font_profiles
 from sarathi.shakti.font_conversion.models import LegacyFontProfile
 
 _CANONICAL_FONTS_DIR = Path(__file__).resolve().parents[4] / "data" / "fonts"
+_CANONICAL_ANUBHAVA_PATH = Path(__file__).resolve().parents[4] / "data" / "font_conversion" / "anubhava.toml"
 _KRUTI_CONSONANTS = ('(?:[DPRFYOCLHEUI]|x~)?(?:\\[k|\\?k|Fk|/k|Hk|\'k|\\"k|\\.k|[dxptTVBMrnuc;jyo\\?ghKs])')
 _REPH_DEVANAGARI_RE = re.compile(r"([ऀ-ॿ])Z")
+
+
+def _load_anubhava_corrections(anubhava_path: Path | None = None) -> dict[str, dict[str, str]]:
+    """Load and return approved corrections directly from capability-owned anubhava.toml."""
+    path = (anubhava_path or _CANONICAL_ANUBHAVA_PATH).resolve()
+    if not path.exists():
+        return {}
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    corrections: dict[str, dict[str, str]] = {}
+    for item in data.get("corrections", []):
+        if isinstance(item, dict) and item.get("verified", False):
+            pid = item.get("profile_id", "generic")
+            src = item.get("source", "")
+            tgt = item.get("target", "")
+            if src and tgt:
+                corrections.setdefault(pid, {})[src] = tgt
+    return corrections
 
 
 class FontConverter:
     """Converts legacy font text into canonical Unicode Devanagari."""
 
-    def __init__(self, fonts_dir: Path | None = None, anubhava: AnubhavaStore | None = None) -> None:
+    def __init__(self, fonts_dir: Path | None = None, anubhava_path: Path | None = None) -> None:
         self._profiles = load_font_profiles(fonts_dir)
-        self._anubhava = anubhava or AnubhavaStore()
+        self._anubhava_corrections = _load_anubhava_corrections(anubhava_path)
 
     def convert(self, text: str, profile_id: str) -> str:
         """Apply legacy-to-Unicode mapping, pre-base matra reordering, and NFC normalization."""
@@ -29,7 +50,7 @@ class FontConverter:
             return text
 
         # 1. Apply verified Anubhava corrections first
-        corrections = self._anubhava.get_corrections(profile_id)
+        corrections = self._anubhava_corrections.get(profile_id, {})
         for src, tgt in corrections.items():
             text = text.replace(src, tgt)
 

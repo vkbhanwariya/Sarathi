@@ -80,7 +80,7 @@ def load_bank_profiles(banks_dir: Path | None = None) -> list[dict[str, Any]]:
             data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and "profile_id" in data:
                 profiles.append(data)
-        except Exception:
+        except (OSError, yaml.YAMLError):
             continue
     return profiles
 
