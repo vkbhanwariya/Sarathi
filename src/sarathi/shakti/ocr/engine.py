@@ -77,12 +77,56 @@ def extract_images_from_bytes(data: bytes) -> list[Any]:
         return []
 
 
+class TesseractFallbackAdapter:
+    """Targeted Tesseract 5 fallback adapter for weak OCR bounding boxes."""
+
+    def __init__(self) -> None:
+        self._is_available: bool | None = None
+
+    def is_available(self) -> bool:
+        if self._is_available is None:
+            import shutil
+            self._is_available = shutil.which("tesseract") is not None
+        return self._is_available
+
+    def recognize_crop(self, crop_image: Any) -> tuple[str, float] | None:
+        """Run Tesseract 5 on cropped sub-image and return (text, confidence)."""
+        if not self.is_available():
+            return None
+        import subprocess
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_f:
+                tmp_path = Path(tmp_f.name)
+            crop_image.save(tmp_path)
+
+            res = subprocess.run(
+                ["tesseract", str(tmp_path), "stdout", "--psm", "6"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            tmp_path.unlink(missing_ok=True)
+            if res.returncode == 0 and res.stdout:
+                text = unicodedata.normalize("NFC", res.stdout.strip())
+                if text:
+                    return text, 0.85
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
+
 class RapidOCREngine:
     """Instance-owned RapidOCR + PP-OCRv5 + OpenVINO engine adapter."""
 
-    def __init__(self, data_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        data_root: Path | None = None,
+        tesseract_adapter: TesseractFallbackAdapter | None = None,
+    ) -> None:
         self._data_root: Path = data_root.resolve() if data_root is not None else _CANONICAL_DATA_ROOT
         self._engine: Any = None
+        self._tesseract: TesseractFallbackAdapter = tesseract_adapter or TesseractFallbackAdapter()
 
     def _get_engine(self) -> Any:
         """Lazily initialize the underlying RapidOCR engine instance after verifying assets against manifest.json."""
@@ -337,81 +381,62 @@ class RapidOCREngine:
             )
 
         # Advanced profile processing
-        page_tables: list[TableData] = []
+        fallback_applied = False
 
         if profile == ExecutionProfile.ACCURATE and spans:
-            # Accurate mode: targeted re-recognition on weak/low-confidence spans (< 0.65)
-            try:
-                from PIL import ImageEnhance
-                for idx, span in enumerate(spans):
-                    if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
-                        min_x, min_y, max_x, max_y = span.bounding_box
-                        w, h = image.size if hasattr(image, "size") else (int(max_x), int(max_y))
-                        box_crop = (max(0, int(min_x) - 2), max(0, int(min_y) - 2), min(w, int(max_x) + 2), min(h, int(max_y) + 2))
-                        if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(image, "crop"):
-                            cropped = image.crop(box_crop)
-                            enhanced = ImageEnhance.Contrast(cropped).enhance(1.8)
-                            enhanced = ImageEnhance.Sharpness(enhanced).enhance(2.0)
-                            sub_out = engine(np.array(enhanced))
-                            if sub_out and sub_out.txts and sub_out.scores and sub_out.scores[0] is not None:
-                                try:
-                                    sub_score = float(sub_out.scores[0])
-                                    if sub_score > span.confidence:
-                                        new_text = unicodedata.normalize("NFC", str(sub_out.txts[0]).strip())
-                                        spans[idx] = TextSpan(
-                                            text=new_text,
-                                            confidence=sub_score,
-                                            bounding_box=span.bounding_box,
-                                        )
-                                        if idx < len(lines):
-                                            lines[idx] = new_text
-                                except (ValueError, TypeError):
-                                    pass
-            except Exception:
-                pass
+            # Accurate mode: targeted Tesseract 5 fallback only for weak spans (< 0.65)
+            for idx, span in enumerate(spans):
+                if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
+                    min_x, min_y, max_x, max_y = span.bounding_box
+                    w, h = image.size if hasattr(image, "size") else (int(max_x), int(max_y))
+                    box_crop = (max(0, int(min_x) - 2), max(0, int(min_y) - 2), min(w, int(max_x) + 2), min(h, int(max_y) + 2))
 
-        elif profile == ExecutionProfile.LAYOUT_PRESERVING and len(spans) >= 2:
-            # Layout Preserving mode: spatial clustering and table extraction
-            try:
-                spans_with_box = [s for s in spans if s.bounding_box]
-                if spans_with_box:
-                    sorted_spans = sorted(spans_with_box, key=lambda s: (round(s.bounding_box[1] / 12.0), s.bounding_box[0]))
-                    row_bands: dict[int, list[TextSpan]] = {}
-                    for s in sorted_spans:
-                        band_key = round(s.bounding_box[1] / 12.0)
-                        row_bands.setdefault(band_key, []).append(s)
-
-                    rows_list: list[tuple[str, ...]] = []
-                    for b_k in sorted(row_bands.keys()):
-                        r_spans = sorted(row_bands[b_k], key=lambda s: s.bounding_box[0])
-                        rows_list.append(tuple(s.text for s in r_spans))
-
-                    if len(rows_list) >= 2 and any(len(r) > 1 for r in rows_list):
-                        headers = rows_list[0]
-                        data_rows = tuple(rows_list[1:])
-                        page_tables.append(TableData(
-                            name=f"Table_P{page_number}",
-                            headers=headers,
-                            rows=data_rows,
-                        ))
-            except Exception:
-                pass
+                    if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(image, "crop"):
+                        cropped = image.crop(box_crop)
+                        tess_res = self._tesseract.recognize_crop(cropped)
+                        if tess_res is not None:
+                            tess_text, tess_conf = tess_res
+                            if tess_conf > span.confidence:
+                                spans[idx] = TextSpan(
+                                    text=tess_text,
+                                    confidence=tess_conf,
+                                    bounding_box=span.bounding_box,
+                                )
+                                if idx < len(lines):
+                                    lines[idx] = tess_text
+                                fallback_applied = True
+                        elif not self._tesseract.is_available():
+                            warnings.append(
+                                WarningRecord(
+                                    code="OCR_FALLBACK_UNAVAILABLE",
+                                    message="Tesseract 5 fallback engine is not available on this host.",
+                                    stage=_STAGE_NAME,
+                                )
+                            )
 
         elif profile == ExecutionProfile.CUSTOM:
             if custom_options and custom_options.get("binarize") and hasattr(image, "convert"):
-                try:
-                    gray = image.convert("L")
-                    threshold_img = gray.point(lambda p: 255 if p > 128 else 0)
-                    cust_out = engine(np.array(threshold_img))
-                    if cust_out and cust_out.txts:
-                        lines = [unicodedata.normalize("NFC", str(t).strip()) for t in cust_out.txts if t]
-                except Exception:
-                    pass
+                gray = image.convert("L")
+                threshold_img = gray.point(lambda p: 255 if p > 128 else 0)
+                cust_out = engine(np.array(threshold_img))
+                if cust_out and cust_out.txts:
+                    lines = [unicodedata.normalize("NFC", str(t).strip()) for t in cust_out.txts if str(t).strip()]
 
         final_page_text = "\n".join(lines) if lines else page_text
         metadata: dict[str, Any] = {"profile": profile.value}
         if page_confidence is not None:
             metadata["confidence"] = page_confidence.score
+
+        evidence_dict: dict[str, Any] = {
+            "engine": "rapidocr",
+            "backend": "openvino",
+            "model": "PP-OCRv5",
+            "profile": profile.value,
+            "box_count": len(spans),
+        }
+        if fallback_applied:
+            evidence_dict["fallback_engine"] = "tesseract5"
+            evidence_dict["fallback_applied"] = True
 
         provenance = ProvenanceRecord(
             source_input_id=input_id,
@@ -419,20 +444,14 @@ class RapidOCREngine:
             plugin_id=_PLUGIN_ID,
             capability_id=_CAPABILITY_ID,
             page_number=page_number,
-            evidence={
-                "engine": "rapidocr",
-                "backend": "openvino",
-                "model": "PP-OCRv5",
-                "profile": profile.value,
-                "box_count": len(spans),
-            },
+            evidence=evidence_dict,
         )
 
         page_data = PageData(
             page_number=page_number,
             text=final_page_text,
             spans=tuple(spans),
-            tables=tuple(page_tables),
+            tables=(),
             metadata=metadata,
         )
 
