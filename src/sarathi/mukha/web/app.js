@@ -69,6 +69,7 @@
         summaryStatusBadge: document.getElementById("summary-status-badge"),
         summaryTitle: document.getElementById("summary-title"),
         summaryRunMeta: document.getElementById("summary-run-meta"),
+        summaryFailureReason: document.getElementById("summary-failure-reason"),
         btnOpenOutputFolder: document.getElementById("btn-open-output-folder"),
         btnReturnHome: document.getElementById("btn-return-home"),
         statTotalFiles: document.getElementById("stat-total-files"),
@@ -454,6 +455,16 @@
             elements.summaryStatusBadge.textContent = summary.status;
             elements.summaryTitle.textContent = `Run Completed (${summary.status})`;
             elements.summaryRunMeta.textContent = `Run ID: ${summary.run_id} | Total Time: ${formatDuration(summary.wall_time_ns)}`;
+
+            if (elements.summaryFailureReason) {
+                if (summary.failures && summary.failures.length > 0) {
+                    elements.summaryFailureReason.classList.remove("hidden");
+                    elements.summaryFailureReason.textContent = summary.failures.join(" | ");
+                } else {
+                    elements.summaryFailureReason.classList.add("hidden");
+                    elements.summaryFailureReason.textContent = "";
+                }
+            }
 
             elements.summaryHero.className = `summary-hero status-${summary.status.toLowerCase()}`;
             elements.statTotalFiles.textContent = summary.total_inputs;
