@@ -29,7 +29,7 @@ from sarathi.nabhi.quarantine import (
     RetryPolicy,
 )
 from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
-from sarathi.smriti import SmritiCache, compute_cache_key
+from sarathi.smriti import SmritiCache, compute_cache_key, compute_input_fingerprint
 from sarathi.yantra import Yantra
 
 if TYPE_CHECKING:
@@ -125,16 +125,12 @@ class Pravaha:
     def _compute_input_hash(self, request: Request, capability: Capability, context: ExecutionContext) -> str:
         """Compute a deterministic, privacy-safe hash identifying the canonical execution attempt.
 
-        Uses stable factual input identity available in InputRef (input_id, display_name,
-        size_bytes, media_type) in deterministic input order without persisting raw filesystem paths.
+        Reuses the canonical input fingerprint from Smriti combined with execution scope.
         """
-        input_material = "|".join(
-            f"{inp.input_id}:{inp.display_name}:{inp.size_bytes}:{inp.media_type or ''}"
-            for inp in request.inputs
-        )
+        fingerprint = compute_input_fingerprint(request.inputs)
         content = (
             f"{context.run_id}:{request.request_id}:{capability.declaration.capability_id}:"
-            f"{context.profile.value}:{input_material}"
+            f"{context.profile.value}:{fingerprint}"
         )
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -247,6 +243,20 @@ class Pravaha:
         # Enforce security authorization before any retry mutation or Yantra allocation
         self._authorize_capability(cap)
 
+        # Check cancellation before retry execution; cancellation bypasses retry
+        if request.cancellation_token is not None and request.cancellation_token.is_cancelled:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Execution was cancelled before retry attempt.",
+                context={"cancelled": True},
+            )
+        if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Execution was cancelled before retry attempt.",
+                context={"cancelled": True},
+            )
+
         new_attempt = record.attempt_count + 1
 
         # Mark attempt as actively being retried in store with measured lifecycle time_scope
@@ -272,6 +282,7 @@ class Pravaha:
             profile=context.profile,
             quarantine_attempt=new_attempt,
             is_retry=True,
+            cancellation_token=context.cancellation_token or request.cancellation_token,
             metadata=context.metadata,
         )
 

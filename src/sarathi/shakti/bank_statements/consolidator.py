@@ -26,14 +26,22 @@ from sarathi.shakti.bank_statements.models import (
 
 
 def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatementConsolidationResult:
-    """Consolidate multiple statements into a unified consolidation result."""
+    """Consolidate multiple statements into a unified consolidation result in stable chronological order."""
+    import datetime
+
+    def _earliest_tx_date(stmt: BankStatement) -> datetime.date:
+        dates = [tx.transaction_date for tx in stmt.transactions if tx.transaction_date is not None]
+        return min(dates) if dates else datetime.date.min
+
+    sorted_statements = sorted(statements, key=_earliest_tx_date)
+
     total_debits = Decimal("0")
     total_credits = Decimal("0")
     total_txns = 0
     overall_status = ValidationStatus.VALID
     all_issues = []
 
-    for stmt in statements:
+    for stmt in sorted_statements:
         if stmt.status == ValidationStatus.INVALID:
             overall_status = ValidationStatus.INVALID
         elif stmt.status == ValidationStatus.WARNING and overall_status == ValidationStatus.VALID:
@@ -48,7 +56,7 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                 total_credits += tx.credit
 
     return BankStatementConsolidationResult(
-        statements=tuple(statements),
+        statements=tuple(sorted_statements),
         total_transactions=total_txns,
         total_debit=total_debits,
         total_credit=total_credits,

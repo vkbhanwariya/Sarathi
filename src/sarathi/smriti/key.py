@@ -24,12 +24,21 @@ class CacheKey:
 
 
 def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
-    """Compute a stable, privacy-safe hash from factual input metadata without filesystem paths."""
-    material = "|".join(
-        f"{inp.input_id}:{inp.display_name}:{inp.size_bytes}:{inp.media_type or ''}"
-        for inp in inputs
-    )
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+    """Compute a stable, privacy-safe SHA-256 fingerprint from factual input content streamed in request order."""
+    hasher = hashlib.sha256()
+    for inp in inputs:
+        # Stream raw content bytes when source file exists
+        if inp.source_path and inp.source_path.is_file():
+            try:
+                with open(inp.source_path, "rb") as f:
+                    while chunk := f.read(65536):
+                        hasher.update(chunk)
+                continue
+            except (OSError, PermissionError):
+                pass
+        # Metadata fallback for virtual/mocked inputs
+        hasher.update(f"{inp.input_id}:{inp.display_name}:{inp.size_bytes}:{inp.media_type or ''}".encode("utf-8"))
+    return hasher.hexdigest()
 
 
 def compute_prior_result_digest(prior_result: Result | None) -> str:

@@ -1,10 +1,10 @@
-"""Bank Statement Consolidation Capability for Sarathi V2."""
+"""Bank Statement Consolidation Executable Capability for Sarathi V2."""
 
 from __future__ import annotations
 
-import io
 from contextlib import nullcontext
 from decimal import Decimal
+import io
 from pathlib import Path
 from typing import Sequence
 
@@ -19,6 +19,7 @@ from sarathi.sankalpa import (
     TableData,
     WarningRecord,
 )
+from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 from sarathi.shakti.bank_statements.consolidator import (
     build_parquet_artifact,
     build_xlsx_artifact,
@@ -31,22 +32,22 @@ from sarathi.shakti.bank_statements.models import (
     AccountIdentity,
     BankStatement,
     Transaction,
+    ValidationIssue,
+    ValidationStatus,
 )
 from sarathi.shakti.bank_statements.normalizer import parse_date, parse_decimal_amount
 from sarathi.shakti.bank_statements.plugin import CAPABILITY_DECLARATION
-from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
-from sarathi.shakti.bank_statements.table_locator import TableType, classify_table, find_header_row_index
+from sarathi.shakti.bank_statements.table_locator import (
+    TableType,
+    classify_table,
+    get_table_header_and_data_rows,
+)
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
 
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
 
-_EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "withdrawals"})
-_EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "deposits"})
-
-
-def _get_cell(row: Sequence[str], idx: int | None) -> str | None:
-    """Safe cell getter from row sequence."""
-    return row[idx].strip() if idx is not None and idx < len(row) else None
+_EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "w/d", "out", "paid out"})
+_EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "dep", "in", "paid in"})
 
 
 class BankStatementCapability:
@@ -65,59 +66,87 @@ class BankStatementCapability:
         context: ExecutionContext,
         prior_result: Result | None = None,
     ) -> Result:
-        """Execute bank statement parsing and consolidation on the extracted document."""
-        if prior_result is None or not isinstance(prior_result.data, CanonicalDocument):
+        """Execute bank statement parsing and consolidation on the extracted documents."""
+        if prior_result is None or prior_result.data is None:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message="BankStatementCapability requires a prior Result containing a CanonicalDocument.",
+                message="BankStatementCapability requires a prior Result containing a CanonicalDocument or tuple of documents.",
             )
 
-        doc: CanonicalDocument = prior_result.data
-        base_prov: tuple[ProvenanceRecord, ...] = prior_result.provenance
-
-        if not doc.text.strip() and not any(p.tables for p in doc.pages) and doc.pages:
-            return Result(data=doc, next_requirement="ocr", resume_self=True)
-
-        det_scope = (
-            self._darpana.time_scope(context=context, phase_name="bank_detection", component="shakti.bank_statements")
-            if self._darpana else nullcontext()
-        )
-        with det_scope:
-            detection = detect_bank_statement(doc, banks_dir=self._banks_dir)
-
-        if not detection.is_bank_statement:
+        docs: list[CanonicalDocument]
+        if isinstance(prior_result.data, CanonicalDocument):
+            docs = [prior_result.data]
+        elif isinstance(prior_result.data, (tuple, list)) and all(isinstance(d, CanonicalDocument) for d in prior_result.data):
+            docs = list(prior_result.data)
+        else:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message="Document is not identified as a supported bank statement.",
+                message="BankStatementCapability requires a prior Result containing a CanonicalDocument or tuple of documents.",
             )
 
-        raw_txns, open_bal, close_bal = self._extract_table_data(
-            doc,
-            request,
-            detection.matched_profile,
-            detection.bank_name or "Unknown Bank",
-            detection.account_identity,
-        )
-
-        dedup_res = deduplicate_transactions(raw_txns)
-        statement = validate_statement_balances(
-            BankStatement(
-                bank_name=detection.bank_name or "Unknown Bank",
-                bank_profile=detection.matched_profile or "generic",
-                account_identity=detection.account_identity,
-                opening_balance=open_bal,
-                closing_balance=close_bal,
-                transactions=dedup_res.unique_transactions,
-                provenance=base_prov,
+        if not docs:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="No CanonicalDocument provided to BankStatementCapability.",
             )
+
+        # If all documents have no text/tables but have pages, handoff to OCR
+        if all(not d.text.strip() and not any(p.tables for p in d.pages) and not d.tables and d.pages for d in docs):
+            return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
+
+        statements: list[BankStatement] = []
+        all_warnings: list[WarningRecord] = []
+        all_provs: list[ProvenanceRecord] = list(prior_result.provenance)
+
+        for doc in docs:
+            det_scope = (
+                self._darpana.time_scope(context=context, phase_name="bank_detection", component="shakti.bank_statements")
+                if self._darpana else nullcontext()
+            )
+            with det_scope:
+                detection = detect_bank_statement(doc, banks_dir=self._banks_dir)
+
+            if not detection.is_bank_statement:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message="Document is not identified as a supported bank statement.",
+                )
+
+            raw_txns, open_bal, close_bal, doc_issues = self._extract_table_data(
+                doc,
+                request,
+                detection.matched_profile,
+                detection.bank_name or "Unknown Bank",
+                detection.account_identity,
+            )
+
+            dedup_res = deduplicate_transactions(raw_txns)
+            doc_prov = tuple(p for p in prior_result.provenance if p.source_input_id == doc.source_input_id) or prior_result.provenance
+
+            statement = validate_statement_balances(
+                BankStatement(
+                    bank_name=detection.bank_name or "Unknown Bank",
+                    bank_profile=detection.matched_profile or "generic",
+                    account_identity=detection.account_identity,
+                    opening_balance=open_bal,
+                    closing_balance=close_bal,
+                    transactions=dedup_res.unique_transactions,
+                    issues=tuple(doc_issues),
+                    provenance=doc_prov,
+                )
+            )
+            statements.append(statement)
+
+        consolidation = consolidate_statements(statements)
+        all_warnings.extend(
+            WarningRecord(code=i.code, message=i.message, stage="validation") for i in consolidation.issues
         )
 
-        consolidation = consolidate_statements([statement])
         return Result(
             data=consolidation,
             artifact_payloads=(build_parquet_artifact(consolidation), build_xlsx_artifact(consolidation)),
-            provenance=base_prov,
-            warnings=tuple(WarningRecord(code=i.code, message=i.message, stage="validation") for i in consolidation.issues),
+            provenance=tuple(all_provs),
+            warnings=tuple(all_warnings),
         )
 
     def _extract_table_data(
@@ -127,7 +156,7 @@ class BankStatementCapability:
         profile_id: str | None,
         bank_name: str,
         account_identity: AccountIdentity | None,
-    ) -> tuple[list[Transaction], Decimal | None, Decimal | None]:
+    ) -> tuple[list[Transaction], Decimal | None, Decimal | None, list[ValidationIssue]]:
         all_tables: list[tuple[int, TableData]] = [(p_idx + 1, t) for p_idx, p in enumerate(doc.pages) for t in p.tables]
         all_tables.extend((1, t) for t in doc.tables if not any(t == e[1] for e in all_tables))
 
@@ -139,12 +168,13 @@ class BankStatementCapability:
                 for r_idx, r in enumerate(rows):
                     r_str = " ".join(str(c).lower() for c in r)
                     if ("date" in r_str or "txn" in r_str) and any(k in r_str for k in ("debit", "credit", "balance", "amount")):
-                        all_tables.append((1, TableData(name="text_table", headers=tuple(rows[r_idx]), rows=tuple(tuple(x) for x in rows[r_idx:]))))
+                        all_tables.append((1, TableData(name="text_table", headers=tuple(rows[r_idx]), rows=tuple(tuple(x) for x in rows[r_idx + 1:]))))
                         break
             except (csv.Error, ValueError):
                 pass
 
         raw_txns: list[Transaction] = []
+        issues: list[ValidationIssue] = []
         open_bal: Decimal | None = None
         close_bal: Decimal | None = None
 
@@ -152,17 +182,22 @@ class BankStatementCapability:
         has_signed_semantics = bool(active_profile.get("signed_amounts", False))
 
         for page_num, table in all_tables:
-            if not table.rows:
+            if not table.rows and not table.headers:
                 continue
 
             if classify_table(table) != TableType.TRANSACTION_TABLE:
                 continue
 
-            hdr_idx = find_header_row_index(table)
-            if hdr_idx is None:
+            extracted_table = get_table_header_and_data_rows(table)
+            if extracted_table is None:
                 continue
 
-            mappings = {m.canonical_field: m.column_index for m in self._mapper.map_headers(table.rows[hdr_idx], profile_id=profile_id)}
+            hdr_cells, data_rows = extracted_table
+
+            mappings = {
+                m.canonical_field: m.column_index
+                for m in self._mapper.map_headers(hdr_cells, profile_id=profile_id)
+            }
             d_col, desc_col = mappings.get("date"), mappings.get("description")
             dr_col, cr_col = mappings.get("debit"), mappings.get("credit")
             amt_col, dir_col = mappings.get("amount"), mappings.get("direction")
@@ -172,7 +207,7 @@ class BankStatementCapability:
             if d_col is None or not (any(c is not None for c in (dr_col, cr_col, b_col)) or amt_col is not None):
                 continue
 
-            for row_idx, row in enumerate(table.rows[hdr_idx + 1:], start=hdr_idx + 1):
+            for row_idx, row in enumerate(data_rows, start=1):
                 row_cells = [str(c) for c in row]
                 match classify_row(row_cells, date_col_idx=d_col):
                     case RowType.OPENING_BALANCE:
@@ -233,12 +268,24 @@ class BankStatementCapability:
                                     tx_debit = None
                                     tx_credit = None
 
+                            tx_status = ValidationStatus.VALID
+                            tx_issues: list[ValidationIssue] = []
+                            if tx_debit is None and tx_credit is None:
+                                tx_status = ValidationStatus.WARNING
+                                tx_iss = ValidationIssue(
+                                    code="MISSING_AMOUNT",
+                                    message=f"Row {row_idx}: Transaction amount direction could not be determined.",
+                                    context={"row_index": row_idx},
+                                )
+                                tx_issues.append(tx_iss)
+                                issues.append(tx_iss)
+
                             prov = ProvenanceRecord(
-                                source_input_id=req.inputs[0].input_id if req.inputs else None,
+                                source_input_id=doc.source_input_id,
                                 capability_id="bank_statements",
                                 stage="bank_extraction",
                                 page_number=page_num,
-                                evidence={"row_index": row_idx + 1},
+                                evidence={"row_index": row_idx},
                             )
                             raw_txns.append(
                                 Transaction(
@@ -251,8 +298,18 @@ class BankStatementCapability:
                                     credit=tx_credit,
                                     running_balance=tx_bal,
                                     account_identity=account_identity,
+                                    status=tx_status,
+                                    issues=tuple(tx_issues),
                                     provenance=(prov,),
                                 )
                             )
 
-        return raw_txns, open_bal, close_bal
+        return raw_txns, open_bal, close_bal, issues
+
+
+def _get_cell(cells: Sequence[str], idx: int | None) -> str | None:
+    """Safely get a cell value by index, returning None if out of range or empty."""
+    if idx is None or idx < 0 or idx >= len(cells):
+        return None
+    val = cells[idx].strip()
+    return val if val else None

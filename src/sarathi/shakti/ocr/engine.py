@@ -351,6 +351,7 @@ class RapidOCREngine:
         lines: list[str] = []
         conf_scores: list[float] = []
         warnings: list[WarningRecord] = []
+        has_invalid_confidence = False
 
         if output and output.txts:
             for text_val, box_val, score_val in zip(
@@ -369,6 +370,7 @@ class RapidOCREngine:
                                 conf = score_float
                                 conf_scores.append(conf)
                             else:
+                                has_invalid_confidence = True
                                 warnings.append(
                                     WarningRecord(
                                         code="OCR_INVALID_CONFIDENCE",
@@ -377,6 +379,7 @@ class RapidOCREngine:
                                     )
                                 )
                         except (TypeError, ValueError):
+                            has_invalid_confidence = True
                             warnings.append(
                                 WarningRecord(
                                     code="OCR_INVALID_CONFIDENCE",
@@ -384,6 +387,15 @@ class RapidOCREngine:
                                     stage=_STAGE_NAME,
                                 )
                             )
+                    else:
+                        has_invalid_confidence = True
+                        warnings.append(
+                            WarningRecord(
+                                code="OCR_INVALID_CONFIDENCE",
+                                message="Engine returned missing confidence value.",
+                                stage=_STAGE_NAME,
+                            )
+                        )
 
                     bounding_box: tuple[float, float, float, float] | None = None
                     if box_val is not None:
@@ -439,7 +451,7 @@ class RapidOCREngine:
             )
 
         page_confidence: ConfidenceValue | None = None
-        if conf_scores:
+        if conf_scores and not has_invalid_confidence and len(conf_scores) == len(spans):
             avg_score = sum(conf_scores) / len(conf_scores)
             page_confidence = ConfidenceValue(
                 score=round(float(avg_score), 4),
