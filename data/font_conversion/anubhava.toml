@@ -1,0 +1,18 @@
+# Roopa Font Conversion - Approved Corrections Store
+# Every entry is revalidated before activation.
+
+[metadata]
+version = "1.0.0"
+updated_at_utc = "2026-09-02T00:00:00Z"
+
+[[corrections]]
+profile_id = "krutidev010"
+source = "LVsV cSad"
+target = "स्टेट बैंक"
+verified = true
+
+[[corrections]]
+profile_id = "krutidev010"
+source = "Hkkjr"
+target = "भारत"
+verified = true

@@ -29,6 +29,10 @@ from sarathi.shakti.bank_statements.plugin import (
     CAPABILITY_DECLARATION as BANK_STATEMENTS_CAPABILITY,
     PLUGIN_INFO as BANK_STATEMENTS_PLUGIN,
 )
+from sarathi.shakti.font_conversion.plugin import (
+    CAPABILITY_DECLARATION as FONT_CONVERSION_CAPABILITY,
+    PLUGIN_INFO as FONT_CONVERSION_PLUGIN,
+)
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
@@ -107,6 +111,7 @@ class Dvara:
             (NATIVE_PLUGIN, (NATIVE_CAPABILITY,)),
             (OCR_PLUGIN, (OCR_CAPABILITY,)),
             (BANK_STATEMENTS_PLUGIN, (BANK_STATEMENTS_CAPABILITY,)),
+            (FONT_CONVERSION_PLUGIN, (FONT_CONVERSION_CAPABILITY,)),
         ]
 
         # 1. Preflight all built-ins against existing Kosh state
