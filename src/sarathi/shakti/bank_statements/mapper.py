@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 import yaml
 
+from sarathi.dosh import DoshError, FailureCode
+
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
 CANONICAL_FIELDS = (
     "date", "description", "reference_number", "cheque_number",
@@ -50,13 +52,23 @@ class HeaderMapper:
 
     @staticmethod
     def _load_yaml(path: Path) -> dict[str, Any]:
-        if path.exists():
-            try:
-                data = yaml.safe_load(path.read_text(encoding="utf-8"))
-                return data if isinstance(data, dict) else {}
-            except Exception:
-                pass
-        return {}
+        if not path.exists():
+            return {}
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Failed to parse bank profile YAML: {path.name}",
+            ) from exc
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Bank profile YAML root must be a mapping: {path.name}",
+            )
+        return data
 
     def map_headers(
         self,

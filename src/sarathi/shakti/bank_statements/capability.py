@@ -35,7 +35,7 @@ from sarathi.shakti.bank_statements.models import (
 from sarathi.shakti.bank_statements.normalizer import parse_date, parse_decimal_amount
 from sarathi.shakti.bank_statements.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
-from sarathi.shakti.bank_statements.table_locator import find_header_row_index
+from sarathi.shakti.bank_statements.table_locator import TableType, classify_table, find_header_row_index
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
 
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
@@ -141,7 +141,7 @@ class BankStatementCapability:
                     if ("date" in r_str or "txn" in r_str) and any(k in r_str for k in ("debit", "credit", "balance", "amount")):
                         all_tables.append((1, TableData(name="text_table", headers=tuple(rows[r_idx]), rows=tuple(tuple(x) for x in rows[r_idx:]))))
                         break
-            except Exception:
+            except (csv.Error, ValueError):
                 pass
 
         raw_txns: list[Transaction] = []
@@ -153,6 +153,9 @@ class BankStatementCapability:
 
         for page_num, table in all_tables:
             if not table.rows:
+                continue
+
+            if classify_table(table) != TableType.TRANSACTION_TABLE:
                 continue
 
             hdr_idx = find_header_row_index(table)

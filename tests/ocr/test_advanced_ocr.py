@@ -4,6 +4,20 @@ import importlib.util
 from pathlib import Path
 from typing import Any
 import pytest
+
+_OCR_AVAILABLE = bool(
+    importlib.util.find_spec("rapidocr")
+    and importlib.util.find_spec("openvino")
+    and importlib.util.find_spec("PIL")
+    and importlib.util.find_spec("numpy")
+)
+
+if not _OCR_AVAILABLE:
+    pytest.skip(
+        "Advanced OCR tests require optional OCR dependencies (rapidocr, openvino, PIL, numpy).",
+        allow_module_level=True,
+    )
+
 from PIL import Image, ImageDraw, ImageFont
 
 from sarathi.dosh import DoshError, FailureCode
@@ -19,18 +33,6 @@ from sarathi.sankalpa import (
 from sarathi.shakti.ocr import OCRCapability
 from sarathi.shakti.ocr.engine import RapidOCREngine, TesseractFallbackAdapter
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION, PLUGIN_INFO
-
-_OCR_AVAILABLE = bool(
-    importlib.util.find_spec("rapidocr")
-    and importlib.util.find_spec("openvino")
-    and importlib.util.find_spec("PIL")
-    and importlib.util.find_spec("numpy")
-)
-
-pytestmark = pytest.mark.skipif(
-    not _OCR_AVAILABLE,
-    reason="Advanced OCR tests require optional OCR dependencies (rapidocr, openvino, PIL, numpy).",
-)
 
 
 class MockTesseractAdapter(TesseractFallbackAdapter):
@@ -127,6 +129,9 @@ def test_accurate_profile_measured_confidence_replaces_weaker_rapidocr_span() ->
     assert page_data.text == "TESSERACT_HIGH_CONF"
     assert prov.evidence.get("fallback_applied") is True
     assert adapter.call_count == 1
+    # Altered page must NOT retain rapidocr_mean confidence
+    assert conf is None
+    assert page_data.metadata.get("confidence") is None
 
 
 def test_accurate_profile_preserves_span_when_fallback_confidence_is_none() -> None:
@@ -228,7 +233,7 @@ def test_accurate_profile_propagates_unexpected_defect() -> None:
 
 def test_tesseract_adapter_parses_tsv_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
     """Proves TesseractFallbackAdapter parses TSV word confidences factually without fabrication."""
-    adapter = TesseractFallbackAdapter()
+    adapter = TesseractFallbackAdapter(executable_path="mock_tesseract.exe")
     monkeypatch.setattr(adapter, "is_available", lambda: True)
 
     tsv_output = (
@@ -253,7 +258,7 @@ def test_tesseract_adapter_parses_tsv_confidence(monkeypatch: pytest.MonkeyPatch
 
 def test_tesseract_adapter_plain_text_has_none_confidence(monkeypatch: pytest.MonkeyPatch) -> None:
     """Proves plain text output without TSV confidence returns confidence=None without fabrication."""
-    adapter = TesseractFallbackAdapter()
+    adapter = TesseractFallbackAdapter(executable_path="mock_tesseract.exe")
     monkeypatch.setattr(adapter, "is_available", lambda: True)
 
     class MockSubprocessResult:
@@ -272,7 +277,7 @@ def test_tesseract_adapter_plain_text_has_none_confidence(monkeypatch: pytest.Mo
 def test_tesseract_adapter_handles_subprocess_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Proves subprocess error raises DoshError(EXECUTION_FAILED)."""
     import subprocess
-    adapter = TesseractFallbackAdapter()
+    adapter = TesseractFallbackAdapter(executable_path="mock_tesseract.exe")
     monkeypatch.setattr(adapter, "is_available", lambda: True)
 
     def mock_run_fail(*args, **kwargs):
@@ -397,3 +402,90 @@ def test_accurate_profile_offline_target_platform_e2e(tmp_path: Path) -> None:
         # Ensure no synthetic hardcoded 0.85 default
         if span.confidence is not None:
             assert isinstance(span.confidence, float)
+
+
+def test_accurate_fallback_removes_stale_rapidocr_mean_run_confidence(tmp_path: Path) -> None:
+    """Proves when Tesseract fallback alters a page, run-level rapidocr_mean aggregate is omitted."""
+    img_path = tmp_path / "altered_doc.png"
+    _create_clean_image(img_path)
+
+    adapter = MockTesseractAdapter(available=True, result=("FALLBACK_TEXT", 0.95))
+    engine = RapidOCREngine(tesseract_adapter=adapter)
+    # Inject output where RapidOCR returns low score so fallback triggers
+    engine._engine = lambda _arr: DummyRapidOCROutput(
+        txts=["WEAK_PRIMARY"],
+        boxes=[[(10, 10), (100, 10), (100, 30), (10, 30)]],
+        scores=[0.50],
+    )
+
+    cap = OCRCapability(engine=engine)
+    ctx = ExecutionContext("run-alt-1", "req-alt-1", "t-alt", "s-alt")
+    inp = InputRef("inp-alt-1", img_path, "altered_doc.png", img_path.stat().st_size)
+    req = Request("req-alt-1", "ocr", inputs=(inp,), profile=ExecutionProfile.ACCURATE)
+
+    res = cap.execute(req, ctx)
+
+    # Result confidence must be None because altered page cannot claim rapidocr_mean
+    assert res.confidence is None
+    assert res.metadata["ocr_coverage"]["total_pages"] == 1
+    assert res.metadata["ocr_coverage"]["unaltered_rapidocr_pages"] == 0
+
+
+def test_tesseract_adapter_real_subprocess_execution_with_tsv_parsing(tmp_path: Path) -> None:
+    """Proves TesseractFallbackAdapter executes a real subprocess and correctly parses TSV output."""
+    import sys
+
+    # Create a real Python script executable shim that outputs standard Tesseract TSV
+    shim_script = tmp_path / "tesseract_shim.py"
+    tsv_content = (
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+        "5\t1\t1\t1\t1\t1\t10\t10\t50\t20\t88.0\tHELLO\n"
+        "5\t1\t1\t1\t1\t2\t65\t10\t60\t20\t92.0\tWORLD\n"
+    )
+    shim_script.write_text(
+        f'import sys\nsys.stdout.write({repr(tsv_content)})\nsys.exit(0)\n',
+        encoding="utf-8",
+    )
+
+    # Create batch file on Windows to be executable
+    shim_bat = tmp_path / "tesseract.bat"
+    shim_bat.write_text(f'@"{sys.executable}" "{shim_script}" %*\n', encoding="utf-8")
+
+    adapter = TesseractFallbackAdapter(executable_path=shim_bat)
+    assert adapter.is_available() is True
+
+    test_img = Image.new("RGB", (100, 40), color="white")
+    text, conf = adapter.recognize_crop(test_img)
+
+    assert text == "HELLO WORLD"
+    assert conf == 0.90  # (0.88 + 0.92) / 2 = 0.90 exactly
+
+
+def test_tesseract_adapter_tsv_invalid_confidence_adversarial(tmp_path: Path) -> None:
+    """Proves invalid, negative, NaN, inf, or out-of-bounds TSV confidence values are not clamped."""
+    import sys
+
+    shim_script = tmp_path / "tesseract_bad_conf.py"
+    # Word 1 has negative conf (-1), Word 2 has >100 (150), Word 3 has NaN, Word 4 has valid (80)
+    tsv_content = (
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+        "5\t1\t1\t1\t1\t1\t10\t10\t50\t20\t-1\tWORD1\n"
+        "5\t1\t1\t1\t1\t2\t65\t10\t60\t20\t150\tWORD2\n"
+        "5\t1\t1\t1\t1\t3\t130\t10\t60\t20\tnan\tWORD3\n"
+        "5\t1\t1\t1\t1\t4\t195\t10\t60\t20\t80.0\tWORD4\n"
+    )
+    shim_script.write_text(
+        f'import sys\nsys.stdout.write({repr(tsv_content)})\nsys.exit(0)\n',
+        encoding="utf-8",
+    )
+
+    shim_bat = tmp_path / "tesseract_bad.bat"
+    shim_bat.write_text(f'@"{sys.executable}" "{shim_script}" %*\n', encoding="utf-8")
+
+    adapter = TesseractFallbackAdapter(executable_path=shim_bat)
+    test_img = Image.new("RGB", (200, 40), color="white")
+    text, conf = adapter.recognize_crop(test_img)
+
+    assert text == "WORD1 WORD2 WORD3 WORD4"
+    # Only WORD4 has valid confidence (0.80)
+    assert conf == 0.80

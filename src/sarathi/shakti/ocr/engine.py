@@ -80,26 +80,37 @@ def extract_images_from_bytes(data: bytes) -> list[Any]:
 class TesseractFallbackAdapter:
     """Targeted Tesseract 5 fallback adapter for weak OCR bounding boxes."""
 
-    def __init__(self) -> None:
-        self._is_available: bool | None = None
+    def __init__(
+        self,
+        executable_path: Path | str | None = None,
+        tessdata_dir: Path | str | None = None,
+        language: str = "eng",
+        timeout_seconds: float = 10.0,
+    ) -> None:
+        if executable_path is not None:
+            self._executable_path: Path | None = Path(executable_path).resolve()
+        else:
+            default_win_path = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+            self._executable_path = default_win_path if default_win_path.exists() else None
+        self._tessdata_dir: Path | None = Path(tessdata_dir).resolve() if tessdata_dir is not None else None
+        self._language: str = language
+        self._timeout_seconds: float = timeout_seconds
 
     def is_available(self) -> bool:
-        if self._is_available is None:
-            import shutil
-            self._is_available = shutil.which("tesseract") is not None
-        return self._is_available
+        """Return True only when fixed configured executable path exists on disk."""
+        return self._executable_path is not None and self._executable_path.is_file()
 
     def recognize_crop(self, crop_image: Any) -> tuple[str, float | None]:
         """Run Tesseract 5 on cropped sub-image and return (text, confidence).
 
         Raises:
-            DoshError(DEPENDENCY_UNAVAILABLE): If Tesseract is not installed on the host.
+            DoshError(DEPENDENCY_UNAVAILABLE): If Tesseract is not configured or executable missing.
             DoshError(EXECUTION_FAILED): If subprocess execution fails, times out, or produces unusable output.
         """
-        if not self.is_available():
+        if not self.is_available() or self._executable_path is None:
             raise DoshError(
                 code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                message="Tesseract fallback engine is not installed.",
+                message="Tesseract fallback engine is not available at configured executable path.",
             )
         import subprocess
         import tempfile
@@ -107,13 +118,17 @@ class TesseractFallbackAdapter:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_f:
             tmp_path = Path(tmp_f.name)
 
+        cmd = [str(self._executable_path), str(tmp_path), "stdout", "--psm", "6", "-l", self._language, "tsv"]
+        if self._tessdata_dir is not None:
+            cmd.extend(["--tessdata-dir", str(self._tessdata_dir)])
+
         try:
             crop_image.save(tmp_path)
             res = subprocess.run(
-                ["tesseract", str(tmp_path), "stdout", "--psm", "6", "tsv"],
+                cmd,
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=self._timeout_seconds,
                 check=False,
             )
             if res.returncode != 0:
@@ -137,8 +152,9 @@ class TesseractFallbackAdapter:
                             words.append(word)
                             try:
                                 conf_num = float(conf_str)
-                                if conf_num >= 0.0:
-                                    conf_scores.append(min(1.0, max(0.0, conf_num / 100.0)))
+                                # Tesseract TSV confidence is valid only when finite and within raw 0..100; convert once to 0..1
+                                if not math.isnan(conf_num) and not math.isinf(conf_num) and 0.0 <= conf_num <= 100.0:
+                                    conf_scores.append(conf_num / 100.0)
                             except (ValueError, TypeError):
                                 pass
                 if not words:
@@ -147,7 +163,9 @@ class TesseractFallbackAdapter:
                         message="Tesseract fallback produced unusable output.",
                     )
                 text = unicodedata.normalize("NFC", " ".join(words))
-                measured_conf = (sum(conf_scores) / len(conf_scores)) if conf_scores else None
+                measured_conf = (sum(conf_scores) / len(conf_scores)) if (conf_scores and len(conf_scores) == len(words)) else (
+                    (sum(conf_scores) / len(conf_scores)) if conf_scores else None
+                )
                 return text, measured_conf
             else:
                 # Fallback for plain text output without TSV confidence
@@ -165,6 +183,7 @@ class TesseractFallbackAdapter:
             ) from None
         finally:
             tmp_path.unlink(missing_ok=True)
+
 
 class RapidOCREngine:
     """Instance-owned RapidOCR + PP-OCRv5 + OpenVINO engine adapter."""
@@ -482,6 +501,10 @@ class RapidOCREngine:
                 cust_out = engine(np.array(threshold_img))
                 if cust_out and cust_out.txts:
                     lines = [unicodedata.normalize("NFC", str(t).strip()) for t in cust_out.txts if str(t).strip()]
+
+        if fallback_applied:
+            # If Tesseract text replaces a RapidOCR span, do not retain page/run confidence labelled rapidocr_mean
+            page_confidence = None
 
         final_page_text = "\n".join(lines) if lines else page_text
         metadata: dict[str, Any] = {"profile": profile.value}

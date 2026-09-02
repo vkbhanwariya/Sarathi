@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 import re
 from typing import Mapping
+import yaml
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.translation.models import GlossaryEntry, TranslationDirection
 
 _CANONICAL_GLOSSARY_DIR = Path(__file__).resolve().parents[4] / "data" / "translation"
@@ -28,25 +30,34 @@ class GlossaryStore:
             return
 
         try:
-            content = yaml_file.read_text(encoding="utf-8")
-            # Parse YAML lines simply
-            current_entry: dict[str, str] = {}
-            for line in content.splitlines():
-                line = line.strip()
-                if line.startswith("- source:"):
-                    if "source" in current_entry and "target" in current_entry:
-                        self._add_entry(current_entry)
-                    current_entry = {"source": line.split(":", 1)[1].strip().strip('"').strip("'")}
-                elif line.startswith("target:"):
-                    current_entry["target"] = line.split(":", 1)[1].strip().strip('"').strip("'")
-                elif line.startswith("direction:"):
-                    current_entry["direction"] = line.split(":", 1)[1].strip().strip('"').strip("'")
-                elif line.startswith("domain:"):
-                    current_entry["domain"] = line.split(":", 1)[1].strip().strip('"').strip("'")
-            if "source" in current_entry and "target" in current_entry:
-                self._add_entry(current_entry)
-        except Exception:
-            pass
+            raw_data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Failed to parse translation glossary YAML: {yaml_file.name}",
+            ) from exc
+
+        if raw_data is None:
+            return
+
+        if isinstance(raw_data, dict):
+            entries = raw_data.get("entries", [])
+            if not isinstance(entries, list):
+                raise DoshError(
+                    code=FailureCode.INVALID_CONFIGURATION,
+                    message=f"Translation glossary 'entries' field must be a list: {yaml_file.name}",
+                )
+        elif isinstance(raw_data, list):
+            entries = raw_data
+        else:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Translation glossary YAML root must be a mapping or list: {yaml_file.name}",
+            )
+
+        for item in entries:
+            if isinstance(item, dict):
+                self._add_entry(item)
 
     def _add_entry(self, raw: dict[str, str]) -> None:
         src = raw.get("source", "").strip()

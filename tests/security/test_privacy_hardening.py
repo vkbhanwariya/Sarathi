@@ -267,7 +267,11 @@ def test_agni_failure_preserves_original_exception_when_cleanup_fails(tmp_path: 
         with pytest.raises(DoshError) as exc_info:
             agni.execute(req)
 
-    # Primary original error is 100% preserved
+    # Primary original error is 100% preserved without attaching raw cleanup exception
     assert exc_info.value is original_error
-    assert hasattr(exc_info.value, "__cleanup_cause__")
-    assert isinstance(exc_info.value.__cleanup_cause__, OSError)
+    assert not hasattr(exc_info.value, "__cleanup_cause__")
+
+    # Safe facts recorded through Darpana
+    cleanup_maruti = [m for m in darpana.maruti_records() if m.phase_name == "workspace.finalize_cleanup_failure"]
+    assert len(cleanup_maruti) == 1
+    assert cleanup_maruti[0].attributes.get("error_type") == "OSError"

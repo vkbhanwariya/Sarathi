@@ -7,6 +7,7 @@ import re
 import tomllib
 import unicodedata
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.font_conversion.detector import load_font_profiles
 from sarathi.shakti.font_conversion.models import LegacyFontProfile
 
@@ -23,8 +24,11 @@ def _load_anubhava_corrections(anubhava_path: Path | None = None) -> dict[str, d
         return {}
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"Failed to parse font conversion Anubhava TOML: {path.name}",
+        ) from exc
     corrections: dict[str, dict[str, str]] = {}
     for item in data.get("corrections", []):
         if isinstance(item, dict) and item.get("verified", False):
