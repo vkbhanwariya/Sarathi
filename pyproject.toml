@@ -26,6 +26,14 @@ ocr = [
     "pillow>=11.0.0",
     "rapidocr>=3.9.0",
 ]
+translation = [
+    "ctranslate2>=4.5.0",
+    "regex>=2024.11.6",
+    "sentencepiece>=0.2.0",
+]
+font_conversion = [
+    "regex>=2024.11.6",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13"]

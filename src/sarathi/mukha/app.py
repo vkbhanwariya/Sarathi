@@ -37,8 +37,10 @@ from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import (
     ApplicationViewState,
     InspectorViewState,
+    ReviewItemView,
     RunSummaryView,
     RunViewState,
+    StartupViewState,
 )
 from sarathi.sankalpa import ExecutionContext
 
@@ -58,8 +60,40 @@ def _filter_run_telemetry(
     return maruti, pramana
 
 
-def _fmt_count(val: int | None) -> str:
-    return str(val) if val is not None else "-"
+class AarambhaScreen(Screen):
+    """Screen 0 Overlay: Aarambha - Startup Progress."""
+
+    def __init__(self, state: StartupViewState) -> None:
+        super().__init__()
+        self.state: StartupViewState = state
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Container(id="aarambha-container"):
+            yield Label(f"Aarambha — Starting Sarathi ({format_duration_ns(self.state.elapsed_ns)})", id="aarambha-header")
+            table = DataTable(id="aarambha-stages-table")
+            table.add_columns("Stage", "Status", "Duration")
+            for stage_name, st, dur_ns in self.state.stages:
+                table.add_row(stage_name, st.upper(), format_duration_ns(dur_ns))
+            yield table
+
+            if self.state.current_stage:
+                yield Label(f"Current: {self.state.current_stage}", id="aarambha-current-stage")
+
+            if self.state.is_failed:
+                yield Label(f"Startup Failed: {self.state.failure_message or 'Unknown error'}", id="aarambha-failure")
+                with Horizontal(id="aarambha-actions"):
+                    yield Button("Quit", id="btn-aarambha-quit")
+            else:
+                with Horizontal(id="aarambha-actions"):
+                    yield Button("Dismiss", id="btn-aarambha-dismiss")
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-aarambha-dismiss":
+            self.app.switch_to_home()
+        elif event.button.id == "btn-aarambha-quit":
+            self.app.exit()
 
 
 class HomeScreen(Screen):
@@ -160,6 +194,64 @@ class MonitorScreen(Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-goto-summary":
+            self.app.switch_to_summary()
+
+
+def _fmt_count(val: int | None) -> str:
+    return str(val) if val is not None else "-"
+
+
+class ParikshaScreen(Screen):
+    """Screen 3: Pariksha — Review & Exceptions."""
+
+    def __init__(self, review_queue: tuple[ReviewItemView, ...]) -> None:
+        super().__init__()
+        self.review_queue: tuple[ReviewItemView, ...] = review_queue
+        self.current_idx: int = 0
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Container(id="review-container"):
+            if not self.review_queue:
+                yield Label("Pariksha — Review & Exceptions (0 pending)", id="review-header")
+                yield Label("No items currently pending review.", id="review-empty-message")
+                with Horizontal(id="review-empty-actions"):
+                    yield Button("Home", id="btn-review-home")
+                    yield Button("Summary", id="btn-review-summary")
+            else:
+                total = len(self.review_queue)
+                item = self.review_queue[min(self.current_idx, total - 1)]
+                pg_str = f"Page {item.page_number} • " if item.page_number is not None else ""
+                yield Label(
+                    f"Review ─ {total} pending | Item {self.current_idx + 1}/{total} • {item.file_display_name} • {pg_str}{item.stage}",
+                    id="review-header",
+                )
+                yield Label(f"Source : {item.source_text}", id="review-source")
+                yield Label(f"Output : {item.output_text}", id="review-output")
+
+                conf_str = format_confidence(item.confidence)
+                yield Label(f"Confidence: {conf_str} • Validation: {item.issue_reason}", id="review-metrics")
+                exec_dev = item.device_type or "-"
+                yield Label(
+                    f"Execution: {exec_dev} • Attempt {item.attempt_id} • {format_duration_ns(item.elapsed_ns)}",
+                    id="review-execution",
+                )
+
+                with Horizontal(id="review-actions"):
+                    for act in item.available_actions:
+                        lbl = act.replace("_", " ").title()
+                        yield Button(lbl, id=f"btn-review-{act}")
+
+                with Horizontal(id="review-nav"):
+                    yield Button("Previous", id="btn-review-prev", disabled=self.current_idx == 0)
+                    yield Button("Next", id="btn-review-next", disabled=self.current_idx >= total - 1)
+                    yield Button("Home", id="btn-review-home")
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-review-home":
+            self.app.switch_to_home()
+        elif event.button.id == "btn-review-summary":
             self.app.switch_to_summary()
 
 
@@ -282,6 +374,7 @@ class MukhaApp(App):
     BINDINGS = [
         ("f1", "switch_home", "Home"),
         ("f2", "switch_monitor", "Monitor"),
+        ("f3", "switch_review", "Review"),
         ("f4", "switch_summary", "Summary"),
         ("f5", "switch_inspector", "Inspector"),
         ("q", "quit", "Quit"),
@@ -303,13 +396,23 @@ class MukhaApp(App):
         self._monitor_timer: Timer | None = None
 
     def on_mount(self) -> None:
-        self.push_screen(HomeScreen(self.app_state))
+        if (
+            self.app_state.startup is not None
+            and self.app_state.startup.is_initializing
+            and self.app_state.startup.elapsed_ns >= 5_000_000_000
+        ):
+            self.push_screen(AarambhaScreen(self.app_state.startup))
+        else:
+            self.push_screen(HomeScreen(self.app_state))
 
     def action_switch_home(self) -> None:
         self.switch_to_home()
 
     def action_switch_monitor(self) -> None:
         self.switch_to_monitor()
+
+    def action_switch_review(self) -> None:
+        self.switch_to_review()
 
     def action_switch_summary(self) -> None:
         self.switch_to_summary()
@@ -503,6 +606,13 @@ class MukhaApp(App):
     def switch_to_monitor(self) -> None:
         if self.app_state.active_run is not None:
             self.push_screen(MonitorScreen(self.app_state.active_run))
+
+    def switch_to_review(self) -> None:
+        self.push_screen(ParikshaScreen(self.app_state.review_queue))
+
+    def switch_to_aarambha(self, startup: StartupViewState | None = None) -> None:
+        st = startup or self.app_state.startup or StartupViewState()
+        self.push_screen(AarambhaScreen(st))
 
     def switch_to_summary(self) -> None:
         if self.app_state.terminal_summary is not None:

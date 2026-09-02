@@ -247,6 +247,36 @@ class InspectorViewState:
 
 
 @dataclass(frozen=True, slots=True)
+class StartupViewState:
+    """Aarambha startup overlay presentation state."""
+
+    is_initializing: bool = False
+    current_stage: str = ""
+    elapsed_ns: int = 0
+    stages: tuple[tuple[str, str, int | None], ...] = ()
+    is_failed: bool = False
+    failure_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewItemView:
+    """Typed review queue item presentation state for human exception inspection."""
+
+    item_id: str
+    attempt_id: str
+    file_display_name: str
+    stage: str
+    source_text: str
+    output_text: str
+    issue_reason: str
+    page_number: int | None = None
+    confidence: float | None = None
+    device_type: str = ""
+    elapsed_ns: int = 0
+    available_actions: tuple[str, ...] = ("accept", "validate_edit", "retry", "unresolved")
+
+
+@dataclass(frozen=True, slots=True)
 class ApplicationViewState:
     """Top-level consolidated Mukha application presentation state."""
 
@@ -257,5 +287,7 @@ class ApplicationViewState:
     preflight: PreflightView | None = None
     available_actions: tuple[AvailableActionView, ...] = ()
     active_run: RunViewState | None = None
+    review_queue: tuple[ReviewItemView, ...] = ()
     terminal_summary: RunSummaryView | None = None
     inspector: InspectorViewState | None = None
+    startup: StartupViewState | None = None

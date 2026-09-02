@@ -60,9 +60,9 @@ validated; invalid combinations are rejected with a reason.
 
 ### Layout Preserving
 
-- region and reading-order retention;
+- architecturally defined profile for region and reading-order retention;
 - table/position evidence where supported;
-- engine binding fixed only after layout-corpus testing.
+- engine binding remains deferred in Phase 1 until layout-corpus benchmark verification (rejected as unsupported at runtime until verified).
 
 ### Custom
 
