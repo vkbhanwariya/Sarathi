@@ -66,5 +66,12 @@ scratch/
 
 # Machine Learning Models & Binary Weights
 *.onnx
+*.onnx_data
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.pb
+*.tflite
 models/
 data/ocr/models/*.onnx
