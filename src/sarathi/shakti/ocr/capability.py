@@ -60,11 +60,20 @@ class OCRCapability:
             raise TypeError(f"prior_result must be a Result instance or None, got {type(prior_result).__name__}.")
 
         # Validate that execution profile is supported
-        if request.profile != ExecutionProfile.INSTANT:
+        if request.profile not in self.declaration.supported_profiles:
             raise DoshError(
                 code=FailureCode.UNSUPPORTED,
-                message=f"Profile '{request.profile.value}' is not supported by OCR Phase 1 (Instant only).",
+                message=f"Profile '{request.profile.value}' is not supported by OCR capability.",
             )
+
+        # Validate custom options if CUSTOM profile
+        if request.profile == ExecutionProfile.CUSTOM and request.custom_options:
+            opt_engine = request.custom_options.get("engine")
+            if opt_engine is not None and opt_engine != "rapidocr":
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Requested OCR engine '{opt_engine}' is not supported or not installed.",
+                )
 
         # Inspect prior_result for existing usable native documents using structural pattern matching
         prior_docs: dict[str, CanonicalDocument] = {}
@@ -128,16 +137,24 @@ class OCRCapability:
             # Perform OCR on each page image using instance-owned engine
             pages = []
             for page_idx, img in enumerate(images, 1):
-                page_data, prov, _, page_warnings = self._engine.ocr_page(img, page_idx, inp.input_id)
+                page_data, prov, _, page_warnings = self._engine.ocr_page(
+                    img,
+                    page_idx,
+                    inp.input_id,
+                    profile=request.profile,
+                    custom_options=request.custom_options,
+                )
                 pages.append(page_data)
                 all_provenance.append(prov)
                 all_warnings.extend(page_warnings)
 
             full_text = "\n\n".join(p.text for p in pages if p.text)
+            all_tables = tuple(t for p in pages for t in p.tables)
             ocr_doc = CanonicalDocument(
                 document_id=f"doc-{inp.input_id}",
                 source_input_id=inp.input_id,
                 pages=tuple(pages),
+                tables=all_tables,
                 text=full_text,
                 detected_type="ocr_document",
             )

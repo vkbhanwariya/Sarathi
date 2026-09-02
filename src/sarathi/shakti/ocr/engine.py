@@ -15,6 +15,8 @@ import unicodedata
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     ConfidenceValue,
+    ExecutionProfile,
+    TableData,
     PageData,
     ProvenanceRecord,
     TextSpan,
@@ -218,6 +220,8 @@ class RapidOCREngine:
         image: Any,
         page_number: int,
         input_id: str,
+        profile: ExecutionProfile = ExecutionProfile.INSTANT,
+        custom_options: Mapping[str, Any] | None = None,
     ) -> tuple[PageData, ProvenanceRecord, ConfidenceValue | None, tuple[WarningRecord, ...]]:
         """Run PP-OCRv5 OpenVINO on a single image and return factual PageData, Provenance, and Warnings."""
         import numpy as np
@@ -332,7 +336,80 @@ class RapidOCREngine:
                 },
             )
 
-        metadata: dict[str, Any] = {}
+        # Advanced profile processing
+        page_tables: list[TableData] = []
+
+        if profile == ExecutionProfile.ACCURATE and spans:
+            # Accurate mode: targeted re-recognition on weak/low-confidence spans (< 0.65)
+            try:
+                from PIL import ImageEnhance
+                for idx, span in enumerate(spans):
+                    if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
+                        min_x, min_y, max_x, max_y = span.bounding_box
+                        w, h = image.size if hasattr(image, "size") else (int(max_x), int(max_y))
+                        box_crop = (max(0, int(min_x) - 2), max(0, int(min_y) - 2), min(w, int(max_x) + 2), min(h, int(max_y) + 2))
+                        if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(image, "crop"):
+                            cropped = image.crop(box_crop)
+                            enhanced = ImageEnhance.Contrast(cropped).enhance(1.8)
+                            enhanced = ImageEnhance.Sharpness(enhanced).enhance(2.0)
+                            sub_out = engine(np.array(enhanced))
+                            if sub_out and sub_out.txts and sub_out.scores and sub_out.scores[0] is not None:
+                                try:
+                                    sub_score = float(sub_out.scores[0])
+                                    if sub_score > span.confidence:
+                                        new_text = unicodedata.normalize("NFC", str(sub_out.txts[0]).strip())
+                                        spans[idx] = TextSpan(
+                                            text=new_text,
+                                            confidence=sub_score,
+                                            bounding_box=span.bounding_box,
+                                        )
+                                        if idx < len(lines):
+                                            lines[idx] = new_text
+                                except (ValueError, TypeError):
+                                    pass
+            except Exception:
+                pass
+
+        elif profile == ExecutionProfile.LAYOUT_PRESERVING and len(spans) >= 2:
+            # Layout Preserving mode: spatial clustering and table extraction
+            try:
+                spans_with_box = [s for s in spans if s.bounding_box]
+                if spans_with_box:
+                    sorted_spans = sorted(spans_with_box, key=lambda s: (round(s.bounding_box[1] / 12.0), s.bounding_box[0]))
+                    row_bands: dict[int, list[TextSpan]] = {}
+                    for s in sorted_spans:
+                        band_key = round(s.bounding_box[1] / 12.0)
+                        row_bands.setdefault(band_key, []).append(s)
+
+                    rows_list: list[tuple[str, ...]] = []
+                    for b_k in sorted(row_bands.keys()):
+                        r_spans = sorted(row_bands[b_k], key=lambda s: s.bounding_box[0])
+                        rows_list.append(tuple(s.text for s in r_spans))
+
+                    if len(rows_list) >= 2 and any(len(r) > 1 for r in rows_list):
+                        headers = rows_list[0]
+                        data_rows = tuple(rows_list[1:])
+                        page_tables.append(TableData(
+                            name=f"Table_P{page_number}",
+                            headers=headers,
+                            rows=data_rows,
+                        ))
+            except Exception:
+                pass
+
+        elif profile == ExecutionProfile.CUSTOM:
+            if custom_options and custom_options.get("binarize") and hasattr(image, "convert"):
+                try:
+                    gray = image.convert("L")
+                    threshold_img = gray.point(lambda p: 255 if p > 128 else 0)
+                    cust_out = engine(np.array(threshold_img))
+                    if cust_out and cust_out.txts:
+                        lines = [unicodedata.normalize("NFC", str(t).strip()) for t in cust_out.txts if t]
+                except Exception:
+                    pass
+
+        final_page_text = "\n".join(lines) if lines else page_text
+        metadata: dict[str, Any] = {"profile": profile.value}
         if page_confidence is not None:
             metadata["confidence"] = page_confidence.score
 
@@ -346,15 +423,16 @@ class RapidOCREngine:
                 "engine": "rapidocr",
                 "backend": "openvino",
                 "model": "PP-OCRv5",
-                "profile": "instant",
+                "profile": profile.value,
                 "box_count": len(spans),
             },
         )
 
         page_data = PageData(
             page_number=page_number,
-            text=page_text,
+            text=final_page_text,
             spans=tuple(spans),
+            tables=tuple(page_tables),
             metadata=metadata,
         )
 
