@@ -22,6 +22,7 @@ from sarathi.mukha.components import (
     format_duration_ns,
     status_badge,
 )
+from sarathi.mukha.intake import intake_from_paths
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import (
     ApplicationViewState,
@@ -58,6 +59,7 @@ __all__ = [
     "InputSelectionView",
     "InspectorScreen",
     "InspectorViewState",
+    "intake_from_paths",
     "MonitorScreen",
     "MukhaApp",
     "MukhaPresenter",

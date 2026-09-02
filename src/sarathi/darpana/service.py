@@ -43,6 +43,7 @@ class Darpana:
         self._maruti_history: deque[MarutiRecord] = deque(maxlen=capacity)
         self._pramana_history: deque[PramanaRecord] = deque(maxlen=capacity)
         self._run_summaries: deque[TerminalRunSummary] = deque(maxlen=capacity)
+        self._history_persistence_failed: bool = False
         self._history_store: TerminalRunHistoryStore | None = (
             TerminalRunHistoryStore(history_path, format=history_format, max_records=history_max_records)
             if history_path is not None
@@ -54,6 +55,11 @@ class Darpana:
         """Return the maximum bounded capacity for each telemetry history."""
         return self._capacity
 
+    @property
+    def history_persistence_failed(self) -> bool:
+        """Return True if any historical run summary persistence failed."""
+        return self._history_persistence_failed
+
     def record_run_summary(self, summary: TerminalRunSummary) -> None:
         """Record a privacy-filtered terminal run summary in memory and to configured persistent history."""
         if not isinstance(summary, TerminalRunSummary):
@@ -61,7 +67,23 @@ class Darpana:
         with self._lock:
             self._run_summaries.append(summary)
         if self._history_store is not None:
-            self._history_store.save(summary)
+            saved = self._history_store.save(summary)
+            if not saved:
+                self._history_persistence_failed = True
+                self.record_maruti(
+                    MarutiRecord(
+                        run_id=summary.run_id,
+                        request_id=summary.request_id,
+                        trace_id=f"tr-{summary.run_id}",
+                        span_id=f"sp-{summary.run_id[:8]}",
+                        phase_name="telemetry.history_persistence_failure",
+                        component="darpana.history",
+                        timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                        duration_ns=0,
+                        outcome="failure",
+                        attributes={"run_id": summary.run_id},
+                    )
+                )
 
     def query_run_history(self, limit: int = 50) -> tuple[TerminalRunSummary, ...]:
         """Query recent terminal run summaries from persistent store or in-memory history."""

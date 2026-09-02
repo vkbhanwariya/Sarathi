@@ -82,3 +82,12 @@ class Request:
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         else:
             raise TypeError(f"metadata must be a Mapping, got {type(self.metadata)}.")
+
+        if self.cancellation_token is not None:
+            from sarathi.sankalpa.cancellation import CancellationToken
+
+            if not isinstance(self.cancellation_token, CancellationToken):
+                raise TypeError(
+                    f"cancellation_token must be a CancellationToken instance or None, "
+                    f"got {type(self.cancellation_token).__name__}."
+                )

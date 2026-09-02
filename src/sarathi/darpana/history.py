@@ -11,10 +11,18 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import os
 from pathlib import Path
+import re
 import sqlite3
+import tempfile
 import threading
 from typing import Any, Sequence
+import uuid
+
+_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_SAFE_ISO_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$")
+_SAFE_REL_PATH_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_.\-]+)*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,26 +43,31 @@ class TerminalRunSummary:
     output_dir: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.run_id or not isinstance(self.run_id, str):
-            raise ValueError("run_id must be a non-empty string.")
-        if not self.request_id or not isinstance(self.request_id, str):
-            raise ValueError("request_id must be a non-empty string.")
-        if not self.requirement or not isinstance(self.requirement, str):
-            raise ValueError("requirement must be a non-empty string.")
-        if not self.profile or not isinstance(self.profile, str):
-            raise ValueError("profile must be a non-empty string.")
+        if not isinstance(self.run_id, str) or not _SAFE_IDENTIFIER_PATTERN.match(self.run_id):
+            raise ValueError(f"run_id must be a safe non-empty identifier, got {self.run_id!r}.")
+        if not isinstance(self.request_id, str) or not _SAFE_IDENTIFIER_PATTERN.match(self.request_id):
+            raise ValueError(f"request_id must be a safe non-empty identifier, got {self.request_id!r}.")
+        if not isinstance(self.requirement, str) or not _SAFE_IDENTIFIER_PATTERN.match(self.requirement):
+            raise ValueError(f"requirement must be a safe non-empty identifier, got {self.requirement!r}.")
+        if not isinstance(self.profile, str) or not _SAFE_IDENTIFIER_PATTERN.match(self.profile):
+            raise ValueError(f"profile must be a safe non-empty identifier, got {self.profile!r}.")
         if self.status not in ("completed", "failed", "cancelled"):
             raise ValueError(f"status must be 'completed', 'failed', or 'cancelled', got {self.status!r}.")
-        if not self.start_time_utc or not isinstance(self.start_time_utc, str):
-            raise ValueError("start_time_utc must be a non-empty string.")
-        if not self.completed_at_utc or not isinstance(self.completed_at_utc, str):
-            raise ValueError("completed_at_utc must be a non-empty string.")
-        if not isinstance(self.duration_ms, int) or isinstance(self.duration_ms, bool) or self.duration_ms < 0:
+        if not isinstance(self.start_time_utc, str) or not _SAFE_ISO_PATTERN.match(self.start_time_utc):
+            raise ValueError(f"start_time_utc must be a valid ISO-8601 timestamp string, got {self.start_time_utc!r}.")
+        if not isinstance(self.completed_at_utc, str) or not _SAFE_ISO_PATTERN.match(self.completed_at_utc):
+            raise ValueError(f"completed_at_utc must be a valid ISO-8601 timestamp string, got {self.completed_at_utc!r}.")
+        if isinstance(self.duration_ms, bool) or not isinstance(self.duration_ms, int) or self.duration_ms < 0:
             raise ValueError(f"duration_ms must be a non-negative integer, got {self.duration_ms!r}.")
-        if not isinstance(self.artifact_count, int) or isinstance(self.artifact_count, bool) or self.artifact_count < 0:
+        if isinstance(self.artifact_count, bool) or not isinstance(self.artifact_count, int) or self.artifact_count < 0:
             raise ValueError(f"artifact_count must be a non-negative integer, got {self.artifact_count!r}.")
-        if not isinstance(self.warning_count, int) or isinstance(self.warning_count, bool) or self.warning_count < 0:
+        if isinstance(self.warning_count, bool) or not isinstance(self.warning_count, int) or self.warning_count < 0:
             raise ValueError(f"warning_count must be a non-negative integer, got {self.warning_count!r}.")
+        if not isinstance(self.has_masked_identity, bool):
+            raise ValueError(f"has_masked_identity must be a bool, got {self.has_masked_identity!r}.")
+        if self.output_dir is not None:
+            if not isinstance(self.output_dir, str) or "\\" in self.output_dir or ".." in self.output_dir or self.output_dir.startswith("/"):
+                raise ValueError(f"output_dir must be a safe relative run reference, got {self.output_dir!r}.")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to safe JSON dictionary."""
@@ -62,20 +75,51 @@ class TerminalRunSummary:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TerminalRunSummary:
-        """Construct a validated TerminalRunSummary from dictionary."""
+        """Construct a validated TerminalRunSummary from dictionary without unsafe type coercion."""
+        if not isinstance(data, dict):
+            raise TypeError(f"data must be a dict, got {type(data).__name__}.")
+
+        required_str_fields = (
+            "run_id",
+            "request_id",
+            "requirement",
+            "profile",
+            "status",
+            "start_time_utc",
+            "completed_at_utc",
+        )
+        for f in required_str_fields:
+            val = data.get(f)
+            if not isinstance(val, str):
+                raise TypeError(f"Field '{f}' must be a string, got {type(val).__name__}.")
+
+        required_int_fields = ("duration_ms", "artifact_count", "warning_count")
+        for f in required_int_fields:
+            val = data.get(f)
+            if isinstance(val, bool) or not isinstance(val, int):
+                raise TypeError(f"Field '{f}' must be an integer, got {type(val).__name__}.")
+
+        has_masked = data.get("has_masked_identity", False)
+        if not isinstance(has_masked, bool):
+            raise TypeError(f"Field 'has_masked_identity' must be a bool, got {type(has_masked).__name__}.")
+
+        out_dir = data.get("output_dir")
+        if out_dir is not None and not isinstance(out_dir, str):
+            raise TypeError(f"Field 'output_dir' must be a string or None, got {type(out_dir).__name__}.")
+
         return cls(
-            run_id=str(data["run_id"]),
-            request_id=str(data["request_id"]),
-            requirement=str(data["requirement"]),
-            profile=str(data["profile"]),
-            status=str(data["status"]),
-            start_time_utc=str(data["start_time_utc"]),
-            completed_at_utc=str(data["completed_at_utc"]),
-            duration_ms=int(data["duration_ms"]),
-            artifact_count=int(data["artifact_count"]),
-            warning_count=int(data["warning_count"]),
-            has_masked_identity=bool(data.get("has_masked_identity", False)),
-            output_dir=str(data["output_dir"]) if data.get("output_dir") else None,
+            run_id=data["run_id"],
+            request_id=data["request_id"],
+            requirement=data["requirement"],
+            profile=data["profile"],
+            status=data["status"],
+            start_time_utc=data["start_time_utc"],
+            completed_at_utc=data["completed_at_utc"],
+            duration_ms=data["duration_ms"],
+            artifact_count=data["artifact_count"],
+            warning_count=data["warning_count"],
+            has_masked_identity=has_masked,
+            output_dir=out_dir,
         )
 
 
@@ -88,8 +132,16 @@ class TerminalRunHistoryStore:
         format: str = "jsonl",
         max_records: int = 1000,
     ) -> None:
-        self._path = history_path.resolve()
-        self._format = format.lower()
+        if not isinstance(history_path, (Path, str)):
+            raise TypeError(f"history_path must be a Path or str, got {type(history_path).__name__}.")
+        fmt = str(format).lower().strip()
+        if fmt not in ("jsonl", "sqlite"):
+            raise ValueError(f"format must be 'jsonl' or 'sqlite', got {format!r}.")
+        if isinstance(max_records, bool) or not isinstance(max_records, int) or max_records <= 0:
+            raise ValueError(f"max_records must be a positive integer, got {max_records!r}.")
+
+        self._path = Path(history_path).resolve()
+        self._format = fmt
         self._max_records = max_records
         self._lock = threading.Lock()
 
@@ -122,63 +174,108 @@ class TerminalRunHistoryStore:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_completed_at ON terminal_runs (completed_at_utc DESC)"
                 )
-        except OSError:
+        except (OSError, sqlite3.Error):
             pass
 
     def save(self, summary: TerminalRunSummary) -> bool:
-        """Persist a terminal run summary. Returns True on success, False on error."""
+        """Persist a terminal run summary with bounded capacity. Returns True on success, False on error."""
+        if not isinstance(summary, TerminalRunSummary):
+            raise TypeError(f"summary must be a TerminalRunSummary instance, got {type(summary).__name__}.")
+
         with self._lock:
             try:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
                 if self._format == "jsonl":
-                    line = json.dumps(summary.to_dict()) + "\n"
-                    with open(self._path, "a", encoding="utf-8") as f:
-                        f.write(line)
+                    # Read existing records without loading unbounded memory
+                    existing_lines: list[str] = []
+                    if self._path.exists():
+                        with open(self._path, "r", encoding="utf-8") as f:
+                            for line in f:
+                                stripped = line.strip()
+                                if stripped:
+                                    existing_lines.append(stripped)
+
+                    # Append new record
+                    new_line = json.dumps(summary.to_dict(), ensure_ascii=False)
+                    existing_lines.append(new_line)
+
+                    # Keep only bounded tail
+                    if len(existing_lines) > self._max_records:
+                        existing_lines = existing_lines[-self._max_records:]
+
+                    # Atomic write
+                    temp_file = self._path.parent / f".tmp_{uuid.uuid4().hex}_{self._path.name}"
+                    with open(temp_file, "w", encoding="utf-8") as f:
+                        for l in existing_lines:
+                            f.write(l + "\n")
+                        f.flush()
+                        os.fsync(f.fileno())
+                    temp_file.replace(self._path)
                     return True
+
                 elif self._format == "sqlite":
                     with sqlite3.connect(str(self._path)) as conn:
-                        conn.execute(
-                            """
-                            INSERT OR REPLACE INTO terminal_runs (
-                                run_id, request_id, requirement, profile, status,
-                                start_time_utc, completed_at_utc, duration_ms,
-                                artifact_count, warning_count, has_masked_identity, output_dir
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                summary.run_id,
-                                summary.request_id,
-                                summary.requirement,
-                                summary.profile,
-                                summary.status,
-                                summary.start_time_utc,
-                                summary.completed_at_utc,
-                                summary.duration_ms,
-                                summary.artifact_count,
-                                summary.warning_count,
-                                1 if summary.has_masked_identity else 0,
-                                summary.output_dir,
-                            ),
-                        )
+                        with conn:
+                            conn.execute(
+                                """
+                                INSERT OR REPLACE INTO terminal_runs (
+                                    run_id, request_id, requirement, profile, status,
+                                    start_time_utc, completed_at_utc, duration_ms,
+                                    artifact_count, warning_count, has_masked_identity, output_dir
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    summary.run_id,
+                                    summary.request_id,
+                                    summary.requirement,
+                                    summary.profile,
+                                    summary.status,
+                                    summary.start_time_utc,
+                                    summary.completed_at_utc,
+                                    summary.duration_ms,
+                                    summary.artifact_count,
+                                    summary.warning_count,
+                                    1 if summary.has_masked_identity else 0,
+                                    summary.output_dir,
+                                ),
+                            )
+                            # Bounded retention pruning
+                            conn.execute(
+                                """
+                                DELETE FROM terminal_runs
+                                WHERE run_id NOT IN (
+                                    SELECT run_id FROM terminal_runs
+                                    ORDER BY completed_at_utc DESC
+                                    LIMIT ?
+                                )
+                                """,
+                                (self._max_records,),
+                            )
                     return True
-            except Exception:
-                # Storage failures must never break the main document processing pipeline
+            except (OSError, sqlite3.Error, json.JSONDecodeError):
                 return False
         return False
 
     def query(self, limit: int = 50) -> tuple[TerminalRunSummary, ...]:
         """Query recent terminal run summaries ordered from newest to oldest."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError(f"limit must be a positive integer, got {limit!r}.")
+
         if not self._path.exists():
             return ()
 
         with self._lock:
             try:
                 if self._format == "jsonl":
-                    lines = self._path.read_text(encoding="utf-8").splitlines()
                     results: list[TerminalRunSummary] = []
+                    lines: list[str] = []
+                    with open(self._path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            s = line.strip()
+                            if s:
+                                lines.append(s)
+
                     for line in reversed(lines):
-                        if not line.strip():
-                            continue
                         try:
                             data = json.loads(line)
                             results.append(TerminalRunSummary.from_dict(data))
@@ -187,6 +284,7 @@ class TerminalRunHistoryStore:
                         except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                             continue
                     return tuple(results)
+
                 elif self._format == "sqlite":
                     with sqlite3.connect(str(self._path)) as conn:
                         cursor = conn.execute(
@@ -220,12 +318,14 @@ class TerminalRunHistoryStore:
                                 )
                             )
                         return tuple(results)
-            except Exception:
+            except (OSError, sqlite3.Error):
                 return ()
         return ()
 
     def get(self, run_id: str) -> TerminalRunSummary | None:
         """Find a specific terminal run by run_id."""
+        if not isinstance(run_id, str) or not run_id.strip():
+            return None
         for run in self.query(limit=self._max_records):
             if run.run_id == run_id:
                 return run
