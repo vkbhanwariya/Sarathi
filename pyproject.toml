@@ -49,7 +49,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra -q"
+addopts = "-ra -q --tb=short --show-capture=no"
 
 [tool.ruff]
 target-version = "py313"

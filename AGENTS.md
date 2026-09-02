@@ -80,6 +80,12 @@ the relevant Vedas files are the complete architectural authority.
   contract/architecture section → direct callers → affected tests.
 - Search for symbols/imports/references/registrations before opening large
   files; read only the relevant sections of large files.
+- When inspecting an error, failure, or warning, read ONLY the precise line of
+  code where the warning or error came (e.g. `StartLine = line - 5`, `EndLine = line + 5`)
+  via `view_file`. Never read entire files or broad 50+ line blocks for a localized error.
+- Never poll `manage_task(Action="status")` in a loop while background tasks run.
+  The agent framework notifies reactively upon task completion; polling wastes
+  significant token quota and rate limits.
 - Don't reread files already available in context, or restate established
   architectural facts.
 - Batch related searches/inspections to avoid redundant tool calls.
@@ -120,7 +126,7 @@ cause — don't add compensating code downstream.
   caching, security, artifacts, lifecycle):
 
   ```bash
-  uv run --group dev pytest -q
+  uv run --group dev pytest -q --tb=short --show-capture=no
   uv run --group dev python -m compileall -q src
   git diff --check
   ```
