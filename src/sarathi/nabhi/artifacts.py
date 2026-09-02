@@ -698,17 +698,21 @@ class RunWorkspace:
         return dest_path
 
     def _cleanup_run_on_failure(self) -> None:
-        """Clean up uncommitted staging data and non-preserved partial data upon run failure or unfinalized exit.
-
-        Preserves already confirmed/committed artifacts on disk and keeps committed artifact state truthful.
-        """
+        """Clean up uncommitted staging data, committed artifacts, and non-preserved partial data upon run failure or unfinalized exit."""
         try:
             # 1. Clean staging directory
             if self._staging_dir.exists():
                 shutil.rmtree(self._staging_dir)
             self._staged_relative_paths.clear()
 
-            # 2. Clean partial directory if not preserving partials
+            # 2. Clean ordinary committed artifacts
+            for art in self._committed_artifacts:
+                if art.path.exists():
+                    art.path.unlink(missing_ok=True)
+            self._committed_artifacts.clear()
+            self._committed_relative_paths.clear()
+
+            # 3. Clean partial directory if not preserving partials
             if not self._preserve_partial:
                 partial_dir = self._output_dir / "partial"
                 if partial_dir.exists():
@@ -716,11 +720,13 @@ class RunWorkspace:
                 self._partial_artifacts.clear()
                 self._partial_relative_paths.clear()
 
-            # 3. If output directory is empty (no committed artifacts and no preserved partials), remove it
+            # 4. If output directory is empty (no preserved partials), remove it
             if self._output_dir.exists():
                 try:
-                    if not any(self._output_dir.iterdir()):
-                        self._output_dir.rmdir()
+                    partial_dir = self._output_dir / "partial"
+                    has_partials = self._preserve_partial and partial_dir.exists() and any(partial_dir.iterdir())
+                    if not has_partials:
+                        shutil.rmtree(self._output_dir)
                 except OSError:
                     pass
         except OSError as exc:
@@ -804,21 +810,50 @@ class RunWorkspace:
                 message="Run workspace is already finalized.",
             )
 
+        if not success or effective_status in ("failed", "cancelled"):
+            # Clean up ordinary committed artifacts from disk on failure or cancellation
+            for art in self._committed_artifacts:
+                try:
+                    if art.path.exists():
+                        art.path.unlink(missing_ok=True)
+                except OSError as err:
+                    raise DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message="Failed to clean up committed artifacts on failed/cancelled run.",
+                    ) from err
+            self._committed_artifacts.clear()
+            self._committed_relative_paths.clear()
+
+            # Clean up partial artifacts if not preserving partials
+            if not self._preserve_partial:
+                partial_dir = self._output_dir / "partial"
+                if partial_dir.exists():
+                    try:
+                        shutil.rmtree(partial_dir)
+                    except OSError as err:
+                        raise DoshError(
+                            code=FailureCode.EXECUTION_FAILED,
+                            message="Failed to clean up partial directory on failed/cancelled run.",
+                        ) from err
+                self._partial_artifacts.clear()
+                self._partial_relative_paths.clear()
+
         partial_manifest_entries: list[dict[str, Any]] = []
-        for p in self._partial_artifacts:
-            try:
-                if p.exists():
-                    partial_manifest_entries.append(
-                        {
-                            "relative_path": str(p.relative_to(self._output_dir)).replace("\\", "/"),
-                            "size_bytes": p.stat().st_size,
-                        }
-                    )
-            except OSError as err:
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Failed to inspect partial artifact for manifest generation.",
-                ) from err
+        if self._preserve_partial:
+            for p in self._partial_artifacts:
+                try:
+                    if p.exists():
+                        partial_manifest_entries.append(
+                            {
+                                "relative_path": str(p.relative_to(self._output_dir)).replace("\\", "/"),
+                                "size_bytes": p.stat().st_size,
+                            }
+                        )
+                except OSError as err:
+                    raise DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message="Failed to inspect partial artifact for manifest generation.",
+                    ) from err
 
         manifest_data: dict[str, Any] = {
             "run_id": self._run_id,
@@ -990,14 +1025,9 @@ class RunWorkspace:
                 try:
                     self._cleanup_run_on_failure()
                 except (OSError, DoshError):
-                    # Preserve original exception while attaching safe cleanup-failure note/state
-                    if exc_val is not None:
-                        if hasattr(exc_val, "add_note"):
-                            exc_val.add_note("Failed to clean up run workspace upon exception.")
-                        try:
-                            exc_val.__cleanup_failed__ = True
-                        except (AttributeError, TypeError):
-                            pass
+                    # Preserve original exception while attaching safe cleanup-failure note if supported
+                    if exc_val is not None and hasattr(exc_val, "add_note"):
+                        exc_val.add_note("Failed to clean up run workspace upon exception.")
         elif not self._is_finalized:
             self._cleanup_run_on_failure()
 

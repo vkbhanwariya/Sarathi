@@ -1367,11 +1367,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
         manifest_path = workspace.finalize(success=False)
         assert manifest_path.exists()
 
-        # Confirmed committed artifact from Stage 1 still exists on disk, unmodified and valid
-        assert len(workspace.committed_artifacts) == 1
-        art_ref = workspace.committed_artifacts[0]
-        assert art_ref.path.exists()
-        assert art_ref.path.read_bytes() == b"Valid stage 1 report data committed before stage 2 failure."
+        # Ordinary committed artifacts are cleaned up on run failure
+        assert len(workspace.committed_artifacts) == 0
+        assert not (workspace.output_dir / "stage1_report.txt").exists()
 
     def test_quarantine_is_not_smriti_or_cache(self) -> None:
         """Prove architecturally that quarantine does not import, reference, or use Smriti caching."""

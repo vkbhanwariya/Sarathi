@@ -551,12 +551,22 @@ class Pravaha:
                             prior_result=prior_result,
                         )
 
+                    # Check cancellation immediately after Yantra execution before caching or continuation
+                    if current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled:
+                        current_ctx.cancellation_token.check_cancelled()
+
                     if self._smriti is not None and cache_key is not None:
                         self._smriti.put(cache_key, prior_result)
 
                     self._record_pramana_if_available(cap, prior_result, current_ctx)
 
                 except DoshError as dosh_err:
+                    is_cancelled = bool(dosh_err.context.get("cancelled")) or (
+                        current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled
+                    )
+                    if is_cancelled:
+                        raise dosh_err
+
                     current_attempt = 0
                     is_retry_allowed = self._retry_policy.is_retryable(dosh_err.code, current_attempt)
 

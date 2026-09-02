@@ -99,27 +99,7 @@ class Agni:
             case _:
                 raise TypeError(f"settings must be Settings, Path, str, or None, got {type(settings).__name__}.")
 
-        # 2. Validate Darpana
-        if darpana is not None and not isinstance(darpana, Darpana):
-            raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
-        hist_path = active_settings.telemetry_history_path if active_settings.telemetry_history_enabled else None
-        active_darpana = darpana or Darpana(
-            capacity=1000,
-            history_path=hist_path,
-            history_format=active_settings.telemetry_history_format,
-            history_max_records=active_settings.telemetry_history_max_records,
-        )
-
-        # 3. Validate Kavacha & Security Policy
-        active_kavacha: Kavacha
-        if kavacha is not None:
-            if not isinstance(kavacha, Kavacha):
-                raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
-            active_kavacha = kavacha
-        else:
-            active_kavacha = Kavacha(active_settings.security_policy())
-
-        # 5. Validate & Resolve Storage Roots (Sutra-owned defaults)
+        # 2. Validate & Resolve Storage Roots (Sutra-owned defaults)
         def _resolve_root(arg_val: Path | str | None, setting_val: Path, param_name: str) -> Path:
             if arg_val is not None:
                 if not isinstance(arg_val, (Path, str)):
@@ -135,6 +115,34 @@ class Agni:
         validated_runtime_root = _resolve_root(runtime_root, active_settings.storage_runtime_root, "runtime_root")
         validated_output_root = _resolve_root(output_root, active_settings.storage_output_root, "output_root")
         validated_input_root = _resolve_root(input_root, active_settings.storage_input_root, "input_root")
+
+        # 3. Validate Darpana (History storage strictly bounded under Runtime/Telemetry)
+        if darpana is not None and not isinstance(darpana, Darpana):
+            raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+        hist_dir = validated_runtime_root / "Telemetry"
+        if active_settings.telemetry_history_enabled:
+            if active_settings.telemetry_history_path is not None:
+                user_hist = active_settings.telemetry_history_path
+                hist_path = user_hist if user_hist.is_absolute() else (hist_dir / user_hist)
+            else:
+                hist_path = hist_dir / ("history.db" if active_settings.telemetry_history_format == "sqlite" else "history.jsonl")
+        else:
+            hist_path = None
+        active_darpana = darpana or Darpana(
+            capacity=1000,
+            history_path=hist_path,
+            history_format=active_settings.telemetry_history_format,
+            history_max_records=active_settings.telemetry_history_max_records,
+        )
+
+        # 4. Validate Kavacha & Security Policy
+        active_kavacha: Kavacha
+        if kavacha is not None:
+            if not isinstance(kavacha, Kavacha):
+                raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
+            active_kavacha = kavacha
+        else:
+            active_kavacha = Kavacha(active_settings.security_policy())
 
         # Canonical root overlap validation using Kavacha
         active_kavacha.validate_source_destination_overlap(
@@ -267,6 +275,21 @@ class Agni:
         return self._smriti
 
     @property
+    def runtime_root(self) -> Path:
+        """Return the effective validated runtime root."""
+        return self._runtime_root
+
+    @property
+    def output_root(self) -> Path:
+        """Return the effective validated output root."""
+        return self._output_root
+
+    @property
+    def input_root(self) -> Path:
+        """Return the effective validated input root."""
+        return self._input_root
+
+    @property
     def kavacha(self) -> Kavacha:
         """Return the injected Kavacha security service."""
         return self._kavacha
@@ -397,45 +420,44 @@ class Agni:
         t_start_utc = datetime.now(timezone.utc).isoformat()
         t_start_ns = time.perf_counter_ns()
 
-        # 2. Generate unique execution identity per execution when not explicitly provided
-        exec_ctx = context or ExecutionContext(
-            run_id=f"run-{uuid.uuid4().hex[:12]}",
-            request_id=request.request_id,
-            trace_id=f"tr-{uuid.uuid4().hex[:16]}",
-            span_id=f"sp-{uuid.uuid4().hex[:8]}",
-            profile=request.profile,
-            cancellation_token=request.cancellation_token,
-        )
+        # 2. Reconcile request and supplied-context cancellation tokens
+        effective_token = request.cancellation_token
+        if context is not None:
+            if context.cancellation_token is not None and request.cancellation_token is not None:
+                if context.cancellation_token is not request.cancellation_token:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message="Conflicting distinct cancellation tokens provided in request and context.",
+                    )
+            elif context.cancellation_token is not None and request.cancellation_token is None:
+                effective_token = context.cancellation_token
 
-        # 3. Pre-Manthan Darshana Identification BEFORE workspace creation (Timed in Darpana)
-        id_scope = (
-            self._darpana.time_scope(
-                context=exec_ctx,
-                phase_name="identification",
-                component="shakti.darshana",
-                attributes={"input_count": len(request.inputs)},
+            if context.cancellation_token is not effective_token:
+                exec_ctx = ExecutionContext(
+                    run_id=context.run_id,
+                    request_id=context.request_id,
+                    trace_id=context.trace_id,
+                    span_id=context.span_id,
+                    parent_span_id=context.parent_span_id,
+                    profile=context.profile,
+                    quarantine_attempt=context.quarantine_attempt,
+                    is_retry=context.is_retry,
+                    cancellation_token=effective_token,
+                    metadata=context.metadata,
+                )
+            else:
+                exec_ctx = context
+        else:
+            exec_ctx = ExecutionContext(
+                run_id=f"run-{uuid.uuid4().hex[:12]}",
+                request_id=request.request_id,
+                trace_id=f"tr-{uuid.uuid4().hex[:16]}",
+                span_id=f"sp-{uuid.uuid4().hex[:8]}",
+                profile=request.profile,
+                cancellation_token=effective_token,
             )
-            if self._darpana is not None
-            else nullcontext()
-        )
-        with id_scope:
-            identified_request = identify_request(request)
 
-        # 4. Manthan Capability Plan Resolution BEFORE workspace creation (Timed in Darpana)
-        res_scope = (
-            self._darpana.time_scope(
-                context=exec_ctx,
-                phase_name="resolution",
-                component="nabhi.manthan",
-                attributes={"requirement": identified_request.requirement},
-            )
-            if self._darpana is not None
-            else nullcontext()
-        )
-        with res_scope:
-            plan = self._manthan.resolve(identified_request)
-
-        # 5. Open RunWorkspace on the canonical ArtifactBoundary for this validated run
+        # 3. Open RunWorkspace on the canonical ArtifactBoundary for this validated run
         with self._artifact_boundary.begin_run(
             run_id=exec_ctx.run_id,
             requirement=request.requirement,
@@ -445,15 +467,61 @@ class Agni:
             context=exec_ctx,
         ) as workspace:
             try:
-                # 6. Pravaha Dynamic Pipeline Execution (includes Kavacha security authorization)
+                # Check cancellation at safe boundary before identification
+                if exec_ctx.cancellation_token is not None and exec_ctx.cancellation_token.is_cancelled:
+                    exec_ctx.cancellation_token.check_cancelled()
+
+                # Pre-Manthan Darshana Identification (Timed in Darpana)
+                id_scope = (
+                    self._darpana.time_scope(
+                        context=exec_ctx,
+                        phase_name="identification",
+                        component="shakti.darshana",
+                        attributes={"input_count": len(request.inputs)},
+                    )
+                    if self._darpana is not None
+                    else nullcontext()
+                )
+                with id_scope:
+                    identified_request = identify_request(request)
+
+                # Check cancellation at safe boundary before resolution
+                if exec_ctx.cancellation_token is not None and exec_ctx.cancellation_token.is_cancelled:
+                    exec_ctx.cancellation_token.check_cancelled()
+
+                # Manthan Capability Plan Resolution (Timed in Darpana)
+                res_scope = (
+                    self._darpana.time_scope(
+                        context=exec_ctx,
+                        phase_name="resolution",
+                        component="nabhi.manthan",
+                        attributes={"requirement": identified_request.requirement},
+                    )
+                    if self._darpana is not None
+                    else nullcontext()
+                )
+                with res_scope:
+                    plan = self._manthan.resolve(identified_request)
+
+                # 4. Pravaha Dynamic Pipeline Execution (includes Kavacha security authorization)
                 raw_result = self._pravaha.execute(plan, identified_request, exec_ctx)
 
-                # 7. Commit declared artifact payloads through Nabhi RunWorkspace
+                # Check cancellation at safe boundary before committing artifacts
+                if exec_ctx.cancellation_token is not None and exec_ctx.cancellation_token.is_cancelled:
+                    exec_ctx.cancellation_token.check_cancelled()
+
+                # 5. Commit declared artifact payloads through Nabhi RunWorkspace
                 if raw_result.artifact_payloads:
                     for payload in raw_result.artifact_payloads:
+                        if exec_ctx.cancellation_token is not None and exec_ctx.cancellation_token.is_cancelled:
+                            exec_ctx.cancellation_token.check_cancelled()
                         workspace.commit_artifact(payload.intent, payload.content)
 
-                # 8. Finalize workspace and write run-manifest.json last
+                # Check cancellation at safe boundary before finalization
+                if exec_ctx.cancellation_token is not None and exec_ctx.cancellation_token.is_cancelled:
+                    exec_ctx.cancellation_token.check_cancelled()
+
+                # 6. Finalize workspace and write run-manifest.json last
                 workspace.finalize(
                     success=True,
                     provenance=raw_result.provenance,
@@ -464,26 +532,23 @@ class Agni:
                 if self._darpana is not None:
                     from sarathi.darpana import TerminalRunSummary
 
-                    try:
-                        summary = TerminalRunSummary(
-                            run_id=exec_ctx.run_id,
-                            request_id=request.request_id,
-                            requirement=request.requirement,
-                            profile=request.profile.value,
-                            status="completed",
-                            start_time_utc=t_start_utc,
-                            completed_at_utc=datetime.now(timezone.utc).isoformat(),
-                            duration_ms=duration_ms,
-                            artifact_count=len(workspace.committed_artifacts),
-                            warning_count=len(raw_result.warnings),
-                            has_masked_identity=False,
-                            output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
-                        )
-                        self._darpana.record_run_summary(summary)
-                    except Exception:
-                        pass
+                    summary = TerminalRunSummary(
+                        run_id=exec_ctx.run_id,
+                        request_id=request.request_id,
+                        requirement=request.requirement,
+                        profile=request.profile.value,
+                        status="completed",
+                        start_time_utc=t_start_utc,
+                        completed_at_utc=datetime.now(timezone.utc).isoformat(),
+                        duration_ms=duration_ms,
+                        artifact_count=len(workspace.committed_artifacts),
+                        warning_count=len(raw_result.warnings),
+                        has_masked_identity=False,
+                        output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
+                    )
+                    self._darpana.record_run_summary(summary)
 
-                # 9. Return final Result with confirmed ArtifactRefs strictly from active workspace
+                # 7. Return final Result with confirmed ArtifactRefs strictly from active workspace
                 return Result(
                     data=raw_result.data,
                     artifact_payloads=(),
@@ -494,11 +559,32 @@ class Agni:
                     next_requirement=raw_result.next_requirement,
                     metadata=raw_result.metadata,
                 )
-            except BaseException as proc_exc:
+            except Exception as proc_exc:
                 duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)
+                is_cancelled = (isinstance(proc_exc, DoshError) and bool(proc_exc.context.get("cancelled"))) or (
+                    exec_ctx.cancellation_token is not None and exec_ctx.cancellation_token.is_cancelled
+                )
+                term_status = "cancelled" if is_cancelled else "failed"
+
+                if is_cancelled and self._darpana is not None:
+                    from sarathi.darpana import MarutiRecord
+
+                    self._darpana.record_maruti(
+                        MarutiRecord(
+                            run_id=exec_ctx.run_id,
+                            request_id=exec_ctx.request_id,
+                            trace_id=exec_ctx.trace_id,
+                            span_id=exec_ctx.span_id,
+                            phase_name="cancellation",
+                            component="agni",
+                            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                            duration_ns=0,
+                            outcome="failure",
+                            attributes={"cancelled": True},
+                        )
+                    )
+
                 if not workspace.is_finalized:
-                    is_cancelled = isinstance(proc_exc, DoshError) and bool(proc_exc.context.get("cancelled"))
-                    term_status = "cancelled" if is_cancelled else "failed"
                     try:
                         workspace.finalize(
                             success=False,
@@ -526,22 +612,19 @@ class Agni:
                     if self._darpana is not None:
                         from sarathi.darpana import TerminalRunSummary
 
-                        try:
-                            summary = TerminalRunSummary(
-                                run_id=exec_ctx.run_id,
-                                request_id=request.request_id,
-                                requirement=request.requirement,
-                                profile=request.profile.value,
-                                status=term_status,
-                                start_time_utc=t_start_utc,
-                                completed_at_utc=datetime.now(timezone.utc).isoformat(),
-                                duration_ms=duration_ms,
-                                artifact_count=len(workspace.committed_artifacts),
-                                warning_count=0,
-                                has_masked_identity=False,
-                                output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
-                            )
-                            self._darpana.record_run_summary(summary)
-                        except Exception:
-                            pass
+                        summary = TerminalRunSummary(
+                            run_id=exec_ctx.run_id,
+                            request_id=request.request_id,
+                            requirement=request.requirement,
+                            profile=request.profile.value,
+                            status=term_status,
+                            start_time_utc=t_start_utc,
+                            completed_at_utc=datetime.now(timezone.utc).isoformat(),
+                            duration_ms=duration_ms,
+                            artifact_count=len(workspace.committed_artifacts),
+                            warning_count=0,
+                            has_masked_identity=False,
+                            output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
+                        )
+                        self._darpana.record_run_summary(summary)
                 raise
