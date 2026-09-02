@@ -175,7 +175,7 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
                 if m_holder:
                     raw_acc_holder = m_holder.group(1).strip()
                     score += 0.1
-                    reasons.append(f"Extracted account holder: {raw_acc_holder}")
+                    reasons.append("Extracted account holder pattern.")
             break
 
     if score >= 0.5 and matched_profile_id is None:

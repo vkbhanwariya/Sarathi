@@ -87,7 +87,7 @@ class BankStatementCapability:
         if not detection.is_bank_statement:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
-                message=f"Document is not identified as a bank statement (reasons: {'; '.join(detection.reasons)}).",
+                message="Document is not identified as a supported bank statement.",
             )
 
         raw_txns, open_bal, close_bal = self._extract_table_data(
@@ -237,7 +237,7 @@ class BankStatementCapability:
                                 capability_id="bank_statements",
                                 stage="bank_extraction",
                                 page_number=page_num,
-                                evidence={"row_index": row_idx + 1, "raw_row": row_cells},
+                                evidence={"row_index": row_idx + 1},
                             )
                             raw_txns.append(
                                 Transaction(
