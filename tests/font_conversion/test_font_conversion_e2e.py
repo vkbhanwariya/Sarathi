@@ -14,15 +14,10 @@ from sarathi.sankalpa import (
     Result,
 )
 
-
-@pytest.fixture
-def legacy_text_file(tmp_path: Path) -> Path:
-    p = tmp_path / "legacy_hindi.txt"
-    p.write_text("LVsV cSad vksj Hkkjr ljdkj\nRef: SBI-2026\nAmount: Rs 50000\n", encoding="utf-8")
-    return p
+_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "krutidev_sample.txt"
 
 
-def test_e2e_font_conversion_pipeline(tmp_path: Path, legacy_text_file: Path) -> None:
+def test_e2e_font_conversion_pipeline(tmp_path: Path) -> None:
     runtime_dir = tmp_path / "Runtime"
     output_dir = tmp_path / "Output"
     darpana = Darpana(capacity=200)
@@ -35,9 +30,9 @@ def test_e2e_font_conversion_pipeline(tmp_path: Path, legacy_text_file: Path) ->
 
     inp = InputRef(
         input_id="inp-fc-1",
-        source_path=legacy_text_file,
-        display_name="legacy_hindi.txt",
-        size_bytes=legacy_text_file.stat().st_size,
+        source_path=_FIXTURE_PATH,
+        display_name="krutidev_sample.txt",
+        size_bytes=_FIXTURE_PATH.stat().st_size,
     )
 
     req = Request(
@@ -57,9 +52,19 @@ def test_e2e_font_conversion_pipeline(tmp_path: Path, legacy_text_file: Path) ->
     assert isinstance(result.data, CanonicalDocument)
     doc: CanonicalDocument = result.data
 
-    assert "भारत" in doc.text
-    assert "SBI-2026" in doc.text
-    assert "50000" in doc.text
+    # Verify converted Devanagari and protected English spans
+    assert "भारत सरकार" in doc.text
+    assert "स्टेट बैंक" in doc.text
+    assert "दिल्ली" in doc.text
+    assert "Vendor Name" in doc.text
+    assert "Invoice Number" in doc.text
+    assert "Customer Reference" in doc.text
+    assert "Payment Details" in doc.text
+    assert "Branch Office" in doc.text
+    assert "INV-998811" in doc.text
+    assert "REF-SBI-2026" in doc.text
+    assert "15/08/2026" in doc.text
+    assert "1,50,000.00" in doc.text
 
     # Artifact confirmation
     assert len(result.artifacts) == 1
