@@ -227,6 +227,8 @@
             elements.inputCountsBadge.textContent = `${res.input_selection.total_files || 0} files (${formatBytes(res.input_selection.total_size_bytes || 0)})`;
             renderPreflight(res.preflight || { eligible_count: 0, issue_count: 0, issues: [] });
             elements.btnStartRun.disabled = (res.preflight?.eligible_count || 0) === 0;
+        } else if (res.error) {
+            alert(res.error);
         }
     }
 
@@ -314,6 +316,10 @@
         const interval = state.activeRunStatus === "RUNNING" ? 400 : 1500;
         state.pollTimer = setTimeout(pollState, interval);
     }
+
+    // Update Presentation from View State Projection
+    function updatePresentation(appState) {
+        if (!appState) return;
 
         // 0. Update Processing Requirements from Available Actions Facts
         if (appState.available_actions && appState.available_actions.length > 0) {
