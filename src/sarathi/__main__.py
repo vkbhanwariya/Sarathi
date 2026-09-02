@@ -88,12 +88,12 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_root=Path(args.runtime_root) if args.runtime_root else None,
                 output_root=Path(args.output_root) if args.output_root else None,
             ) as agni:
-                from sarathi.mukha import MukhaApp, MukhaPresenter
+                from sarathi.mukha import InputSelectionView, MukhaApp, MukhaPresenter
 
                 home_view = MukhaPresenter.build_home_view(
+                    input_selection=InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False),
                     requirement=args.requirement,
-                    policy_label="Default Policy",
-                    selected_inputs=(),
+                    policy_label="Local only",
                 )
                 app = MukhaApp(initial_state=home_view, agni=agni)
                 app.run()
