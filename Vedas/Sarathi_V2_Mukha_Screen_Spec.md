@@ -34,17 +34,18 @@ Darpana — Telemetry & Tracing records canonical facts
                          ↓
 Mukha presenter builds typed presentation state
                          ↓
-Textual screens render state and emit typed user intents
+Mukha Local Web application on loopback renders state and emits typed user intents
                          ↓
 Canonical runtime owner accepts or rejects the requested action
 ```
 
 There is one interactive UI generation:
 
-- **Textual** owns application, screens, widgets, navigation and reactive updates.
-- Rich `Text`, tables and other renderables may be displayed inside Textual widgets.
+- **Mukha Local Web application** bound strictly to loopback (`127.0.0.1:<resolved-port>`) owns application, screens, navigation, and reactive presentation updates.
+- Native Windows file and folder selection is orchestrated through a controlled native dialog boundary (`native_picker.py`).
 - There is no parallel `ConsoleManager`, `RichConsolePlugin`, profiler UI, capability-local console, or telemetry bridge.
-- TOML may describe static labels, default visibility, layout choice and theme references only. Python owns typed state, behavior, callbacks, conditions, navigation and wiring.
+- Static assets (`app.html`, `app.css`, `app.js`) are packaged via `importlib.resources` with zero external dependencies.
+- Non-interactive scripted automation is retained permanently through the canonical CLI (`python -m sarathi --input ...`).
 
 ### 2.1 Option and logic synchronization
 

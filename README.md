@@ -148,10 +148,15 @@ created only when an existing owner cannot hold the concern cleanly.
 
 ## 7. Local Run Command
 
-Sarathi provides a non-interactive CLI entry point and interactive presentation frontend using the canonical Agni runtime bootstrap path:
+Sarathi provides a single interactive **Mukha Local Web** presentation dashboard and a non-interactive CLI entry point using the canonical Agni runtime bootstrap path:
 
 ```bash
-# Non-interactive execution via console script entry point
+# Interactive Local Web Dashboard (opens http://127.0.0.1:<port> in default browser)
+.\arambha.bat
+# or:
+uv run python -m sarathi
+
+# Non-interactive CLI execution via console script entry point
 uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --profile "instant"
 
 # Non-interactive execution via Python module entry point

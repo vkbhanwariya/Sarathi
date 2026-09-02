@@ -81,22 +81,35 @@ def main(argv: list[str] | None = None) -> int:
             parser.print_help(sys.stderr)
             return 2
 
-        # Interactive mode: launch MukhaApp connected to Agni bootstrap
+        # Interactive mode: launch MukhaWebServer connected to Agni bootstrap
         try:
             with Agni(
                 settings=Path(args.config) if args.config else None,
                 runtime_root=Path(args.runtime_root) if args.runtime_root else None,
                 output_root=Path(args.output_root) if args.output_root else None,
             ) as agni:
-                from sarathi.mukha import InputSelectionView, MukhaApp, MukhaPresenter
+                import time
+                import webbrowser
 
-                home_view = MukhaPresenter.build_home_view(
-                    input_selection=InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False),
-                    requirement=args.requirement,
-                    policy_label="Local only",
-                )
-                app = MukhaApp(initial_state=home_view, agni=agni)
-                app.run()
+                from sarathi.mukha import MukhaWebServer
+
+                server = MukhaWebServer(agni=agni)
+                server.start()
+                local_url = server.local_url
+                print(f"Sarathi V2 Dashboard running at: {local_url}")
+                print("Press Ctrl+C to stop.")
+                try:
+                    webbrowser.open(local_url)
+                except Exception:
+                    pass
+
+                try:
+                    while True:
+                        time.sleep(0.5)
+                except KeyboardInterrupt:
+                    pass
+                finally:
+                    server.stop()
                 return 0
         except DoshError as dosh_err:
             print(f"Configuration error: {dosh_err.code.name} - {dosh_err.message}", file=sys.stderr)
