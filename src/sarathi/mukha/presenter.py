@@ -29,9 +29,11 @@ from sarathi.mukha.state import (
     PreflightView,
     ProgressKind,
     ProgressState,
+    ReviewItemView,
     RunSummaryView,
     RunViewState,
     StageTimingView,
+    StartupViewState,
     WorkerPageView,
 )
 from sarathi.sankalpa import ArtifactRef, InputRef, Request, Result
@@ -64,12 +66,45 @@ class MukhaPresenter:
         )
 
     @staticmethod
+    def build_startup_view(
+        is_initializing: bool,
+        current_stage: str,
+        elapsed_ns: int,
+        maruti_records: Sequence[MarutiRecord] = (),
+        is_failed: bool = False,
+        failure_message: str | None = None,
+    ) -> StartupViewState:
+        """Build Screen 0 Overlay: Aarambha - Startup Progress presentation state."""
+        stages: list[tuple[str, str, int | None]] = []
+        for r in maruti_records:
+            if r.component == "bootstrap" or "init" in r.phase_name or "bootstrap" in r.phase_name:
+                st = "completed" if r.outcome == "success" else "failed"
+                stages.append((r.phase_name, st, r.duration_ns))
+        return StartupViewState(
+            is_initializing=is_initializing,
+            current_stage=current_stage,
+            elapsed_ns=elapsed_ns,
+            stages=tuple(stages),
+            is_failed=is_failed,
+            failure_message=failure_message,
+        )
+
+    @staticmethod
+    def build_review_view(
+        items: Sequence[ReviewItemView],
+    ) -> tuple[ReviewItemView, ...]:
+        """Construct immutable review queue snapshot for Screen 3: Pariksha."""
+        return tuple(items)
+
+    @staticmethod
     def build_home_view(
         input_selection: InputSelectionView,
         requirement: str = "read_native",
         policy_label: str = "Local only",
         preflight: PreflightView | None = None,
         available_actions: Sequence[AvailableActionView] = (),
+        review_queue: Sequence[ReviewItemView] = (),
+        startup: StartupViewState | None = None,
     ) -> ApplicationViewState:
         """Build Screen 1: Griha - Home & Input Setup presentation state purely from supplied facts."""
         return ApplicationViewState(
@@ -79,6 +114,8 @@ class MukhaPresenter:
             input_selection=input_selection,
             preflight=preflight,
             available_actions=tuple(available_actions),
+            review_queue=tuple(review_queue),
+            startup=startup,
         )
 
     @staticmethod

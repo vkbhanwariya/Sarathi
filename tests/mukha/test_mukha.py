@@ -11,6 +11,7 @@ from sarathi.darpana import Darpana, MarutiRecord, PramanaRecord
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.mukha import (
+    AarambhaScreen,
     ApplicationViewState,
     AvailableActionView,
     FileRunView,
@@ -24,12 +25,15 @@ from sarathi.mukha import (
     MukhaApp,
     MukhaPresenter,
     OperationView,
+    ParikshaScreen,
     PreflightView,
     ProgressKind,
     ProgressState,
+    ReviewItemView,
     RunSummaryView,
     RunViewState,
     StageTimingView,
+    StartupViewState,
     SummaryScreen,
     WorkerPageView,
     format_bytes,
@@ -677,6 +681,151 @@ class TestMukhaTextualWorkerFlow:
             app = MukhaApp(initial_state=init_state)
 
             async with app.run_test(size=(60, 15)) as pilot:
+                assert isinstance(app.screen, HomeScreen)
+                await pilot.pause()
+
+        asyncio.run(_run())
+
+
+class TestMukhaParikshaAndReviewScreen:
+    """Tests for Screen 3: Pariksha - Review & Exceptions."""
+
+    def test_pariksha_empty_review_queue_renders_cleanly(self) -> None:
+        async def _run() -> None:
+            sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, review_queue=())
+
+            app = MukhaApp(initial_state=init_state)
+
+            async with app.run_test() as pilot:
+                assert isinstance(app.screen, HomeScreen)
+                # Press F3 or switch to review
+                app.action_switch_review()
+                await pilot.pause()
+
+                assert isinstance(app.screen, ParikshaScreen)
+                empty_lbl = app.screen.query_one("#review-empty-message")
+                assert "No items currently pending review." in str(empty_lbl.render())
+
+        asyncio.run(_run())
+
+    def test_pariksha_renders_pending_review_items_losslessly(self) -> None:
+        async def _run() -> None:
+            item1 = ReviewItemView(
+                item_id="rev-1",
+                attempt_id="att-1",
+                file_display_name="HDFC_Statement.pdf",
+                stage="bank_extraction",
+                source_text="कुल जमा 1,25,750.50",
+                output_text="कुल जमा 1,25,150.50",
+                issue_reason="Amount balance mismatch",
+                page_number=17,
+                confidence=0.712,
+                device_type="CPU",
+                elapsed_ns=6_140_000_000,
+                available_actions=("accept", "validate_edit", "retry", "unresolved"),
+            )
+
+            sel = InputSelectionView(total_files=1, total_size_bytes=100, is_grouped=False)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, review_queue=(item1,))
+
+            app = MukhaApp(initial_state=init_state)
+
+            async with app.run_test() as pilot:
+                app.action_switch_review()
+                await pilot.pause()
+
+                assert isinstance(app.screen, ParikshaScreen)
+                hdr = app.screen.query_one("#review-header")
+                assert "HDFC_Statement.pdf" in str(hdr.render())
+                assert "Page 17" in str(hdr.render())
+
+                src = app.screen.query_one("#review-source")
+                assert "1,25,750.50" in str(src.render())
+
+                out = app.screen.query_one("#review-output")
+                assert "1,25,150.50" in str(out.render())
+
+                metrics = app.screen.query_one("#review-metrics")
+                assert "71.2%" in str(metrics.render())
+                assert "Amount balance mismatch" in str(metrics.render())
+
+                exec_lbl = app.screen.query_one("#review-execution")
+                assert "CPU" in str(exec_lbl.render())
+                assert "06.1s" in str(exec_lbl.render())
+
+                # Check buttons rendered
+                btn_accept = app.screen.query_one("#btn-review-accept")
+                assert btn_accept is not None
+                btn_retry = app.screen.query_one("#btn-review-retry")
+                assert btn_retry is not None
+
+        asyncio.run(_run())
+
+    def test_review_view_model_immutability(self) -> None:
+        item = ReviewItemView(
+            item_id="rev-2",
+            attempt_id="att-2",
+            file_display_name="sample.pdf",
+            stage="ocr",
+            source_text="source",
+            output_text="output",
+            issue_reason="low_confidence",
+            confidence=0.65,
+        )
+        assert item.available_actions == ("accept", "validate_edit", "retry", "unresolved")
+        with pytest.raises(Exception):
+            item.item_id = "mutated"  # type: ignore[misc]
+
+
+class TestMukhaAarambhaStartupOverlay:
+    """Tests for Screen 0: Aarambha - Startup Progress Overlay."""
+
+    def test_startup_overlay_renders_when_threshold_exceeded(self) -> None:
+        async def _run() -> None:
+            startup_state = StartupViewState(
+                is_initializing=True,
+                current_stage="Detect execution devices",
+                elapsed_ns=6_500_000_000,  # 6.5 seconds > 5.0s threshold
+                stages=(
+                    ("Configuration loaded", "completed", 120_000_000),
+                    ("Darpana recording active", "completed", 40_000_000),
+                    ("Discovering capabilities", "completed", 1_200_000_000),
+                ),
+            )
+            sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, startup=startup_state)
+
+            app = MukhaApp(initial_state=init_state)
+
+            async with app.run_test() as pilot:
+                # Must push AarambhaScreen on mount when initializing > 5s
+                assert isinstance(app.screen, AarambhaScreen)
+                hdr = app.screen.query_one("#aarambha-header")
+                assert "Aarambha" in str(hdr.render())
+                assert "06.5s" in str(hdr.render())
+
+                # Dismiss transitions to HomeScreen
+                await pilot.click("#btn-aarambha-dismiss")
+                await pilot.pause()
+                assert isinstance(app.screen, HomeScreen)
+
+        asyncio.run(_run())
+
+    def test_startup_overlay_skipped_when_under_five_seconds(self) -> None:
+        async def _run() -> None:
+            startup_state = StartupViewState(
+                is_initializing=True,
+                current_stage="Fast init",
+                elapsed_ns=500_000_000,  # 0.5 seconds < 5.0s threshold
+            )
+            sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+            init_state = MukhaPresenter.build_home_view(input_selection=sel, startup=startup_state)
+
+            app = MukhaApp(initial_state=init_state)
+
+            async with app.run_test() as pilot:
+                # Fast startup must NOT flash AarambhaScreen; mounts directly to HomeScreen
                 assert isinstance(app.screen, HomeScreen)
                 await pilot.pause()
 
