@@ -521,3 +521,30 @@ class TestAgniBootstrap:
         assert exit_code == 2
         captured = capsys.readouterr()
         assert "Validation error: Duplicate input file selected" in captured.err
+
+    def test_agni_default_relative_storage_roots_execute_successfully(self, tmp_path: Path) -> None:
+        """Verify Agni with default settings resolves relative roots and records output_dir without ValueError."""
+        doc_file = tmp_path / "sample.txt"
+        doc_file.write_text("Default root test", encoding="utf-8")
+
+        mock_cap = MockControlledCapability(NATIVE_CAPABILITY)
+        agni = Agni(capabilities={"read_native": mock_cap})
+        with agni:
+            assert agni.output_root.is_absolute()
+            assert agni.runtime_root.is_absolute()
+            req = Request(
+                request_id="req-rel-roots-01",
+                requirement="read_native",
+                inputs=(
+                    InputRef(
+                        input_id="inp-1",
+                        source_path=doc_file,
+                        display_name="sample.txt",
+                        size_bytes=doc_file.stat().st_size,
+                    ),
+                ),
+            )
+            result = agni.execute(req)
+            assert result is not None
+            assert "output_dir" in result.metadata
+            assert Path(result.metadata["output_dir"]).is_absolute()

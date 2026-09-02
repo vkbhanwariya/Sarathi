@@ -306,9 +306,9 @@ class TestMukhaWebServerAPI:
 
         maruti, pramana = web_server._get_run_telemetry(run_id)
         for r in maruti:
-            assert r.run_id == run_id
+            assert r.run_id == run_id or r.request_id == run_id
         for p in pramana:
-            assert p.run_id == run_id
+            assert p.run_id == run_id or p.request_id == run_id
 
     def test_runtime_and_output_paths_rejected_through_web_intake(self, web_server: MukhaWebServer) -> None:
         """Web intake rejects configured runtime and output root directories."""

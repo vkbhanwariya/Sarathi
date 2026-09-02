@@ -110,8 +110,8 @@ class Agni:
                         code=FailureCode.INVALID_CONFIGURATION,
                         message=f"{param_name} cannot be empty.",
                     )
-                return Path(arg_val)
-            return setting_val
+                return Path(arg_val).resolve()
+            return setting_val.resolve()
 
         validated_runtime_root = _resolve_root(runtime_root, active_settings.storage_runtime_root, "runtime_root")
         validated_output_root = _resolve_root(output_root, active_settings.storage_output_root, "output_root")
@@ -424,7 +424,7 @@ class Agni:
             raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
 
         # 1. Prevent re-ingestion from active staging/runtime or effective output roots via Kavacha
-        effective_output_root = request.output_root or self._output_root
+        effective_output_root = (request.output_root or self._output_root).resolve()
         self._kavacha.validate_source_destination_overlap(
             request.inputs,
             (self._runtime_root, effective_output_root),
@@ -542,11 +542,17 @@ class Agni:
                 )
 
                 duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)
-                out_dir_ref = (
-                    str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/")
-                    if workspace.output_dir
-                    else None
-                )
+                try:
+                    resolved_out = workspace.output_dir.resolve()
+                    resolved_root = effective_output_root.resolve()
+                    out_dir_ref = (
+                        str(resolved_out.relative_to(resolved_root)).replace("\\", "/")
+                        if workspace.output_dir
+                        else None
+                    )
+                except (ValueError, OSError):
+                    out_dir_ref = str(workspace.output_dir).replace("\\", "/") if workspace.output_dir else None
+
                 self._record_terminal_summary(
                     exec_ctx=exec_ctx,
                     request=request,
@@ -559,6 +565,10 @@ class Agni:
                 )
 
                 # 7. Return final Result with confirmed ArtifactRefs strictly from active workspace
+                result_metadata = dict(raw_result.metadata)
+                if workspace.output_dir:
+                    result_metadata["output_dir"] = str(workspace.output_dir.resolve())
+
                 return Result(
                     data=raw_result.data,
                     artifact_payloads=(),
@@ -567,7 +577,7 @@ class Agni:
                     warnings=raw_result.warnings,
                     provenance=raw_result.provenance,
                     next_requirement=raw_result.next_requirement,
-                    metadata=raw_result.metadata,
+                    metadata=result_metadata,
                 )
             except Exception as proc_exc:
                 duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)

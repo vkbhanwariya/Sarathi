@@ -470,8 +470,8 @@ class MukhaWebServer:
         """Fetch telemetry records filtered strictly to the active run ID."""
         if not self._agni.darpana:
             return (), ()
-        maruti = tuple(r for r in self._agni.darpana.maruti_records() if r.run_id == run_id)
-        pramana = tuple(r for r in self._agni.darpana.pramana_records() if r.run_id == run_id)
+        maruti = tuple(r for r in self._agni.darpana.maruti_records() if r.run_id == run_id or r.request_id == run_id)
+        pramana = tuple(r for r in self._agni.darpana.pramana_records() if r.run_id == run_id or r.request_id == run_id)
         return maruti, pramana
 
     def get_application_view_state(self) -> ApplicationViewState:
@@ -632,6 +632,8 @@ class MukhaWebServer:
                                 self._confirmed_artifacts[run_id][art.artifact_id] = art
                                 if art.path and art.path.parent.exists():
                                     self._run_output_roots[run_id] = art.path.parent
+                        if result.metadata.get("output_dir"):
+                            self._run_output_roots[run_id] = Path(result.metadata["output_dir"])
 
                         summary = MukhaPresenter.build_summary_view(
                             run_id=run_id,
@@ -672,7 +674,7 @@ class MukhaWebServer:
                             device_summaries=(),
                             artifacts=(),
                         )
-                except Exception:
+                except Exception as err:
                     maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
                     with self._lock:
@@ -682,7 +684,7 @@ class MukhaWebServer:
                             status="FAILED",
                             wall_time_ns=wall_time_ns,
                             total_inputs=len(request.inputs),
-                            failures=("EXECUTION_FAILED: An unexpected error occurred during execution.",),
+                            failures=(f"EXECUTION_FAILED: {err.__class__.__name__}: {err}",),
                             stage_timings=(),
                             device_summaries=(),
                             artifacts=(),
