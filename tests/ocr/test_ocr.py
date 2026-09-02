@@ -1089,3 +1089,63 @@ class TestOCRPhase1Instant:
                 importlib.util.find_spec("numpy"),
             ]
             assert all(s is None for s in specs)
+
+    def test_ocr_multi_page_demarcation_and_progress(self, context: ExecutionContext, tmp_path: Path) -> None:
+        """Verify multi-page OCR creates page demarcations and invokes progress_callback."""
+        engine = RapidOCREngine()
+        cap = OCRCapability(engine=engine)
+
+        pdf_path = tmp_path / "multi_ocr.pdf"
+        import fitz
+        doc = fitz.open()
+        for i in range(2):
+            page = doc.new_page()
+            page.insert_text((50, 50), f"Page content {i + 1}")
+        doc.save(str(pdf_path))
+        doc.close()
+
+        progress_calls = []
+
+        def _on_prog(**kwargs: Any) -> None:
+            progress_calls.append(kwargs)
+
+        req = Request(
+            request_id="req-multi-ocr",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-multi",
+                    source_path=pdf_path,
+                    display_name="multi_ocr.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+            profile=ExecutionProfile.INSTANT,
+            custom_options={"progress_callback": _on_prog},
+        )
+
+        with patch("rapidocr.RapidOCR") as mock_rapidocr:
+            mock_instance = MagicMock()
+            mock_output = MagicMock()
+            mock_output.txts = ("Sample Line",)
+            mock_output.boxes = ([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],)
+            mock_output.scores = (0.95,)
+            mock_instance.return_value = mock_output
+            mock_rapidocr.return_value = mock_instance
+
+            res = cap.execute(req, context)
+            assert isinstance(res, Result)
+            assert isinstance(res.data, CanonicalDocument)
+            # Demarcation check
+            assert "--- Page 1 ---" in res.data.text
+            assert "--- Page 2 ---" in res.data.text
+            # Artifact check
+            ocr_txt_payload = next(p for p in res.artifact_payloads if p.intent.name == "multi_ocr_ocr.txt")
+            txt_str = ocr_txt_payload.content.decode("utf-8")
+            assert "--- Page 1 ---" in txt_str
+            assert "--- Page 2 ---" in txt_str
+            # Progress calls check
+            assert len(progress_calls) >= 2
+            assert progress_calls[0]["page_number"] == 1
+            assert progress_calls[0]["total_pages"] == 2
+            assert progress_calls[1]["page_number"] == 2

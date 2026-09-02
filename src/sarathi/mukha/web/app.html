@@ -242,6 +242,33 @@
                         </div>
                     </div>
 
+                    <!-- Active Parallel Workers Table -->
+                    <div class="panel" id="active-workers-panel">
+                        <div class="panel-header">
+                            <h3>Active Parallel Workers</h3>
+                            <span id="active-workers-count" class="badge badge-indigo">0 Active</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-container">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Worker ID</th>
+                                            <th>Document</th>
+                                            <th>Page</th>
+                                            <th>Stage</th>
+                                            <th>Hardware Device</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="active-workers-tbody">
+                                        <tr class="empty-row"><td colspan="6">No active workers.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- File Execution Pipeline Table -->
                     <div class="panel file-pipeline-panel">
                         <div class="panel-header">

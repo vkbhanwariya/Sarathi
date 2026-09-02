@@ -106,6 +106,42 @@ class TestNativeExtraction:
         assert prov.evidence["reader"] == "pymupdf"
         assert prov.source_file is None  # Zero path leakage in provenance
 
+    def test_pdf_multi_page_demarcation_in_artifact(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        pdf_path = tmp_path / "multipage_sample.pdf"
+        doc_pdf = pymupdf.open()
+        p1 = doc_pdf.new_page(width=595, height=842)
+        p1.insert_text((72, 72), "First Page Header\nLine of text on page 1")
+        p2 = doc_pdf.new_page(width=595, height=842)
+        p2.insert_text((72, 72), "Second Page Header\nLine of text on page 2")
+        doc_pdf.save(str(pdf_path))
+        doc_pdf.close()
+
+        req = Request(
+            request_id="req-multi",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-multi",
+                    source_path=pdf_path,
+                    display_name="multipage_sample.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+        assert isinstance(res, Result)
+        extracted_txt_payload = next(
+            p for p in res.artifact_payloads if p.intent.name == "multipage_sample_extracted.txt"
+        )
+        content = extracted_txt_payload.content.decode("utf-8")
+        assert "--- Page 1 ---" in content
+        assert "First Page Header" in content
+        assert "--- Page 2 ---" in content
+        assert "Second Page Header" in content
+
     def test_privacy_zero_raw_filesystem_path_leakage(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:

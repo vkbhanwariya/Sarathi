@@ -418,3 +418,56 @@ class TestMukhaWebServerAPI:
             res = web_server.reveal_output_directory(run_id)
             assert res is True
             assert mock_popen.called
+
+    def test_active_workers_and_page_progress_in_view_state(
+        self, web_server: MukhaWebServer, tmp_path: Path
+    ) -> None:
+        """Verify that live progress updates populate active_workers and page numbers in state."""
+        import threading
+        test_file = tmp_path / "report.pdf"
+        test_file.write_text("dummy", encoding="utf-8")
+
+        started_evt = threading.Event()
+        finish_evt = threading.Event()
+
+        def mock_execute(req: Any) -> Any:
+            prog_cb = req.custom_options["progress_callback"]
+            prog_cb(
+                file_display_name="report.pdf",
+                page_number=3,
+                total_pages=5,
+                worker_id="2",
+                stage="Optical Character Recognition (OCR)",
+                device_type="GPU",
+            )
+            started_evt.set()
+            finish_evt.wait(timeout=2.0)
+            from sarathi.contracts import Result
+            return Result(data=None)
+
+        with patch.object(web_server._agni, "execute", side_effect=mock_execute):
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={"paths": [str(test_file)], "requirement": "ocr"},
+            )
+            assert status == 200
+            assert started_evt.wait(timeout=2.0)
+
+            # Query state while run is active
+            status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+            assert status == 200
+            state = json.loads(body.decode("utf-8"))["state"]
+            active_run = state["active_run"]
+            assert active_run is not None
+            assert len(active_run["active_workers"]) == 1
+            worker = active_run["active_workers"][0]
+            assert worker["worker_id"] == "2"
+            assert worker["page_number"] == 3
+            assert worker["device_type"] == "GPU"
+            assert worker["stage"] == "Optical Character Recognition (OCR)"
+
+            # Verify current_stage of file view shows page
+            file_view = active_run["files"][0]
+            assert "Page 3/5" in file_view["current_stage"]
+
+            finish_evt.set()
