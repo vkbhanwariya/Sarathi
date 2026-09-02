@@ -12,6 +12,7 @@ from sarathi.shakti.font_conversion.models import LegacyFontProfile
 
 _CANONICAL_FONTS_DIR = Path(__file__).resolve().parents[4] / "data" / "fonts"
 _KRUTI_CONSONANTS = ('(?:[DPRFYOCLHEUI]|x~)?(?:\\[k|\\?k|Fk|/k|Hk|\'k|\\"k|\\.k|[dxptTVBMrnuc;jyo\\?ghKs])')
+_REPH_DEVANAGARI_RE = re.compile(r"([ऀ-ॿ])Z")
 
 
 class FontConverter:
@@ -48,7 +49,7 @@ class FontConverter:
         reph_char = profile.postfix_reph
         reph_unicode = profile.reph_unicode
         if reph_char in text:
-            text = re.sub(rf"([\u0900-\u097F]){re.escape(reph_char)}", lambda m: f"{reph_unicode}{m.group(1)}", text)
+            text = _REPH_DEVANAGARI_RE.sub(lambda m: f"{reph_unicode}{m.group(1)}", text)
 
         # 5. Post-corrections
         for src, tgt in profile.post_corrections:

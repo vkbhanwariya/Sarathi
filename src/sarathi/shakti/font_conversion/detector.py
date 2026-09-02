@@ -13,7 +13,7 @@ _CANONICAL_FONTS_DIR = Path(__file__).resolve().parents[4] / "data" / "fonts"
 _KRUTI_SIGNATURES = (
     "[k", "vk", "vks", "vkS", "Fk", "/k", "Hk", "'k", ";Z", "jZ", ";k", "D;",
     "x~", "LVs", "cSa", ".k", "ñ", "ò", "ó", "ô", "õ", "ö", "÷", "ø", "ù", "ú",
-    "û", "ü", "fdr", "fd", "fr", "fn", "fc", "f["
+    "û", "ü", "fdr", "fd", "fr", "fn", "fc", "f[", "fH", "fF", "fD", "fnY", "mRr"
 )
 
 
@@ -52,19 +52,31 @@ class LegacyFontDetector:
         self._profiles = load_font_profiles(fonts_dir)
 
     def detect(self, text: str, font_hint: str | None = None) -> tuple[str | None, float]:
-        """Detect legacy font profile from font_hint or text distribution."""
-        if font_hint:
-            hint_lower = font_hint.lower().strip()
-            for prof in self._profiles.values():
-                if hint_lower == prof.profile_id.lower() or hint_lower in prof.aliases:
-                    return prof.profile_id, 1.0
+        """Detect legacy font profile from actual text evidence.
 
+        A font_hint narrows candidate profiles only; confirmed text evidence is strictly required.
+        """
         if not text.strip():
             return None, 0.0
 
-        # Evidence-based signature digraph detection
+        # Evidence-based signature digraph detection in content
         matches = [s for s in _KRUTI_SIGNATURES if s in text]
-        if len(matches) >= 2 and "krutidev010" in self._profiles:
+        has_kruti_evidence = len(matches) >= 2
+
+        if not has_kruti_evidence:
+            # Insufficient text evidence: do not authorize destructive conversion
+            return None, 0.0
+
+        # Text has genuine Kruti Dev evidence: check candidate profile compatibility
+        if font_hint:
+            hint_lower = font_hint.lower().strip()
+            kruti_prof = self._profiles.get("krutidev010")
+            if kruti_prof is not None:
+                if hint_lower != kruti_prof.profile_id.lower() and hint_lower not in kruti_prof.aliases:
+                    # Incompatible hint provided despite legacy text: reject hint mismatch
+                    return None, 0.0
+
+        if "krutidev010" in self._profiles:
             conf = min(1.0, 0.5 + len(matches) * 0.1)
             return "krutidev010", conf
 
