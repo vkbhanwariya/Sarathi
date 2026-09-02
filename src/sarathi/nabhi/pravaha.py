@@ -9,6 +9,7 @@ device allocation, UI rendering, telemetry persistence, caching, or security pol
 """
 
 from __future__ import annotations
+from sarathi.smriti import SmritiCache, compute_cache_key
 
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -49,6 +50,7 @@ class Pravaha:
         retry_policy: RetryPolicy | None = None,
         darpana: Darpana | None = None,
         kavacha: Kavacha | None = None,
+        smriti: SmritiCache | None = None,
     ) -> None:
         """Initialize Pravaha with resolver, execution manager, capabilities, optional quarantine, and telemetry."""
         if not isinstance(manthan, Manthan):
@@ -82,6 +84,9 @@ class Pravaha:
         self._retry_policy: RetryPolicy = retry_policy if retry_policy is not None else RetryPolicy(max_retries=0)
         self._darpana: Darpana | None = darpana
         self._kavacha: Kavacha | None = kavacha
+        if smriti is not None and not isinstance(smriti, SmritiCache):
+            raise TypeError(f"smriti must be a SmritiCache instance or None, got {type(smriti).__name__}.")
+        self._smriti: SmritiCache | None = smriti
 
         if self._retry_policy.max_retries > 0 and self._quarantine_store is None:
             raise DoshError(
@@ -447,6 +452,15 @@ class Pravaha:
                             message=f"Attempt for capability '{cap.declaration.capability_id}' is in terminal quarantine state and cannot be executed again.",
                         )
 
+                # Smriti cache check
+                cache_key = None
+                if self._smriti is not None:
+                    cache_key = compute_cache_key(current_request, cap.declaration.capability_id, cap.declaration.version)
+                    cached_result = self._smriti.get(cache_key)
+                    if cached_result is not None:
+                        prior_result = cached_result
+                        continue
+
                 try:
                     scope = (
                         self._darpana.time_scope(
@@ -468,6 +482,9 @@ class Pravaha:
                             context=current_ctx,
                             prior_result=prior_result,
                         )
+
+                    if self._smriti is not None and cache_key is not None:
+                        self._smriti.put(cache_key, prior_result)
 
                     self._record_pramana_if_available(cap, prior_result, current_ctx)
 

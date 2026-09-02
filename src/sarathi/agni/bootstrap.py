@@ -5,6 +5,7 @@ lifecycle management, and canonical request execution. Wires owners together; do
 """
 
 from __future__ import annotations
+from sarathi.smriti import SmritiCache
 
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ class Agni:
         inventory: DeviceInventory | None = None,
         darpana: Darpana | None = None,
         kavacha: Kavacha | None = None,
+        smriti: SmritiCache | None = None,
         context: ExecutionContext | None = None,
     ) -> None:
         """Initialize Agni composition root and construct global services in dependency order.
@@ -208,6 +210,14 @@ class Agni:
             root=self._runtime_root / "Quarantine",
         )
 
+        # 8b. Validate Smriti Cache
+        active_smriti: SmritiCache | None = None
+        if smriti is not None:
+            if not isinstance(smriti, SmritiCache):
+                raise TypeError(f"smriti must be a SmritiCache instance or None, got {type(smriti).__name__}.")
+            active_smriti = smriti
+        self._smriti: SmritiCache | None = active_smriti
+
         # Pravaha Dynamic Pipeline Engine
         self._pravaha: Pravaha = Pravaha(
             manthan=self._manthan,
@@ -217,6 +227,7 @@ class Agni:
             retry_policy=self._retry_policy,
             darpana=self._darpana,
             kavacha=self._kavacha,
+            smriti=self._smriti,
         )
 
         self._is_started: bool = False
@@ -230,6 +241,11 @@ class Agni:
     def darpana(self) -> Darpana:
         """Return the injected Darpana telemetry service."""
         return self._darpana
+
+    @property
+    def smriti(self) -> SmritiCache | None:
+        """Return the injected SmritiCache service if configured."""
+        return self._smriti
 
     @property
     def kavacha(self) -> Kavacha:
