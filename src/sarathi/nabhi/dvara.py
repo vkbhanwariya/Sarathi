@@ -116,7 +116,6 @@ class Dvara:
             (OCR_PLUGIN, (OCR_CAPABILITY,)),
             (BANK_STATEMENTS_PLUGIN, (BANK_STATEMENTS_CAPABILITY,)),
             (FONT_CONVERSION_PLUGIN, (FONT_CONVERSION_CAPABILITY,)),
-            (TRANSLATION_PLUGIN, (TRANSLATION_CAPABILITY,)),
         ]
 
         # 1. Preflight all built-ins against existing Kosh state

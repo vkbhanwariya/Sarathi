@@ -489,6 +489,7 @@ dependencies = [
     { name = "polars" },
     { name = "pymupdf" },
     { name = "python-calamine" },
+    { name = "pyyaml" },
     { name = "textual" },
     { name = "xlrd" },
 ]
@@ -517,6 +518,7 @@ requires-dist = [
     { name = "polars", specifier = ">=1.44.1" },
     { name = "pymupdf", specifier = ">=1.28.2" },
     { name = "python-calamine", specifier = ">=0.8.2" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rapidocr", marker = "extra == 'ocr'", specifier = ">=3.9.0" },
     { name = "textual", specifier = ">=8.2.8" },
     { name = "xlrd", specifier = ">=2.0.2" },

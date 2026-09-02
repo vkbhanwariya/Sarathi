@@ -177,7 +177,3 @@ class CTranslate2TranslationEngine:
             protected_spans_count=len(spans),
             metadata={"sentences_count": len(raw_sentences)},
         )
-
-
-# Canonical alias for single production path
-TranslationEngine = CTranslate2TranslationEngine

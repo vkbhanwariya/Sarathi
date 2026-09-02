@@ -30,6 +30,7 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     version="2.0.0",
     description="Extracts, validates, and consolidates bank account statements into Parquet and XLSX.",
     supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
+    prerequisites=("read_native",),
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.CPU,),
         supported_devices=(DeviceType.CPU,),

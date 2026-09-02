@@ -1,7 +1,7 @@
 """Shakti Translation Package for Sarathi V2."""
 
 from sarathi.shakti.translation.capability import TranslationCapability
-from sarathi.shakti.translation.engine import CTranslate2TranslationEngine, TranslationEngine
+from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 from sarathi.shakti.translation.models import (
     Language,
     TranslationDirection,
@@ -12,16 +12,12 @@ from sarathi.shakti.translation.plugin import (
     PLUGIN_INFO,
 )
 
-PLUGIN_DECLARATION = PLUGIN_INFO
-
 __all__ = [
     "CAPABILITY_DECLARATION",
     "CTranslate2TranslationEngine",
     "Language",
-    "PLUGIN_DECLARATION",
     "PLUGIN_INFO",
     "TranslationCapability",
     "TranslationDirection",
-    "TranslationEngine",
     "TranslationResult",
 ]

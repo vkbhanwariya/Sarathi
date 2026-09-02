@@ -115,13 +115,18 @@ class Manthan:
                         ),
                     )
 
-        if requirement in ("bank_statements", "font_conversion", "translation"):
-            return CapabilityPlan(
-                request_id=request.request_id,
-                capability_ids=("read_native", requirement),
-            )
+        planned_ids: list[str] = []
+        for prereq in capability.prerequisites:
+            prereq_cap = self._registry.get_capability(prereq)
+            if prereq_cap is None:
+                raise DoshError(
+                    code=FailureCode.UNSUPPORTED,
+                    message=f"Prerequisite capability '{prereq}' required by '{capability.capability_id}' is not registered.",
+                )
+            planned_ids.append(prereq_cap.capability_id)
+        planned_ids.append(capability.capability_id)
 
         return CapabilityPlan(
             request_id=request.request_id,
-            capability_ids=(capability.capability_id,),
+            capability_ids=tuple(planned_ids),
         )

@@ -23,13 +23,11 @@ from sarathi.sankalpa import (
 from sarathi.shakti.translation.detector import LanguageDetector
 from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
-    TranslationEngine,
     TranslatorBackend,
 )
 from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
-from sarathi.shakti.translation.validator import TranslationValidator
 
 
 class TranslationCapability:
@@ -50,7 +48,6 @@ class TranslationCapability:
             backend=backend,
             protector=self._protector,
         )
-        self._validator = TranslationValidator()
 
     def execute(
         self,

@@ -4,13 +4,11 @@ from typing import Any
 from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.protector import TranslationProtector
-from sarathi.shakti.translation.validator import TranslationValidator
 
 
 def test_factual_spans_and_identifiers_preserved_byte_for_byte(test_backend: Any) -> None:
     protector = TranslationProtector()
     engine = CTranslate2TranslationEngine(backend=test_backend, protector=protector)
-    validator = TranslationValidator()
 
     sample = (
         "दिनांक 15/08/2026 को खाता संख्या ACC-998811 में ₹ 1,50,000.50 जमा (100%) किए गए। "
