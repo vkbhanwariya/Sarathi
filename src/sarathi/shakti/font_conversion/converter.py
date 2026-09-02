@@ -81,3 +81,39 @@ class FontConverter:
 
         # 6. NFC Unicode normalization
         return unicodedata.normalize("NFC", text)
+
+    def convert_to_legacy(self, text: str, target_profile_id: str = "krutidev010") -> str:
+        """Convert standard Unicode Devanagari text into legacy font encoding (KrutiDev or DevLys)."""
+        pid = target_profile_id.lower().strip()
+        profile = self._profiles.get(pid)
+        if profile is None:
+            # Fallback to krutidev010 if specific profile not found
+            profile = self._profiles.get("krutidev010")
+            if profile is None:
+                return text
+
+        norm_text = unicodedata.normalize("NFC", text)
+
+        # 1. Handle pre-base choti-i matra 'ि': in Unicode it follows consonant, in Kruti it precedes
+        norm_text = re.sub(r"((?:[क-ह]्)*[क-ह])ि", r"f\1", norm_text)
+
+        # 2. Handle reph 'र्': in Unicode it precedes consonant, in Kruti/DevLys 'Z' follows
+        norm_text = re.sub(r"र्((?:[क-ह]्)*[क-ह](?:[ाीुूेैोौ]|ं|ँ)?)", r"\1Z", norm_text)
+
+        # 3. Build reverse mapping (Unicode -> Legacy), longest Unicode matches first
+        reverse_map: dict[str, str] = {}
+        for leg_k, uni_v in profile.mappings.items():
+            if uni_v and uni_v not in reverse_map:
+                reverse_map[uni_v] = leg_k
+
+        # Also add prefix if not present
+        for leg_k, uni_v in profile.prefixes.items():
+            if uni_v and uni_v not in reverse_map:
+                reverse_map[uni_v] = leg_k
+
+        sorted_uni = sorted(reverse_map.keys(), key=len, reverse=True)
+        if sorted_uni:
+            pattern = re.compile("|".join(re.escape(u) for u in sorted_uni))
+            norm_text = pattern.sub(lambda m: reverse_map.get(m.group(0), m.group(0)), norm_text)
+
+        return norm_text

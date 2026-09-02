@@ -162,7 +162,8 @@ class TesseractFallbackAdapter:
                     message="Tesseract fallback execution returned non-zero exit status.",
                 )
 
-            lines = [ln for ln in res.stdout.splitlines() if ln.strip()]
+            stdout_text = res.stdout or ""
+            lines = [ln for ln in stdout_text.splitlines() if ln.strip()]
             words: list[str] = []
             conf_scores: list[float] = []
 

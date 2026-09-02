@@ -116,7 +116,8 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
         if p.text:
             table_texts.append(p.text)
 
-    full_text = (document.text + " " + " ".join(table_texts)).lower()
+    composite_raw = document.text + " " + " ".join(table_texts)
+    full_text = composite_raw.lower()
 
     # 1. Check for negative non-bank indicators
     non_bank_matches = [kw for kw in _NON_BANK_INDICATORS if kw in full_text]
@@ -146,7 +147,9 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
         if table.headers:
             candidates.append(" ".join(str(c).lower().strip() for c in table.headers))
         if table.rows:
-            candidates.append(" ".join(str(c).lower().strip() for c in table.rows[0]))
+            # Check up to the first 30 rows to accommodate Excel/CSV statements with preceding metadata
+            for r in table.rows[:30]:
+                candidates.append(" ".join(str(c).lower().strip() for c in r))
 
         for header_str in candidates:
             has_date = any(d in header_str for d in ("date", "txn", "दिनांक", "तारीख"))
@@ -160,8 +163,8 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
         if has_transaction_headers:
             break
 
-    if not has_transaction_headers and document.text:
-        for line in document.text.splitlines():
+    if not has_transaction_headers and full_text:
+        for line in full_text.splitlines():
             l_lower = line.lower()
             if ("date" in l_lower or "txn" in l_lower) and (
                 "debit" in l_lower or "credit" in l_lower or "balance" in l_lower
@@ -189,15 +192,16 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
             reasons.append(f"Matched bank profile '{matched_profile_id}' ({matched_bank_name}) on keywords {matches}.")
 
             patterns = prof.get("metadata_patterns", {})
+            search_target = composite_raw if composite_raw.strip() else document.text
             if "account_number" in patterns:
-                m_acc = re.search(patterns["account_number"], document.text, re.IGNORECASE)
+                m_acc = re.search(patterns["account_number"], search_target, re.IGNORECASE)
                 if m_acc:
                     raw_acc_num = m_acc.group(1).strip()
                     score += 0.1
                     reasons.append("Extracted account number pattern.")
 
             if "account_holder" in patterns:
-                m_holder = re.search(patterns["account_holder"], document.text, re.IGNORECASE)
+                m_holder = re.search(patterns["account_holder"], search_target, re.IGNORECASE)
                 if m_holder:
                     raw_acc_holder = m_holder.group(1).strip()
                     score += 0.1

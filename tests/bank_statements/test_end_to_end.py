@@ -203,3 +203,46 @@ def test_e2e_sbi_bank_statement_consolidation(tmp_path: Path) -> None:
     maruti_recs = tuple(r for r in darpana.maruti_records() if r.run_id == ctx.run_id)
     assert len(maruti_recs) > 0
     assert any(r.phase_name == "capability_execution" and r.outcome == "success" for r in maruti_recs)
+
+
+def test_excel_bank_statement_with_metadata_headers(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "Runtime"
+    output_dir = tmp_path / "Output"
+    darpana = Darpana(capacity=200)
+    agni = Agni(runtime_root=runtime_dir, output_root=output_dir, darpana=darpana)
+
+    xlsx_path = tmp_path / "sbi_statement.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Statement"
+    # Metadata rows at the top (typical in real bank statements)
+    ws.append(["STATE BANK OF INDIA"])
+    ws.append(["Account Statement for Account Number: 30123456789"])
+    ws.append(["Account Holder: Ramesh Kumar", "CIF No: 88776655"])
+    ws.append(["Branch: Bhopal Main Branch", "IFSC: SBIN0001234"])
+    ws.append([])  # blank row
+    # Transaction table headers at row 6
+    ws.append(["Txn Date", "Description", "Ref No", "Debit", "Credit", "Balance"])
+    ws.append(["01/01/2026", "OPENING BALANCE", "", "", "", "10000.00"])
+    ws.append(["05/01/2026", "ATM CASH WITHDRAWAL", "W123", "2000.00", "", "8000.00"])
+    ws.append(["10/01/2026", "SALARY CREDIT", "C456", "", "50000.00", "58000.00"])
+    wb.save(str(xlsx_path))
+    wb.close()
+
+    inp = InputRef(
+        input_id="inp-sbi-xlsx",
+        source_path=xlsx_path,
+        display_name="sbi_statement.xlsx",
+        size_bytes=xlsx_path.stat().st_size,
+    )
+    req = Request(
+        request_id="req-sbi-xlsx",
+        requirement="bank_statements",
+        inputs=(inp,),
+        profile=ExecutionProfile.INSTANT,
+    )
+    ctx = ExecutionContext("run-sbi-xlsx", "req-sbi-xlsx", "t-sbi", "s-sbi")
+    result = agni.execute(req, context=ctx)
+    assert isinstance(result, Result)
+    consolidation: BankStatementConsolidationResult = result.data
+    assert consolidation.total_transactions == 2

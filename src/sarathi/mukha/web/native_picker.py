@@ -47,7 +47,8 @@ class NativePicker:
                     parent=root,
                     title=title,
                     filetypes=[
-                        ("All Supported Documents", "*.pdf;*.csv;*.xlsx;*.xls;*.txt;*.html;*.htm;*.json"),
+                        ("All Supported Documents", "*.pdf;*.docx;*.doc;*.csv;*.xlsx;*.xls;*.txt;*.html;*.htm;*.json"),
+                        ("Word Documents (*.docx, *.doc)", "*.docx;*.doc"),
                         ("PDF Documents (*.pdf)", "*.pdf"),
                         ("Spreadsheets (*.csv, *.xlsx, *.xls)", "*.csv;*.xlsx;*.xls"),
                         ("Text & HTML (*.txt, *.html, *.htm)", "*.txt;*.html;*.htm"),
