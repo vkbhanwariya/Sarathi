@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Any, Callable
 from zipfile import BadZipFile
 
@@ -14,6 +15,8 @@ import xlrd
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
+    ArtifactIntent,
+    ArtifactPayload,
     CanonicalDocument,
     CapabilityDeclaration,
     ExecutionContext,
@@ -189,8 +192,25 @@ class NativeExtractionCapability:
 
         result_data: Any = extracted_docs[0] if len(extracted_docs) == 1 else tuple(extracted_docs)
 
+        payloads: list[ArtifactPayload] = []
+        if not needs_ocr:
+            for inp, doc in zip(request.inputs, extracted_docs):
+                if doc.text:
+                    stem = Path(inp.display_name).stem if inp.display_name else inp.input_id
+                    payloads.append(
+                        ArtifactPayload(
+                            intent=ArtifactIntent(
+                                name=f"{stem}_extracted.txt",
+                                role="extracted_text",
+                                media_type="text/plain",
+                            ),
+                            content=doc.text.encode("utf-8"),
+                        )
+                    )
+
         return Result(
             data=result_data,
+            artifact_payloads=tuple(payloads),
             warnings=tuple(all_warnings),
             provenance=tuple(all_provenance),
             next_requirement="ocr" if needs_ocr else None,
