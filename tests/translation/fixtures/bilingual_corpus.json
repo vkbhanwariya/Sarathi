@@ -1,0 +1,32 @@
+[
+  {
+    "id": "corpus-1",
+    "hi": "\u092d\u093e\u0930\u0924 \u0938\u0930\u0915\u093e\u0930 \u0915\u093e \u0906\u0926\u0947\u0936 \u0926\u093f\u0928\u093e\u0902\u0915 15/08/2026 \u0915\u094b \u091c\u093e\u0930\u0940 \u0915\u093f\u092f\u093e \u0917\u092f\u093e\u0964",
+    "en": "The Government of India Order was issued on date 15/08/2026.",
+    "protected_facts": [
+      "15/08/2026",
+      "Government of India",
+      "Order"
+    ]
+  },
+  {
+    "id": "corpus-2",
+    "hi": "\u0916\u093e\u0924\u093e \u0938\u0902\u0916\u094d\u092f\u093e SBI-998811 \u092e\u0947\u0902 \u20b9 50,000.00 \u091c\u092e\u093e \u0915\u093f\u090f \u0917\u090f\u0964",
+    "en": "\u20b9 50,000.00 was deposited in Account Number SBI-998811.",
+    "protected_facts": [
+      "SBI-998811",
+      "50,000.00",
+      "Account Number"
+    ]
+  },
+  {
+    "id": "corpus-3",
+    "hi": "\u0909\u091a\u094d\u091a \u0928\u094d\u092f\u093e\u092f\u093e\u0932\u092f \u0926\u093f\u0932\u094d\u0932\u0940 \u0928\u0947 \u092f\u093e\u091a\u093f\u0915\u093e REF-HC-2026 \u0915\u094b \u0938\u094d\u0935\u0940\u0915\u093e\u0930 \u0915\u093f\u092f\u093e\u0964",
+    "en": "High Court Delhi accepted the petition REF-HC-2026.",
+    "protected_facts": [
+      "High Court",
+      "Delhi",
+      "REF-HC-2026"
+    ]
+  }
+]

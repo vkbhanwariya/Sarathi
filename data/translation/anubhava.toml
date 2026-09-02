@@ -1,0 +1,21 @@
+# Sarathi V2 - Translation Approved Corrections (Anubhava)
+# Read-only at runtime. Entries require evidence-backed verification.
+
+[metadata]
+capability = "translation"
+version = "1.0.0"
+
+[[corrections]]
+source = "उच्च न्यायालय"
+target = "High Court"
+direction = "hi-en"
+approved_by = "lead-reviewer"
+verified_on = "2026-09-02"
+
+[[corrections]]
+High_Court = "उच्च न्यायालय"
+source = "High Court"
+target = "उच्च न्यायालय"
+direction = "en-hi"
+approved_by = "lead-reviewer"
+verified_on = "2026-09-02"

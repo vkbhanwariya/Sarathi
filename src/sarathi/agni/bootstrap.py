@@ -31,6 +31,7 @@ from sarathi.shakti.native_extraction import NativeExtractionCapability
 from sarathi.shakti.ocr import OCRCapability
 from sarathi.shakti.bank_statements import BankStatementCapability
 from sarathi.shakti.font_conversion import FontConversionCapability
+from sarathi.shakti.translation import TranslationCapability
 from sarathi.sutra import Settings, load_settings
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 
@@ -155,6 +156,7 @@ class Agni:
                 "ocr": OCRCapability(),
                 "bank_statements": BankStatementCapability(darpana=active_darpana),
                 "font_conversion": FontConversionCapability(darpana=active_darpana),
+                "translation": TranslationCapability(darpana=active_darpana),
             }
 
         # 7. Validate Inventory - use factual default inventory
