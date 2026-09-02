@@ -100,7 +100,23 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
         DetectionEvidence with factual classification and matched profile.
     """
     profiles = load_bank_profiles(banks_dir)
-    full_text = document.text.lower()
+
+    all_tables = list(document.tables)
+    for page in document.pages:
+        all_tables.extend(page.tables)
+
+    # Build composite text from full text, pages, and structured table headers/cells
+    table_texts: list[str] = []
+    for t in all_tables:
+        if t.headers:
+            table_texts.append(" ".join(str(h) for h in t.headers))
+        for r in t.rows:
+            table_texts.append(" ".join(str(c) for c in r))
+    for p in document.pages:
+        if p.text:
+            table_texts.append(p.text)
+
+    full_text = (document.text + " " + " ".join(table_texts)).lower()
 
     # 1. Check for negative non-bank indicators
     non_bank_matches = [kw for kw in _NON_BANK_INDICATORS if kw in full_text]
@@ -123,19 +139,24 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
 
     # 2. Check for transaction table structures across doc.tables, pages, or text lines
     has_transaction_headers = False
-    all_tables = list(document.tables)
-    for page in document.pages:
-        all_tables.extend(page.tables)
-
     for table in all_tables:
+        candidates: list[str] = []
+        if table.headers:
+            candidates.append(" ".join(str(c).lower().strip() for c in table.headers))
         if table.rows:
-            header_str = " ".join(str(c).lower().strip() for c in table.rows[0])
+            candidates.append(" ".join(str(c).lower().strip() for c in table.rows[0]))
+
+        for header_str in candidates:
             has_date = any(d in header_str for d in ("date", "txn", "दिनांक", "तारीख"))
-            has_debit_credit = any(dc in header_str for dc in ("debit", "credit", "withdrawal", "deposit", "dr", "cr"))
+            has_debit_credit = any(
+                dc in header_str for dc in ("debit", "credit", "withdrawal", "deposit", "amount", "dr", "cr")
+            )
             has_balance = any(b in header_str for b in ("balance", "bal", "शेष"))
             if (has_date and has_debit_credit) or (has_date and has_balance):
                 has_transaction_headers = True
                 break
+        if has_transaction_headers:
+            break
 
     if not has_transaction_headers and document.text:
         for line in document.text.splitlines():
