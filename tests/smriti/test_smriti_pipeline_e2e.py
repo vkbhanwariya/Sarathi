@@ -1,4 +1,4 @@
-"""E2E Pipeline Integration and Telemetry Tests with Smriti Caching."""
+"""E2E Pipeline Integration and Truthful Telemetry Tests with Smriti Caching."""
 
 from pathlib import Path
 
@@ -45,7 +45,7 @@ def test_pipeline_caches_and_records_factual_telemetry(tmp_path: Path) -> None:
         profile=ExecutionProfile.INSTANT,
     )
 
-    # Run 1: Cold execution (miss recorded)
+    # 1. Cold execution (Cache Miss): must report miss without a false tier, with real measured duration
     ctx1 = ExecutionContext("run-1", "req-smriti-1", "t-1", "s-1")
     res1 = agni.execute(req, context=ctx1)
     assert isinstance(res1, Result)
@@ -54,10 +54,14 @@ def test_pipeline_caches_and_records_factual_telemetry(tmp_path: Path) -> None:
 
     recs1 = [r for r in darpana.maruti_records() if r.run_id == "run-1" and r.phase_name == "cache.lookup"]
     assert len(recs1) >= 1
-    assert recs1[0].attributes["outcome"] == "miss"
-    assert recs1[0].attributes["capability_id"] == "read_native"
+    miss_rec = recs1[0]
+    assert miss_rec.attributes["outcome"] == "miss"
+    assert miss_rec.attributes["capability_id"] == "read_native"
+    assert "cache_tier" not in miss_rec.attributes  # Must not falsely claim tier on miss
+    assert isinstance(miss_rec.duration_ns, int)
+    assert miss_rec.duration_ns >= 0
 
-    # Run 2: Warm execution (hit recorded)
+    # 2. Warm execution (L1 Hit): must report hit and cache_tier = l1
     ctx2 = ExecutionContext("run-2", "req-smriti-1", "t-2", "s-2")
     res2 = agni.execute(req, context=ctx2)
     assert isinstance(res2, Result)
@@ -66,6 +70,28 @@ def test_pipeline_caches_and_records_factual_telemetry(tmp_path: Path) -> None:
 
     recs2 = [r for r in darpana.maruti_records() if r.run_id == "run-2" and r.phase_name == "cache.lookup"]
     assert len(recs2) >= 1
-    assert recs2[0].attributes["outcome"] == "hit"
-    assert recs2[0].attributes["cache_tier"] in ("l1", "l2")
-    assert recs2[0].attributes["capability_id"] == "read_native"
+    l1_hit_rec = recs2[0]
+    assert l1_hit_rec.attributes["outcome"] == "hit"
+    assert l1_hit_rec.attributes["cache_tier"] == "l1"
+    assert l1_hit_rec.attributes["capability_id"] == "read_native"
+    assert isinstance(l1_hit_rec.duration_ns, int)
+    assert l1_hit_rec.duration_ns >= 0
+
+    # 3. Warm execution after clearing L1 (L2 Hit): must report hit and cache_tier = l2
+    smriti._l1.invalidate()
+    assert len(smriti._l1) == 0
+
+    ctx3 = ExecutionContext("run-3", "req-smriti-1", "t-3", "s-3")
+    res3 = agni.execute(req, context=ctx3)
+    assert isinstance(res3, Result)
+    assert isinstance(res3.data, CanonicalDocument)
+    assert res3.data.text == "Hello from Smriti verified cache pipeline!"
+
+    recs3 = [r for r in darpana.maruti_records() if r.run_id == "run-3" and r.phase_name == "cache.lookup"]
+    assert len(recs3) >= 1
+    l2_hit_rec = recs3[0]
+    assert l2_hit_rec.attributes["outcome"] == "hit"
+    assert l2_hit_rec.attributes["cache_tier"] == "l2"
+    assert l2_hit_rec.attributes["capability_id"] == "read_native"
+    assert isinstance(l2_hit_rec.duration_ns, int)
+    assert l2_hit_rec.duration_ns >= 0

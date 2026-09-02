@@ -9,13 +9,15 @@ device allocation, UI rendering, telemetry persistence, caching, or security pol
 """
 
 from __future__ import annotations
-from sarathi.smriti import SmritiCache, compute_cache_key
 
 from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
 import re
+import time
 from typing import TYPE_CHECKING, Mapping
+
+from sarathi.smriti import SmritiCache, compute_cache_key
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
@@ -463,11 +465,19 @@ class Pravaha:
                         cap.declaration.version,
                         prior_result=prior_result,
                     )
+                    t_start_ns = time.perf_counter_ns()
                     cached_result, cache_tier = self._smriti.get_with_tier(cache_key)
+                    duration_ns = max(0, time.perf_counter_ns() - t_start_ns)
 
                     if self._darpana is not None:
                         cache_outcome = "hit" if cached_result is not None else "miss"
-                        tier = cache_tier if cached_result is not None else "l1"
+                        cache_attrs: dict[str, Any] = {
+                            "capability_id": cap.declaration.capability_id,
+                            "outcome": cache_outcome,
+                        }
+                        if cached_result is not None and cache_tier is not None:
+                            cache_attrs["cache_tier"] = cache_tier
+
                         self._darpana.record_maruti(
                             MarutiRecord(
                                 run_id=current_ctx.run_id,
@@ -477,13 +487,9 @@ class Pravaha:
                                 phase_name="cache.lookup",
                                 component="smriti",
                                 timestamp_utc=datetime.now(timezone.utc).isoformat(),
-                                duration_ns=0,
+                                duration_ns=duration_ns,
                                 outcome="success",
-                                attributes={
-                                    "capability_id": cap.declaration.capability_id,
-                                    "cache_tier": tier,
-                                    "outcome": cache_outcome,
-                                },
+                                attributes=cache_attrs,
                             )
                         )
 
