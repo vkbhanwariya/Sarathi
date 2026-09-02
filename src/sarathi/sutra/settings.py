@@ -173,6 +173,56 @@ class Settings:
             )
         return tuple(raw)
 
+    @property
+    def telemetry_history_enabled(self) -> bool:
+        """Return validated telemetry_history_enabled boolean, defaulting to False."""
+        sec = self.get_section("telemetry")
+        raw = sec.get("history_enabled", False) if sec is not None else False
+        if not isinstance(raw, bool):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="telemetry.history_enabled must be a boolean.",
+            )
+        return raw
+
+    @property
+    def telemetry_history_path(self) -> Path | None:
+        """Return validated telemetry history path, defaulting to None."""
+        sec = self.get_section("telemetry")
+        raw = sec.get("history_path", None) if sec is not None else None
+        if raw is None:
+            return None
+        if not isinstance(raw, (str, Path)) or not str(raw).strip():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="telemetry.history_path must be a non-empty string or Path if specified.",
+            )
+        return Path(raw)
+
+    @property
+    def telemetry_history_format(self) -> str:
+        """Return validated telemetry history format ('jsonl' or 'sqlite'), defaulting to 'jsonl'."""
+        sec = self.get_section("telemetry")
+        raw = sec.get("history_format", "jsonl") if sec is not None else "jsonl"
+        if not isinstance(raw, str) or raw.lower() not in ("jsonl", "sqlite"):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"telemetry.history_format must be 'jsonl' or 'sqlite', got {raw!r}.",
+            )
+        return raw.lower()
+
+    @property
+    def telemetry_history_max_records(self) -> int:
+        """Return validated telemetry history maximum records, defaulting to 1000."""
+        sec = self.get_section("telemetry")
+        raw = sec.get("history_max_records", 1000) if sec is not None else 1000
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"telemetry.history_max_records must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
     def security_policy(self) -> SecurityPolicy:
         """Construct a validated SecurityPolicy from configuration."""
         from sarathi.kavacha import SecurityPolicy

@@ -733,6 +733,7 @@ class RunWorkspace:
         self,
         *,
         success: bool = True,
+        status: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         provenance: Sequence[ProvenanceRecord] | None = None,
         warnings: Sequence[WarningRecord] | None = None,
@@ -755,6 +756,7 @@ class RunWorkspace:
         with scope:
             return self._finalize_internal(
                 success=success,
+                status=status,
                 metadata=metadata,
                 provenance=provenance,
                 warnings=warnings,
@@ -764,6 +766,7 @@ class RunWorkspace:
         self,
         *,
         success: bool = True,
+        status: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         provenance: Sequence[ProvenanceRecord] | None = None,
         warnings: Sequence[WarningRecord] | None = None,
@@ -774,6 +777,7 @@ class RunWorkspace:
 
         Args:
             success: Whether the overall run completed successfully.
+            status: Optional explicit status string ('completed', 'failed', 'cancelled').
             metadata: Optional caller metadata (ignored for privacy in Phase 1 manifest).
             provenance: Optional sequence of ProvenanceRecord objects.
             warnings: Optional sequence of WarningRecord objects.
@@ -788,6 +792,8 @@ class RunWorkspace:
         """
         if not isinstance(success, bool):
             raise TypeError(f"success must be a bool, got {type(success).__name__}.")
+
+        effective_status = status if isinstance(status, str) and status.strip() else ("completed" if success else "failed")
 
         if metadata is not None and not isinstance(metadata, Mapping):
             raise TypeError(f"metadata must be a Mapping or None, got {type(metadata).__name__}.")
@@ -817,7 +823,7 @@ class RunWorkspace:
         manifest_data: dict[str, Any] = {
             "run_id": self._run_id,
             "requirement": self._requirement,
-            "status": "completed" if success else "failed",
+            "status": effective_status,
             "created_at_utc": self._start_time_utc.isoformat(),
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
             "artifacts": [

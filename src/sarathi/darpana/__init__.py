@@ -9,6 +9,7 @@ Exposes:
 
 from __future__ import annotations
 
+from sarathi.darpana.history import TerminalRunSummary
 from sarathi.darpana.maruti import MarutiRecord
 from sarathi.darpana.pramana import AccuracyValue, PramanaRecord
 from sarathi.darpana.service import Darpana
@@ -18,4 +19,5 @@ __all__ = [
     "Darpana",
     "MarutiRecord",
     "PramanaRecord",
+    "TerminalRunSummary",
 ]

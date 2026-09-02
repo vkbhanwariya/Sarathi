@@ -442,6 +442,34 @@ class Pravaha:
             # Execute pipeline in plan order through Yantra with failure lifecycle handling
             for cap in validated_capabilities:
                 current_ctx = context
+
+                # Cancellation check before stage execution
+                if current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled:
+                    if self._darpana is not None:
+                        from sarathi.darpana import MarutiRecord
+
+                        self._darpana.record_maruti(
+                            MarutiRecord(
+                                run_id=current_ctx.run_id,
+                                request_id=current_ctx.request_id,
+                                trace_id=current_ctx.trace_id,
+                                span_id=current_ctx.span_id,
+                                phase_name="cancellation",
+                                component="nabhi.pravaha",
+                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                duration_ns=0,
+                                outcome="failure",
+                                error_type="DoshError",
+                                failure_code=FailureCode.EXECUTION_FAILED,
+                                attributes={"reason": "cancelled_by_user", "cancelled": True},
+                            )
+                        )
+                    raise DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message="Execution was cancelled.",
+                        context={"cancelled": True},
+                    )
+
                 input_hash = self._compute_input_hash(current_request, cap, current_ctx)
                 quar_id = f"quar-{input_hash[:16]}"
 

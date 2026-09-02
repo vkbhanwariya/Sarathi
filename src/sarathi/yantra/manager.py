@@ -148,8 +148,14 @@ class Yantra:
         if prior_result is not None and not isinstance(prior_result, Result):
             raise TypeError(f"prior_result must be a Result instance or None, got {type(prior_result).__name__}.")
 
+        if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+            context.cancellation_token.check_cancelled()
+
         allocation = self.allocate(capability.declaration.device_requirement, context=context)
         try:
+            if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                context.cancellation_token.check_cancelled()
+
             scope = (
                 self._darpana.time_scope(
                     context=context,
