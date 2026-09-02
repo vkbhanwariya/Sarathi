@@ -89,32 +89,82 @@ class TesseractFallbackAdapter:
             self._is_available = shutil.which("tesseract") is not None
         return self._is_available
 
-    def recognize_crop(self, crop_image: Any) -> tuple[str, float] | None:
-        """Run Tesseract 5 on cropped sub-image and return (text, confidence)."""
+    def recognize_crop(self, crop_image: Any) -> tuple[str, float | None]:
+        """Run Tesseract 5 on cropped sub-image and return (text, confidence).
+
+        Raises:
+            DoshError(DEPENDENCY_UNAVAILABLE): If Tesseract is not installed on the host.
+            DoshError(EXECUTION_FAILED): If subprocess execution fails, times out, or produces unusable output.
+        """
         if not self.is_available():
-            return None
+            raise DoshError(
+                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                message="Tesseract fallback engine is not installed.",
+            )
         import subprocess
         import tempfile
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_f:
-                tmp_path = Path(tmp_f.name)
-            crop_image.save(tmp_path)
 
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_f:
+            tmp_path = Path(tmp_f.name)
+
+        try:
+            crop_image.save(tmp_path)
             res = subprocess.run(
-                ["tesseract", str(tmp_path), "stdout", "--psm", "6"],
+                ["tesseract", str(tmp_path), "stdout", "--psm", "6", "tsv"],
                 capture_output=True,
                 text=True,
                 timeout=10,
                 check=False,
             )
+            if res.returncode != 0:
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Tesseract fallback execution returned non-zero exit status.",
+                )
+
+            lines = [ln for ln in res.stdout.splitlines() if ln.strip()]
+            words: list[str] = []
+            conf_scores: list[float] = []
+
+            # Check for TSV format header
+            if lines and ("\tconf\ttext" in lines[0] or lines[0].startswith("level\t")):
+                for line in lines[1:]:
+                    parts = line.split("\t")
+                    if len(parts) >= 12:
+                        word = parts[11].strip()
+                        conf_str = parts[10].strip()
+                        if word:
+                            words.append(word)
+                            try:
+                                conf_num = float(conf_str)
+                                if conf_num >= 0.0:
+                                    conf_scores.append(min(1.0, max(0.0, conf_num / 100.0)))
+                            except (ValueError, TypeError):
+                                pass
+                if not words:
+                    raise DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message="Tesseract fallback produced unusable output.",
+                    )
+                text = unicodedata.normalize("NFC", " ".join(words))
+                measured_conf = (sum(conf_scores) / len(conf_scores)) if conf_scores else None
+                return text, measured_conf
+            else:
+                # Fallback for plain text output without TSV confidence
+                plain_text = unicodedata.normalize("NFC", res.stdout.strip())
+                if not plain_text:
+                    raise DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message="Tesseract fallback produced unusable output.",
+                    )
+                return plain_text, None
+        except (subprocess.SubprocessError, OSError):
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Tesseract fallback execution failed.",
+            ) from None
+        finally:
             tmp_path.unlink(missing_ok=True)
-            if res.returncode == 0 and res.stdout:
-                text = unicodedata.normalize("NFC", res.stdout.strip())
-                if text:
-                    return text, 0.85
-        except (OSError, subprocess.SubprocessError):
-            pass
-        return None
 
 class RapidOCREngine:
     """Instance-owned RapidOCR + PP-OCRv5 + OpenVINO engine adapter."""
@@ -387,29 +437,40 @@ class RapidOCREngine:
             # Accurate mode: targeted Tesseract 5 fallback only for weak spans (< 0.65)
             for idx, span in enumerate(spans):
                 if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
+                    if not self._tesseract.is_available():
+                        warnings.append(
+                            WarningRecord(
+                                code="OCR_FALLBACK_UNAVAILABLE",
+                                message="Tesseract 5 fallback engine is not available on this host.",
+                                stage=_STAGE_NAME,
+                            )
+                        )
+                        break
+
                     min_x, min_y, max_x, max_y = span.bounding_box
                     w, h = image.size if hasattr(image, "size") else (int(max_x), int(max_y))
                     box_crop = (max(0, int(min_x) - 2), max(0, int(min_y) - 2), min(w, int(max_x) + 2), min(h, int(max_y) + 2))
 
                     if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(image, "crop"):
                         cropped = image.crop(box_crop)
-                        tess_res = self._tesseract.recognize_crop(cropped)
-                        if tess_res is not None:
-                            tess_text, tess_conf = tess_res
-                            if tess_conf > span.confidence:
-                                spans[idx] = TextSpan(
-                                    text=tess_text,
-                                    confidence=tess_conf,
-                                    bounding_box=span.bounding_box,
-                                )
-                                if idx < len(lines):
-                                    lines[idx] = tess_text
-                                fallback_applied = True
-                        elif not self._tesseract.is_available():
+                        try:
+                            tess_res = self._tesseract.recognize_crop(cropped)
+                            if tess_res is not None:
+                                tess_text, tess_conf = tess_res
+                                if tess_conf is not None and tess_conf > span.confidence:
+                                    spans[idx] = TextSpan(
+                                        text=tess_text,
+                                        confidence=tess_conf,
+                                        bounding_box=span.bounding_box,
+                                    )
+                                    if idx < len(lines):
+                                        lines[idx] = tess_text
+                                    fallback_applied = True
+                        except DoshError:
                             warnings.append(
                                 WarningRecord(
-                                    code="OCR_FALLBACK_UNAVAILABLE",
-                                    message="Tesseract 5 fallback engine is not available on this host.",
+                                    code="OCR_FALLBACK_FAILED",
+                                    message="Tesseract 5 fallback execution failed.",
                                     stage=_STAGE_NAME,
                                 )
                             )
