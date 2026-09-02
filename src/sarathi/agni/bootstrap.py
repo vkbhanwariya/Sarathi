@@ -10,6 +10,7 @@ from sarathi.smriti import SmritiCache
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import time
 from typing import Any, Mapping, Sequence
 import uuid
@@ -119,11 +120,22 @@ class Agni:
         # 3. Validate Darpana (History storage strictly bounded under Runtime/Telemetry)
         if darpana is not None and not isinstance(darpana, Darpana):
             raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
-        hist_dir = validated_runtime_root / "Telemetry"
+        hist_dir = (validated_runtime_root / "Telemetry").resolve()
         if active_settings.telemetry_history_enabled:
             if active_settings.telemetry_history_path is not None:
-                user_hist = active_settings.telemetry_history_path
-                hist_path = user_hist if user_hist.is_absolute() else (hist_dir / user_hist)
+                user_hist = Path(active_settings.telemetry_history_path)
+                if user_hist.is_absolute():
+                    raise DoshError(
+                        code=FailureCode.INVALID_CONFIGURATION,
+                        message="telemetry.history_path cannot be an absolute path; it must be relative to Runtime/Telemetry.",
+                    )
+                resolved_hist = (hist_dir / user_hist).resolve()
+                if not (resolved_hist == hist_dir or hist_dir in resolved_hist.parents):
+                    raise DoshError(
+                        code=FailureCode.INVALID_CONFIGURATION,
+                        message="telemetry.history_path escapes the Runtime/Telemetry directory.",
+                    )
+                hist_path = resolved_hist
             else:
                 hist_path = hist_dir / ("history.db" if active_settings.telemetry_history_format == "sqlite" else "history.jsonl")
         else:
@@ -529,24 +541,43 @@ class Agni:
                 )
 
                 duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)
-                if self._darpana is not None:
-                    from sarathi.darpana import TerminalRunSummary
+                if self._darpana is not None and self._settings.telemetry_history_enabled:
+                    try:
+                        from sarathi.darpana import TerminalRunSummary
 
-                    summary = TerminalRunSummary(
-                        run_id=exec_ctx.run_id,
-                        request_id=request.request_id,
-                        requirement=request.requirement,
-                        profile=request.profile.value,
-                        status="completed",
-                        start_time_utc=t_start_utc,
-                        completed_at_utc=datetime.now(timezone.utc).isoformat(),
-                        duration_ms=duration_ms,
-                        artifact_count=len(workspace.committed_artifacts),
-                        warning_count=len(raw_result.warnings),
-                        has_masked_identity=False,
-                        output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
-                    )
-                    self._darpana.record_run_summary(summary)
+                        safe_req_ref = re.sub(r"[^a-zA-Z0-9_.-]", "_", request.request_id) if request.request_id else exec_ctx.run_id
+                        summary = TerminalRunSummary(
+                            run_id=exec_ctx.run_id,
+                            request_id=safe_req_ref,
+                            requirement=request.requirement,
+                            profile=request.profile.value,
+                            status="completed",
+                            start_time_utc=t_start_utc,
+                            completed_at_utc=datetime.now(timezone.utc).isoformat(),
+                            duration_ms=duration_ms,
+                            artifact_count=len(workspace.committed_artifacts),
+                            warning_count=len(raw_result.warnings),
+                            has_masked_identity=False,
+                            output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
+                        )
+                        self._darpana.record_run_summary(summary)
+                    except Exception:
+                        from sarathi.darpana import MarutiRecord
+
+                        self._darpana.record_maruti(
+                            MarutiRecord(
+                                run_id=exec_ctx.run_id,
+                                request_id=exec_ctx.request_id,
+                                trace_id=exec_ctx.trace_id,
+                                span_id=exec_ctx.span_id,
+                                phase_name="telemetry.history_persistence_failure",
+                                component="agni",
+                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                duration_ns=0,
+                                outcome="failure",
+                                attributes={"error": "history_recording_failed"},
+                            )
+                        )
 
                 # 7. Return final Result with confirmed ArtifactRefs strictly from active workspace
                 return Result(

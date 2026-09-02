@@ -65,7 +65,7 @@ class FontConversionCapability:
 
         # If document text, pages, and tables are completely empty, request OCR continuation through Pravaha
         if not doc.text.strip() and not any(p.tables for p in doc.pages) and not doc.tables and doc.pages:
-            return Result(data=doc, next_requirement="ocr")
+            return Result(data=doc, next_requirement="ocr", resume_self=True)
 
         full_text = doc.text
         if not full_text.strip() and doc.tables:

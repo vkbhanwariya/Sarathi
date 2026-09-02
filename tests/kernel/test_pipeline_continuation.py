@@ -317,3 +317,253 @@ def test_generic_arbitrary_capability_continuation(tmp_path: Path) -> None:
     assert isinstance(result.data, dict)
     assert result.data["final_result"] == "alpha_completed"
     assert result.data["prior"]["beta_processed"] is True
+
+
+def test_translation_font_conversion_continuation_e2e(tmp_path: Path) -> None:
+    """Proves exact execution order: read_native -> translation -> font_conversion -> translation.
+
+    When translation detects legacy font encoding (e.g. KrutiDev), it hands off to font_conversion
+    with resume_self=True. Font conversion converts the text to Unicode, and translation resumes
+    to translate the converted text. Native extraction is NOT rerun.
+    """
+    input_file = tmp_path / "legacy_krutidev.txt"
+    input_file.write_text("Hkkjrh; jktuhfr", encoding="utf-8")  # KrutiDev for "भारतीय राजनीति"
+
+    execution_order: list[str] = []
+
+    class MockNativeCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("read_native")
+            doc = CanonicalDocument(
+                document_id="doc-kruti-1",
+                source_input_id=request.inputs[0].input_id,
+                text="Hkkjrh; jktuhfr",
+                pages=(PageData(page_number=1, text="Hkkjrh; jktuhfr", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    class MockFontConvCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("font_conversion")
+            # Converts KrutiDev text to Unicode
+            doc = CanonicalDocument(
+                document_id="doc-unicode-1",
+                source_input_id=request.inputs[0].input_id,
+                text="भारतीय राजनीति",
+                pages=(PageData(page_number=1, text="भारतीय राजनीति", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    class MockTranslationCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("translation")
+            doc: CanonicalDocument = prior_result.data if prior_result else None  # type: ignore
+            # On first invocation, detects legacy KrutiDev -> hands off to font_conversion
+            if "Hkkjrh;" in doc.text:
+                return Result(data=doc, next_requirement="font_conversion", resume_self=True)
+            # On resumed invocation, translates the converted Unicode text
+            trans_doc = CanonicalDocument(
+                document_id="doc-translated-1",
+                source_input_id=request.inputs[0].input_id,
+                text="Indian Politics",
+                pages=(PageData(page_number=1, text="Indian Politics", tables=()),),
+                tables=(),
+            )
+            return Result(data=trans_doc)
+
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        capabilities={
+            "read_native": MockNativeCap(),
+            "font_conversion": MockFontConvCap(),
+            "translation": MockTranslationCap(),
+        },
+    )
+
+    req = Request(
+        request_id="req-trans-roopa",
+        requirement="translation",
+        inputs=(InputRef("inp-1", input_file, "legacy_krutidev.txt", input_file.stat().st_size),),
+    )
+
+    res = agni.execute(req)
+
+    # Verify exact execution sequence
+    assert execution_order == ["read_native", "translation", "font_conversion", "translation"]
+    assert isinstance(res.data, CanonicalDocument)
+    assert res.data.text == "Indian Politics"
+
+
+def test_font_conversion_ocr_continuation_e2e(tmp_path: Path) -> None:
+    """Proves exact execution order: read_native -> font_conversion -> ocr -> font_conversion."""
+    input_file = tmp_path / "scanned_font.pdf"
+    input_file.write_bytes(b"%PDF-1.4 scanned")
+
+    execution_order: list[str] = []
+
+    class MockNativeEmptyCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("read_native")
+            doc = CanonicalDocument(
+                document_id="doc-empty-1",
+                source_input_id=request.inputs[0].input_id,
+                text="",
+                pages=(PageData(page_number=1, text="", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    class MockOCRCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("ocr")
+            doc = CanonicalDocument(
+                document_id="doc-ocr-1",
+                source_input_id=request.inputs[0].input_id,
+                text="Hkkjrh; jktuhfr",
+                pages=(PageData(page_number=1, text="Hkkjrh; jktuhfr", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    class MockFontConvCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("font_conversion")
+            doc: CanonicalDocument = prior_result.data if prior_result else None  # type: ignore
+            if not doc.text.strip():
+                return Result(data=doc, next_requirement="ocr", resume_self=True)
+            conv_doc = CanonicalDocument(
+                document_id="doc-conv-1",
+                source_input_id=request.inputs[0].input_id,
+                text="भारतीय राजनीति",
+                pages=(PageData(page_number=1, text="भारतीय राजनीति", tables=()),),
+                tables=(),
+            )
+            return Result(data=conv_doc)
+
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        capabilities={
+            "read_native": MockNativeEmptyCap(),
+            "font_conversion": MockFontConvCap(),
+            "ocr": MockOCRCap(),
+        },
+    )
+
+    req = Request(
+        request_id="req-font-ocr",
+        requirement="font_conversion",
+        inputs=(InputRef("inp-1", input_file, "scanned_font.pdf", 16),),
+    )
+
+    res = agni.execute(req)
+
+    assert execution_order == ["read_native", "font_conversion", "ocr", "font_conversion"]
+    assert res.data.text == "भारतीय राजनीति"
+
+
+def test_translation_ocr_continuation_e2e(tmp_path: Path) -> None:
+    """Proves exact execution order: read_native -> translation -> ocr -> translation."""
+    input_file = tmp_path / "scanned_trans.pdf"
+    input_file.write_bytes(b"%PDF-1.4 scanned")
+
+    execution_order: list[str] = []
+
+    class MockNativeEmptyCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("read_native")
+            doc = CanonicalDocument(
+                document_id="doc-empty-1",
+                source_input_id=request.inputs[0].input_id,
+                text="",
+                pages=(PageData(page_number=1, text="", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    class MockOCRCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("ocr")
+            doc = CanonicalDocument(
+                document_id="doc-ocr-1",
+                source_input_id=request.inputs[0].input_id,
+                text="नमस्ते दुनिया",
+                pages=(PageData(page_number=1, text="नमस्ते दुनिया", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    class MockTranslationCap:
+        def __init__(self) -> None:
+            from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
+            self.declaration = CAPABILITY_DECLARATION
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            execution_order.append("translation")
+            doc: CanonicalDocument = prior_result.data if prior_result else None  # type: ignore
+            if not doc.text.strip():
+                return Result(data=doc, next_requirement="ocr", resume_self=True)
+            trans_doc = CanonicalDocument(
+                document_id="doc-trans-1",
+                source_input_id=request.inputs[0].input_id,
+                text="Hello World",
+                pages=(PageData(page_number=1, text="Hello World", tables=()),),
+                tables=(),
+            )
+            return Result(data=trans_doc)
+
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        capabilities={
+            "read_native": MockNativeEmptyCap(),
+            "translation": MockTranslationCap(),
+            "ocr": MockOCRCap(),
+        },
+    )
+
+    req = Request(
+        request_id="req-trans-ocr",
+        requirement="translation",
+        inputs=(InputRef("inp-1", input_file, "scanned_trans.pdf", 16),),
+    )
+
+    res = agni.execute(req)
+
+    assert execution_order == ["read_native", "translation", "ocr", "translation"]
+    assert res.data.text == "Hello World"

@@ -120,9 +120,13 @@ class Result:
     warnings: tuple[WarningRecord, ...] = ()
     provenance: tuple[ProvenanceRecord, ...] = ()
     next_requirement: str | None = None
+    resume_self: bool = False
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.resume_self, bool):
+            raise TypeError(f"resume_self must be a boolean, got {type(self.resume_self)}.")
+
         if isinstance(self.artifact_payloads, (list, tuple)):
             for i, payload in enumerate(self.artifact_payloads):
                 if not isinstance(payload, ArtifactPayload):

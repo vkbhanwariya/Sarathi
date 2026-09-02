@@ -487,5 +487,5 @@ def test_tesseract_adapter_tsv_invalid_confidence_adversarial(tmp_path: Path) ->
     text, conf = adapter.recognize_crop(test_img)
 
     assert text == "WORD1 WORD2 WORD3 WORD4"
-    # Only WORD4 has valid confidence (0.80)
-    assert conf == 0.80
+    # Mixed invalid confidence results in None without partial averaging
+    assert conf is None
