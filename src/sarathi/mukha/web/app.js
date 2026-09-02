@@ -315,8 +315,29 @@
         state.pollTimer = setTimeout(pollState, interval);
     }
 
-    // Update Presentation from View State Projection
-    function updatePresentation(appState) {
+        // 0. Update Processing Requirements from Available Actions Facts
+        if (appState.available_actions && appState.available_actions.length > 0) {
+            appState.available_actions.forEach((act) => {
+                const card = document.querySelector(`.req-card[data-req="${act.action_id}"]`);
+                if (card) {
+                    card.disabled = !act.is_enabled;
+                    card.classList.toggle("disabled", !act.is_enabled);
+                    const badge = card.querySelector(".req-status");
+                    if (badge) {
+                        if (act.is_enabled) {
+                            badge.className = "req-status badge badge-emerald";
+                            badge.textContent = "Ready";
+                            badge.title = "";
+                        } else {
+                            badge.className = "req-status badge badge-amber";
+                            badge.textContent = "Unavailable";
+                            badge.title = act.disabled_reason || "Unavailable";
+                        }
+                    }
+                }
+            });
+        }
+
         // 1. Aarambha Startup Overlay
         if (appState.startup && appState.startup.is_initializing && appState.startup.elapsed_ns > 5_000_000_000) {
             elements.aarambhaOverlay.classList.remove("hidden");
@@ -430,9 +451,9 @@
 
             elements.summaryHero.className = `summary-hero status-${summary.status.toLowerCase()}`;
             elements.statTotalFiles.textContent = summary.total_inputs;
-            elements.statSuccessFiles.textContent = summary.successful_files || 0;
-            elements.statWarningFiles.textContent = summary.warning_files || 0;
-            elements.statFailedFiles.textContent = (summary.failed_files || 0) + (summary.quarantined_count || 0);
+            elements.statSuccessFiles.textContent = summary.successful_files != null ? summary.successful_files : "—";
+            elements.statWarningFiles.textContent = summary.warning_files != null ? summary.warning_files : "—";
+            elements.statFailedFiles.textContent = summary.failed_files != null ? summary.failed_files : (summary.status === "FAILED" ? summary.total_inputs : "—");
 
             // Confirmed Artifacts Cards
             if (summary.artifacts && summary.artifacts.length > 0) {
@@ -443,7 +464,7 @@
                             <div class="artifact-title">${escapeHtml(art.display_name)}</div>
                             <div class="artifact-meta">
                                 <span>${formatBytes(art.size_bytes)}</span>
-                                <a href="/api/runs/${summary.run_id}/artifacts/${encodeURIComponent(art.display_name)}" class="btn btn-primary btn-sm" download>📥 Download</a>
+                                <a href="/api/runs/${summary.run_id}/artifacts/${encodeURIComponent(art.artifact_id)}" class="btn btn-primary btn-sm" download>📥 Download</a>
                             </div>
                         </div>
                     `)

@@ -202,6 +202,7 @@ class DeviceSummaryView:
 class ArtifactOutcomeView:
     """Confirmed generated artifact presentation view."""
 
+    artifact_id: str
     role: str
     display_name: str
     size_bytes: int | None = None

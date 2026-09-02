@@ -84,7 +84,7 @@ V1 contains two parallel presentation generations: Textual screens and a large R
 | Textual OCR Review + Rich page-health/review/post-OCR screens | source/output comparison, quality evidence, targeted action | **Screen 3: Pariksha — Review & Exceptions** |
 | Rich run summaries + universal telemetry summary + post-completion menu | terminal result, timings, output files, warnings and next actions | **Screen 4: Samapti — Run Summary** |
 | Textual Performance + Logs + Plugins; Rich Doctor + Compute Monitor | performance, activity logs, quality, runtime and component health | **Screen 5: Nirikshana — Run Inspector** with tabs |
-| V1 command palette | keyboard-first navigation | one Textual command-palette overlay |
+| V1 command palette | keyboard-first navigation | F1–F5 keyboard shortcut navigation in Local Web |
 | V1 capability-specific menus | capability launch choices | Home requirement/profile selection; capability logic remains outside Mukha |
 
 The V1 review is based on the repository at commit [`032baf3`](https://github.com/vkbhanwariya/Sarathi/tree/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana), including its [Textual screens](https://github.com/vkbhanwariya/Sarathi/tree/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana/Screens), [Rich console renderer](https://github.com/vkbhanwariya/Sarathi/blob/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana/Rich_Console_Plugin.py), and [typed UI state/events](https://github.com/vkbhanwariya/Sarathi/tree/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana/Contracts).
