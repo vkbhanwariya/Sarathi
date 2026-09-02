@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
+    ArtifactIntent,
+    ArtifactPayload,
     CanonicalDocument,
     CapabilityDeclaration,
     ConfidenceValue,
@@ -187,8 +190,60 @@ class OCRCapability:
             }
         }
 
+        # Construct confirmed artifact payloads for extracted text and structured JSON
+        payloads: list[ArtifactPayload] = []
+        for inp, doc in zip(request.inputs, final_docs):
+            stem = Path(inp.display_name).stem if inp.display_name else inp.input_id
+
+            # 1. Plain text extracted output
+            payloads.append(
+                ArtifactPayload(
+                    intent=ArtifactIntent(
+                        name=f"{stem}_ocr.txt",
+                        role="extracted_text",
+                        media_type="text/plain",
+                    ),
+                    content=(doc.text or "").encode("utf-8"),
+                )
+            )
+
+            # 2. Structured JSON output
+            doc_dict: dict[str, Any] = {
+                "document_id": doc.document_id,
+                "source_input_id": doc.source_input_id,
+                "detected_type": doc.detected_type,
+                "text": doc.text,
+                "pages": [
+                    {
+                        "page_number": p.page_number,
+                        "text": p.text,
+                        "metadata": dict(p.metadata),
+                        "spans": [
+                            {
+                                "text": s.text,
+                                "bounding_box": list(s.bounding_box) if s.bounding_box else None,
+                                "confidence": s.confidence,
+                            }
+                            for s in p.spans
+                        ],
+                    }
+                    for p in doc.pages
+                ],
+            }
+            payloads.append(
+                ArtifactPayload(
+                    intent=ArtifactIntent(
+                        name=f"{stem}_ocr.json",
+                        role="ocr_document",
+                        media_type="application/json",
+                    ),
+                    content=json.dumps(doc_dict, ensure_ascii=False, indent=2).encode("utf-8"),
+                )
+            )
+
         return Result(
             data=result_data,
+            artifact_payloads=tuple(payloads),
             confidence=overall_confidence,
             warnings=tuple(all_warnings),
             provenance=tuple(all_provenance),
