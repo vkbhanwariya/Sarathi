@@ -35,6 +35,7 @@ from sarathi.shakti.bank_statements.models import (
 from sarathi.shakti.bank_statements.normalizer import parse_date, parse_decimal_amount
 from sarathi.shakti.bank_statements.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
+from sarathi.shakti.bank_statements.table_locator import find_header_row_index
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
 
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
@@ -154,10 +155,7 @@ class BankStatementCapability:
             if not table.rows:
                 continue
 
-            hdr_idx = next(
-                (r_i for r_i, r in enumerate(table.rows) if ("date" in (s := " ".join(str(c).lower() for c in r)) or "txn" in s) and any(k in s for k in ("debit", "credit", "balance", "amount"))),
-                None
-            )
+            hdr_idx = find_header_row_index(table)
             if hdr_idx is None:
                 continue
 

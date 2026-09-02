@@ -40,7 +40,7 @@ def load_font_profiles(fonts_dir: Path | None = None) -> dict[str, LegacyFontPro
                     post_corrections=tuple(tuple(c) for c in data.get("post_corrections", ())),
                 )
                 profiles[profile.profile_id] = profile
-        except Exception:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
             continue
     return profiles
 

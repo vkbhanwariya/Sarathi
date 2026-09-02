@@ -187,8 +187,7 @@ Sarathi/
 │       ├── darpana/
 │       │   ├── service.py
 │       │   ├── maruti.py
-│       │   ├── pramana.py
-│       │   └── exporters/
+│       │   └── pramana.py
 │       ├── mukha/
 │       │   ├── app.py
 │       │   ├── presenter.py
@@ -198,7 +197,8 @@ Sarathi/
 │       │   ├── key.py
 │       │   ├── memory.py
 │       │   ├── store.py
-│       │   └── policy.py
+│       │   ├── policy.py
+│       │   └── serialization.py
 │       ├── kavacha/
 │       │   ├── service.py
 │       │   └── policy.py
@@ -318,7 +318,6 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `darpana/service.py` — one public Darpana service, bounded thread-safe telemetry snapshots/emission, and timing boundary.
 - `darpana/maruti.py` — **Maruti — Runtime, Logging & Performance Telemetry** measurement and factual record contracts.
 - `darpana/pramana.py` — **Pramana — Confidence & Accuracy Telemetry** evidence recording and quality record contracts.
-- `darpana/exporters/` (optional/future) — configured sequential (e.g. JSONL) or searchable historical (e.g. SQLite) export implementations when configured.
 
 ### Mukha — Console & Presentation
 
@@ -329,7 +328,11 @@ This is the single authoritative map for Python-file ownership. Capability secti
 
 ### Smriti — Cache & Runtime State
 
-Smriti owns reusable results and bounded runtime state. Detailed cache modules (`key.py`, `memory.py`, `store.py`, `policy.py`) remain optional/future when general result caching is required.
+- `smriti/key.py` — deterministic canonical cache-key computation across requests and capabilities.
+- `smriti/memory.py` — bounded thread-safe in-memory L1 cache tier.
+- `smriti/store.py` — persistent SQLite L2 cache store and unified two-tier `SmritiCache` service.
+- `smriti/policy.py` — TTL, capacity, and cache validity policy enforcement.
+- `smriti/serialization.py` — deterministic lossless serialization for `CanonicalDocument` and artifact payloads.
 
 ### Anubhava — Validated Experience Data
 

@@ -23,20 +23,33 @@ class TableType(StrEnum):
     UNRELATED_TABLE = "unrelated_table"
 
 
+def find_header_row_index(table: TableData) -> int | None:
+    """Find the index of the transaction header row in an extracted table, or None."""
+    if not table.rows:
+        return None
+    for r_i, r in enumerate(table.rows):
+        r_str = " ".join(str(c).lower().strip() for c in r)
+        has_date = any(d in r_str for d in ("date", "txn", "दिनांक", "तारीख"))
+        has_amount = any(
+            a in r_str
+            for a in ("debit", "credit", "withdrawal", "deposit", "amount", "dr", "cr", "balance", "bal", "शेष")
+        )
+        if has_date and has_amount:
+            return r_i
+    return None
+
+
 def classify_table(table: TableData) -> TableType:
     """Classify an extracted table based on header and row density."""
-    if not table.rows or len(table.rows) < 2:
+    if not table.rows:
         return TableType.UNRELATED_TABLE
+
+    hdr_idx = find_header_row_index(table)
+    if hdr_idx is not None and len(table.rows) > hdr_idx:
+        return TableType.TRANSACTION_TABLE
 
     header_row = [str(c).lower().strip() for c in table.rows[0]]
     header_str = " ".join(header_row)
-
-    has_date = any(d in header_str for d in ("date", "txn", "दिनांक", "तारीख"))
-    has_amount = any(a in header_str for a in ("debit", "credit", "withdrawal", "deposit", "amount", "dr", "cr"))
-    has_balance = any(b in header_str for b in ("balance", "bal", "शेष"))
-
-    if (has_date and has_amount) or (has_date and has_balance):
-        return TableType.TRANSACTION_TABLE
 
     if any(m in header_str for m in ("account no", "account name", "ifsc", "branch", "customer id")):
         return TableType.METADATA_TABLE

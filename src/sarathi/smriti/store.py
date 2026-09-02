@@ -78,7 +78,7 @@ class SQLiteCacheStore:
             )
             try:
                 return deserialize_result(data_json)
-            except Exception:
+            except (json.JSONDecodeError, ValueError, KeyError, TypeError):
                 # Corrupted or unparseable entry: prune safely
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
                 return None

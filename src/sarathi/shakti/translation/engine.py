@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import tomllib
 from typing import Any, Protocol, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.shakti.translation.anubhava import TranslationAnubhavaStore
 from sarathi.shakti.translation.glossary import GlossaryStore
 from sarathi.shakti.translation.models import (
     Language,
@@ -19,6 +19,26 @@ from sarathi.shakti.translation.protector import TranslationProtector
 
 _CANONICAL_TRANSLATION_DATA_DIR = Path(__file__).resolve().parents[4] / "data" / "translation"
 _SENTENCE_SPLIT_RE = re.compile(r"([^।\.\?\!\n]+[।\.\?\!]?)", re.UNICODE)
+
+
+def _load_translation_anubhava(data_root: Path) -> dict[str, dict[str, str]]:
+    """Load approved translation corrections directly from capability-owned anubhava.toml."""
+    anubhava_file = data_root / "anubhava.toml"
+    if not anubhava_file.exists():
+        return {}
+    try:
+        data = tomllib.loads(anubhava_file.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    corrections: dict[str, dict[str, str]] = {}
+    for item in data.get("corrections", []):
+        if isinstance(item, dict) and (item.get("verified", False) or item.get("verified_on") or item.get("approved_by")):
+            dir_val = item.get("direction", "both")
+            src = item.get("source", "")
+            tgt = item.get("target", "")
+            if src and tgt:
+                corrections.setdefault(dir_val, {})[src] = tgt
+    return corrections
 
 
 class TranslatorBackend(Protocol):
@@ -37,13 +57,12 @@ class CTranslate2TranslationEngine:
         data_root: Path | None = None,
         backend: TranslatorBackend | None = None,
         glossary: GlossaryStore | None = None,
-        anubhava: TranslationAnubhavaStore | None = None,
         protector: TranslationProtector | None = None,
     ) -> None:
         self._data_root = (data_root or _CANONICAL_TRANSLATION_DATA_DIR).resolve()
         self._backend = backend
         self._glossary = glossary or GlossaryStore(glossary_dir=self._data_root)
-        self._anubhava = anubhava or TranslationAnubhavaStore(anubhava_dir=self._data_root)
+        self._anubhava_corrections = _load_translation_anubhava(self._data_root)
         self._protector = protector or TranslationProtector()
         self._initialized_backend: TranslatorBackend | None = None
 
@@ -66,7 +85,7 @@ class CTranslate2TranslationEngine:
 
         try:
             manifest_dict = json.loads(manifest_file.read_text(encoding="utf-8"))
-        except Exception as exc:
+        except (OSError, json.JSONDecodeError) as exc:
             raise DoshError(
                 code=FailureCode.DEPENDENCY_UNAVAILABLE,
                 message="Failed to read or parse local translation model manifest.",
@@ -156,8 +175,11 @@ class CTranslate2TranslationEngine:
         # 3. Pre-process sentences: apply approved Anubhava overrides and domain glossary
         prepared_sentences: list[str] = []
         for sent in raw_sentences:
-            p_sent = self._anubhava.apply_corrections(sent, direction)
-            p_sent = self._glossary.apply_glossary(p_sent, direction)
+            dir_key = direction.value
+            for d in (dir_key, "both"):
+                for src_c, tgt_c in self._anubhava_corrections.get(d, {}).items():
+                    sent = sent.replace(src_c, tgt_c)
+            p_sent = self._glossary.apply_glossary(sent, direction)
             prepared_sentences.append(p_sent)
 
         # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)

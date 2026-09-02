@@ -20,7 +20,6 @@ from sarathi.sankalpa import (
     TableData,
     WarningRecord,
 )
-from sarathi.shakti.font_conversion.anubhava import AnubhavaStore
 from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import LegacyFontDetector
 from sarathi.shakti.font_conversion.models import FontConversionResult
@@ -38,14 +37,14 @@ class FontConversionCapability:
         self,
         darpana: Darpana | None = None,
         fonts_dir: Path | None = None,
-        anubhava: AnubhavaStore | None = None,
+        anubhava_path: Path | None = None,
     ) -> None:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
         self._fonts_dir = fonts_dir.resolve() if fonts_dir is not None else _CANONICAL_FONTS_DIR
         self._detector = LegacyFontDetector(fonts_dir=self._fonts_dir)
         self._protector = TextProtector()
-        self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava=anubhava)
+        self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava_path=anubhava_path)
         self._validator = FontConversionValidator()
 
     def execute(

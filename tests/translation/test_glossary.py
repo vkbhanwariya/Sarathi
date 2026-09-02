@@ -1,6 +1,7 @@
-"""Tests for Translation Domain Glossary and Anubhava Corrections."""
-
-from sarathi.shakti.translation.anubhava import TranslationAnubhavaStore
+from sarathi.shakti.translation.engine import (
+    _CANONICAL_TRANSLATION_DATA_DIR,
+    _load_translation_anubhava,
+)
 from sarathi.shakti.translation.glossary import GlossaryStore
 from sarathi.shakti.translation.models import TranslationDirection
 
@@ -17,9 +18,9 @@ def test_glossary_terminology_applied_correctly() -> None:
 
 
 def test_anubhava_approved_corrections_loaded() -> None:
-    anubhava = TranslationAnubhavaStore()
-    corrs_hi_en = anubhava.get_corrections(TranslationDirection.HI_TO_EN)
-    corrs_en_hi = anubhava.get_corrections(TranslationDirection.EN_TO_HI)
+    corrs = _load_translation_anubhava(_CANONICAL_TRANSLATION_DATA_DIR)
+    corrs_hi_en = corrs.get("hi-en", {})
+    corrs_en_hi = corrs.get("en-hi", {})
 
     assert "उच्च न्यायालय" in corrs_hi_en
     assert corrs_hi_en["उच्च न्यायालय"] == "High Court"
