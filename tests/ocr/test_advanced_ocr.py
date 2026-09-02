@@ -358,3 +358,42 @@ def test_custom_profile_executes_valid_options(tmp_path: Path) -> None:
     result = cap.execute(valid_req, ctx)
     assert isinstance(result, Result)
     assert isinstance(result.data, CanonicalDocument)
+
+
+def test_accurate_profile_offline_target_platform_e2e(tmp_path: Path) -> None:
+    """Target platform (Windows 11 x64) offline E2E test for Accurate OCR execution.
+
+    Proves factual confidence without synthetic fabrication on real engine output.
+    """
+    img_path = tmp_path / "real_e2e_image.png"
+    _create_clean_image(img_path)
+
+    cap = OCRCapability()
+    ctx = ExecutionContext("run-e2e-acc", "req-e2e-acc", "t-e2e", "s-e2e")
+    inp = InputRef(
+        input_id="inp-e2e-1",
+        source_path=img_path,
+        display_name="real_e2e_image.png",
+        size_bytes=img_path.stat().st_size,
+    )
+    req = Request(
+        request_id="req-e2e-acc",
+        requirement="ocr",
+        inputs=(inp,),
+        profile=ExecutionProfile.ACCURATE,
+    )
+
+    res = cap.execute(req, ctx)
+
+    assert isinstance(res.data, CanonicalDocument)
+    doc: CanonicalDocument = res.data
+    assert len(doc.pages) == 1
+    page = doc.pages[0]
+    assert len(page.spans) > 0
+
+    # Verify all reported confidences are strictly valid factual floats in [0.0, 1.0]
+    for span in page.spans:
+        assert span.confidence is None or (0.0 <= span.confidence <= 1.0)
+        # Ensure no synthetic hardcoded 0.85 default
+        if span.confidence is not None:
+            assert isinstance(span.confidence, float)

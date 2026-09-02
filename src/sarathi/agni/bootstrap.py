@@ -430,6 +430,7 @@ class Agni:
             run_id=exec_ctx.run_id,
             requirement=request.requirement,
             output_root=effective_output_root,
+            preserve_partial=request.preserve_partial,
             input_sources=request.inputs,
             context=exec_ctx,
         ) as workspace:
@@ -460,10 +461,31 @@ class Agni:
                     next_requirement=raw_result.next_requirement,
                     metadata=raw_result.metadata,
                 )
-            except BaseException:
+            except BaseException as proc_exc:
                 if not workspace.is_finalized:
                     try:
                         workspace.finalize(success=False)
-                    except Exception:
-                        pass
+                    except Exception as cleanup_exc:
+                        if self._darpana is not None:
+                            from sarathi.darpana import MarutiRecord
+
+                            self._darpana.record_maruti(
+                                MarutiRecord(
+                                    run_id=exec_ctx.run_id,
+                                    request_id=exec_ctx.request_id,
+                                    trace_id=exec_ctx.trace_id,
+                                    span_id=exec_ctx.span_id,
+                                    phase_name="workspace.finalize_cleanup_failure",
+                                    component="agni",
+                                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                    duration_ns=0,
+                                    outcome="failure",
+                                    attributes={"error_type": type(cleanup_exc).__name__},
+                                )
+                            )
+                        if not hasattr(proc_exc, "__cleanup_cause__"):
+                            try:
+                                proc_exc.__cleanup_cause__ = cleanup_exc  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
                 raise
