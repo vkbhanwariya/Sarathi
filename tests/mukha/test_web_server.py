@@ -373,3 +373,48 @@ class TestMukhaWebServerAPI:
         # 3. Wrong run ID -> 404
         status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/wrong_run/artifacts/{art_id}")
         assert status == 404
+
+    def test_run_accepts_custom_options_and_forwards_to_request(
+        self, web_server: MukhaWebServer, tmp_path: Path
+    ) -> None:
+        """POST /api/runs parses custom_options and passes them to Request."""
+        test_file = tmp_path / "doc.txt"
+        test_file.write_text("Hello Custom", encoding="utf-8")
+
+        captured_request: list[Any] = []
+        original_execute = web_server._agni.execute
+
+        def mock_execute(req: Any) -> Any:
+            captured_request.append(req)
+            return original_execute(req)
+
+        with patch.object(web_server._agni, "execute", side_effect=mock_execute):
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={
+                    "paths": [str(test_file)],
+                    "requirement": "read_native",
+                    "custom_options": {"lang": "devanagari"},
+                },
+            )
+            assert status == 200
+            assert data["ok"] is True
+            time.sleep(0.5)
+
+        assert len(captured_request) == 1
+        assert captured_request[0].custom_options.get("lang") == "devanagari"
+
+    def test_reveal_output_directory_invokes_platform_opener(
+        self, web_server: MukhaWebServer, tmp_path: Path
+    ) -> None:
+        """reveal_output_directory executes without raising and returns true when dir exists."""
+        run_id = "run_reveal_test"
+        out_dir = tmp_path / "out_dir"
+        out_dir.mkdir()
+        with web_server._lock:
+            web_server._run_output_roots[run_id] = out_dir
+
+        with patch("subprocess.Popen") as mock_popen, patch("subprocess.run") as mock_run:
+            res = web_server.reveal_output_directory(run_id)
+            assert res is True
+            assert mock_popen.called

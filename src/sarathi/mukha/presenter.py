@@ -262,6 +262,19 @@ class MukhaPresenter:
                 )
             )
 
+        if not device_progress and active_workers:
+            for w in active_workers:
+                if w.device_type:
+                    device_progress.append(
+                        DeviceProgressView(
+                            device_type=w.device_type,
+                            execution_count=1,
+                            total_duration_ns=w.elapsed_ns,
+                            avg_duration_ns=w.elapsed_ns,
+                            avg_confidence=None,
+                        )
+                    )
+
         # 5-second rule: filter long running operations (elapsed_ns >= 5s)
         long_running: list[OperationView] = []
         current_focus: OperationView | None = None
