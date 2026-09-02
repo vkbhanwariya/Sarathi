@@ -42,6 +42,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Target processing requirement (e.g. 'read_native', 'ocr')",
     )
     parser.add_argument(
+        "--recursive",
+        "-R",
+        action="store_true",
+        default=False,
+        help="Recursively scan selected directories for input document files",
+    )
+    parser.add_argument(
         "--profile",
         "-p",
         type=str,
@@ -85,42 +92,34 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    # 2. Strict factual input path inspection and validation
-    seen_paths: set[Path] = set()
-    input_refs: list[InputRef] = []
-    for i, inp_str in enumerate(args.inputs):
-        if not isinstance(inp_str, str) or not inp_str.strip():
-            print("Validation error: Input path cannot be empty.", file=sys.stderr)
-            return 2
+    # 2. Canonical intake via MukhaPresenter
+    from sarathi.mukha.presenter import MukhaPresenter
 
-        raw_path = Path(inp_str)
-        try:
-            resolved = raw_path.resolve()
-            if not resolved.exists():
-                print(f"Validation error: Input path does not exist: {raw_path.name}", file=sys.stderr)
-                return 2
-            if not resolved.is_file():
-                print(f"Validation error: Input path is not a regular file: {raw_path.name}", file=sys.stderr)
-                return 2
-            if resolved in seen_paths:
-                print(f"Validation error: Duplicate input file selected: {raw_path.name}", file=sys.stderr)
-                return 2
+    runtime_root = Path(args.runtime_root) if args.runtime_root else None
+    output_root = Path(args.output_root) if args.output_root else None
 
-            seen_paths.add(resolved)
-            st = resolved.stat()
-            size = st.st_size
-        except OSError:
-            print(f"Validation error: Failed to inspect input path: {raw_path.name}", file=sys.stderr)
-            return 2
+    input_refs, selection, preflight = MukhaPresenter.intake_from_paths(
+        args.inputs,
+        runtime_root=runtime_root,
+        output_root=output_root,
+        recursive=args.recursive,
+    )
 
-        input_refs.append(
-            InputRef(
-                input_id=f"inp-{i+1}",
-                source_path=resolved,
-                display_name=raw_path.name,
-                size_bytes=size,
-            )
-        )
+    if preflight.issues:
+        for name, reason in preflight.issues:
+            if "does not exist" in reason.lower():
+                print(f"Validation error: Input path does not exist: {name}", file=sys.stderr)
+            elif "not a regular file" in reason.lower():
+                print(f"Validation error: Input path is not a regular file: {name}", file=sys.stderr)
+            elif "duplicate" in reason.lower():
+                print(f"Validation error: Duplicate input file selected: {name}", file=sys.stderr)
+            else:
+                print(f"Validation error: {name} - {reason}", file=sys.stderr)
+        return 2
+
+    if not input_refs:
+        print("Validation error: No eligible input files found.", file=sys.stderr)
+        return 2
 
     first_display = input_refs[0].display_name
     req_id = args.request_id or f"req-{Path(first_display).stem or 'unnamed'}"
@@ -128,9 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     req = Request(
         request_id=req_id,
         requirement=args.requirement,
-        inputs=tuple(input_refs),
+        inputs=input_refs,
         profile=prof,
-        output_root=Path(args.output_root) if args.output_root else None,
+        output_root=output_root,
     )
 
     try:

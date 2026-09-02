@@ -736,6 +736,7 @@ class TestDomainAgnosticContracts:
             "ArtifactIntent",
             "ArtifactPayload",
             "ArtifactRef",
+            "CancellationToken",
             "CanonicalDocument",
             "Capability",
             "CapabilityDeclaration",

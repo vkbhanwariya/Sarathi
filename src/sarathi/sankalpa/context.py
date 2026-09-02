@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from sarathi.sankalpa.execution_profile import ExecutionProfile
+
+if TYPE_CHECKING:
+    from sarathi.sankalpa.cancellation import CancellationToken
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +30,7 @@ class ExecutionContext:
     profile: ExecutionProfile = ExecutionProfile.INSTANT
     quarantine_attempt: int = 0
     is_retry: bool = False
+    cancellation_token: CancellationToken | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -65,6 +69,7 @@ class ExecutionContext:
             profile=self.profile,
             quarantine_attempt=self.quarantine_attempt,
             is_retry=self.is_retry,
+            cancellation_token=self.cancellation_token,
             metadata=merged_meta,
         )
 
@@ -79,5 +84,6 @@ class ExecutionContext:
             profile=self.profile,
             quarantine_attempt=quarantine_attempt,
             is_retry=True,
+            cancellation_token=self.cancellation_token,
             metadata=dict(self.metadata),
         )

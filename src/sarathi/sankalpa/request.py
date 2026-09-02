@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from sarathi.sankalpa.artifact import InputRef
+from sarathi.sankalpa.cancellation import CancellationToken
 from sarathi.sankalpa.execution_profile import ExecutionProfile
 
 _REQUIREMENT_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_-]+$")
@@ -29,6 +30,7 @@ class Request:
     custom_options: Mapping[str, Any] = field(default_factory=dict)
     output_root: Path | None = None
     preserve_partial: bool = False
+    cancellation_token: CancellationToken | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

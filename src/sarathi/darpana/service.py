@@ -12,19 +12,27 @@ from __future__ import annotations
 from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 import threading
 import time
 from typing import Any, Iterator, Mapping
 
+from sarathi.darpana.history import TerminalRunHistoryStore, TerminalRunSummary
 from sarathi.darpana.maruti import MarutiRecord
 from sarathi.darpana.pramana import PramanaRecord
 from sarathi.sankalpa import ExecutionContext
 
 
 class Darpana:
-    """Thread-safe bounded in-memory telemetry service."""
+    """Thread-safe bounded in-memory and persistent telemetry service."""
 
-    def __init__(self, capacity: int) -> None:
+    def __init__(
+        self,
+        capacity: int = 1000,
+        history_path: Path | None = None,
+        history_format: str = "jsonl",
+        history_max_records: int = 1000,
+    ) -> None:
         if not isinstance(capacity, int) or isinstance(capacity, bool):
             raise TypeError(f"capacity must be an integer, got {type(capacity).__name__}.")
         if capacity <= 0:
@@ -34,11 +42,45 @@ class Darpana:
         self._lock: threading.Lock = threading.Lock()
         self._maruti_history: deque[MarutiRecord] = deque(maxlen=capacity)
         self._pramana_history: deque[PramanaRecord] = deque(maxlen=capacity)
+        self._run_summaries: deque[TerminalRunSummary] = deque(maxlen=capacity)
+        self._history_store: TerminalRunHistoryStore | None = (
+            TerminalRunHistoryStore(history_path, format=history_format, max_records=history_max_records)
+            if history_path is not None
+            else None
+        )
 
     @property
     def capacity(self) -> int:
         """Return the maximum bounded capacity for each telemetry history."""
         return self._capacity
+
+    def record_run_summary(self, summary: TerminalRunSummary) -> None:
+        """Record a privacy-filtered terminal run summary in memory and to configured persistent history."""
+        if not isinstance(summary, TerminalRunSummary):
+            raise TypeError(f"summary must be a TerminalRunSummary instance, got {type(summary).__name__}.")
+        with self._lock:
+            self._run_summaries.append(summary)
+        if self._history_store is not None:
+            self._history_store.save(summary)
+
+    def query_run_history(self, limit: int = 50) -> tuple[TerminalRunSummary, ...]:
+        """Query recent terminal run summaries from persistent store or in-memory history."""
+        if self._history_store is not None:
+            persisted = self._history_store.query(limit=limit)
+            if persisted:
+                return persisted
+        with self._lock:
+            return tuple(list(self._run_summaries)[-limit:][::-1])
+
+    def get_run_summary(self, run_id: str) -> TerminalRunSummary | None:
+        """Retrieve a specific terminal run summary by run_id."""
+        with self._lock:
+            for summary in self._run_summaries:
+                if summary.run_id == run_id:
+                    return summary
+        if self._history_store is not None:
+            return self._history_store.get(run_id)
+        return None
 
     def record_maruti(self, record: MarutiRecord) -> None:
         """Record a structured Maruti runtime performance event."""

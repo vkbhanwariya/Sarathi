@@ -39,6 +39,29 @@ from sarathi.sankalpa import ArtifactRef, InputRef, Request, Result
 # Operations running for 5 or more seconds are promoted to the long-running section
 _FIVE_SECONDS_NS = 5_000_000_000
 _TERMINAL_STATUSES = {"SUCCESS", "FAILED", "CANCELLED", "QUARANTINED"}
+_IGNORE_FILE_SUFFIXES = frozenset({".tmp", ".crdownload", ".part", ".swp", ".bak", ".lock"})
+
+
+def _is_hidden_or_temporary(path: Path) -> bool:
+    """Return True if path is a hidden or temporary file."""
+    name = path.name
+    if name.startswith(".") or name.startswith("~$"):
+        return True
+    if path.suffix.lower() in _IGNORE_FILE_SUFFIXES:
+        return True
+    return False
+
+
+def _is_subpath(child: Path, parent: Path | None) -> bool:
+    """Check if child is equal to or located within parent directory."""
+    if parent is None:
+        return False
+    try:
+        child_res = child.resolve()
+        parent_res = parent.resolve()
+        return child_res == parent_res or parent_res in child_res.parents
+    except OSError:
+        return False
 
 
 class MukhaPresenter:
@@ -50,15 +73,19 @@ class MukhaPresenter:
         kavacha: Kavacha | None = None,
         runtime_root: Path | None = None,
         output_root: Path | None = None,
+        recursive: bool = False,
     ) -> tuple[tuple[InputRef, ...], InputSelectionView, PreflightView]:
-        """Convert selected filesystem paths into canonical InputRefs, selection view, and preflight view.
+        """Convert selected filesystem paths, pasted strings, or folders into canonical InputRefs.
 
         Enforces T6 canonical validation rules:
-        - Path normalization;
+        - Path normalization & pasted multiline path string expansion;
+        - Directory discovery (recursive only when explicitly enabled);
+        - Dynamic exclusion of active Runtime and Output roots;
+        - Automatic filtering of hidden (.*) and temporary (~$*, *.tmp) files;
         - Requires regular file;
         - Factual stat().st_size (never zero fallback);
-        - Deduplication;
-        - Kavacha source-destination overlap validation when configured.
+        - Deduplication by canonical resolved path;
+        - Kavacha source-destination overlap validation when configured;
         - Media/format type remains None / unavailable until factual Darshana detection (no extension-as-truth).
         """
         seen_paths: set[Path] = set()
@@ -68,24 +95,119 @@ class MukhaPresenter:
         issues: list[tuple[str, str]] = []
         total_size = 0
 
-        for i, raw in enumerate(paths):
-            if not isinstance(raw, (Path, str)) or not str(raw).strip():
-                issues.append(("<empty>", "empty input path"))
-                continue
+        # 1. Expand input elements (supporting pasted multiline strings and quoted tokens)
+        expanded_candidates: list[Path] = []
+        for raw in paths:
+            if isinstance(raw, Path):
+                expanded_candidates.append(raw)
+            elif isinstance(raw, str):
+                for line in raw.splitlines():
+                    cleaned = line.strip().strip('"\'')
+                    if cleaned:
+                        expanded_candidates.append(Path(cleaned))
+            else:
+                issues.append(("<invalid>", f"invalid path type {type(raw).__name__}"))
 
-            p = Path(raw)
+        # 2. Validate path overlap via Kavacha if supplied
+        if kavacha is not None and expanded_candidates:
+            dest_roots: list[Path] = []
+            if runtime_root is not None:
+                dest_roots.append(runtime_root)
+            if output_root is not None:
+                dest_roots.append(output_root)
+            if dest_roots:
+                kavacha.validate_source_destination_overlap(expanded_candidates, dest_roots)
+
+        # 3. Discover files from candidates
+        for p in expanded_candidates:
             try:
                 resolved = p.resolve()
             except OSError:
-                issues.append((p.name, "cannot resolve path"))
+                issues.append((p.name or str(p), "cannot resolve path"))
                 continue
 
             if not resolved.exists():
-                issues.append((p.name, "does not exist"))
+                issues.append((p.name or str(p), "does not exist"))
                 continue
 
+            # Check if candidate is within active Output or Runtime root
+            if _is_subpath(resolved, runtime_root):
+                issues.append((p.name or str(p), "path is inside runtime root"))
+                continue
+            if _is_subpath(resolved, output_root):
+                issues.append((p.name or str(p), "path is inside output root"))
+                continue
+
+            if resolved.is_dir():
+                # Discover files inside selected directory
+                try:
+                    dir_iterator = resolved.rglob("*") if recursive else resolved.iterdir()
+                    found_files = sorted(dir_iterator, key=lambda x: str(x))
+                except OSError:
+                    issues.append((p.name or str(p), "failed to read directory contents"))
+                    continue
+
+                folder_added = 0
+                for child in found_files:
+                    try:
+                        child_res = child.resolve()
+                    except OSError:
+                        continue
+
+                    # Exclude active roots inside scanned folders
+                    if _is_subpath(child_res, runtime_root) or _is_subpath(child_res, output_root):
+                        continue
+
+                    # Ignore hidden / temporary files
+                    if _is_hidden_or_temporary(child_res):
+                        continue
+
+                    if not child_res.is_file():
+                        continue
+
+                    if child_res in seen_paths:
+                        continue
+
+                    try:
+                        st = child_res.stat()
+                        size = st.st_size
+                    except OSError:
+                        issues.append((child_res.name, "failed to inspect file size"))
+                        continue
+
+                    seen_paths.add(child_res)
+                    total_size += size
+                    folder_added += 1
+                    inp_id = f"inp-{len(valid_refs) + 1}"
+                    ref = InputRef(
+                        input_id=inp_id,
+                        source_path=child_res,
+                        display_name=child_res.name,
+                        size_bytes=size,
+                        media_type=None,
+                    )
+                    valid_refs.append(ref)
+                    input_items.append(
+                        InputItemView(
+                            input_id=inp_id,
+                            display_name=child_res.name,
+                            size_bytes=size,
+                            media_type=None,
+                            is_eligible=True,
+                        )
+                    )
+
+                if folder_added == 0:
+                    issues.append((p.name or str(p), "not a regular file"))
+                continue
+
+            # Candidate is a direct file
             if not resolved.is_file():
                 issues.append((p.name, "not a regular file"))
+                continue
+
+            if _is_hidden_or_temporary(resolved):
+                issues.append((p.name, "hidden or temporary file ignored"))
                 continue
 
             if resolved in seen_paths:
@@ -111,7 +233,6 @@ class MukhaPresenter:
                 media_type=None,
             )
             valid_refs.append(ref)
-
             input_items.append(
                 InputItemView(
                     input_id=inp_id,
@@ -121,16 +242,6 @@ class MukhaPresenter:
                     is_eligible=True,
                 )
             )
-
-        # Validate path overlap via Kavacha if supplied
-        if kavacha is not None and valid_refs:
-            dest_roots: list[Path] = []
-            if runtime_root is not None:
-                dest_roots.append(runtime_root)
-            if output_root is not None:
-                dest_roots.append(output_root)
-            if dest_roots:
-                kavacha.validate_source_destination_overlap(valid_refs, dest_roots)
 
         total_files = len(valid_refs) + len(issues)
 

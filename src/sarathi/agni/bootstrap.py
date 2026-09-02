@@ -10,6 +10,7 @@ from sarathi.smriti import SmritiCache
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
+import time
 from typing import Any, Mapping, Sequence
 import uuid
 
@@ -87,12 +88,7 @@ class Agni:
             span_id="bootstrap-001",
         )
 
-        # 2. Validate Darpana
-        if darpana is not None and not isinstance(darpana, Darpana):
-            raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
-        active_darpana = darpana or Darpana(capacity=1000)
-
-        # 3. Validate Settings
+        # 1. Validate Settings
         active_settings: Settings
         match settings:
             case None:
@@ -100,11 +96,22 @@ class Agni:
             case Settings():
                 active_settings = settings
             case Path() | str():
-                active_settings = load_settings(settings, darpana=active_darpana, context=bootstrap_ctx)
+                active_settings = load_settings(settings, darpana=darpana, context=bootstrap_ctx)
             case _:
                 raise TypeError(f"settings must be Settings, Path, str, or None, got {type(settings).__name__}.")
 
-        # 4. Validate Kavacha & Security Policy
+        # 2. Validate Darpana
+        if darpana is not None and not isinstance(darpana, Darpana):
+            raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+        hist_path = active_settings.telemetry_history_path if active_settings.telemetry_history_enabled else None
+        active_darpana = darpana or Darpana(
+            capacity=1000,
+            history_path=hist_path,
+            history_format=active_settings.telemetry_history_format,
+            history_max_records=active_settings.telemetry_history_max_records,
+        )
+
+        # 3. Validate Kavacha & Security Policy
         active_kavacha: Kavacha
         if kavacha is not None:
             if not isinstance(kavacha, Kavacha):
@@ -388,6 +395,9 @@ class Agni:
             (self._runtime_root, effective_output_root),
         )
 
+        t_start_utc = datetime.now(timezone.utc).isoformat()
+        t_start_ns = time.perf_counter_ns()
+
         # 2. Generate unique execution identity per execution when not explicitly provided
         exec_ctx = context or ExecutionContext(
             run_id=f"run-{uuid.uuid4().hex[:12]}",
@@ -395,6 +405,7 @@ class Agni:
             trace_id=f"tr-{uuid.uuid4().hex[:16]}",
             span_id=f"sp-{uuid.uuid4().hex[:8]}",
             profile=request.profile,
+            cancellation_token=request.cancellation_token,
         )
 
         # 3. Pre-Manthan Darshana Identification BEFORE workspace creation (Timed in Darpana)
@@ -450,6 +461,29 @@ class Agni:
                     warnings=raw_result.warnings,
                 )
 
+                duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)
+                if self._darpana is not None:
+                    from sarathi.darpana import TerminalRunSummary
+
+                    try:
+                        summary = TerminalRunSummary(
+                            run_id=exec_ctx.run_id,
+                            request_id=request.request_id,
+                            requirement=request.requirement,
+                            profile=request.profile.value,
+                            status="completed",
+                            start_time_utc=t_start_utc,
+                            completed_at_utc=datetime.now(timezone.utc).isoformat(),
+                            duration_ms=duration_ms,
+                            artifact_count=len(workspace.committed_artifacts),
+                            warning_count=len(raw_result.warnings),
+                            has_masked_identity=False,
+                            output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
+                        )
+                        self._darpana.record_run_summary(summary)
+                    except Exception:
+                        pass
+
                 # 9. Return final Result with confirmed ArtifactRefs strictly from active workspace
                 return Result(
                     data=raw_result.data,
@@ -462,9 +496,15 @@ class Agni:
                     metadata=raw_result.metadata,
                 )
             except BaseException as proc_exc:
+                duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)
                 if not workspace.is_finalized:
+                    is_cancelled = isinstance(proc_exc, DoshError) and bool(proc_exc.context.get("cancelled"))
+                    term_status = "cancelled" if is_cancelled else "failed"
                     try:
-                        workspace.finalize(success=False)
+                        workspace.finalize(
+                            success=False,
+                            status=term_status,
+                        )
                     except Exception as cleanup_exc:
                         if self._darpana is not None:
                             from sarathi.darpana import MarutiRecord
@@ -488,4 +528,26 @@ class Agni:
                                 proc_exc.__cleanup_cause__ = cleanup_exc  # type: ignore[attr-defined]
                             except Exception:
                                 pass
+
+                    if self._darpana is not None:
+                        from sarathi.darpana import TerminalRunSummary
+
+                        try:
+                            summary = TerminalRunSummary(
+                                run_id=exec_ctx.run_id,
+                                request_id=request.request_id,
+                                requirement=request.requirement,
+                                profile=request.profile.value,
+                                status=term_status,
+                                start_time_utc=t_start_utc,
+                                completed_at_utc=datetime.now(timezone.utc).isoformat(),
+                                duration_ms=duration_ms,
+                                artifact_count=len(workspace.committed_artifacts),
+                                warning_count=0,
+                                has_masked_identity=False,
+                                output_dir=str(workspace.output_dir.relative_to(effective_output_root)).replace("\\", "/"),
+                            )
+                            self._darpana.record_run_summary(summary)
+                        except Exception:
+                            pass
                 raise
