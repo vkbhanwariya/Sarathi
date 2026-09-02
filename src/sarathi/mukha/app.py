@@ -7,6 +7,8 @@ Runs runtime execution off the event loop via Textual worker threads.
 
 from __future__ import annotations
 
+from pathlib import Path
+import re
 import time
 from typing import TYPE_CHECKING, Any
 import uuid
@@ -17,9 +19,11 @@ from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import (
     Button,
+    Checkbox,
     DataTable,
     Footer,
     Header,
+    Input,
     Label,
     TabbedContent,
     TabPane,
@@ -36,6 +40,7 @@ from sarathi.mukha.components import (
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import (
     ApplicationViewState,
+    AvailableActionView,
     InspectorViewState,
     ReviewItemView,
     RunSummaryView,
@@ -106,8 +111,21 @@ class HomeScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with Container(id="home-container"):
-            yield Label(f"Requirement: {self.state.requirement}", id="home-req")
-            yield Label(f"Policy: {self.state.policy_label}", id="home-policy")
+            yield Label(f"Requirement: {self.state.requirement} | Policy: {self.state.policy_label}", id="home-req")
+
+            with Horizontal(id="home-input-controls"):
+                yield Input(placeholder="Enter path...", id="input-paths")
+                yield Button("Add Path", id="btn-add-path")
+
+            with Horizontal(id="home-options"):
+                yield Checkbox("Recursive", value=False, id="chk-recursive")
+
+            with Horizontal(id="home-req-buttons"):
+                yield Button("Native", id="btn-req-native")
+                yield Button("OCR", id="btn-req-ocr")
+                yield Button("Bank", id="btn-req-bank")
+                yield Button("Font", id="btn-req-font")
+                yield Button("Trans", id="btn-req-trans")
 
             inp = self.state.input_selection
             yield Label(f"Inputs: {inp.total_files} files selected ({format_bytes(inp.total_size_bytes)})", id="home-inputs-title")
@@ -131,14 +149,37 @@ class HomeScreen(Screen):
                     yield Label(f"  ! {fname}: {issue}", classes="preflight-issue")
 
             with Horizontal(id="home-actions"):
+                has_start = any(a.action_id == "start_run" for a in self.state.available_actions)
+                can_start = has_start and inp.total_files > 0 and (self.state.preflight is None or self.state.preflight.eligible_count > 0)
+                yield Button("Start Run", id="btn-start_run", disabled=not can_start)
                 for action in self.state.available_actions:
-                    btn = Button(action.label, id=f"btn-{action.action_id}", disabled=not action.is_enabled)
-                    yield btn
+                    if action.action_id != "start_run":
+                        btn = Button(action.label, id=f"btn-{action.action_id}", disabled=not action.is_enabled)
+                        yield btn
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-start_run":
             self.app.action_start_run()
+        elif event.button.id == "btn-add-path":
+            try:
+                inp_widget = self.query_one("#input-paths", Input)
+                chk_widget = self.query_one("#chk-recursive", Checkbox)
+                path_val = inp_widget.value.strip()
+                if path_val:
+                    self.app.action_add_paths(path_val, recursive=chk_widget.value)
+            except Exception:
+                pass
+        elif event.button.id == "btn-req-native":
+            self.app.action_select_requirement("read_native")
+        elif event.button.id == "btn-req-ocr":
+            self.app.action_select_requirement("ocr")
+        elif event.button.id == "btn-req-bank":
+            self.app.action_select_requirement("bank_statements")
+        elif event.button.id == "btn-req-font":
+            self.app.action_select_requirement("font_conversion")
+        elif event.button.id == "btn-req-trans":
+            self.app.action_select_requirement("translation")
 
 
 class MonitorScreen(Screen):
@@ -303,12 +344,15 @@ class SummaryScreen(Screen):
                     yield Label(f"  X {f}", classes="failure-item")
 
             with Horizontal(id="summary-actions"):
+                yield Button("Open Output Folder", id="btn-open-artifacts")
                 yield Button("Inspect Run", id="btn-inspect-run")
                 yield Button("New Run", id="btn-new-run")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-inspect-run":
+        if event.button.id == "btn-open-artifacts":
+            self.app.action_open_artifacts()
+        elif event.button.id == "btn-inspect-run":
             self.app.switch_to_inspector()
         elif event.button.id == "btn-new-run":
             self.app.switch_to_home()
@@ -382,6 +426,19 @@ class MukhaApp(App):
         ("q", "quit", "Quit"),
     ]
 
+    DEFAULT_CSS = """
+    #home-container {
+        padding: 1;
+    }
+    #input-paths {
+        width: 50;
+    }
+    #home-req-buttons Button {
+        min-width: 8;
+        margin-right: 1;
+    }
+    """
+
     def __init__(
         self,
         initial_state: ApplicationViewState,
@@ -428,6 +485,80 @@ class MukhaApp(App):
             self._pending_request.cancellation_token.cancel()
         elif self._active_context is not None and self._active_context.cancellation_token is not None:
             self._active_context.cancellation_token.cancel()
+
+    def action_add_paths(self, path_str: str, recursive: bool = False) -> None:
+        """Add paths to the current input selection and recompute preflight."""
+        if not path_str or not path_str.strip():
+            return
+        raw_paths = [p.strip() for p in re.split(r"[\n\r]+", path_str) if p.strip()]
+        if not raw_paths:
+            raw_paths = [path_str.strip()]
+
+        kavacha = getattr(self._agni, "kavacha", None)
+        runtime_root = getattr(self._agni, "runtime_root", None)
+        output_root = getattr(self._agni, "output_root", None)
+
+        input_refs, selection, preflight = MukhaPresenter.intake_from_paths(
+            raw_paths,
+            kavacha=kavacha,
+            runtime_root=runtime_root,
+            output_root=output_root,
+            recursive=recursive,
+        )
+
+        actions = [AvailableActionView(action_id="start_run", label="Start Run", is_enabled=len(input_refs) > 0)]
+        self.app_state = MukhaPresenter.build_home_view(
+            requirement=self.app_state.requirement,
+            policy_label=self.app_state.policy_label,
+            input_selection=selection,
+            preflight=preflight,
+            available_actions=actions,
+            review_queue=self.app_state.review_queue,
+            startup=self.app_state.startup,
+        )
+        if len(input_refs) > 0:
+            first_name = input_refs[0].display_name
+            req_id = f"req-{Path(first_name).stem or 'unnamed'}"
+            from sarathi.sankalpa import ExecutionProfile, Request
+
+            self._pending_request = Request(
+                request_id=req_id,
+                requirement=self.app_state.requirement,
+                inputs=input_refs,
+                profile=ExecutionProfile.INSTANT,
+                output_root=output_root,
+            )
+        self.switch_to_home()
+
+    def action_select_requirement(self, requirement: str) -> None:
+        """Switch requirement and update pending request."""
+        self.app_state = MukhaPresenter.build_home_view(
+            requirement=requirement,
+            policy_label=self.app_state.policy_label,
+            input_selection=self.app_state.input_selection,
+            preflight=self.app_state.preflight,
+            available_actions=self.app_state.available_actions,
+            review_queue=self.app_state.review_queue,
+            startup=self.app_state.startup,
+        )
+        if self._pending_request is not None:
+            from dataclasses import replace
+
+            self._pending_request = replace(self._pending_request, requirement=requirement)
+        self.switch_to_home()
+
+    def action_open_artifacts(self) -> None:
+        """Safely reveal output directory on host platform without throwing exceptions."""
+        if self._agni is not None and self._agni.output_root is not None:
+            out_root = self._agni.output_root
+            if out_root.exists():
+                try:
+                    import os
+
+                    if hasattr(os, "startfile"):
+                        os.startfile(out_root)
+                except Exception:
+                    pass
 
     def action_start_run(self) -> None:
         """Start execution asynchronously on a background worker thread and switch to Monitor."""
