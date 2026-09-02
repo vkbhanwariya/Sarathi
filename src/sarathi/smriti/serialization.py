@@ -20,45 +20,57 @@ from sarathi.sankalpa import (
 )
 
 
+def is_cacheable_result(result: Result) -> bool:
+    """Check whether a Result has a supported lossless canonical representation."""
+    if not isinstance(result, Result):
+        return False
+    if result.data is None:
+        return False
+    # Only CanonicalDocument is currently supported for lossless canonical serialization
+    return isinstance(result.data, CanonicalDocument)
+
+
 def serialize_result(result: Result) -> str:
     """Serialize canonical Result dataclass into deterministic JSON string."""
-    data_dict: dict[str, Any] | None = None
-    if isinstance(result.data, CanonicalDocument):
-        doc = result.data
-        data_dict = {
-            "_type": "CanonicalDocument",
-            "document_id": doc.document_id,
-            "source_input_id": doc.source_input_id,
-            "text": doc.text,
-            "detected_type": doc.detected_type,
-            "metadata": dict(doc.metadata),
-            "pages": [
-                {
-                    "page_number": p.page_number,
-                    "text": p.text,
-                    "metadata": dict(p.metadata),
-                    "tables": [
-                        {
-                            "name": t.name,
-                            "headers": list(t.headers),
-                            "rows": [list(r) for r in t.rows],
-                            "metadata": dict(t.metadata),
-                        }
-                        for t in p.tables
-                    ],
-                }
-                for p in doc.pages
-            ],
-            "tables": [
-                {
-                    "name": t.name,
-                    "headers": list(t.headers),
-                    "rows": [list(r) for r in t.rows],
-                    "metadata": dict(t.metadata),
-                }
-                for t in doc.tables
-            ],
-        }
+    if not is_cacheable_result(result):
+        raise ValueError(f"Result with data of type {type(result.data).__name__} is not cacheable.")
+
+    doc = result.data
+    assert isinstance(doc, CanonicalDocument)
+    data_dict = {
+        "_type": "CanonicalDocument",
+        "document_id": doc.document_id,
+        "source_input_id": doc.source_input_id,
+        "text": doc.text,
+        "detected_type": doc.detected_type,
+        "metadata": dict(doc.metadata),
+        "pages": [
+            {
+                "page_number": p.page_number,
+                "text": p.text,
+                "metadata": dict(p.metadata),
+                "tables": [
+                    {
+                        "name": t.name,
+                        "headers": list(t.headers),
+                        "rows": [list(r) for r in t.rows],
+                        "metadata": dict(t.metadata),
+                    }
+                    for t in p.tables
+                ],
+            }
+            for p in doc.pages
+        ],
+        "tables": [
+            {
+                "name": t.name,
+                "headers": list(t.headers),
+                "rows": [list(r) for r in t.rows],
+                "metadata": dict(t.metadata),
+            }
+            for t in doc.tables
+        ],
+    }
 
     payloads_list = []
     for p in result.artifact_payloads:
@@ -117,48 +129,49 @@ def deserialize_result(json_str: str) -> Result:
     """Deserialize JSON string back into canonical Result dataclass."""
     raw = json.loads(json_str)
 
-    data_obj: Any = None
-    if raw.get("data") and raw["data"].get("_type") == "CanonicalDocument":
-        d = raw["data"]
-        pages = []
-        for p in d.get("pages", []):
-            p_tables = [
-                TableData(
-                    name=t["name"],
-                    headers=tuple(t["headers"]),
-                    rows=tuple(tuple(r) for r in t["rows"]),
-                    metadata=MappingProxyType(t.get("metadata", {})),
-                )
-                for t in p.get("tables", [])
-            ]
-            pages.append(
-                PageData(
-                    page_number=p["page_number"],
-                    text=p["text"],
-                    tables=tuple(p_tables),
-                    metadata=MappingProxyType(p.get("metadata", {})),
-                )
-            )
+    if not raw.get("data") or raw["data"].get("_type") != "CanonicalDocument":
+        raise ValueError("Invalid serialized cache entry: missing or unsupported CanonicalDocument data.")
 
-        tables = [
+    d = raw["data"]
+    pages = []
+    for p in d.get("pages", []):
+        p_tables = [
             TableData(
                 name=t["name"],
                 headers=tuple(t["headers"]),
                 rows=tuple(tuple(r) for r in t["rows"]),
                 metadata=MappingProxyType(t.get("metadata", {})),
             )
-            for t in d.get("tables", [])
+            for t in p.get("tables", [])
         ]
-
-        data_obj = CanonicalDocument(
-            document_id=d.get("document_id", "doc-cached"),
-            source_input_id=d.get("source_input_id", "inp-cached"),
-            text=d.get("text", ""),
-            pages=tuple(pages),
-            tables=tuple(tables),
-            detected_type=d.get("detected_type", "document"),
-            metadata=MappingProxyType(d.get("metadata", {})),
+        pages.append(
+            PageData(
+                page_number=p["page_number"],
+                text=p["text"],
+                tables=tuple(p_tables),
+                metadata=MappingProxyType(p.get("metadata", {})),
+            )
         )
+
+    tables = [
+        TableData(
+            name=t["name"],
+            headers=tuple(t["headers"]),
+            rows=tuple(tuple(r) for r in t["rows"]),
+            metadata=MappingProxyType(t.get("metadata", {})),
+        )
+        for t in d.get("tables", [])
+    ]
+
+    data_obj = CanonicalDocument(
+        document_id=d.get("document_id", "doc-cached"),
+        source_input_id=d.get("source_input_id", "inp-cached"),
+        text=d.get("text", ""),
+        pages=tuple(pages),
+        tables=tuple(tables),
+        detected_type=d.get("detected_type", "document"),
+        metadata=MappingProxyType(d.get("metadata", {})),
+    )
 
     payloads = []
     for pl in raw.get("artifact_payloads", []):

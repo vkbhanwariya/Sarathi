@@ -455,8 +455,38 @@ class Pravaha:
                 # Smriti cache check
                 cache_key = None
                 if self._smriti is not None:
-                    cache_key = compute_cache_key(current_request, cap.declaration.capability_id, cap.declaration.version)
-                    cached_result = self._smriti.get(cache_key)
+                    from sarathi.darpana import MarutiRecord
+
+                    cache_key = compute_cache_key(
+                        current_request,
+                        cap.declaration.capability_id,
+                        cap.declaration.version,
+                        prior_result=prior_result,
+                    )
+                    cached_result, cache_tier = self._smriti.get_with_tier(cache_key)
+
+                    if self._darpana is not None:
+                        cache_outcome = "hit" if cached_result is not None else "miss"
+                        tier = cache_tier if cached_result is not None else "l1"
+                        self._darpana.record_maruti(
+                            MarutiRecord(
+                                run_id=current_ctx.run_id,
+                                request_id=current_ctx.request_id,
+                                trace_id=current_ctx.trace_id,
+                                span_id=current_ctx.span_id,
+                                phase_name="cache.lookup",
+                                component="smriti",
+                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                duration_ns=0,
+                                outcome="success",
+                                attributes={
+                                    "capability_id": cap.declaration.capability_id,
+                                    "cache_tier": tier,
+                                    "outcome": cache_outcome,
+                                },
+                            )
+                        )
+
                     if cached_result is not None:
                         prior_result = cached_result
                         continue
