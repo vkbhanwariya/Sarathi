@@ -27,6 +27,7 @@ import pymupdf
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import Kosh, Manthan, Pravaha
 from sarathi.sankalpa import (
+    CapabilityDeclaration,
     CanonicalDocument,
     DeviceType,
     ExecutionContext,
@@ -107,7 +108,12 @@ class TestOCRPhase1Instant:
         assert "ocr" in OCR_PLUGIN.capabilities
         assert OCR_DECLARATION.capability_id == "ocr"
         assert OCR_DECLARATION.plugin_id == "shakti.ocr"
-        assert OCR_DECLARATION.supported_profiles == (ExecutionProfile.INSTANT,)
+        assert OCR_DECLARATION.supported_profiles == (
+            ExecutionProfile.INSTANT,
+            ExecutionProfile.ACCURATE,
+            ExecutionProfile.LAYOUT_PRESERVING,
+            ExecutionProfile.CUSTOM,
+        )
 
     def test_real_image_ocr_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
@@ -902,10 +908,16 @@ class TestOCRPhase1Instant:
         img_path = tmp_path / "test.png"
         _create_sample_image("TEXT", img_path)
 
-        # 1. Kosh resolution rejection
+        # 1. Kosh resolution rejection with restricted declaration
+        restricted_decl = CapabilityDeclaration(
+            capability_id="ocr",
+            plugin_id="shakti.ocr",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+        )
         kosh = Kosh()
         kosh.register_plugin(OCR_PLUGIN)
-        kosh.register_capability(OCR_DECLARATION)
+        kosh.register_capability(restricted_decl)
         manthan = Manthan(kosh)
 
         accurate_req = Request(
@@ -921,9 +933,10 @@ class TestOCRPhase1Instant:
             manthan.resolve(accurate_req)
         assert exc_info.value.code is FailureCode.UNSUPPORTED
 
-        # 2. Direct capability execute rejection
+        # 2. Direct capability execute rejection with restricted capability
+        restricted_cap = OCRCapability(declaration=restricted_decl)
         with pytest.raises(DoshError) as exc_info_exec:
-            ocr_capability.execute(accurate_req, context)
+            restricted_cap.execute(accurate_req, context)
         assert exc_info_exec.value.code is FailureCode.UNSUPPORTED
 
     def test_privacy_zero_raw_filesystem_path_leakage(

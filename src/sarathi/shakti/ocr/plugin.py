@@ -1,4 +1,4 @@
-"""Plugin information and capability declaration for OCR Phase 1."""
+"""Plugin information and capability declaration for OCR."""
 
 from __future__ import annotations
 
@@ -25,6 +25,9 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     version="1.0.0",
     supported_profiles=(
         ExecutionProfile.INSTANT,
+        ExecutionProfile.ACCURATE,
+        ExecutionProfile.LAYOUT_PRESERVING,
+        ExecutionProfile.CUSTOM,
     ),
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.CPU,),
