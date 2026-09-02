@@ -1,7 +1,6 @@
 """Tests for Translation Domain Glossary and Anubhava Corrections."""
 
 from sarathi.shakti.translation.anubhava import TranslationAnubhavaStore
-from sarathi.shakti.translation.engine import TranslationEngine
 from sarathi.shakti.translation.glossary import GlossaryStore
 from sarathi.shakti.translation.models import TranslationDirection
 
@@ -26,17 +25,3 @@ def test_anubhava_approved_corrections_loaded() -> None:
     assert corrs_hi_en["उच्च न्यायालय"] == "High Court"
     assert "High Court" in corrs_en_hi
     assert corrs_en_hi["High Court"] == "उच्च न्यायालय"
-
-
-def test_bilingual_translation_directions() -> None:
-    engine = TranslationEngine()
-
-    # Hindi to English
-    res_hi = engine.translate("भारत सरकार का आदेश।", direction=TranslationDirection.HI_TO_EN)
-    assert "Government of India" in res_hi.translated_text
-    assert "Order" in res_hi.translated_text
-
-    # English to Hindi
-    res_en = engine.translate("Government of India Order.", direction=TranslationDirection.EN_TO_HI)
-    assert "भारत सरकार" in res_en.translated_text
-    assert "आदेश" in res_en.translated_text

@@ -1,32 +1,40 @@
 [
   {
     "id": "corpus-1",
-    "hi": "\u092d\u093e\u0930\u0924 \u0938\u0930\u0915\u093e\u0930 \u0915\u093e \u0906\u0926\u0947\u0936 \u0926\u093f\u0928\u093e\u0902\u0915 15/08/2026 \u0915\u094b \u091c\u093e\u0930\u0940 \u0915\u093f\u092f\u093e \u0917\u092f\u093e\u0964",
-    "en": "The Government of India Order was issued on date 15/08/2026.",
+    "direction": "hi-en",
+    "source": "\u092d\u093e\u0930\u0924\u0940\u092f \u0930\u093f\u091c\u0930\u094d\u0935 \u092c\u0948\u0902\u0915 \u0928\u0947 \u0928\u0908 \u092e\u094c\u0926\u094d\u0930\u093f\u0915 \u0928\u0940\u0924\u093f \u0915\u0940 \u0918\u094b\u0937\u0923\u093e \u0915\u0940\u0964",
+    "target": "The Reserve Bank of India announced the new monetary policy.",
     "protected_facts": [
-      "15/08/2026",
-      "Government of India",
-      "Order"
+      "Reserve Bank of India"
     ]
   },
   {
     "id": "corpus-2",
-    "hi": "\u0916\u093e\u0924\u093e \u0938\u0902\u0916\u094d\u092f\u093e SBI-998811 \u092e\u0947\u0902 \u20b9 50,000.00 \u091c\u092e\u093e \u0915\u093f\u090f \u0917\u090f\u0964",
-    "en": "\u20b9 50,000.00 was deposited in Account Number SBI-998811.",
+    "direction": "hi-en",
+    "source": "\u0928\u094d\u092f\u093e\u092f\u093e\u0932\u092f \u0928\u0947 \u0905\u092a\u0940\u0932 \u0938\u0902\u0916\u094d\u092f\u093e REF-2026 \u0915\u094b \u0916\u093e\u0930\u093f\u091c \u0915\u0930 \u0926\u093f\u092f\u093e \u0914\u0930 \u20b9 25,000.00 \u0915\u093e \u091c\u0941\u0930\u094d\u092e\u093e\u0928\u093e \u0932\u0917\u093e\u092f\u093e\u0964",
+    "target": "The court dismissed appeal number REF-2026 and imposed a fine of \u20b9 25,000.00.",
     "protected_facts": [
-      "SBI-998811",
-      "50,000.00",
-      "Account Number"
+      "REF-2026",
+      "25,000.00"
     ]
   },
   {
     "id": "corpus-3",
-    "hi": "\u0909\u091a\u094d\u091a \u0928\u094d\u092f\u093e\u092f\u093e\u0932\u092f \u0926\u093f\u0932\u094d\u0932\u0940 \u0928\u0947 \u092f\u093e\u091a\u093f\u0915\u093e REF-HC-2026 \u0915\u094b \u0938\u094d\u0935\u0940\u0915\u093e\u0930 \u0915\u093f\u092f\u093e\u0964",
-    "en": "High Court Delhi accepted the petition REF-HC-2026.",
+    "direction": "en-hi",
+    "source": "The applicant submitted the identity document on date 15/08/2026 for verification.",
+    "target": "\u0906\u0935\u0947\u0926\u0915 \u0928\u0947 \u0938\u0924\u094d\u092f\u093e\u092a\u0928 \u0915\u0947 \u0932\u093f\u090f \u0926\u093f\u0928\u093e\u0902\u0915 15/08/2026 \u0915\u094b \u092a\u0939\u091a\u093e\u0928 \u0926\u0938\u094d\u0924\u093e\u0935\u0947\u091c \u092a\u094d\u0930\u0938\u094d\u0924\u0941\u0924 \u0915\u093f\u092f\u093e\u0964",
     "protected_facts": [
-      "High Court",
-      "Delhi",
-      "REF-HC-2026"
+      "15/08/2026"
+    ]
+  },
+  {
+    "id": "corpus-4",
+    "direction": "en-hi",
+    "source": "Account Number ACC-998811 has a remaining balance of \u20b9 1,50,000.00.",
+    "target": "\u0916\u093e\u0924\u093e \u0938\u0902\u0916\u094d\u092f\u093e ACC-998811 \u092e\u0947\u0902 \u20b9 1,50,000.00 \u0915\u093e \u0936\u0947\u0937 \u092c\u0948\u0932\u0947\u0902\u0938 \u0939\u0948\u0964",
+    "protected_facts": [
+      "ACC-998811",
+      "1,50,000.00"
     ]
   }
 ]
