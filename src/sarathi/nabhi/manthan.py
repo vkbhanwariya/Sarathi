@@ -115,10 +115,10 @@ class Manthan:
                         ),
                     )
 
-        if requirement == "bank_statements":
+        if requirement in ("bank_statements", "font_conversion"):
             return CapabilityPlan(
                 request_id=request.request_id,
-                capability_ids=("read_native", "bank_statements"),
+                capability_ids=("read_native", requirement),
             )
 
         return CapabilityPlan(
