@@ -63,3 +63,8 @@ Runtime/
 *.tmp
 *.temp
 scratch/
+
+# Machine Learning Models & Binary Weights
+*.onnx
+models/
+data/ocr/models/*.onnx
