@@ -26,7 +26,7 @@ from sarathi.nabhi import (
     QuarantineStore,
     RetryPolicy,
 )
-from sarathi.sankalpa import ArtifactRef, Capability, DeviceType, ExecutionContext, Request, Result
+from sarathi.sankalpa import ArtifactRef, Capability, DeviceType, ExecutionContext, PluginInfo, Request, Result
 from sarathi.shakti.darshana import DarshanaCapability, identify_request
 from sarathi.shakti.native_extraction import NativeExtractionCapability
 from sarathi.shakti.ocr import OCRCapability
@@ -158,7 +158,6 @@ class Agni:
                 "ocr": OCRCapability(),
                 "bank_statements": BankStatementCapability(darpana=active_darpana),
                 "font_conversion": FontConversionCapability(darpana=active_darpana),
-                "translation": TranslationCapability(darpana=active_darpana),
             }
 
         # 7. Validate Inventory - use factual default inventory
@@ -199,6 +198,20 @@ class Agni:
         self._kosh: Kosh = Kosh()
         self._dvara: Dvara = Dvara(registry=self._kosh, darpana=self._darpana)
         self._dvara.register_builtins(context=bootstrap_ctx)
+
+        for cap_k, cap_v in self._capabilities.items():
+            if not self._kosh.has_capability(cap_k):
+                decl = cap_v.declaration
+                if not self._kosh.has_plugin(decl.plugin_id):
+                    self._kosh.register_plugin(
+                        PluginInfo(
+                            plugin_id=decl.plugin_id,
+                            name=decl.plugin_id,
+                            version=decl.version,
+                            capabilities=(cap_k,),
+                        )
+                    )
+                self._kosh.register_capability(decl)
 
         # Yantra & Manthan
         self._yantra: Yantra = Yantra(self._inventory, darpana=self._darpana)

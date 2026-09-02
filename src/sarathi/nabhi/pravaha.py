@@ -604,6 +604,7 @@ class Pravaha:
                                 raise retry_err
 
                 if prior_result.next_requirement is not None:
+                    originating_capability_id = cap.declaration.capability_id
                     break
 
             assert prior_result is not None  # plan.capability_ids is guaranteed non-empty by CapabilityPlan contract
@@ -620,20 +621,25 @@ class Pravaha:
                 )
             seen_requirements.add(next_req_id)
 
-            # Construct next Request with updated requirement
-            current_request = Request(
-                request_id=current_request.request_id,
-                requirement=next_req_id,
-                inputs=current_request.inputs,
-                profile=current_request.profile,
-                custom_options=current_request.custom_options,
-                output_root=current_request.output_root,
-                preserve_partial=current_request.preserve_partial,
-                metadata=current_request.metadata,
-            )
-
-            # Resolve next plan through Manthan
-            current_plan = self._manthan.resolve(current_request)
+            if request.requirement not in ("read_native", "identify", next_req_id) and originating_capability_id == request.requirement:
+                current_plan = CapabilityPlan(
+                    request_id=request.request_id,
+                    capability_ids=(next_req_id, request.requirement),
+                )
+            else:
+                # Construct next Request with updated requirement
+                current_request = Request(
+                    request_id=current_request.request_id,
+                    requirement=next_req_id,
+                    inputs=current_request.inputs,
+                    profile=current_request.profile,
+                    custom_options=current_request.custom_options,
+                    output_root=current_request.output_root,
+                    preserve_partial=current_request.preserve_partial,
+                    metadata=current_request.metadata,
+                )
+                # Resolve next plan through Manthan
+                current_plan = self._manthan.resolve(current_request)
 
     def apply_lifecycle_action(
         self,

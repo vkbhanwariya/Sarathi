@@ -32,6 +32,7 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
         ExecutionProfile.LAYOUT_PRESERVING,
         ExecutionProfile.CUSTOM,
     ),
+    prerequisites=("read_native",),
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.CPU,),
         supported_devices=(DeviceType.CPU, DeviceType.GPU, DeviceType.NPU),

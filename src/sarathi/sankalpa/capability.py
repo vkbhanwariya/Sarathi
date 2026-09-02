@@ -145,6 +145,7 @@ class CapabilityDeclaration:
     description: str = ""
     device_requirement: DeviceRequirement = field(default_factory=DeviceRequirement)
     supported_input_types: tuple[str, ...] = ()
+    prerequisites: tuple[str, ...] = ()
     produces_artifacts: bool = False
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -182,6 +183,14 @@ class CapabilityDeclaration:
             object.__setattr__(self, "supported_input_types", cleaned_inputs)
         else:
             raise TypeError(f"supported_input_types must be a sequence of strings, got {type(self.supported_input_types)}.")
+
+        if isinstance(self.prerequisites, (list, tuple)):
+            cleaned_prereqs = tuple(
+                p.strip() for p in self.prerequisites if p and p.strip()
+            )
+            object.__setattr__(self, "prerequisites", cleaned_prereqs)
+        else:
+            raise TypeError(f"prerequisites must be a sequence of strings, got {type(self.prerequisites)}.")
 
         if isinstance(self.metadata, Mapping):
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
