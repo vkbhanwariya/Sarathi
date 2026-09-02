@@ -139,7 +139,7 @@ class MukhaPresenter:
 
     @staticmethod
     def build_home_view(
-        input_selection: InputSelectionView,
+        input_selection: InputSelectionView | None = None,
         requirement: str = "read_native",
         policy_label: str = "Local only",
         preflight: PreflightView | None = None,
@@ -148,11 +148,16 @@ class MukhaPresenter:
         startup: StartupViewState | None = None,
     ) -> ApplicationViewState:
         """Build Screen 1: Griha - Home & Input Setup presentation state purely from supplied facts."""
+        sel = (
+            input_selection
+            if input_selection is not None
+            else InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+        )
         return ApplicationViewState(
             current_screen="home",
             requirement=requirement,
             policy_label=policy_label,
-            input_selection=input_selection,
+            input_selection=sel,
             preflight=preflight,
             available_actions=tuple(available_actions),
             review_queue=tuple(review_queue),
