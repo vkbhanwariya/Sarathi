@@ -249,27 +249,18 @@ class Agni:
                 if not self._kosh.has_plugin(p.plugin_id):
                     self._kosh.register_plugin(p)
 
-        # For any capability whose plugin is not yet registered in Kosh:
-        # Group custom capabilities by plugin_id so that full capability inventory is preserved
-        unregistered_plugins: dict[str, list[CapabilityDeclaration]] = {}
+        # Register capabilities with Kosh; require that owning plugins are registered
         for cap_k, cap_v in self._capabilities.items():
             if not self._kosh.has_capability(cap_k):
                 p_id = cap_v.declaration.plugin_id
                 if not self._kosh.has_plugin(p_id):
-                    unregistered_plugins.setdefault(p_id, []).append(cap_v.declaration)
-
-        for p_id, decls in unregistered_plugins.items():
-            cap_ids = tuple(d.capability_id for d in decls)
-            p_info = PluginInfo(
-                plugin_id=p_id,
-                name=p_id,
-                version=decls[0].version,
-                capabilities=cap_ids,
-            )
-            self._kosh.register_plugin(p_info)
-
-        for cap_k, cap_v in self._capabilities.items():
-            if not self._kosh.has_capability(cap_k):
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=(
+                            f"Cannot register capability '{cap_k}': owning plugin '{p_id}' is not registered in Kosh. "
+                            "Pass explicit PluginInfo via the 'plugins' argument."
+                        ),
+                    )
                 self._dvara.register_capability(cap_v.declaration)
 
         # Yantra & Manthan

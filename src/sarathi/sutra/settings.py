@@ -9,6 +9,7 @@ management remain with Kavacha.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -30,7 +31,23 @@ def _freeze_value(value: Any) -> Any:
 
 
 def get_canonical_data_root() -> Path:
-    """Return the canonical base data root directory for Sarathi static domain assets."""
+    """Return the canonical base data root directory for Sarathi static domain assets.
+
+    Resolution precedence:
+    1. SARATHI_DATA_DIR environment variable (if set and directory exists).
+    2. Package-internal data directory (sarathi/data if distributed in wheel).
+    3. Source-tree repository data root (repository_root / data).
+    """
+    env_dir = os.environ.get("SARATHI_DATA_DIR")
+    if env_dir:
+        p = Path(env_dir).resolve()
+        if p.is_dir():
+            return p
+
+    pkg_data = Path(__file__).resolve().parents[1] / "data"
+    if pkg_data.is_dir():
+        return pkg_data
+
     return Path(__file__).resolve().parents[3] / "data"
 
 

@@ -253,17 +253,24 @@ class BankStatementCapability:
                         if parsed_close is not None:
                             close_bal = parsed_close
                     case RowType.CONTINUATION:
-                        target_list = table_txns if table_txns else raw_txns
-                        if target_list:
+                        if table_txns:
                             cont_text = _get_cell(row_cells, desc_col) or " ".join(
                                 c.strip() for c in row_cells if c.strip()
                             )
                             if cont_text:
-                                prev = target_list[-1]
+                                prev = table_txns[-1]
                                 updated_desc = f"{prev.description} {cont_text}".strip()
-                                target_list[-1] = replace(prev, description=updated_desc)
-                                if target_list is table_txns and raw_txns:
-                                    raw_txns[-1] = target_list[-1]
+                                table_txns[-1] = replace(prev, description=updated_desc)
+                                if raw_txns:
+                                    raw_txns[-1] = table_txns[-1]
+                        else:
+                            iss = ValidationIssue(
+                                code="ORPHAN_CONTINUATION_ROW",
+                                message=f"Row {row_idx}: Continuation row in table has no preceding transaction in the same table to attach to.",
+                                severity="warning",
+                                context={"row_index": row_idx, "page_number": page_num},
+                            )
+                            issues.append(iss)
                     case RowType.TRANSACTION:
                         tx_date = parse_date(_get_cell(row_cells, d_col))
                         # Inherit date from previous transaction ONLY within the same table
