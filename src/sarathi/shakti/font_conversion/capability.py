@@ -81,7 +81,12 @@ class FontConversionCapability:
             )
 
         # If document text, pages, and tables are completely empty, request OCR continuation through Pravaha
-        if all(not d.text.strip() and not any(p.tables for p in d.pages) and not d.tables and d.pages for d in docs):
+        if all(
+            not d.text.strip()
+            and not d.tables
+            and not any(p.text.strip() or p.tables for p in d.pages)
+            for d in docs
+        ):
             return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
 
         converted_docs: list[CanonicalDocument] = []
@@ -130,8 +135,8 @@ class FontConversionCapability:
                 )
 
                 if is_to_legacy:
-                    detected_profile = target_profile
-                    conf = 1.0
+                    # Preserve detected_profile for legacy-to-legacy decoding; conf reflects detection evidence
+                    pass
                 else:
                     # Default: auto_unicode
                     if detected_profile is None:
@@ -195,7 +200,11 @@ class FontConversionCapability:
                         )
                     converted_pages.append(
                         PageData(
-                            page_number=p.page_number, text=p_conv, tables=tuple(p_page_tables), metadata=p.metadata
+                            page_number=p.page_number,
+                            text=p_conv,
+                            spans=p.spans,
+                            tables=tuple(p_page_tables),
+                            metadata=p.metadata,
                         )
                     )
 
