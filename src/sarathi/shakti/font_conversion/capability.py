@@ -19,8 +19,8 @@ from sarathi.sankalpa import (
     TableData,
     TextSpan,
     WarningRecord,
-    transform_canonical_document,
 )
+from sarathi.sankalpa.document import transform_canonical_document
 from sarathi.shakti.docx_exporter import build_docx_payload, transform_docx_artifact
 from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import LegacyFontDetector

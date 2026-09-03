@@ -322,6 +322,7 @@ def transform_docx_artifact(
     filename: str,
     role: str = "converted_document",
     warnings: list[WarningRecord] | None = None,
+    preserve_modern_fonts: bool | None = None,
 ) -> ArtifactPayload:
     """Transform an existing DOCX file in-place, preserving OpenXML layout and document structure.
 
@@ -332,6 +333,7 @@ def transform_docx_artifact(
     try:
         in_buf = io.BytesIO(input_bytes)
         out_buf = io.BytesIO()
+        should_preserve_modern = preserve_modern_fonts if preserve_modern_fonts is not None else (role == "converted_document")
 
         with zipfile.ZipFile(in_buf, "r") as in_zf, zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
             for item in in_zf.infolist():
@@ -347,7 +349,7 @@ def transform_docx_artifact(
                 if is_target_xml:
                     try:
                         tree = ET.fromstring(raw_entry)
-                        _transform_xml_tree(tree, converter_fn)
+                        _transform_xml_tree(tree, converter_fn, preserve_modern_fonts=should_preserve_modern)
                         updated_entry = ET.tostring(tree, encoding="utf-8", xml_declaration=True)
                         out_zf.writestr(item, updated_entry)
                         continue
@@ -418,7 +420,11 @@ def _merge_adjacent_compatible_runs(p: ET.Element) -> None:
         i += 1
 
 
-def _transform_xml_tree(tree: ET.Element, converter_fn: Callable[[str], str]) -> None:
+def _transform_xml_tree(
+    tree: ET.Element,
+    converter_fn: Callable[[str], str],
+    preserve_modern_fonts: bool = False,
+) -> None:
     """Transform paragraphs and runs within an ElementTree OpenXML element."""
     p_tag = f"{{{_W_NS}}}p"
     r_tag = f"{{{_W_NS}}}r"
@@ -427,6 +433,11 @@ def _transform_xml_tree(tree: ET.Element, converter_fn: Callable[[str], str]) ->
     rfonts_tag = f"{{{_W_NS}}}rFonts"
     sz_tag = f"{{{_W_NS}}}sz"
     szcs_tag = f"{{{_W_NS}}}szCs"
+
+    modern_font_names = (
+        "bookman", "calibri", "arial", "times", "cambria", "georgia",
+        "verdana", "tahoma", "courier", "segoe", "helvetica", "trebuchet",
+    )
 
     for p in tree.iter(p_tag):
         _merge_adjacent_compatible_runs(p)
@@ -445,7 +456,22 @@ def _transform_xml_tree(tree: ET.Element, converter_fn: Callable[[str], str]) ->
             if not full_run_text:
                 continue
 
-            converted_text = converter_fn(full_run_text)
+            # Check if this run is explicitly styled with a modern Latin font
+            is_modern_run = False
+            if preserve_modern_fonts:
+                rpr = child.find(rpr_tag)
+                if rpr is not None:
+                    rf = rpr.find(rfonts_tag)
+                    if rf is not None:
+                        val_str = " ".join(rf.attrib.values()).lower()
+                        if any(m in val_str for m in modern_font_names):
+                            is_modern_run = True
+
+            if is_modern_run:
+                converted_text = full_run_text
+            else:
+                converted_text = converter_fn(full_run_text)
+
             segments = segment_text_by_script(converted_text)
             if not segments:
                 for t in t_elems:

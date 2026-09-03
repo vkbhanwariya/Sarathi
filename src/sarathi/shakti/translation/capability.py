@@ -18,8 +18,8 @@ from sarathi.sankalpa import (
     Result,
     TableData,
     WarningRecord,
-    transform_canonical_document,
 )
+from sarathi.sankalpa.document import transform_canonical_document
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.translation.detector import LanguageDetector
 from sarathi.shakti.translation.engine import (

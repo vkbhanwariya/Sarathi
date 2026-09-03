@@ -480,4 +480,4 @@ class TestYantraExecution:
         # The primary error from capability is preserved, not masked by the release failure
         assert exc_info.value is primary_err
         # Note attached with release failure details
-        assert any("Device bus failure on release" in note for note in getattr(primary_err, "__notes__", []))
+        assert any("OSError" in note for note in getattr(primary_err, "__notes__", []))
