@@ -16,6 +16,7 @@ from sarathi.sankalpa import (
     CustomProfileOptions,
     DeviceRequirement,
     DeviceType,
+    ExecutionBinding,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
@@ -469,6 +470,27 @@ class TestContextContracts:
         assert retry_ctx.is_retry is True
         assert retry_ctx.quarantine_attempt == 2
 
+    def test_execution_context_with_execution_binding(self) -> None:
+        ctx = ExecutionContext(
+            run_id="run-100",
+            request_id="req-100",
+            trace_id="trace-100",
+            span_id="span-root",
+        )
+        assert ctx.execution_binding is None
+
+        binding = ExecutionBinding(
+            device_id="cpu-0",
+            device_type=DeviceType.CPU,
+            backend="cpu",
+            backend_device_id="CPU",
+            is_spillover=False,
+        )
+        bound = ctx.with_execution_binding(binding)
+        assert bound.execution_binding == binding
+        assert bound.child_span("child-1").execution_binding == binding
+        assert bound.with_retry(1).execution_binding == binding
+
 
 class TestDocumentContracts:
     def test_canonical_document_structure_and_immutability(self) -> None:
@@ -744,6 +766,7 @@ class TestDomainAgnosticContracts:
             "CustomProfileOptions",
             "DeviceRequirement",
             "DeviceType",
+            "ExecutionBinding",
             "ExecutionContext",
             "ExecutionProfile",
             "InputRef",

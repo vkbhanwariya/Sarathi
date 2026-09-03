@@ -37,8 +37,8 @@ from sarathi.sankalpa import (
     TableData,
     TextSpan,
     WarningRecord,
-    transform_canonical_document,
 )
+from sarathi.sankalpa.document import transform_canonical_document
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 from sarathi.shakti.docx_exporter import (
     _W_NS,

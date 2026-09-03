@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from sarathi.sankalpa import (
     Capability,
     DeviceRequirement,
+    DeviceType,
+    ExecutionBinding,
     ExecutionContext,
     Request,
     Result,
@@ -158,22 +160,48 @@ class Yantra:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
 
+            # Resolve backend and backend_device_id
+            if allocation.device_type == DeviceType.GPU:
+                if "ocr" in capability.declaration.capability_id.lower():
+                    backend = "openvino"
+                    backend_device_id = "GPU"
+                else:
+                    backend = "cuda"
+                    backend_device_id = "cuda"
+            elif allocation.device_type == DeviceType.NPU:
+                backend = "openvino"
+                backend_device_id = "NPU"
+            else:
+                backend = "cpu"
+                backend_device_id = "CPU"
+
+            binding = ExecutionBinding(
+                device_id=allocation.device_id,
+                device_type=allocation.device_type,
+                backend=backend,
+                backend_device_id=backend_device_id,
+                is_spillover=allocation.is_spillover,
+            )
+            bound_context = context.with_execution_binding(binding)
+
             scope = (
                 self._darpana.time_scope(
-                    context=context,
+                    context=bound_context,
                     phase_name="capability_execution",
                     component=capability.declaration.plugin_id,
                     attributes={
                         "capability_id": capability.declaration.capability_id,
                         "device_id": allocation.device_id,
                         "device_type": allocation.device_type.value,
+                        "backend": binding.backend,
+                        "is_spillover": binding.is_spillover,
                     },
                 )
                 if self._darpana is not None
                 else nullcontext()
             )
             with scope:
-                result = capability.execute(request=request, context=context, prior_result=prior_result)
+                result = capability.execute(request=request, context=bound_context, prior_result=prior_result)
 
             if not isinstance(result, Result):
                 raise TypeError(

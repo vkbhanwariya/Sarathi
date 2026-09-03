@@ -21,7 +21,7 @@ from sarathi.sankalpa.capability import (
     DeviceRequirement,
     DeviceType,
 )
-from sarathi.sankalpa.context import ExecutionContext
+from sarathi.sankalpa.context import ExecutionBinding, ExecutionContext
 from sarathi.sankalpa.document import (
     CanonicalDocument,
     PageData,
@@ -53,6 +53,7 @@ __all__ = [
     "CustomProfileOptions",
     "DeviceRequirement",
     "DeviceType",
+    "ExecutionBinding",
     "ExecutionContext",
     "ExecutionProfile",
     "InputRef",
