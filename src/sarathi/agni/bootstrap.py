@@ -273,6 +273,7 @@ class Agni:
 
         # Prana & QuarantineStore
         self._prana: Prana = Prana()
+        self._prana.register("yantra", self._yantra)
         if self._darpana is not None:
             self._prana.register("darpana", self._darpana)
         self._quarantine_store: QuarantineStore = QuarantineStore(
