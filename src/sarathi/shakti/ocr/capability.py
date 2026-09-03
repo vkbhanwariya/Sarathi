@@ -18,6 +18,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Request,
     Result,
+    WarningRecord,
 )
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
