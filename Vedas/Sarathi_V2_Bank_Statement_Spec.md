@@ -64,11 +64,14 @@ BankStatement
 ├── closing_balance        # Decimal | None
 ├── balance_as_on          # statement-generation balance, if explicit
 ├── transactions[]
-├── daily_balances[]
-├── totals
-├── validation
-└── provenance
+├── status                 # ValidationStatus
+├── issues[]               # ValidationIssue
+├── provenance[]           # ProvenanceRecord
+└── metadata               # statement attributes & daily balance mapping
 ```
+
+Consolidation-level aggregates (`total_transactions`, `total_debit`, `total_credit`) across all statements reside in `BankStatementConsolidationResult`. Repeated table headers across pages are categorized under `RowType.HEADER`.
+
 
 ``` text
 Transaction

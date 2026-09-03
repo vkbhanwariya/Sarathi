@@ -190,7 +190,7 @@ output_root = "Output"
         assert "super_secret_token_12345" not in err_context_str
 
     def test_sutra_exports(self) -> None:
-        expected = {"Settings", "load_settings"}
+        expected = {"Settings", "load_settings", "get_canonical_data_root"}
         assert set(sutra_module.__all__) == expected
         for name in expected:
             assert hasattr(sutra_module, name)
