@@ -86,8 +86,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         try:
             length_str = self.headers.get("Content-Length")
             if length_str:
-                length = min(int(length_str), 65536)
-                if length > 0:
+                raw_len = int(length_str)
+                if raw_len > 0:
+                    length = min(raw_len, 65536)
                     self.rfile.read(length)
         except Exception:
             pass
@@ -132,6 +133,8 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
 
         try:
             length = int(content_length_str)
+            if length < 0:
+                raise ValueError("Negative Content-Length is not permitted.")
         except ValueError:
             self._send_json(400, {"ok": False, "error": "Invalid Content-Length header."})
             return None

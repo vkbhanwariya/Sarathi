@@ -471,3 +471,12 @@ class TestMukhaWebServerAPI:
             assert "Page 3/5" in file_view["current_stage"]
 
             finish_evt.set()
+
+
+def test_negative_content_length_rejected(web_server: MukhaWebServer) -> None:
+    """Verify negative Content-Length headers are rejected with 400 Bad Request."""
+    url = f"http://127.0.0.1:{web_server.resolved_port}/api/runs"
+    req = urllib.request.Request(url, data=b"{}", headers={"Content-Length": "-1", "Content-Type": "application/json"})
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+    assert exc_info.value.code == 400
