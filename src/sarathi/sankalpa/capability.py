@@ -83,6 +83,7 @@ class DeviceRequirement:
     parallelizable: bool = True
     estimated_memory_bytes: int | None = None
     priority: int = 0
+    supported_backends: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.preferred_devices, set):
@@ -128,6 +129,15 @@ class DeviceRequirement:
 
         if self.estimated_memory_bytes is not None and self.estimated_memory_bytes < 0:
             raise ValueError(f"estimated_memory_bytes cannot be negative (got {self.estimated_memory_bytes}).")
+
+        if self.supported_backends is not None:
+            if isinstance(self.supported_backends, set):
+                raise TypeError("supported_backends must be an ordered sequence (list or tuple), not a set.")
+            if not isinstance(self.supported_backends, (list, tuple)):
+                raise TypeError(f"supported_backends must be a sequence of strings, got {type(self.supported_backends)}.")
+            cleaned_backends = tuple(str(b).strip().lower() for b in self.supported_backends if str(b).strip())
+            object.__setattr__(self, "supported_backends", cleaned_backends)
+
 
 
 @dataclass(frozen=True, slots=True)

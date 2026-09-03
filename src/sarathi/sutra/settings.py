@@ -245,6 +245,18 @@ class Settings:
             )
         return raw
 
+    @property
+    def hardware_detect_accelerators(self) -> bool:
+        """Return validated hardware.detect_accelerators boolean, defaulting to False."""
+        sec = self.get_section("hardware")
+        raw = sec.get("detect_accelerators", False) if sec is not None else False
+        if not isinstance(raw, bool):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="hardware.detect_accelerators must be a boolean.",
+            )
+        return raw
+
     def security_policy(self) -> SecurityPolicy:
         """Construct a validated SecurityPolicy from configuration."""
         from sarathi.kavacha import SecurityPolicy

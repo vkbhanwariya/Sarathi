@@ -37,6 +37,7 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
         preferred_devices=(DeviceType.CPU,),
         supported_devices=(DeviceType.CPU, DeviceType.GPU),
         parallelizable=True,
+        supported_backends=("cuda", "cpu"),
     ),
     produces_artifacts=True,
     metadata=MappingProxyType({"category": "shakti", "family": "translation"}),

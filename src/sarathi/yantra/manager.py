@@ -6,8 +6,9 @@ Exposes:
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -57,6 +58,7 @@ class Yantra:
         self._executor: ThreadPoolExecutor | None = None
         self._is_started: bool = False
         self._is_closed: bool = False
+        self._lifecycle_lock: threading.Lock = threading.Lock()
 
     @property
     def inventory(self) -> DeviceInventory:
@@ -71,34 +73,47 @@ class Yantra:
     @property
     def is_started(self) -> bool:
         """Return True if Yantra execution pool has started."""
-        return self._is_started
+        with self._lifecycle_lock:
+            return self._is_started
 
     @property
     def is_closed(self) -> bool:
         """Return True if Yantra has been closed."""
-        return self._is_closed
+        with self._lifecycle_lock:
+            return self._is_closed
 
     def start(self) -> None:
         """Start Yantra and initialize bounded execution pool under Prana lifecycle."""
-        if self._is_started:
-            return
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(
-                max_workers=self._max_workers,
-                thread_name_prefix="yantra-worker",
-            )
-        self._is_started = True
-        self._is_closed = False
+        with self._lifecycle_lock:
+            if self._is_closed:
+                raise DoshError(
+                    code=FailureCode.RESOURCE_UNAVAILABLE,
+                    message="Cannot start Yantra; resource manager is closed.",
+                )
+            if self._is_started:
+                return
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(
+                    max_workers=self._max_workers,
+                    thread_name_prefix="yantra-worker",
+                )
+            self._is_started = True
 
     def close(self) -> None:
-        """Gracefully close Yantra, shutting down worker pool and clearing allocator state."""
-        if self._is_closed:
-            return
-        self._is_closed = True
-        self._is_started = False
-        if self._executor is not None:
-            self._executor.shutdown(wait=True, cancel_futures=True)
+        """Gracefully close Yantra, shutting down worker pool and clearing allocator state.
+
+        Yantra close is strictly terminal.
+        """
+        with self._lifecycle_lock:
+            if self._is_closed:
+                return
+            self._is_closed = True
+            self._is_started = False
+            exec_to_close = self._executor
             self._executor = None
+
+        if exec_to_close is not None:
+            exec_to_close.shutdown(wait=True, cancel_futures=True)
         self._allocator.close()
 
     def allocate(
@@ -139,8 +154,12 @@ class Yantra:
         self,
         subtasks: Sequence[Callable[[], Any]],
         context: ExecutionContext | None = None,
+        max_concurrency: int | None = None,
     ) -> list[Any]:
         """Execute independent subtasks concurrently using Yantra's bounded worker pool, preserving source order.
+
+        Uses bounded in-flight sliding window scheduling so large task sets do not submit unbounded futures.
+        On child failure or cancellation, settles already-running work before returning or raising.
 
         Raises:
             DoshError(FailureCode.OPERATION_CANCELLED): If context cancellation is requested.
@@ -149,11 +168,12 @@ class Yantra:
         if not isinstance(subtasks, (list, tuple)):
             raise TypeError(f"subtasks must be a sequence, got {type(subtasks).__name__}.")
 
-        if self._is_closed:
-            raise DoshError(
-                code=FailureCode.RESOURCE_UNAVAILABLE,
-                message="Cannot execute subtasks; Yantra is closed.",
-            )
+        with self._lifecycle_lock:
+            if self._is_closed:
+                raise DoshError(
+                    code=FailureCode.RESOURCE_UNAVAILABLE,
+                    message="Cannot execute subtasks; Yantra is closed.",
+                )
 
         if not subtasks:
             return []
@@ -161,26 +181,99 @@ class Yantra:
         if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
             context.cancellation_token.check_cancelled()
 
-        if len(subtasks) == 1:
-            return [subtasks[0]()]
+        # Sequential execution if only 1 task or max_concurrency == 1
+        if len(subtasks) == 1 or max_concurrency == 1:
+            results = []
+            for task in subtasks:
+                if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                    context.cancellation_token.check_cancelled()
+                results.append(task())
+            return results
 
-        # Lazy initialize executor if start() was not explicitly called
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(
-                max_workers=self._max_workers,
-                thread_name_prefix="yantra-subtask",
-            )
-            self._is_started = True
+        with self._lifecycle_lock:
+            if self._is_closed:
+                raise DoshError(
+                    code=FailureCode.RESOURCE_UNAVAILABLE,
+                    message="Cannot execute subtasks; Yantra is closed.",
+                )
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(
+                    max_workers=self._max_workers,
+                    thread_name_prefix="yantra-subtask",
+                )
+                self._is_started = True
+            executor = self._executor
 
-        futures = [self._executor.submit(task) for task in subtasks]
-        results: list[Any] = []
-        for f in futures:
-            if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-                for rem in futures:
-                    rem.cancel()
-                context.cancellation_token.check_cancelled()
-            results.append(f.result())
-        return results
+        effective_concurrency = self._max_workers
+        if max_concurrency is not None and max_concurrency > 0:
+            effective_concurrency = min(effective_concurrency, max_concurrency)
+
+        # Bounded sliding window: at most effective_concurrency * 2 in flight
+        window_size = max(2, min(len(subtasks), effective_concurrency * 2))
+
+        ordered_results: list[Any] = [None] * len(subtasks)
+        in_flight: dict[Future[Any], int] = {}
+        next_task_idx = 0
+        terminal_error: BaseException | None = None
+
+        def _cancel_and_drain() -> None:
+            # Cancel all unstarted in-flight futures
+            for fut in in_flight:
+                fut.cancel()
+            # Await all futures that were already running so device work settles completely
+            for fut in list(in_flight.keys()):
+                try:
+                    fut.result()
+                except BaseException:
+                    pass
+            in_flight.clear()
+
+        try:
+            while next_task_idx < len(subtasks) or in_flight:
+                # 1. Check cancellation before submitting more work
+                if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                    _cancel_and_drain()
+                    context.cancellation_token.check_cancelled()
+
+                # 2. Fill window up to bounded limit
+                while next_task_idx < len(subtasks) and len(in_flight) < window_size and terminal_error is None:
+                    idx = next_task_idx
+                    task_fn = subtasks[idx]
+                    try:
+                        fut = executor.submit(task_fn)
+                        in_flight[fut] = idx
+                        next_task_idx += 1
+                    except RuntimeError as re:
+                        raise DoshError(
+                            code=FailureCode.RESOURCE_UNAVAILABLE,
+                            message="Cannot schedule subtasks; Yantra executor is shutting down.",
+                        ) from re
+
+                if not in_flight:
+                    break
+
+                # 3. Wait for at least one in-flight future to complete
+                from concurrent.futures import FIRST_COMPLETED, wait
+
+                done, _ = wait(in_flight.keys(), return_when=FIRST_COMPLETED)
+                for f in done:
+                    task_idx = in_flight.pop(f)
+                    try:
+                        res = f.result()
+                        ordered_results[task_idx] = res
+                    except BaseException as exc:
+                        if terminal_error is None:
+                            terminal_error = exc
+
+                if terminal_error is not None:
+                    _cancel_and_drain()
+                    raise terminal_error
+
+        except BaseException:
+            _cancel_and_drain()
+            raise
+
+        return ordered_results
 
     def release(
         self,
@@ -254,26 +347,12 @@ class Yantra:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
 
-            # Resolve backend and backend_device_id
-            if allocation.device_type == DeviceType.GPU:
-                if "ocr" in capability.declaration.capability_id.lower():
-                    backend = "openvino"
-                    backend_device_id = "GPU"
-                else:
-                    backend = "cuda"
-                    backend_device_id = "cuda"
-            elif allocation.device_type == DeviceType.NPU:
-                backend = "openvino"
-                backend_device_id = "NPU"
-            else:
-                backend = "cpu"
-                backend_device_id = "CPU"
-
+            # Construct factual ExecutionBinding directly from allocator reservation
             binding = ExecutionBinding(
                 device_id=allocation.device_id,
                 device_type=allocation.device_type,
-                backend=backend,
-                backend_device_id=backend_device_id,
+                backend=allocation.backend,
+                backend_device_id=allocation.backend_device_id,
                 is_spillover=allocation.is_spillover,
             )
             bound_context = context.with_execution_binding(binding)
@@ -303,6 +382,7 @@ class Yantra:
                     f"got {type(result).__name__}."
                 )
             return result
+
         except BaseException as exc:
             exec_exc = exc
             raise

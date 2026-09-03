@@ -157,22 +157,9 @@ class OCRCapability:
             # Perform OCR on each page image
             # If multiple pages and Yantra is available, execute concurrently via Yantra's bounded executor
             pages = []
-            if len(images) > 1 and self._engine._engine is None and self._yantra is not None:
+            is_parallelizable = self.declaration.device_requirement.parallelizable
+            if len(images) > 1 and self._yantra is not None and is_parallelizable:
                 import threading
-
-                thread_local = threading.local()
-
-                def _get_worker_engine() -> RapidOCREngine:
-                    if not hasattr(thread_local, "engine"):
-                        if type(self._engine) is RapidOCREngine:
-                            thread_local.engine = RapidOCREngine(
-                                data_root=self._engine._data_root,
-                                tesseract_adapter=self._engine._tesseract,
-                                default_lang=self._engine._default_lang,
-                            )
-                        else:
-                            thread_local.engine = self._engine
-                    return thread_local.engine
 
                 def _make_page_task(
                     p_idx: int, p_img: Any
@@ -191,8 +178,7 @@ class OCRCapability:
                                 stage="Optical Character Recognition (OCR)",
                             )
 
-                        eng = _get_worker_engine()
-                        p_data, p_prov, _, p_warns = eng.ocr_page(
+                        p_data, p_prov, _, p_warns = self._engine.ocr_page(
                             p_img,
                             p_idx,
                             inp.input_id,

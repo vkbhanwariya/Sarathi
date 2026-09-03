@@ -8,6 +8,7 @@ import json
 import math
 import re
 import stat
+import threading
 import unicodedata
 from pathlib import Path
 from typing import Any, Mapping
@@ -421,6 +422,7 @@ class RapidOCREngine:
         self._model_labels: dict[str, str] = {}
         self._default_lang: str = default_lang
         self._tesseract: TesseractFallbackAdapter = tesseract_adapter or TesseractFallbackAdapter()
+        self._init_lock: threading.Lock = threading.Lock()
 
     @property
     def default_lang(self) -> str:
@@ -435,6 +437,12 @@ class RapidOCREngine:
         if self._engine is not None:
             return self._engine
 
+        with self._init_lock:
+            if self._engine is not None:
+                return self._engine
+            return self._get_engine_unlocked(lang=lang, execution_binding=execution_binding)
+
+    def _get_engine_unlocked(self, lang: str = "en", execution_binding: ExecutionBinding | None = None) -> Any:
         target_device = "CPU"
         if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
             target_device = execution_binding.backend_device_id or "GPU"
