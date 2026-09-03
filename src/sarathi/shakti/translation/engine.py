@@ -132,7 +132,7 @@ class CTranslate2TranslationEngine:
                 if not model_path.exists() or not spm_path.exists():
                     raise DoshError(
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Model assets for '{dir_key}' missing at '{model_path}'.",
+                        message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
                     )
                 if dir_key not in self._translators:
                     self._translators[dir_key] = ctranslate2.Translator(str(model_path))

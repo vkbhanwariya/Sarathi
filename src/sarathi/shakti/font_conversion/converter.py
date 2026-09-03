@@ -87,10 +87,10 @@ class FontConverter:
         pid = target_profile_id.lower().strip()
         profile = self._profiles.get(pid)
         if profile is None:
-            # Fallback to krutidev010 if specific profile not found
-            profile = self._profiles.get("krutidev010")
-            if profile is None:
-                return text
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Requested target font profile is not supported or loaded: {target_profile_id!r}",
+            )
 
         norm_text = unicodedata.normalize("NFC", text)
 

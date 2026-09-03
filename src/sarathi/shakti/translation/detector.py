@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 
-from sarathi.shakti.font_conversion.detector import _KRUTI_SIGNATURES
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.shakti.font_conversion.detector import LegacyFontDetector
 from sarathi.shakti.translation.models import Language, TranslationDirection
 
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
@@ -30,10 +31,7 @@ class LanguageDetector:
 
     def is_legacy_font(self, text: str) -> bool:
         """Check if text contains legacy Hindi font markers requiring Roopa Font Conversion."""
-        if not text or not text.strip():
-            return False
-        matches = [s for s in _KRUTI_SIGNATURES if s in text]
-        return len(matches) >= 2
+        return LegacyFontDetector.is_legacy_text(text)
 
     def resolve_direction(
         self,
@@ -47,8 +45,18 @@ class LanguageDetector:
                 return TranslationDirection.HI_TO_EN
             if dir_str in ("en-hi", "english_to_hindi", "en_hi"):
                 return TranslationDirection.EN_TO_HI
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Unsupported or invalid translation direction: {requested_direction!r}",
+            )
 
         detected = self.detect_language(text)
         if detected == Language.HINDI:
             return TranslationDirection.HI_TO_EN
-        return TranslationDirection.EN_TO_HI
+        if detected == Language.ENGLISH:
+            return TranslationDirection.EN_TO_HI
+
+        raise DoshError(
+            code=FailureCode.VALIDATION_FAILED,
+            message="Unable to detect language from input text; unknown language cannot be resolved.",
+        )

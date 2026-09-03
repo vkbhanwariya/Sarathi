@@ -86,6 +86,17 @@ class LegacyFontDetector:
     def __init__(self, fonts_dir: Path | None = None) -> None:
         self._profiles = load_font_profiles(fonts_dir)
 
+    @classmethod
+    def is_legacy_text(cls, text: str) -> bool:
+        """Public evidence-based check whether text contains legacy Devanagari font signatures."""
+        if not text or not text.strip():
+            return False
+        return len([s for s in _KRUTI_SIGNATURES if s in text]) >= 2
+
+    def is_legacy_font(self, text: str) -> bool:
+        """Instance check whether text contains sufficient legacy font evidence."""
+        return self.is_legacy_text(text)
+
     def detect(self, text: str, font_hint: str | None = None) -> tuple[str | None, float]:
         """Detect legacy font profile from actual text evidence.
 
@@ -96,23 +107,27 @@ class LegacyFontDetector:
 
         # Evidence-based signature digraph detection in content
         matches = [s for s in _KRUTI_SIGNATURES if s in text]
-        has_kruti_evidence = len(matches) >= 2
+        has_evidence = len(matches) >= 2
 
-        if not has_kruti_evidence:
+        if not has_evidence:
             # Insufficient text evidence: do not authorize destructive conversion
             return None, 0.0
 
-        # Text has genuine Kruti Dev evidence: check candidate profile compatibility
+        conf = min(1.0, 0.5 + len(matches) * 0.1)
+
+        # If font_hint provided, validate against candidate profiles
         if font_hint:
             hint_lower = font_hint.lower().strip()
-            kruti_prof = self._profiles.get("krutidev010")
-            if kruti_prof is not None:
-                if hint_lower != kruti_prof.profile_id.lower() and hint_lower not in kruti_prof.aliases:
-                    # Incompatible hint provided despite legacy text: reject hint mismatch
-                    return None, 0.0
+            for prof in self._profiles.values():
+                if hint_lower == prof.profile_id.lower() or hint_lower in [a.lower() for a in prof.aliases]:
+                    return prof.profile_id, conf
+            # Incompatible hint provided despite legacy text: reject hint mismatch
+            return None, 0.0
 
+        # Without hint, default to krutidev010 if available, else first loaded profile
         if "krutidev010" in self._profiles:
-            conf = min(1.0, 0.5 + len(matches) * 0.1)
             return "krutidev010", conf
+        elif self._profiles:
+            return next(iter(self._profiles)), conf
 
         return None, 0.0
