@@ -15,6 +15,8 @@ from typing import Any, Mapping
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     ConfidenceValue,
+    DeviceType,
+    ExecutionBinding,
     ExecutionProfile,
     PageData,
     ProvenanceRecord,
@@ -50,6 +52,46 @@ def _is_safe_filename(name: Any) -> bool:
     if not _SAFE_FILENAME_PATTERN.match(clean):
         return False
     return True
+
+
+def _patch_rapidocr_openvino_device() -> None:
+    """Ensure RapidOCR OpenVINOInferSession respects the device configured in the inference params."""
+    try:
+        import rapidocr.inference_engine.openvino.main as ov_main
+
+        if getattr(ov_main.OpenVINOInferSession, "_sarathi_device_patched", False):
+            return
+
+        def _custom_init(self: Any, cfg: Any) -> None:
+            from pathlib import Path
+
+            try:
+                from openvino import Core
+            except ImportError:
+                from openvino.runtime import Core
+
+            device_name = str(cfg.get("device", "CPU")).upper()
+            core = Core()
+            model_path = Path(cfg.get("model_path"))
+            self._verify_model(model_path)
+
+            if device_name == "CPU":
+                try:
+                    from rapidocr.inference_engine.openvino.device_config import CPUConfig
+
+                    cpu_config = CPUConfig(cfg.get("engine_cfg", {}))
+                    core.set_property("CPU", cpu_config.get_config())
+                except Exception:
+                    pass
+
+            self.model = core.read_model(model_path)
+            compile_model = core.compile_model(model=self.model, device_name=device_name)
+            self.session = compile_model.create_infer_request()
+
+        ov_main.OpenVINOInferSession.__init__ = _custom_init
+        ov_main.OpenVINOInferSession._sarathi_device_patched = True
+    except Exception:
+        pass
 
 
 def extract_images_from_bytes(data: bytes) -> list[Any]:
@@ -388,10 +430,14 @@ class RapidOCREngine:
     def tesseract(self) -> TesseractFallbackAdapter:
         return self._tesseract
 
-    def _get_engine(self, lang: str = "en") -> Any:
+    def _get_engine(self, lang: str = "en", execution_binding: ExecutionBinding | None = None) -> Any:
         """Lazily initialize the underlying RapidOCR engine instance for the requested language after verifying assets against manifest.json."""
         if self._engine is not None:
             return self._engine
+
+        target_device = "CPU"
+        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+            target_device = execution_binding.backend_device_id or "GPU"
 
         manifest_file = self._data_root / "manifest.json"
         models_dir = self._data_root / "models"
@@ -463,8 +509,9 @@ class RapidOCREngine:
             engine_key = "en"
             rec_key = "rec"
 
-        if engine_key in self._engines:
-            return self._engines[engine_key]
+        cache_key = f"{engine_key}:{target_device}"
+        if cache_key in self._engines:
+            return self._engines[cache_key]
 
         # 2. Validate target recognition model entry
         if rec_key not in models_meta or not isinstance(models_meta[rec_key], dict):
@@ -548,58 +595,72 @@ class RapidOCREngine:
                 message="OCR dependencies are not installed. Install with 'uv add --optional ocr'.",
             ) from exc
 
+        _patch_rapidocr_openvino_device()
+
         if engine_key == "devanagari":
             params: dict[str, Any] = {
                 "Det.engine_type": EngineType.OPENVINO,
+                "Det.device": target_device,
                 "Det.ocr_version": OCRVersion.PPOCRV5,
                 "Det.model_type": ModelType.MOBILE,
                 "Det.model_path": verified_paths["det"],
                 "Rec.engine_type": EngineType.OPENVINO,
+                "Rec.device": target_device,
                 "Rec.ocr_version": OCRVersion.PPOCRV5,
                 "Rec.model_type": ModelType.MOBILE,
                 "Rec.lang_type": LangRec.DEVANAGARI,
                 "Rec.model_path": verified_paths[rec_key],
                 "Cls.engine_type": EngineType.OPENVINO,
+                "Cls.device": target_device,
                 "Cls.model_path": verified_paths["cls"],
                 "Global.log_level": "error",
             }
         elif engine_key == "v6_en":
             params = {
                 "Det.engine_type": EngineType.OPENVINO,
+                "Det.device": target_device,
                 "Det.ocr_version": OCRVersion.PPOCRV5,
                 "Det.model_type": ModelType.MOBILE,
                 "Det.model_path": verified_paths["det"],
                 "Rec.engine_type": EngineType.OPENVINO,
+                "Rec.device": target_device,
                 "Rec.ocr_version": OCRVersion.PPOCRV6,
                 "Rec.model_type": ModelType.SMALL,
                 "Rec.model_path": verified_paths[rec_key],
                 "Cls.engine_type": EngineType.OPENVINO,
+                "Cls.device": target_device,
                 "Cls.model_path": verified_paths["cls"],
                 "Global.log_level": "error",
             }
         else:
             params = {
                 "Det.engine_type": EngineType.OPENVINO,
+                "Det.device": target_device,
                 "Det.ocr_version": OCRVersion.PPOCRV5,
                 "Det.model_type": ModelType.MOBILE,
                 "Det.model_path": verified_paths["det"],
                 "Rec.engine_type": EngineType.OPENVINO,
+                "Rec.device": target_device,
                 "Rec.ocr_version": OCRVersion.PPOCRV5,
                 "Rec.model_type": ModelType.MOBILE,
                 "Rec.model_path": verified_paths[rec_key],
                 "Cls.engine_type": EngineType.OPENVINO,
+                "Cls.device": target_device,
                 "Cls.model_path": verified_paths["cls"],
                 "Global.log_level": "error",
             }
 
         engine_inst = RapidOCR(params=params)
+        self._engines[cache_key] = engine_inst
         self._engines[engine_key] = engine_inst
         if rec_key == "rec_v6_en":
-            self._model_labels[engine_key] = "PP-OCRv6"
+            label = "PP-OCRv6"
         elif rec_key == "rec_devanagari":
-            self._model_labels[engine_key] = "PP-OCRv5-Devanagari"
+            label = "PP-OCRv5-Devanagari"
         else:
-            self._model_labels[engine_key] = "PP-OCRv5"
+            label = "PP-OCRv5"
+        self._model_labels[cache_key] = label
+        self._model_labels[engine_key] = label
         return engine_inst
 
     def ocr_page(
@@ -609,13 +670,18 @@ class RapidOCREngine:
         input_id: str,
         profile: ExecutionProfile = ExecutionProfile.INSTANT,
         custom_options: Mapping[str, Any] | None = None,
+        execution_binding: ExecutionBinding | None = None,
     ) -> tuple[PageData, ProvenanceRecord, ConfidenceValue | None, tuple[WarningRecord, ...]]:
         """Run PP-OCR OpenVINO on a single image and return factual PageData, Provenance, and Warnings."""
         import numpy as np
 
+        target_device = "CPU"
+        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+            target_device = execution_binding.backend_device_id or "GPU"
+
         lang_opt = custom_options.get("lang") if custom_options else None
         target_lang = str(lang_opt).lower().strip() if lang_opt else self._default_lang
-        engine = self._get_engine(target_lang)
+        engine = self._get_engine(target_lang, execution_binding=execution_binding)
         img_arr = np.array(image)
 
         # Resolve preprocessing flags per execution profile and options
@@ -771,12 +837,13 @@ class RapidOCREngine:
                 )
             )
 
+        cache_key = f"{target_lang}:{target_device}"
         if target_lang in _DEV_LANGS:
             model_label = "PP-OCRv5-Devanagari"
         elif target_lang in _V6_LANGS:
             model_label = "PP-OCRv6"
         else:
-            model_label = self._model_labels.get("en", "PP-OCRv5")
+            model_label = self._model_labels.get(cache_key, self._model_labels.get(f"en:{target_device}", "PP-OCRv5"))
 
         page_confidence: ConfidenceValue | None = None
         if conf_scores and not has_invalid_confidence and len(conf_scores) == len(spans):
@@ -787,6 +854,7 @@ class RapidOCREngine:
                 evidence={
                     "engine": "rapidocr",
                     "backend": "openvino",
+                    "device": target_device,
                     "model": model_label,
                     "box_count": len(conf_scores),
                 },
@@ -874,6 +942,7 @@ class RapidOCREngine:
         evidence_dict: dict[str, Any] = {
             "engine": "rapidocr",
             "backend": "openvino",
+            "device": target_device,
             "model": model_label,
             "scope": "english_and_numbers",
             "profile": profile.value,
