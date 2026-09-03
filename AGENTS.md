@@ -17,15 +17,15 @@ You are implementing Sarathi. `AGENTS.md`, the current `README.md`, and only the
 5. **Subsystem Boundaries & Single Lifecycle Owner:** Use injected services and canonical Sankalpa contracts. Do not bypass Kosh, Manthan, Prana, Yantra, Pravaha, Darpana, Kavacha, or Nabhi when they are the declared owner. Startup, shutdown, retry, quarantine, allocation, release, cache, and artifact lifecycle must each have one responsible owner. Preserve the primary exception when secondary cleanup fails.
 6. **Zero Leaks, Input Safety & Truthful State:** Validate public inputs before state mutation. Public errors, telemetry, manifests, logs, and presentation must not expose document contents, raw local paths, secrets, or raw exception messages. Core infrastructure must never invent defaults, confidence, capability availability, dependency availability, state, or fallback behavior — unknown stays unknown.
 7. **Tests Follow Architectural Authority:** Tests must verify approved contracts; they must not redefine them. If a test conflicts with `AGENTS.md`, `README.md`, or a locked Veda, identify and correct the stale test rather than altering production behavior merely to satisfy it. Add focused positive, negative, and adversarial tests for every changed boundary (malformed, duplicate, missing, foreign, and boundary inputs).
-8. **Test According to Scope & Pre-Commit Validation:** During development iteration, run only the smallest directly affected target (test case → test class → test file). Before committing, run syntax error checks and targeted tests:
+8. **Test According to Scope & Pre-Commit Validation:** Test according to impact, not anxiety. Do not run the full test suite after every edit. During development iteration, run only the smallest directly affected target (test case → test class → test file). Before committing, run syntax error checks and targeted tests:
 
    ```powershell
-   uv run --group dev python -m compileall -q src
+   uv run --group dev python -m compileall -q <changed_python_paths>
    uv run --group dev pytest -q <targeted-test-path>
    git diff --check
    ```
 
-   Run an optional capability's explicit extra test command too. Run full required integration suite before final completion of shared or global core changes.
+   Run an optional capability's explicit extra test command too when relevant. Run full required integration suite only before final completion of shared or global core changes. Strictly adhere to the **Targeted Testing & Validation Optimization** rules below.
 9. **Large Core Work Must Be Phased:** For cross-cutting work, execute in bounded phases: (1) contract and owner, (2) core implementation, (3) wiring and callers, (4) regression tests, (5) integration and global validation. Complete and validate one phase before expanding. Change only the approved milestone and minimum wiring it requires.
 10. **No Fake Success:** Never report or return `SUCCESS`, `COMPLETED`, `READY`, `VALID`, or equivalent unless the required operation actually completed and required validation passed. A capability existing on disk, a function returning, or an artifact path created is not proof of success. Partial, skipped, degraded, fallback, unverified, failed, cancelled, quarantined, or uncommitted work must never be promoted to success. If a required stage fails, the overall operation fails.
 11. **Stop & Report:** Stop and report genuine missing prerequisites, contracts, dependencies, or blockers instead of inventing data, default behavior, or another architectural layer. If discovery alters approved scope, get re-approval.
@@ -51,3 +51,138 @@ Before touching code, present a plan covering:
 - Targeted tests to add, change, or run;
 - Files explicitly not being touched;
 - Any unresolved prerequisite or ambiguity.
+
+
+## Targeted Testing & Validation Optimization
+
+### Core Principle
+
+> **Test according to impact, not anxiety.**
+>
+> small edit → smallest relevant tests
+> subsystem change → subsystem tests
+> cross-subsystem boundary change → affected integration tests
+> completed global milestone → full project validation once
+
+Do NOT run the full test suite after every edit. The full suite is a final validation tool for cross-cutting work, not the default feedback loop for small changes.
+
+
+### 1. Change Classification Matrix
+
+Before running tests after an edit, classify the change into one of these levels:
+
+| Level | Classification | Examples | Allowed Test Scope | Prohibited Test Scope |
+|---|---|---|---|---|
+| **Level A** | Pure Local / Internal | Helper function, parser, detector, converter, formatter, validation rule, private utility, capability-internal branch | Direct unit test file + direct regression test | Full suite, unrelated capabilities, all integration tests |
+| **Level B** | Capability Local | OCR, Translation, Font Conversion, Bank Statements, Native Extraction capability logic | Changed component unit tests + capability tests + capability focused E2E | All other Shakti capability suites |
+| **Level C** | Shared Boundary | `Result`, `ExecutionContext`, `CanonicalDocument`, `ArtifactPayload`, shared DOCX exporter, Sutra shared data root, Smriti serialization | Direct owner tests + direct consumer tests + focused boundary integration | Full repository suite (unless scope dictates) |
+| **Level D** | Core Runtime | Agni, Manthan, Pravaha, Yantra, Prana, Kosh, Dvara, Smriti core behavior, ArtifactBoundary | Owner unit tests + kernel/runtime integration + directly affected capability tests | Full suite after every small internal edit |
+| **Level E** | Global / Cross-Cutting | `ExecutionContext` or `Result` contract change, global scheduling, hardware binding, concurrency, cache semantics, artifact commit, lifecycle | Phased focused tests per phase | Full suite after individual file modifications |
+
+
+### 2. Canonical Change-to-Test Mapping
+
+Inspect `git diff --name-only` and group changed files by canonical owner:
+
+- **Sankalpa (`src/sarathi/sankalpa/*`):**
+  - Start with: `uv run --group dev pytest -q tests/sankalpa`
+  - If runtime execution affected: add `tests/kernel tests/yantra tests/agni`
+  - If consumed by specific capability: add only that capability's tests (e.g. `tests/ocr` or `tests/translation`).
+- **Yantra (`src/sarathi/yantra/*`):**
+  - Start with: `uv run --group dev pytest -q tests/yantra`
+  - If execution behavior changed: add `tests/kernel`
+  - If OCR hardware binding changed: `uv run --group dev --extra ocr pytest -q tests/ocr tests/yantra`
+  - If Translation hardware binding changed: `uv run --group dev --extra translation pytest -q tests/translation tests/yantra`
+  - Do not run Bank/Font tests unless execution contract changed.
+- **Pravaha / Manthan / Kernel (`src/sarathi/nabhi/pravaha.py`, `src/sarathi/nabhi/manthan.py`):**
+  - Run: `uv run --group dev pytest -q tests/kernel`
+  - Add the smallest capability integration test for affected path (e.g. OCR continuation → `tests/kernel` + OCR continuation/E2E; font_conversion resume_self → `tests/kernel` + font_conversion E2E).
+  - Do not run unrelated document-domain suites.
+- **Prana / Agni (`src/sarathi/nabhi/prana.py`, `src/sarathi/agni/*`):**
+  - Run: `uv run --group dev pytest -q tests/agni tests/kernel`
+  - Add `tests/yantra` only if lifecycle/resource execution changed.
+- **Smriti (`src/sarathi/smriti/*`):**
+  - Run: `uv run --group dev pytest -q tests/smriti`
+  - For cache-key/serialization changes: add `uv run --group dev pytest -q tests/kernel -k "cache or smriti"`
+  - Add capability suite only if cached canonical type is directly affected.
+- **Artifact Boundary (`src/sarathi/nabhi/artifacts.py`):**
+  - Run: `uv run --group dev pytest -q tests/kernel -k "artifact"` and dedicated artifact tests.
+- **OCR (`src/sarathi/shakti/ocr/*`):**
+  - Progressive testing: `uv run --group dev --extra ocr pytest -q tests/ocr/<direct_test_file>.py` then `tests/ocr`.
+  - Add `tests/kernel` only if continuation, profile propagation, Yantra binding, or runtime behavior changed.
+- **Translation (`src/sarathi/shakti/translation/*`):**
+  - Progressive testing: `uv run --group dev --extra translation pytest -q tests/translation/<direct_test_file>.py` then `tests/translation`.
+  - Add `tests/kernel` only for handoff, resume, profile, execution binding, or Result contract changes.
+- **Font Conversion (`src/sarathi/shakti/font_conversion/*`):**
+  - Run: `uv run --group dev pytest -q tests/font_conversion`.
+  - Add DOCX exporter tests if formatting/output changed; add kernel tests only for continuation/resume changes.
+- **Bank Statements (`src/sarathi/shakti/bank_statements/*`):**
+  - Run smallest relevant group (e.g. `deduplicator.py` → dedup tests; `mapper.py` → header mapping; `validator.py` → validator; `consolidator.py` → consolidation/export; `capability.py` → bank capability/E2E).
+  - Run `tests/bank_statements` only after local component tests pass.
+- **Native Extraction (`src/sarathi/shakti/native_extraction/*`):**
+  - Run: `uv run --group dev pytest -q tests/native_extraction`.
+  - Add OCR continuation tests only if empty content, parse failure, or OCR handoff changed.
+- **Shared DOCX Exporter (`src/sarathi/shakti/docx_exporter.py`):**
+  - Run: `uv run --group dev pytest -q tests/shakti/test_docx_exporter.py`.
+  - Run direct consumers only (e.g. OCR/Translation/Font DOCX tests; do not run Bank tests).
+- **Sutra / Configuration (`src/sarathi/sutra/*`, `config/*`):**
+  - Run: `uv run --group dev pytest -q tests/configuration`, then direct consumers only.
+- **Mukha (`src/sarathi/mukha/*`):**
+  - Run: `uv run --group dev pytest -q tests/mukha`.
+
+
+### 3. Progressive Test Selection & Failure Expansion
+
+- **Exact Selection First:** Prefer exact test cases or keyword expressions over whole directories:
+  - Exact test: `uv run --group dev pytest -q tests/yantra/test_allocation.py::TestResourceAllocation::test_preferred_device_allocated_first`
+  - Keyword filter: `uv run --group dev pytest -q tests/yantra/test_allocation.py -k "spillover or capacity"`
+  - Kernel filter: `uv run --group dev pytest -q tests/kernel -k "resume_self"`
+- **Strict Progression Order:**
+  `single failing test` → `related test file` → `subsystem suite` → `affected integration tests` → `full suite only when required`
+- **Failure Expansion Rule:** If a focused test fails:
+  1. Fix the direct defect.
+  2. Re-run only that failed test.
+  3. When it passes, run the containing test file/group.
+  4. Expand outward only when that group passes. Never respond to a focused failure by running the full suite.
+
+
+### 4. Group Related Edits Before Testing
+
+Do not run tests after every single line or file edit. Complete coherent mini-phases first:
+`contract` + `owner implementation` + `direct caller` + `regression test`
+Run the focused test group once the mini-phase is coherent.
+
+
+### 5. Static Checks & Optional Extras Scope
+
+- **Scoped Static Checks:** During local iteration, compile only the affected paths:
+  `uv run python -m compileall -q <changed_python_paths>`
+  Run full `uv run python -m compileall -q src tests` and `git diff --check` only during milestone/final validation.
+- **Scoped Optional Extras:**
+  - OCR changes: `--extra ocr`
+  - Translation changes: `--extra translation`
+  - Core changes: no optional extras unless testing affected integrations.
+
+
+### 6. Strict Full-Suite Trigger Conditions
+
+Run `uv run --group dev pytest -q` ONLY when at least one condition is met:
+- [ ] Approved milestone is complete.
+- [ ] Sankalpa public contract changed globally.
+- [ ] Pravaha global pipeline semantics changed.
+- [ ] Yantra global execution semantics changed.
+- [ ] Lifecycle semantics changed globally.
+- [ ] Smriti cache representation changed globally.
+- [ ] Artifact commit contract changed globally.
+- [ ] Multiple capabilities were intentionally modified.
+- [ ] Focused testing reveals unexpected cross-subsystem coupling.
+- [ ] Preparing final validated commit for a Global/Cross-Cutting change.
+
+NEVER run the full suite for local helpers, single test additions, local parsers, condition adjustments, internal capability branches, or typo fixes.
+
+
+### 7. Validation Ledger & Truthful State
+
+- Maintain an accurate mental/reported ledger of test execution states (`PASS`, `NOT RUN`, `SKIPPED`).
+- Never claim "all tests passed" or "project validated" unless the full suite actually executed.
+- Distinguish clearly: *focused tests passed*, *subsystem tests passed*, *integration tests passed*, *full suite passed*, or *not executed*.
