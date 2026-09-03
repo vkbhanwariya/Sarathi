@@ -23,6 +23,8 @@ class DeviceInfo:
     device_id: str
     device_type: DeviceType
     capacity: int
+    supported_backends: tuple[str, ...] | None = None
+    memory_bytes: int | None = None
 
     def __post_init__(self) -> None:
         if not self.device_id or not isinstance(self.device_id, str) or not self.device_id.strip():
@@ -36,6 +38,26 @@ class DeviceInfo:
 
         if self.capacity <= 0:
             raise ValueError(f"capacity must be a positive integer (> 0), got {self.capacity}.")
+
+        if self.supported_backends is None:
+            if self.device_type == DeviceType.GPU:
+                default_backends = ("openvino", "cuda")
+            elif self.device_type == DeviceType.NPU:
+                default_backends = ("openvino",)
+            else:
+                default_backends = ("cpu", "openvino")
+            object.__setattr__(self, "supported_backends", default_backends)
+        else:
+            if isinstance(self.supported_backends, set):
+                raise TypeError("supported_backends must be an ordered sequence (list or tuple), not a set.")
+            if not isinstance(self.supported_backends, (list, tuple)):
+                raise TypeError(f"supported_backends must be a sequence of strings, got {type(self.supported_backends)}.")
+            cleaned_backends = tuple(str(b).strip().lower() for b in self.supported_backends if str(b).strip())
+            object.__setattr__(self, "supported_backends", cleaned_backends)
+
+        if self.memory_bytes is not None:
+            if not isinstance(self.memory_bytes, int) or isinstance(self.memory_bytes, bool) or self.memory_bytes < 0:
+                raise ValueError("memory_bytes must be a non-negative integer or None.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,39 +113,76 @@ class DeviceInventory:
         actual_capacity = max(1, cpu_count or 1)
 
         devices: list[DeviceInfo] = [
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=actual_capacity),
+            DeviceInfo(
+                device_id="cpu-0",
+                device_type=DeviceType.CPU,
+                capacity=actual_capacity,
+                supported_backends=("cpu", "openvino"),
+            ),
         ]
 
         if detect_accelerators:
-            seen_gpu_ids: set[str] = set()
+            # Safely probe OpenVINO accelerators
+            ov_gpus: list[str] = []
+            ov_npus: list[str] = []
             try:
                 import openvino as ov
 
                 core = ov.Core()
                 available = [str(d).strip() for d in core.available_devices]
-                gpu_devs = [d for d in available if "GPU" in d.upper()]
-                for idx, _ in enumerate(gpu_devs):
-                    dev_id = f"gpu-{idx}"
-                    seen_gpu_ids.add(dev_id)
-                    devices.append(DeviceInfo(device_id=dev_id, device_type=DeviceType.GPU, capacity=2))
-
-                npu_devs = [d for d in available if "NPU" in d.upper()]
-                for idx, _ in enumerate(npu_devs):
-                    dev_id = f"npu-{idx}"
-                    devices.append(DeviceInfo(device_id=dev_id, device_type=DeviceType.NPU, capacity=2))
+                ov_gpus = [d for d in available if "GPU" in d.upper()]
+                ov_npus = [d for d in available if "NPU" in d.upper()]
             except Exception:
                 pass
 
-            # Check CUDA devices if not already discovered via OpenVINO
-            if not seen_gpu_ids:
-                try:
-                    import ctranslate2
+            # Safely probe CUDA accelerators
+            cuda_count = 0
+            try:
+                import ctranslate2
 
+                if hasattr(ctranslate2, "get_cuda_device_count"):
                     cuda_count = ctranslate2.get_cuda_device_count()
-                    for idx in range(cuda_count):
-                        dev_id = f"gpu-cuda-{idx}"
-                        devices.append(DeviceInfo(device_id=dev_id, device_type=DeviceType.GPU, capacity=2))
-                except Exception:
-                    pass
+            except Exception:
+                pass
+
+            # Add OpenVINO GPUs (and note if also CUDA-accessible)
+            for idx, _ in enumerate(ov_gpus):
+                dev_id = f"gpu-{idx}"
+                backends = ["openvino"]
+                if idx < cuda_count:
+                    backends.append("cuda")
+                devices.append(
+                    DeviceInfo(
+                        device_id=dev_id,
+                        device_type=DeviceType.GPU,
+                        capacity=2,
+                        supported_backends=tuple(backends),
+                    )
+                )
+
+            # Add remaining CUDA-only GPUs if any
+            if cuda_count > len(ov_gpus):
+                for idx in range(len(ov_gpus), cuda_count):
+                    dev_id = f"gpu-cuda-{idx}"
+                    devices.append(
+                        DeviceInfo(
+                            device_id=dev_id,
+                            device_type=DeviceType.GPU,
+                            capacity=2,
+                            supported_backends=("cuda",),
+                        )
+                    )
+
+            # Add OpenVINO NPUs
+            for idx, _ in enumerate(ov_npus):
+                dev_id = f"npu-{idx}"
+                devices.append(
+                    DeviceInfo(
+                        device_id=dev_id,
+                        device_type=DeviceType.NPU,
+                        capacity=2,
+                        supported_backends=("openvino",),
+                    )
+                )
 
         return cls(devices)

@@ -207,7 +207,9 @@ class Agni:
                 )
             active_inventory = inventory
         else:
-            active_inventory = Yantra.default_inventory()
+            active_inventory = Yantra.default_inventory(
+                detect_accelerators=active_settings.hardware_detect_accelerators
+            )
 
         # 8. Validate Retry Policy
         active_retry_policy: RetryPolicy = RetryPolicy(

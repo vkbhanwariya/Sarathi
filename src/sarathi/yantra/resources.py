@@ -29,6 +29,8 @@ class Allocation:
     device_type: DeviceType
     is_spillover: bool
     allocator_id: str
+    backend: str = "cpu"
+    backend_device_id: str = "CPU"
 
     def __post_init__(self) -> None:
         if not self.allocation_id or not isinstance(self.allocation_id, str):
@@ -41,6 +43,10 @@ class Allocation:
             raise TypeError(f"is_spillover must be a bool, got {type(self.is_spillover).__name__}.")
         if not self.allocator_id or not isinstance(self.allocator_id, str):
             raise ValueError("allocator_id must be a non-empty string.")
+        if not self.backend or not isinstance(self.backend, str):
+            raise ValueError("backend must be a non-empty string.")
+        if not self.backend_device_id or not isinstance(self.backend_device_id, str):
+            raise ValueError("backend_device_id must be a non-empty string.")
 
 
 @dataclass
@@ -129,7 +135,7 @@ class _ResourceAllocator:
 
             # 2. Check if ANY device in inventory could EVER satisfy this requirement
             has_compatible_device = any(
-                dev.device_type in requirement.supported_devices
+                self._is_device_compatible(dev, requirement)
                 for dev in self._inventory.devices
             )
             if not has_compatible_device:
@@ -172,10 +178,7 @@ class _ResourceAllocator:
             # Check cooperative cancellation
             if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 with self._lock:
-                    if entry in self._waiting_queue:
-                        self._waiting_queue.remove(entry)
-                    if entry.allocation is not None:
-                        self._release_slot_unlocked(entry.allocation)
+                    self._cleanup_abandoned_waiter_unlocked(entry)
                 context.cancellation_token.check_cancelled()
 
             # Check timeout
@@ -184,10 +187,7 @@ class _ResourceAllocator:
                 remaining = timeout - (time.monotonic() - start_time)
                 if remaining <= 0:
                     with self._lock:
-                        if entry in self._waiting_queue:
-                            self._waiting_queue.remove(entry)
-                        if entry.allocation is not None:
-                            self._release_slot_unlocked(entry.allocation)
+                        self._cleanup_abandoned_waiter_unlocked(entry)
                     raise DoshError(
                         code=FailureCode.RESOURCE_UNAVAILABLE,
                         message="Timed out waiting for device capacity.",
@@ -195,6 +195,11 @@ class _ResourceAllocator:
                 step_timeout = min(step_timeout, remaining)
 
             if entry.event.wait(timeout=step_timeout):
+                if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                    with self._lock:
+                        self._cleanup_abandoned_waiter_unlocked(entry)
+                    context.cancellation_token.check_cancelled()
+
                 with self._lock:
                     if entry.error is not None:
                         raise entry.error
@@ -205,6 +210,19 @@ class _ResourceAllocator:
                             code=FailureCode.RESOURCE_UNAVAILABLE,
                             message="Allocator was closed while waiting.",
                         )
+
+    def _cleanup_abandoned_waiter_unlocked(self, entry: _WaitEntry) -> None:
+        """Clean up waiter that timed out or cancelled, reclaiming dispatched slot if necessary."""
+        if entry in self._waiting_queue:
+            self._waiting_queue.remove(entry)
+        if entry.allocation is not None:
+            # Reclaim active allocation record and decrement slot count safely
+            alloc_id = entry.allocation.allocation_id
+            self._active_allocations.pop(alloc_id, None)
+            self._release_slot_unlocked(entry.allocation)
+            entry.allocation = None
+            # Immediately dispatch next waiting entry that can use this capacity
+            self._dispatch_waiting_unlocked()
 
     def release(self, allocation: Allocation) -> None:
         """Release a previously acquired allocation back to the inventory safely, dispatching next queued waiter.
@@ -248,25 +266,90 @@ class _ResourceAllocator:
                 entry.event.set()
             self._waiting_queue.clear()
 
+    def _is_device_compatible(self, dev: Any, requirement: DeviceRequirement) -> bool:
+        """Check factual compatibility between device and requirement."""
+        if dev.device_type not in requirement.supported_devices:
+            return False
+
+        # Check backend compatibility if requirement specifies backends
+        if requirement.supported_backends:
+            dev_backends = getattr(dev, "supported_backends", ("cpu",))
+            if not any(req_b in dev_backends for req_b in requirement.supported_backends):
+                return False
+
+        # Check estimated memory capacity if device exposes memory_bytes
+        if (
+            requirement.estimated_memory_bytes is not None
+            and dev.memory_bytes is not None
+            and requirement.estimated_memory_bytes > dev.memory_bytes
+        ):
+            return False
+
+        return True
+
+    def _resolve_backend_for_device(self, dev: Any, requirement: DeviceRequirement) -> tuple[str, str]:
+        """Resolve backend and backend_device_id factually for a device."""
+        dev_backends = getattr(dev, "supported_backends", ("cpu",))
+        if requirement.supported_backends:
+            # Pick first matching backend
+            chosen_backend = next(
+                (b for b in requirement.supported_backends if b in dev_backends),
+                dev_backends[0] if dev_backends else "cpu",
+            )
+        else:
+            chosen_backend = dev_backends[0] if dev_backends else "cpu"
+
+        if dev.device_type == DeviceType.GPU:
+            backend_dev_id = "GPU" if chosen_backend == "openvino" else "cuda"
+        elif dev.device_type == DeviceType.NPU:
+            backend_dev_id = "NPU"
+        else:
+            backend_dev_id = "CPU"
+
+        return chosen_backend, backend_dev_id
+
     def _try_allocate_unlocked(self, requirement: DeviceRequirement) -> Allocation | None:
         # 1. Check preferred devices in order
         for pref_type in requirement.preferred_devices:
             for dev in self._inventory.devices:
-                if dev.device_type == pref_type and self._used_slots[dev.device_id] < dev.capacity:
-                    return self._create_allocation(dev.device_id, dev.device_type, is_spillover=False)
+                if (
+                    dev.device_type == pref_type
+                    and self._is_device_compatible(dev, requirement)
+                    and self._used_slots[dev.device_id] < dev.capacity
+                ):
+                    backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
+                    return self._create_allocation(
+                        dev.device_id,
+                        dev.device_type,
+                        is_spillover=False,
+                        backend=backend,
+                        backend_device_id=backend_dev_id,
+                    )
 
         # 2. Spill over through supported devices in order
         for supp_type in requirement.supported_devices:
             if supp_type in requirement.preferred_devices:
                 continue
             for dev in self._inventory.devices:
-                if dev.device_type == supp_type and self._used_slots[dev.device_id] < dev.capacity:
-                    return self._create_allocation(dev.device_id, dev.device_type, is_spillover=True)
+                if (
+                    dev.device_type == supp_type
+                    and self._is_device_compatible(dev, requirement)
+                    and self._used_slots[dev.device_id] < dev.capacity
+                ):
+                    backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
+                    return self._create_allocation(
+                        dev.device_id,
+                        dev.device_type,
+                        is_spillover=True,
+                        backend=backend,
+                        backend_device_id=backend_dev_id,
+                    )
 
         return None
 
     def _release_slot_unlocked(self, registered: Allocation) -> None:
-        self._used_slots[registered.device_id] -= 1
+        curr = self._used_slots.get(registered.device_id, 0)
+        self._used_slots[registered.device_id] = max(0, curr - 1)
 
     def _dispatch_waiting_unlocked(self) -> None:
         for i, entry in enumerate(self._waiting_queue):
@@ -277,7 +360,15 @@ class _ResourceAllocator:
                 entry.event.set()
                 return
 
-    def _create_allocation(self, device_id: str, device_type: DeviceType, *, is_spillover: bool) -> Allocation:
+    def _create_allocation(
+        self,
+        device_id: str,
+        device_type: DeviceType,
+        *,
+        is_spillover: bool,
+        backend: str = "cpu",
+        backend_device_id: str = "CPU",
+    ) -> Allocation:
         self._used_slots[device_id] += 1
         self._counter += 1
         alloc_id = f"alloc-{self._allocator_id}-{self._counter}"
@@ -287,6 +378,8 @@ class _ResourceAllocator:
             device_type=device_type,
             is_spillover=is_spillover,
             allocator_id=self._allocator_id,
+            backend=backend,
+            backend_device_id=backend_device_id,
         )
         self._active_allocations[alloc_id] = allocation
         return allocation

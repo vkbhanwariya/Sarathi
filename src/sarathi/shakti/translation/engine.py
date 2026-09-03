@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import tomllib
 from pathlib import Path
 from typing import Any, Protocol, Sequence
@@ -72,6 +73,7 @@ class CTranslate2TranslationEngine:
         self._anubhava_corrections = _load_translation_anubhava(self._data_root)
         self._protector = protector or TranslationProtector()
         self._initialized_backend: TranslatorBackend | None = None
+        self._backend_lock: threading.Lock = threading.Lock()
 
     def _ensure_backend(self) -> TranslatorBackend:
         """Validate local CTranslate2 model manifest/assets and initialize backend."""
@@ -81,110 +83,116 @@ class CTranslate2TranslationEngine:
         if self._initialized_backend is not None:
             return self._initialized_backend
 
-        manifest_file = self._data_root / "manifest.json"
-        models_dir = self._data_root / "models"
+        with self._backend_lock:
+            if self._initialized_backend is not None:
+                return self._initialized_backend
 
-        if not manifest_file.exists():
-            raise DoshError(
-                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                message="Required local translation model manifest is missing.",
-            )
+            manifest_file = self._data_root / "manifest.json"
+            models_dir = self._data_root / "models"
 
-        try:
-            manifest_dict = json.loads(manifest_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise DoshError(
-                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                message="Failed to read or parse local translation model manifest.",
-            ) from exc
+            if not manifest_file.exists():
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Required local translation model manifest is missing.",
+                )
 
-        if not models_dir.exists() or not models_dir.is_dir():
-            raise DoshError(
-                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                message="Required local translation models directory is missing.",
-            )
+            try:
+                manifest_dict = json.loads(manifest_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Failed to read or parse local translation model manifest.",
+                ) from exc
 
-        try:
-            import importlib
+            if not models_dir.exists() or not models_dir.is_dir():
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Required local translation models directory is missing.",
+                )
 
-            ctranslate2 = importlib.import_module("ctranslate2")
-            sentencepiece = importlib.import_module("sentencepiece")
-        except ImportError as exc:
-            raise DoshError(
-                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                message="Translation dependencies (ctranslate2, sentencepiece) are not installed.",
-            ) from exc
+            try:
+                import importlib
 
-        # When model directory and packages exist, configure local CTranslate2 translator
-        class _CTranslate2NativeBackend:
-            def __init__(self, root: Path, manifest: dict[str, Any]) -> None:
-                self._root = root
-                self._manifest = manifest
-                self._translators: dict[str, Any] = {}
-                self._spms: dict[str, Any] = {}
+                ctranslate2 = importlib.import_module("ctranslate2")
+                sentencepiece = importlib.import_module("sentencepiece")
+            except ImportError as exc:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message="Translation dependencies (ctranslate2, sentencepiece) are not installed.",
+                ) from exc
 
-            def translate_sentences(
-                self,
-                sentences: Sequence[str],
-                direction: TranslationDirection,
-                execution_binding: ExecutionBinding | None = None,
-            ) -> tuple[list[str], str]:
-                # Native model inference using CTranslate2 and SentencePiece
-                dir_key = direction.value
-                model_info = self._manifest.get("models", {}).get(dir_key)
-                if not model_info:
-                    raise DoshError(
-                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Model for direction '{dir_key}' not declared in manifest.",
-                    )
-                model_path = self._root / "models" / dir_key
-                spm_path = model_path / "spm.model"
-                if not model_path.exists() or not spm_path.exists():
-                    raise DoshError(
-                        code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                        message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
-                    )
+            # When model directory and packages exist, configure local CTranslate2 translator
+            class _CTranslate2NativeBackend:
+                def __init__(self, root: Path, manifest: dict[str, Any]) -> None:
+                    self._root = root
+                    self._manifest = manifest
+                    self._translators: dict[str, Any] = {}
+                    self._spms: dict[str, Any] = {}
+                    self._lock: threading.Lock = threading.Lock()
 
-                device = "cpu"
-                device_index = 0
-                if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
-                    try:
-                        if hasattr(ctranslate2, "get_cuda_device_count") and ctranslate2.get_cuda_device_count() > 0:
-                            device = "cuda"
-                            device_index = 0
-                    except Exception:
-                        device = "cpu"
-
-                trans_key = f"{dir_key}:{device}:{device_index}"
-                if trans_key not in self._translators:
-                    try:
-                        self._translators[trans_key] = ctranslate2.Translator(
-                            str(model_path), device=device, device_index=device_index
+                def translate_sentences(
+                    self,
+                    sentences: Sequence[str],
+                    direction: TranslationDirection,
+                    execution_binding: ExecutionBinding | None = None,
+                ) -> tuple[list[str], str]:
+                    # Native model inference using CTranslate2 and SentencePiece
+                    dir_key = direction.value
+                    model_info = self._manifest.get("models", {}).get(dir_key)
+                    if not model_info:
+                        raise DoshError(
+                            code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                            message=f"Model for direction '{dir_key}' not declared in manifest.",
                         )
-                    except Exception:
-                        if device != "cpu":
+                    model_path = self._root / "models" / dir_key
+                    spm_path = model_path / "spm.model"
+                    if not model_path.exists() or not spm_path.exists():
+                        raise DoshError(
+                            code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                            message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
+                        )
+
+                    device = "cpu"
+                    device_index = 0
+                    if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+                        try:
+                            if hasattr(ctranslate2, "get_cuda_device_count") and ctranslate2.get_cuda_device_count() > 0:
+                                device = "cuda"
+                                device_index = 0
+                        except Exception:
                             device = "cpu"
-                            trans_key = f"{dir_key}:cpu:0"
-                            if trans_key not in self._translators:
+
+                    trans_key = f"{dir_key}:{device}:{device_index}"
+                    with self._lock:
+                        if trans_key not in self._translators:
+                            try:
                                 self._translators[trans_key] = ctranslate2.Translator(
-                                    str(model_path), device="cpu", device_index=0
+                                    str(model_path), device=device, device_index=device_index
                                 )
-                        else:
-                            raise
+                            except Exception:
+                                if device != "cpu":
+                                    device = "cpu"
+                                    trans_key = f"{dir_key}:cpu:0"
+                                    if trans_key not in self._translators:
+                                        self._translators[trans_key] = ctranslate2.Translator(
+                                            str(model_path), device="cpu", device_index=0
+                                        )
+                                else:
+                                    raise
 
-                if dir_key not in self._spms:
-                    sp = sentencepiece.SentencePieceProcessor()
-                    sp.load(str(spm_path))
-                    self._spms[dir_key] = sp
+                        if dir_key not in self._spms:
+                            sp = sentencepiece.SentencePieceProcessor()
+                            sp.load(str(spm_path))
+                            self._spms[dir_key] = sp
 
-                translator = self._translators[trans_key]
-                spm = self._spms[dir_key]
-                tokenized = [spm.encode_as_pieces(s) for s in sentences]
-                results = translator.translate_batch(tokenized)
-                return [spm.decode_pieces(r.hypotheses[0]) for r in results], device
+                        translator = self._translators[trans_key]
+                        spm = self._spms[dir_key]
+                    tokenized = [spm.encode_as_pieces(s) for s in sentences]
+                    results = translator.translate_batch(tokenized)
+                    return [spm.decode_pieces(r.hypotheses[0]) for r in results], device
 
-        self._initialized_backend = _CTranslate2NativeBackend(self._data_root, manifest_dict)
-        return self._initialized_backend
+            self._initialized_backend = _CTranslate2NativeBackend(self._data_root, manifest_dict)
+            return self._initialized_backend
 
     def translate(
         self,

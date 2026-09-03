@@ -81,6 +81,7 @@ class TestYantraLifecycleUnderAgni:
             device_requirement=DeviceRequirement(
                 preferred_devices=(DeviceType.GPU,),
                 supported_devices=(DeviceType.GPU, DeviceType.CPU),
+                supported_backends=("cuda",),
             ),
         )
         cap = MockCapability(decl)
