@@ -365,16 +365,14 @@ class Agni:
             self._is_started = True
 
     def close(self) -> None:
-        """Close registered runtime components in reverse dependency order via Prana and flush Darpana."""
-        try:
-            if self._is_started:
-                try:
-                    self._prana.close_all()
-                finally:
-                    self._is_started = False
-        finally:
-            if self._darpana is not None:
-                self._darpana.close()
+        """Close registered runtime components in reverse dependency order via Prana."""
+        if self._is_started:
+            try:
+                self._prana.close_all()
+            finally:
+                self._is_started = False
+        elif self._darpana is not None:
+            self._darpana.close()
 
     def stop(self) -> None:
         """Alias for close()."""
