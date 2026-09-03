@@ -9,7 +9,7 @@ output evidence, dependencies, capability data, and acceptance behavior.
 
 ``` text
 Primary local OCR
-    RapidOCR + PP-OCRv5 + OpenVINO
+    RapidOCR + PP-OCRv5 / PP-OCRv6 + OpenVINO
         ↓ weak page / region or unsupported case
 Targeted local fallback
     Tesseract 5
@@ -45,7 +45,7 @@ validated; invalid combinations are rejected with a reason.
 - orientation check;
 - resize only when required;
 - grayscale only when beneficial;
-- single RapidOCR + PP-OCRv5 + OpenVINO pass;
+- single RapidOCR + PP-OCRv5 / PP-OCRv6 + OpenVINO pass;
 - punctuation, numbers, and line order preserved;
 - Unicode NFC normalization;
 - weak output is reported without silently invoking fallback.
@@ -87,7 +87,7 @@ reference corpus, and sample count.
 ## Dependencies and Data
 
 ``` text
-RapidOCR + PP-OCRv5
+RapidOCR + PP-OCRv5 / PP-OCRv6
 OpenVINO
 Tesseract 5
 Pillow / OpenCV Headless only when preprocessing requires them

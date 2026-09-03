@@ -171,6 +171,7 @@ Sarathi/
 │       │   ├── artifact.py
 │       │   ├── context.py
 │       │   ├── document.py
+│       │   ├── cancellation.py
 │       │   └── execution_profile.py
 │       ├── nabhi/
 │       │   ├── dvara.py
@@ -187,14 +188,19 @@ Sarathi/
 │       ├── darpana/
 │       │   ├── service.py
 │       │   ├── maruti.py
-│       │   └── pramana.py
+│       │   ├── pramana.py
+│       │   ├── history.py
+│       │   └── exporters/
 │       ├── mukha/
-│       │   ├── app.py
+│       │   ├── intake.py
 │       │   ├── presenter.py
 │       │   ├── state.py
-│       │   ├── components.py
-│       │   ├── intake.py
-│       │   └── server.py
+│       │   └── web/
+│       │       ├── app.css
+│       │       ├── app.html
+│       │       ├── app.js
+│       │       ├── native_picker.py
+│       │       └── server.py
 │       ├── smriti/
 │       │   ├── key.py
 │       │   ├── memory.py
@@ -230,6 +236,7 @@ Sarathi/
 │   └── bank_statements/
 │       └── anubhava.toml         # only after validated consolidation knowledge exists
 ├── config/
+│   └── settings.toml             # canonical starter runtime settings
 ├── Input/                         # optional convenience inbox
 ├── Output/                        # committed user artifacts by requirement/run
 ├── Runtime/
@@ -239,16 +246,24 @@ Sarathi/
 │   └── Cache/                     # Smriti reusable-result state
 ├── tests/
 │   ├── agni/
+│   ├── bank_statements/
+│   ├── cancellation/
+│   ├── capabilities/
 │   ├── configuration/
 │   ├── contracts/
 │   ├── dosh/
+│   ├── font_conversion/
+│   ├── intake/
+│   ├── integration/
 │   ├── kernel/
 │   ├── mukha/
 │   ├── native_extraction/
 │   ├── ocr/
 │   ├── security/
 │   ├── shakti/
+│   ├── smriti/
 │   ├── telemetry/
+│   ├── translation/
 │   └── yantra/
 └── Vedas/
     ├── Sarathi_V2_Core_Runtime_Spec.md
@@ -295,6 +310,7 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `sankalpa/artifact.py` — typed `InputRef`, `ArtifactIntent`, and confirmed `ArtifactRef` contracts; no file I/O.
 - `sankalpa/context.py` — request/trace identity and controlled shared-runtime access; not a global mutable state bucket.
 - `sankalpa/document.py` — canonical document/data representation exchanged across capabilities without teaching the core individual file formats.
+- `sankalpa/cancellation.py` — cooperative cancellation token contract (CancellationToken) for responsive aborts without state corruption.
 - `sankalpa/execution_profile.py` — common Instant, Accurate, Layout Preserving, and Custom processing-profile contract.
 
 ### Nabhi — Core Kernel
@@ -321,13 +337,15 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `darpana/service.py` — one public Darpana service, bounded thread-safe telemetry snapshots/emission, and timing boundary.
 - `darpana/maruti.py` — **Maruti — Runtime, Logging & Performance Telemetry** measurement and factual record contracts.
 - `darpana/pramana.py` — **Pramana — Confidence & Accuracy Telemetry** evidence recording and quality record contracts.
+- `darpana/history.py` — sequential and persistent SQLite/JSONL run history storage.
 
 ### Mukha — Console & Presentation
 
-- `mukha/app.py` — Textual application, screens, navigation, and routing of typed user intents to canonical runtime owners; no capability algorithms or runtime ownership.
 - `mukha/presenter.py` — factual projection of canonical runtime/telemetry state into typed presentation views; no execution/lifecycle/security decisions.
 - `mukha/state.py` — typed immutable presentation/view-state contracts.
-- `mukha/components.py` — reusable presentation formatting and widgets.
+- `mukha/intake.py` — input discovery, normalization, validation, and safe path intake.
+- `mukha/web/server.py` — loopback Local Web dashboard HTTP/SSE server emitting typed user intents to Agni composition root.
+- `mukha/web/native_picker.py` — controlled native Windows file and folder picker dialog integration.
 
 ### Smriti — Cache & Runtime State
 

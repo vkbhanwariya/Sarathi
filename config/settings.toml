@@ -1,0 +1,21 @@
+# Sarathi V2 - Canonical Runtime Settings Configuration
+# Sutra Configuration System
+
+[storage]
+input_root = "Input"
+output_root = "Output"
+runtime_root = "Runtime"
+
+[pipeline]
+max_retries = 0
+
+[security]
+allow_pii_access = true
+allow_network_access = false
+allow_external_processing = false
+allowed_secrets = []
+
+[telemetry]
+history_enabled = false
+live_buffer_capacity = 256
+history_path = "Runtime/Telemetry/history.jsonl"
