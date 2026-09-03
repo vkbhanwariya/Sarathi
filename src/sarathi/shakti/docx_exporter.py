@@ -198,13 +198,7 @@ def build_docx_payload(
             _format_paragraph_xml(eff_header.strip(), bold=True, alignment="center")
         )
 
-    # Tables directly in document
-    if doc.tables:
-        for tbl in doc.tables:
-            if tbl.name:
-                body_parts.append(_format_paragraph_xml(tbl.name, bold=True))
-            body_parts.append(_format_table_xml(tbl))
-            body_parts.append("<w:p/>")
+    rendered_table_ids: set[int] = set()
 
     # Paragraphs or page text
     if doc.pages:
@@ -222,6 +216,7 @@ def build_docx_payload(
                         body_parts.append("<w:p/>")
             if p.tables:
                 for tbl in p.tables:
+                    rendered_table_ids.add(id(tbl))
                     if tbl.name:
                         body_parts.append(_format_paragraph_xml(tbl.name, bold=True))
                     body_parts.append(_format_table_xml(tbl))
@@ -232,6 +227,21 @@ def build_docx_payload(
             if trimmed:
                 body_parts.append(_format_paragraph_xml(trimmed))
             else:
+                body_parts.append("<w:p/>")
+
+    # Document-level tables (only if not already rendered inside pages)
+    if doc.tables:
+        for tbl in doc.tables:
+            if id(tbl) not in rendered_table_ids:
+                if any(
+                    tbl.name == pt.name and tbl.headers == pt.headers and tbl.rows == pt.rows
+                    for p in (doc.pages or ())
+                    for pt in p.tables
+                ):
+                    continue
+                if tbl.name:
+                    body_parts.append(_format_paragraph_xml(tbl.name, bold=True))
+                body_parts.append(_format_table_xml(tbl))
                 body_parts.append("<w:p/>")
 
     # Section properties
@@ -350,6 +360,33 @@ def transform_docx_artifact(
         ) from exc
 
 
+def _merge_adjacent_compatible_runs(p: ET.Element) -> None:
+    """Merge adjacent <w:r> elements within a paragraph that share identical formatting properties."""
+    r_tag = f"{{{_W_NS}}}r"
+    t_tag = f"{{{_W_NS}}}t"
+    rpr_tag = f"{{{_W_NS}}}rPr"
+
+    children = list(p)
+    if len(children) < 2:
+        return
+
+    i = 0
+    while i < len(p) - 1:
+        c1 = p[i]
+        c2 = p[i + 1]
+        if c1.tag == r_tag and c2.tag == r_tag:
+            rpr1 = ET.tostring(c1.find(rpr_tag)) if c1.find(rpr_tag) is not None else b""
+            rpr2 = ET.tostring(c2.find(rpr_tag)) if c2.find(rpr_tag) is not None else b""
+            if rpr1 == rpr2:
+                t1 = c1.find(t_tag)
+                t2 = c2.find(t_tag)
+                if t1 is not None and t2 is not None and t2.text:
+                    t1.text = (t1.text or "") + t2.text
+                    p.remove(c2)
+                    continue
+        i += 1
+
+
 def _transform_xml_tree(tree: ET.Element, converter_fn: Callable[[str], str]) -> None:
     """Transform paragraphs and runs within an ElementTree OpenXML element."""
     p_tag = f"{{{_W_NS}}}p"
@@ -361,6 +398,7 @@ def _transform_xml_tree(tree: ET.Element, converter_fn: Callable[[str], str]) ->
     szcs_tag = f"{{{_W_NS}}}szCs"
 
     for p in tree.iter(p_tag):
+        _merge_adjacent_compatible_runs(p)
         # We collect run modifications per paragraph
         children = list(p)
         for child in children:
