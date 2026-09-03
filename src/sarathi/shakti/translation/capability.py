@@ -17,8 +17,8 @@ from sarathi.sankalpa import (
     Request,
     Result,
     TableData,
-    WarningRecord,
 )
+from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.translation.detector import LanguageDetector
 from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
@@ -177,14 +177,19 @@ class TranslationCapability:
                 },
             )
 
-            payload = ArtifactPayload(
+            txt_payload = ArtifactPayload(
                 intent=ArtifactIntent(name="Translated_Document.txt", role="translated_text", media_type="text/plain"),
                 content=t_res.translated_text.encode("utf-8"),
+            )
+            docx_payload = build_docx_payload(
+                doc=translated_doc,
+                filename="Translated_Document.docx",
+                role="translated_document",
             )
 
             return Result(
                 data=translated_doc,
-                artifact_payloads=(payload,),
+                artifact_payloads=(txt_payload, docx_payload),
                 confidence=None,
                 provenance=base_prov + (prov,),
             )

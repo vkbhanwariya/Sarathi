@@ -67,6 +67,7 @@ class InputItemView:
     media_type: str | None = None
     is_eligible: bool = True
     issue_reason: str | None = None
+    source_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

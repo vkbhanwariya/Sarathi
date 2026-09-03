@@ -25,6 +25,7 @@ from sarathi.sankalpa import (
     Result,
     WarningRecord,
 )
+from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_content_format
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.native_extraction.readers import (
@@ -198,19 +199,31 @@ class NativeExtractionCapability:
         payloads: list[ArtifactPayload] = []
         if not needs_ocr:
             for inp, doc in zip(request.inputs, extracted_docs):
-                if doc.text:
+                has_content = bool(doc.text.strip()) or bool(doc.tables) or any(p.text.strip() or p.tables for p in doc.pages)
+                if has_content:
                     stem = Path(inp.display_name).stem if inp.display_name else inp.input_id
-                    if len(doc.pages) > 1:
-                        page_sections = []
-                        for p in doc.pages:
-                            heading = f"--- Page {p.page_number} ---"
-                            if p.text:
-                                page_sections.append(f"{heading}\n{p.text}")
-                            else:
-                                page_sections.append(heading)
-                        txt_content = "\n\n".join(page_sections)
+                    if doc.text.strip():
+                        if len(doc.pages) > 1:
+                            page_sections = []
+                            for p in doc.pages:
+                                heading = f"--- Page {p.page_number} ---"
+                                if p.text:
+                                    page_sections.append(f"{heading}\n{p.text}")
+                                else:
+                                    page_sections.append(heading)
+                            txt_content = "\n\n".join(page_sections)
+                        else:
+                            txt_content = doc.text
+                    elif doc.tables:
+                        table_lines = []
+                        for t in doc.tables:
+                            if t.headers:
+                                table_lines.append(" | ".join(str(c) for c in t.headers))
+                            for r in t.rows:
+                                table_lines.append(" | ".join(str(c) for c in r))
+                        txt_content = "\n".join(table_lines)
                     else:
-                        txt_content = doc.text
+                        txt_content = ""
                     payloads.append(
                         ArtifactPayload(
                             intent=ArtifactIntent(
@@ -219,6 +232,13 @@ class NativeExtractionCapability:
                                 media_type="text/plain",
                             ),
                             content=txt_content.encode("utf-8"),
+                        )
+                    )
+                    payloads.append(
+                        build_docx_payload(
+                            doc=doc,
+                            filename=f"{stem}_extracted.docx",
+                            role="extracted_document",
                         )
                     )
 

@@ -19,6 +19,7 @@ from sarathi.sankalpa import (
     TableData,
     WarningRecord,
 )
+from sarathi.shakti.docx_exporter import build_docx_payload, transform_docx_artifact
 from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import LegacyFontDetector
 from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
@@ -221,17 +222,54 @@ class FontConversionCapability:
                 )
                 all_provs.append(prov)
 
-                artifact_name = (
+                txt_artifact_name = (
                     "Converted_Document.txt"
                     if len(docs) == 1
                     else f"Converted_{doc.source_input_id or doc.document_id}.txt"
                 )
                 payloads.append(
                     ArtifactPayload(
-                        intent=ArtifactIntent(name=artifact_name, role="converted_text", media_type="text/plain"),
+                        intent=ArtifactIntent(name=txt_artifact_name, role="converted_text", media_type="text/plain"),
                         content=final_text.encode("utf-8"),
                     )
                 )
+
+                docx_artifact_name = (
+                    "Converted_Document.docx"
+                    if len(docs) == 1
+                    else f"Converted_{doc.source_input_id or doc.document_id}.docx"
+                )
+
+                # Attempt in-place transformation if original source file is a valid DOCX
+                docx_payload: ArtifactPayload | None = None
+                matching_inp = next((i for i in request.inputs if i.input_id == doc.source_input_id), None)
+                if matching_inp is None and idx < len(request.inputs):
+                    matching_inp = request.inputs[idx]
+
+                if (
+                    matching_inp is not None
+                    and matching_inp.source_path is not None
+                    and matching_inp.source_path.suffix.lower() == ".docx"
+                    and matching_inp.source_path.is_file()
+                ):
+                    try:
+                        raw_docx_bytes = matching_inp.source_path.read_bytes()
+                        docx_payload = transform_docx_artifact(
+                            input_bytes=raw_docx_bytes,
+                            converter_fn=_conv_text,
+                            filename=docx_artifact_name,
+                            role="converted_document",
+                        )
+                    except Exception:
+                        docx_payload = None
+
+                if docx_payload is None:
+                    docx_payload = build_docx_payload(
+                        doc=converted_doc,
+                        filename=docx_artifact_name,
+                        role="converted_document",
+                    )
+                payloads.append(docx_payload)
 
         final_data = tuple(converted_docs) if is_batch else converted_docs[0]
         return Result(

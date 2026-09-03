@@ -152,6 +152,9 @@ class TestMukhaInputAndIntakeTruth:
         assert pf.issue_count == 3
         assert sel.is_grouped is False
         assert len(sel.groups) == 0
+        assert len(sel.items) == 4
+        assert sel.items[0].source_path == str(valid_f1)
+        assert sel.items[1].source_path == str(valid_f2)
 
     def test_intake_from_paths_respects_kavacha_overlap_validation(self, tmp_path: Path) -> None:
         runtime_dir = tmp_path / "Runtime"

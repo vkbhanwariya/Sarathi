@@ -268,9 +268,11 @@ class TestFontConversionBatchIntegrity:
         res = cap.execute(req, ctx, prior_result=Result(data=(doc1, doc2), provenance=()))
         assert isinstance(res.data, tuple)
         assert len(res.data) == 2
-        assert len(res.artifact_payloads) == 2
+        assert len(res.artifact_payloads) == 4
         # Verify collision-free artifact names
         names = [p.intent.name for p in res.artifact_payloads]
         assert len(names) == len(set(names))
         assert "Converted_inp-1.txt" in names
+        assert "Converted_inp-1.docx" in names
         assert "Converted_inp-2.txt" in names
+        assert "Converted_inp-2.docx" in names

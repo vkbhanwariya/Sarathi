@@ -66,11 +66,13 @@ def test_e2e_font_conversion_pipeline(tmp_path: Path) -> None:
     assert "1,50,000.00" in doc.text
 
     # Artifact confirmation
-    assert len(result.artifacts) == 1
-    art = result.artifacts[0]
-    assert art.path.name == "Converted_Document.txt"
-    assert art.path.exists()
-    assert art.size_bytes > 0
+    assert len(result.artifacts) == 2
+    art_names = {a.path.name for a in result.artifacts}
+    assert "Converted_Document.txt" in art_names
+    assert "Converted_Document.docx" in art_names
+    for art in result.artifacts:
+        assert art.path.exists()
+        assert art.size_bytes > 0
 
     # Darpana telemetry confirmation
     maruti_recs = tuple(r for r in darpana.maruti_records() if r.run_id == ctx.run_id)

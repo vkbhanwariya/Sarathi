@@ -123,6 +123,7 @@ def intake_from_paths(
                     size_bytes=0,
                     is_eligible=False,
                     issue_reason="cannot resolve path",
+                    source_path=str(cand),
                 )
             )
             continue
@@ -137,6 +138,7 @@ def intake_from_paths(
                     size_bytes=0,
                     is_eligible=False,
                     issue_reason="file does not exist",
+                    source_path=str(cand),
                 )
             )
             continue
@@ -151,6 +153,7 @@ def intake_from_paths(
                     size_bytes=0,
                     is_eligible=False,
                     issue_reason="path is inside runtime or output root",
+                    source_path=str(cand),
                 )
             )
             continue
@@ -204,6 +207,7 @@ def intake_from_paths(
                         display_name=df.name,
                         size_bytes=size,
                         is_eligible=True,
+                        source_path=str(df),
                     )
                 )
                 ext = df.suffix.lower() or "no_ext"
@@ -223,6 +227,7 @@ def intake_from_paths(
                     size_bytes=0,
                     is_eligible=False,
                     issue_reason="not a regular file",
+                    source_path=str(cand),
                 )
             )
             continue
@@ -242,6 +247,7 @@ def intake_from_paths(
                     size_bytes=0,
                     is_eligible=False,
                     issue_reason="duplicate input path",
+                    source_path=str(cand),
                 )
             )
             continue
@@ -259,6 +265,7 @@ def intake_from_paths(
                     size_bytes=0,
                     is_eligible=False,
                     issue_reason="failed to read file size",
+                    source_path=str(cand),
                 )
             )
             continue
@@ -279,6 +286,7 @@ def intake_from_paths(
                 display_name=display_name,
                 size_bytes=size,
                 is_eligible=True,
+                source_path=str(cand),
             )
         )
         ext = cand.suffix.lower() or "no_ext"

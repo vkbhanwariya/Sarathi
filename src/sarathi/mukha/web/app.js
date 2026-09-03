@@ -20,6 +20,8 @@
         lastState: null,
         pollIntervalMs: 500,
         pollTimer: null,
+        checkedInputPaths: new Set(),
+        intakeItems: [],
     };
 
     // DOM Elements
@@ -32,10 +34,12 @@
         // Home Elements
         btnBrowseFiles: document.getElementById("btn-browse-files"),
         btnBrowseFolder: document.getElementById("btn-browse-folder"),
+        btnClearSelected: document.getElementById("btn-clear-selected"),
         btnClearInputs: document.getElementById("btn-clear-inputs"),
         inputManualPath: document.getElementById("input-manual-path"),
         btnAddManualPath: document.getElementById("btn-add-manual-path"),
         chkRecursive: document.getElementById("chk-recursive"),
+        chkSelectAllInputs: document.getElementById("chk-select-all-inputs"),
         selectedInputsTbody: document.getElementById("selected-inputs-tbody"),
         inputCountsBadge: document.getElementById("input-counts-badge"),
         reqCards: document.querySelectorAll(".req-card"),
@@ -213,9 +217,40 @@
         await refreshIntake();
     }
 
+    // Helper: update clear selected button label and disabled status
+    function updateClearSelectedButton() {
+        if (!elements.btnClearSelected) return;
+        const count = state.checkedInputPaths.size;
+        elements.btnClearSelected.disabled = count === 0;
+        elements.btnClearSelected.textContent = count > 0 ? `Clear Selected (${count})` : "Clear Selected";
+    }
+
+    // Remove specific paths from input set
+    function removePaths(pathsToRemove) {
+        const toRemoveSet = new Set(pathsToRemove);
+        const allDiscoveredPaths = (state.intakeItems || [])
+            .map((i) => i.source_path || i.display_name)
+            .filter(Boolean);
+        const pool = allDiscoveredPaths.length > 0 ? allDiscoveredPaths : state.selectedPaths;
+        state.selectedPaths = pool.filter((p) => !toRemoveSet.has(p));
+        pathsToRemove.forEach((p) => state.checkedInputPaths.delete(p));
+        updateClearSelectedButton();
+        refreshIntake();
+    }
+
     // Action: Clear Selected Inputs
+    async function handleClearSelected() {
+        if (state.checkedInputPaths.size === 0) return;
+        removePaths(Array.from(state.checkedInputPaths));
+    }
+
+    // Action: Clear All Selected Inputs
     async function handleClearInputs() {
         state.selectedPaths = [];
+        state.checkedInputPaths.clear();
+        state.intakeItems = [];
+        updateClearSelectedButton();
+        if (elements.chkSelectAllInputs) elements.chkSelectAllInputs.checked = false;
         await refreshIntake();
     }
 
@@ -246,23 +281,41 @@
 
     // Render Inputs Table in Griha
     function renderInputsTable(items) {
+        state.intakeItems = items || [];
         if (!items || items.length === 0) {
-            elements.selectedInputsTbody.innerHTML = '<tr class="empty-row"><td colspan="3">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>';
+            elements.selectedInputsTbody.innerHTML = '<tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>';
+            state.checkedInputPaths.clear();
+            updateClearSelectedButton();
+            if (elements.chkSelectAllInputs) elements.chkSelectAllInputs.checked = false;
             return;
         }
 
         elements.selectedInputsTbody.innerHTML = items
             .map((item) => {
+                const pathVal = item.source_path || item.display_name;
+                const isChecked = state.checkedInputPaths.has(pathVal);
                 const badge = item.is_eligible
                     ? '<span class="badge badge-emerald">Eligible</span>'
                     : `<span class="badge badge-amber" title="${item.issue_reason || 'Ineligible'}">Issue</span>`;
                 return `<tr>
+                    <td style="text-align: center;">
+                        <input type="checkbox" class="input-row-chk" data-path="${escapeHtml(pathVal)}" ${isChecked ? "checked" : ""}>
+                    </td>
                     <td><strong>${escapeHtml(item.display_name)}</strong></td>
                     <td>${formatBytes(item.size_bytes)}</td>
                     <td>${badge}</td>
+                    <td style="text-align: center;">
+                        <button class="btn-icon btn-remove-row" data-path="${escapeHtml(pathVal)}" title="Remove this file" style="cursor: pointer; background: transparent; border: none; font-size: 1.1em; color: var(--text-muted, #94a3b8);">🗑</button>
+                    </td>
                 </tr>`;
             })
             .join("");
+
+        updateClearSelectedButton();
+        if (elements.chkSelectAllInputs) {
+            const allChecked = items.length > 0 && items.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
+            elements.chkSelectAllInputs.checked = allChecked;
+        }
     }
 
     // Render Preflight Summary in Griha
@@ -620,7 +673,43 @@
         // File Selection Buttons
         elements.btnBrowseFiles.addEventListener("click", handleBrowseFiles);
         elements.btnBrowseFolder.addEventListener("click", handleBrowseFolder);
+        if (elements.btnClearSelected) {
+            elements.btnClearSelected.addEventListener("click", handleClearSelected);
+        }
         elements.btnClearInputs.addEventListener("click", handleClearInputs);
+        if (elements.chkSelectAllInputs) {
+            elements.chkSelectAllInputs.addEventListener("change", (e) => {
+                const checked = e.target.checked;
+                (state.intakeItems || []).forEach((item) => {
+                    const p = item.source_path || item.display_name;
+                    if (checked) state.checkedInputPaths.add(p);
+                    else state.checkedInputPaths.delete(p);
+                });
+                elements.selectedInputsTbody.querySelectorAll(".input-row-chk").forEach((cb) => {
+                    cb.checked = checked;
+                });
+                updateClearSelectedButton();
+            });
+        }
+        elements.selectedInputsTbody.addEventListener("change", (e) => {
+            if (e.target.classList.contains("input-row-chk")) {
+                const p = e.target.dataset.path;
+                if (e.target.checked) state.checkedInputPaths.add(p);
+                else state.checkedInputPaths.delete(p);
+                updateClearSelectedButton();
+                if (elements.chkSelectAllInputs && state.intakeItems) {
+                    elements.chkSelectAllInputs.checked =
+                        state.intakeItems.length > 0 &&
+                        state.intakeItems.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
+                }
+            }
+        });
+        elements.selectedInputsTbody.addEventListener("click", (e) => {
+            const btn = e.target.closest(".btn-remove-row");
+            if (btn && btn.dataset.path) {
+                removePaths([btn.dataset.path]);
+            }
+        });
         elements.btnAddManualPath.addEventListener("click", handleAddManualPath);
         elements.inputManualPath.addEventListener("keydown", (e) => {
             if (e.key === "Enter") handleAddManualPath();

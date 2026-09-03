@@ -640,6 +640,7 @@ class MukhaWebServer:
                         display_name=inp.display_name,
                         size_bytes=inp.size_bytes,
                         media_type=inp.media_type,
+                        source_path=str(inp.source_path) if inp.source_path else None,
                     )
                     for inp in active_req.inputs
                 ),
