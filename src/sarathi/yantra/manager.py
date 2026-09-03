@@ -6,10 +6,13 @@ Exposes:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     Capability,
     DeviceRequirement,
@@ -34,7 +37,12 @@ class Yantra:
         """Return the factual default hardware inventory."""
         return DeviceInventory.default_inventory(detect_accelerators=detect_accelerators)
 
-    def __init__(self, inventory: DeviceInventory, darpana: Darpana | None = None) -> None:
+    def __init__(
+        self,
+        inventory: DeviceInventory,
+        darpana: Darpana | None = None,
+        max_queue_depth: int = 64,
+    ) -> None:
         if not isinstance(inventory, DeviceInventory):
             raise TypeError(f"inventory must be a DeviceInventory instance, got {type(inventory).__name__}.")
         if darpana is not None:
@@ -43,8 +51,12 @@ class Yantra:
             if not isinstance(darpana, DarpanaService):
                 raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
 
-        self._allocator = _ResourceAllocator(inventory)
+        self._allocator = _ResourceAllocator(inventory, max_queue_depth=max_queue_depth)
         self._darpana: Darpana | None = darpana
+        self._max_workers: int = max(1, sum(dev.capacity for dev in inventory.devices))
+        self._executor: ThreadPoolExecutor | None = None
+        self._is_started: bool = False
+        self._is_closed: bool = False
 
     @property
     def inventory(self) -> DeviceInventory:
@@ -56,15 +68,50 @@ class Yantra:
         """Return the injected Darpana telemetry service, if present."""
         return self._darpana
 
+    @property
+    def is_started(self) -> bool:
+        """Return True if Yantra execution pool has started."""
+        return self._is_started
+
+    @property
+    def is_closed(self) -> bool:
+        """Return True if Yantra has been closed."""
+        return self._is_closed
+
+    def start(self) -> None:
+        """Start Yantra and initialize bounded execution pool under Prana lifecycle."""
+        if self._is_started:
+            return
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(
+                max_workers=self._max_workers,
+                thread_name_prefix="yantra-worker",
+            )
+        self._is_started = True
+        self._is_closed = False
+
+    def close(self) -> None:
+        """Gracefully close Yantra, shutting down worker pool and clearing allocator state."""
+        if self._is_closed:
+            return
+        self._is_closed = True
+        self._is_started = False
+        if self._executor is not None:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor = None
+        self._allocator.close()
+
     def allocate(
         self,
         requirement: DeviceRequirement,
         context: ExecutionContext | None = None,
+        timeout: float | None = None,
     ) -> Allocation:
         """Allocate an execution device slot for a capability requirement.
 
         Raises:
-            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If capacity is exhausted.
+            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If capacity is exhausted or timeout reached.
+            DoshError(FailureCode.OPERATION_CANCELLED): If context cancellation is requested while queued.
             TypeError: If requirement is not a DeviceRequirement.
         """
         if not isinstance(requirement, DeviceRequirement):
@@ -86,7 +133,54 @@ class Yantra:
             else nullcontext()
         )
         with scope:
-            return self._allocator.allocate(requirement)
+            return self._allocator.allocate(requirement, context=context, timeout=timeout)
+
+    def execute_subtasks(
+        self,
+        subtasks: Sequence[Callable[[], Any]],
+        context: ExecutionContext | None = None,
+    ) -> list[Any]:
+        """Execute independent subtasks concurrently using Yantra's bounded worker pool, preserving source order.
+
+        Raises:
+            DoshError(FailureCode.OPERATION_CANCELLED): If context cancellation is requested.
+            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If Yantra is closed.
+        """
+        if not isinstance(subtasks, (list, tuple)):
+            raise TypeError(f"subtasks must be a sequence, got {type(subtasks).__name__}.")
+
+        if self._is_closed:
+            raise DoshError(
+                code=FailureCode.RESOURCE_UNAVAILABLE,
+                message="Cannot execute subtasks; Yantra is closed.",
+            )
+
+        if not subtasks:
+            return []
+
+        if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+            context.cancellation_token.check_cancelled()
+
+        if len(subtasks) == 1:
+            return [subtasks[0]()]
+
+        # Lazy initialize executor if start() was not explicitly called
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(
+                max_workers=self._max_workers,
+                thread_name_prefix="yantra-subtask",
+            )
+            self._is_started = True
+
+        futures = [self._executor.submit(task) for task in subtasks]
+        results: list[Any] = []
+        for f in futures:
+            if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                for rem in futures:
+                    rem.cancel()
+                context.cancellation_token.check_cancelled()
+            results.append(f.result())
+        return results
 
     def release(
         self,
