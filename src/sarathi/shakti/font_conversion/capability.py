@@ -37,6 +37,7 @@ class FontConversionCapability:
         darpana: Darpana | None = None,
         fonts_dir: Path | None = None,
         anubhava_path: Path | None = None,
+        ocr_oracle: Any | None = None,
     ) -> None:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
@@ -45,6 +46,7 @@ class FontConversionCapability:
         self._protector = TextProtector()
         self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava_path=anubhava_path)
         self._validator = FontConversionValidator()
+        self._ocr_oracle = ocr_oracle
 
     def execute(
         self,
@@ -139,6 +141,23 @@ class FontConversionCapability:
                     pass
                 else:
                     # Default: auto_unicode
+                    if detected_profile is None and self._ocr_oracle is not None and hasattr(self._ocr_oracle, "recover_text"):
+                        try:
+                            recovered_text, oracle_conf = self._ocr_oracle.recover_text(full_text)
+                            if recovered_text and recovered_text != full_text:
+                                detected_profile = "visual_oracle"
+                                conf = oracle_conf
+                                all_provs.append(
+                                    ProvenanceRecord(
+                                        stage="font_conversion",
+                                        plugin_id="shakti.font_conversion",
+                                        capability_id="font_conversion",
+                                        evidence={"recovered_via": "selective_ocr", "profile": "visual_oracle"},
+                                    )
+                                )
+                        except Exception:
+                            pass
+
                     if detected_profile is None:
                         # No legacy font detected; keep original document
                         converted_docs.append(doc)

@@ -198,6 +198,19 @@ def preprocess_ocr_image(
     return out
 
 
+_ALPHANUMERIC_FILTER_RE = re.compile(r"[^\x20-\x7E₹€£\n\r\t]")
+_HAS_ENGLISH_OR_DIGIT_RE = re.compile(r"[A-Za-z0-9]")
+
+
+def filter_english_and_numbers(text: str) -> str:
+    """Filter text to retain only English characters, numbers, and standard alphanumeric symbols."""
+    cleaned = _ALPHANUMERIC_FILTER_RE.sub("", text)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+    if not _HAS_ENGLISH_OR_DIGIT_RE.search(cleaned):
+        return ""
+    return cleaned
+
+
 class TesseractFallbackAdapter:
     """Targeted Tesseract 5 fallback adapter for weak OCR bounding boxes."""
 
@@ -346,6 +359,7 @@ class RapidOCREngine:
         self._data_root: Path = data_root.resolve() if data_root is not None else _CANONICAL_DATA_ROOT
         self._engine: Any = None
         self._engines: dict[str, Any] = {}
+        self._model_labels: dict[str, str] = {}
         self._default_lang: str = default_lang
         self._tesseract: TesseractFallbackAdapter = tesseract_adapter or TesseractFallbackAdapter()
 
@@ -361,20 +375,6 @@ class RapidOCREngine:
         """Lazily initialize the underlying RapidOCR engine instance for the requested language after verifying assets against manifest.json."""
         if self._engine is not None:
             return self._engine
-
-        clean_lang = str(lang).lower().strip() if lang else "en"
-        if clean_lang in _DEV_LANGS:
-            engine_key = "devanagari"
-            rec_key = "rec_devanagari"
-        elif clean_lang in _V6_LANGS:
-            engine_key = "v6_en"
-            rec_key = "rec_v6_en"
-        else:
-            engine_key = "en"
-            rec_key = "rec"
-
-        if engine_key in self._engines:
-            return self._engines[engine_key]
 
         manifest_file = self._data_root / "manifest.json"
         models_dir = self._data_root / "models"
@@ -427,7 +427,7 @@ class RapidOCREngine:
 
         models_meta = manifest_dict["models"]
 
-        # Validate presence of base required model keys
+        # 1. Base required model keys
         for key in _REQUIRED_MODEL_KEYS:
             if key not in models_meta or not isinstance(models_meta[key], dict):
                 raise DoshError(
@@ -435,7 +435,21 @@ class RapidOCREngine:
                     message="Local OCR model manifest is missing required model entry.",
                 )
 
-        # Validate target recognition model entry
+        clean_lang = str(lang).lower().strip() if lang else self._default_lang
+        if clean_lang in _V6_LANGS:
+            engine_key = "v6_en"
+            rec_key = "rec_v6_en"
+        elif clean_lang in _DEV_LANGS:
+            engine_key = "devanagari"
+            rec_key = "rec_devanagari"
+        else:
+            engine_key = "en"
+            rec_key = "rec"
+
+        if engine_key in self._engines:
+            return self._engines[engine_key]
+
+        # 2. Validate target recognition model entry
         if rec_key not in models_meta or not isinstance(models_meta[rec_key], dict):
             if engine_key == "devanagari":
                 raise DoshError(
@@ -563,6 +577,12 @@ class RapidOCREngine:
 
         engine_inst = RapidOCR(params=params)
         self._engines[engine_key] = engine_inst
+        if rec_key == "rec_v6_en":
+            self._model_labels[engine_key] = "PP-OCRv6"
+        elif rec_key == "rec_devanagari":
+            self._model_labels[engine_key] = "PP-OCRv5-Devanagari"
+        else:
+            self._model_labels[engine_key] = "PP-OCRv5"
         return engine_inst
 
     def ocr_page(
@@ -582,7 +602,8 @@ class RapidOCREngine:
         img_arr = np.array(image)
 
         preprocess_opt = custom_options.get("preprocess", True) if custom_options else True
-        if preprocess_opt:
+        is_lightweight = custom_options.get("lightweight", False) if custom_options else False
+        if preprocess_opt and not is_lightweight:
             img_arr = preprocess_ocr_image(img_arr)
 
         output = engine(img_arr)
@@ -593,6 +614,11 @@ class RapidOCREngine:
         warnings: list[WarningRecord] = []
         has_invalid_confidence = False
 
+        if target_lang in _DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
+            filter_opt = False
+        else:
+            filter_opt = custom_options.get("english_numbers_only", True) if custom_options else True
+
         if output and output.txts:
             for text_val, box_val, score_val in zip(
                 output.txts,
@@ -600,6 +626,8 @@ class RapidOCREngine:
                 output.scores if output.scores is not None else [None] * len(output.txts),
             ):
                 norm_text = unicodedata.normalize("NFC", str(text_val or "").strip())
+                if filter_opt:
+                    norm_text = filter_english_and_numbers(norm_text)
                 if norm_text:
                     lines.append(norm_text)
                     conf: float | None = None
@@ -694,12 +722,12 @@ class RapidOCREngine:
                 )
             )
 
-        if target_lang in _V6_LANGS:
-            model_label = "PP-OCRv6"
-        elif target_lang in _DEV_LANGS:
+        if target_lang in _DEV_LANGS:
             model_label = "PP-OCRv5-Devanagari"
+        elif target_lang in _V6_LANGS:
+            model_label = "PP-OCRv6"
         else:
-            model_label = "PP-OCRv5"
+            model_label = self._model_labels.get("en", "PP-OCRv5")
 
         page_confidence: ConfidenceValue | None = None
         if conf_scores and not has_invalid_confidence and len(conf_scores) == len(spans):
@@ -798,6 +826,7 @@ class RapidOCREngine:
             "engine": "rapidocr",
             "backend": "openvino",
             "model": model_label,
+            "scope": "english_and_numbers",
             "profile": profile.value,
             "box_count": len(spans),
         }
