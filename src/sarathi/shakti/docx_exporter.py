@@ -382,6 +382,8 @@ def transform_docx_artifact(
 
 
 def _get_run_visual_style(r: ET.Element) -> tuple:
+    from sarathi.shakti.font_conversion.detector import normalize_font_family_name
+
     rpr = r.find(f"{{{_W_NS}}}rPr")
     if rpr is None:
         return ()
@@ -391,6 +393,14 @@ def _get_run_visual_style(r: ET.Element) -> tuple:
         if tag_name in ("b", "bCs", "i", "iCs", "u", "strike", "dstrike", "color", "highlight", "sz", "szCs"):
             val = child.attrib.get(f"{{{_W_NS}}}val", "true")
             style_tags.append((tag_name, val))
+        elif tag_name == "rFonts":
+            fonts = tuple(sorted({
+                normalize_font_family_name(v)
+                for k, v in child.attrib.items()
+                if k.split("}")[-1] in ("ascii", "cs", "hAnsi", "eastAsia") and v and normalize_font_family_name(v)
+            }))
+            if fonts:
+                style_tags.append((tag_name, str(fonts)))
     return tuple(sorted(style_tags))
 
 
@@ -438,6 +448,19 @@ def _transform_xml_tree(
         "bookman", "calibri", "arial", "times", "cambria", "georgia",
         "verdana", "tahoma", "courier", "segoe", "helvetica", "trebuchet",
     )
+    modern_devanagari_fonts = (
+        "mangal", "nirmala ui", "nirmala", "aparajita", "kokila", "utsaah",
+    )
+
+    import inspect
+    converter_takes_font = False
+    try:
+        sig = inspect.signature(converter_fn)
+        converter_takes_font = len(sig.parameters) >= 2 or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+    except Exception:
+        converter_takes_font = False
 
     for p in tree.iter(p_tag):
         _merge_adjacent_compatible_runs(p)
@@ -456,21 +479,29 @@ def _transform_xml_tree(
             if not full_run_text:
                 continue
 
-            # Check if this run is explicitly styled with a modern Latin font
+            # Extract run font name if present
+            run_font_name: str | None = None
             is_modern_run = False
-            if preserve_modern_fonts:
-                rpr = child.find(rpr_tag)
-                if rpr is not None:
-                    rf = rpr.find(rfonts_tag)
-                    if rf is not None:
-                        val_str = " ".join(rf.attrib.values()).lower()
-                        if any(m in val_str for m in modern_font_names):
-                            is_modern_run = True
+            rpr = child.find(rpr_tag)
+            if rpr is not None:
+                rf = rpr.find(rfonts_tag)
+                if rf is not None:
+                    # Look up primary ascii or cs font name
+                    val_str = " ".join(rf.attrib.values()).lower()
+                    run_font_name = rf.attrib.get(f"{{{_W_NS}}}ascii") or rf.attrib.get(f"{{{_W_NS}}}cs") or rf.attrib.get(f"{{{_W_NS}}}hAnsi")
+                    if preserve_modern_fonts and any(m in val_str for m in modern_font_names):
+                        is_modern_run = True
+                    # If explicitly formatted in a known modern Unicode Devanagari font, preserve it!
+                    if any(m in val_str for m in modern_devanagari_fonts):
+                        is_modern_run = True
 
             if is_modern_run:
                 converted_text = full_run_text
             else:
-                converted_text = converter_fn(full_run_text)
+                if converter_takes_font and run_font_name:
+                    converted_text = converter_fn(full_run_text, font_name=run_font_name)
+                else:
+                    converted_text = converter_fn(full_run_text)
 
             segments = segment_text_by_script(converted_text)
             if not segments:

@@ -10,9 +10,3 @@ profile_id = "krutidev010"
 source = "LVsV cSad"
 target = "स्टेट बैंक"
 verified = true
-
-[[corrections]]
-profile_id = "krutidev010"
-source = "Hkkjr"
-target = "भारत"
-verified = true

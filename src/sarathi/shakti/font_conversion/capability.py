@@ -184,7 +184,7 @@ class FontConversionCapability:
 
                 total_spans_count = 0
 
-                def _conv_text(raw: str) -> str:
+                def _conv_text(raw: str, font_name: str | None = None) -> str:
                     nonlocal total_spans_count
                     if not raw or not raw.strip():
                         return raw
@@ -200,22 +200,38 @@ class FontConversionCapability:
                                 pass
                         return raw
 
+                    # Determine active profile for this segment
+                    active_profile = detected_profile
+                    if font_name and not is_to_legacy:
+                        run_prof, _ = self._detector.detect(raw, font_hint=font_name)
+                        if run_prof:
+                            active_profile = run_prof
+
                     prot, c_spans = self._protector.protect(raw, protect_devanagari=not is_to_legacy)
                     total_spans_count += len(c_spans)
                     if is_to_legacy:
-                        if detected_profile is not None and detected_profile != target_profile:
-                            inter = self._converter.convert(prot, profile_id=detected_profile)
+                        if active_profile is not None and active_profile != target_profile:
+                            inter = self._converter.convert(prot, profile_id=active_profile)
                         else:
                             inter = prot
                         c_raw = self._converter.convert_to_legacy(inter, target_profile_id=target_profile)
                     else:
-                        c_raw = self._converter.convert(prot, profile_id=detected_profile)
+                        c_raw = self._converter.convert(prot, profile_id=active_profile)
                     restored = self._protector.restore(c_raw, c_spans)
                     if not is_to_legacy:
                         if not self._validator.validate_protection_integrity(restored, c_spans):
                             raise DoshError(
                                 code=FailureCode.EXECUTION_FAILED,
                                 message="Protected span integrity validation failed during font conversion.",
+                            )
+                        is_struct_valid, defects = self._validator.validate_devanagari_structure(restored)
+                        if not is_struct_valid:
+                            all_warnings.append(
+                                WarningRecord(
+                                    code="STRUCTURAL_DEVANAGARI_DEFECT",
+                                    message=f"Converted text has structural Devanagari defect(s): {', '.join(defects)}",
+                                    stage="font_conversion",
+                                )
                             )
                     return restored
 
