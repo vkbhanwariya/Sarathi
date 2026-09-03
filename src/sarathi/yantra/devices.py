@@ -77,7 +77,13 @@ class DeviceInventory:
 
     @classmethod
     def default_inventory(cls, detect_accelerators: bool = False) -> DeviceInventory:
-        """Create a factual default inventory using system CPU capacity, optionally including hardware accelerators."""
+        """Create a factual default inventory using system CPU capacity, optionally including hardware accelerators.
+
+        When detect_accelerators is True, factual hardware discovery queries runtime backends
+        (OpenVINO and CUDA) for physically accessible accelerators. Accelerator capacity is defined
+        as a bounded scheduler concurrency limit (default 2 concurrent streams per physical accelerator),
+        not fabricated physical compute cores.
+        """
         import os
 
         count_fn = getattr(os, "process_cpu_count", None)
@@ -89,16 +95,35 @@ class DeviceInventory:
         ]
 
         if detect_accelerators:
+            seen_gpu_ids: set[str] = set()
             try:
                 import openvino as ov
 
                 core = ov.Core()
-                available = core.available_devices
-                if "GPU" in available:
-                    devices.append(DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=2))
-                if "NPU" in available:
-                    devices.append(DeviceInfo(device_id="npu-0", device_type=DeviceType.NPU, capacity=2))
+                available = [str(d).strip() for d in core.available_devices]
+                gpu_devs = [d for d in available if "GPU" in d.upper()]
+                for idx, _ in enumerate(gpu_devs):
+                    dev_id = f"gpu-{idx}"
+                    seen_gpu_ids.add(dev_id)
+                    devices.append(DeviceInfo(device_id=dev_id, device_type=DeviceType.GPU, capacity=2))
+
+                npu_devs = [d for d in available if "NPU" in d.upper()]
+                for idx, _ in enumerate(npu_devs):
+                    dev_id = f"npu-{idx}"
+                    devices.append(DeviceInfo(device_id=dev_id, device_type=DeviceType.NPU, capacity=2))
             except Exception:
                 pass
+
+            # Check CUDA devices if not already discovered via OpenVINO
+            if not seen_gpu_ids:
+                try:
+                    import ctranslate2
+
+                    cuda_count = ctranslate2.get_cuda_device_count()
+                    for idx in range(cuda_count):
+                        dev_id = f"gpu-cuda-{idx}"
+                        devices.append(DeviceInfo(device_id=dev_id, device_type=DeviceType.GPU, capacity=2))
+                except Exception:
+                    pass
 
         return cls(devices)

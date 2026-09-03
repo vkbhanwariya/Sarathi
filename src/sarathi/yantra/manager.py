@@ -30,9 +30,9 @@ class Yantra:
     """Resource and execution manager for hardware allocation and capability execution."""
 
     @classmethod
-    def default_inventory(cls) -> DeviceInventory:
+    def default_inventory(cls, detect_accelerators: bool = False) -> DeviceInventory:
         """Return the factual default hardware inventory."""
-        return DeviceInventory.default_inventory()
+        return DeviceInventory.default_inventory(detect_accelerators=detect_accelerators)
 
     def __init__(self, inventory: DeviceInventory, darpana: Darpana | None = None) -> None:
         if not isinstance(inventory, DeviceInventory):

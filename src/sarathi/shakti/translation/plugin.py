@@ -35,7 +35,7 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     prerequisites=("read_native",),
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.CPU,),
-        supported_devices=(DeviceType.CPU, DeviceType.GPU, DeviceType.NPU),
+        supported_devices=(DeviceType.CPU, DeviceType.GPU),
         parallelizable=True,
     ),
     produces_artifacts=True,
