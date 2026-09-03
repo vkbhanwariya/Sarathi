@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from dataclasses import dataclass
@@ -42,14 +43,25 @@ def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
 
 
 def _hash_canonical_document(doc: CanonicalDocument) -> str:
-    """Compute deterministic hash of a CanonicalDocument content and structure."""
+    """Compute deterministic hash of a CanonicalDocument content, layout, and structure."""
     doc_hasher = hashlib.sha256()
     doc_hasher.update(doc.text.encode("utf-8"))
 
     for page in doc.pages:
         doc_hasher.update(f":p{page.page_number}:{page.text}:".encode("utf-8"))
         for span in page.spans:
-            doc_hasher.update(f":s{span.text}:{span.confidence}:".encode("utf-8"))
+            if span.bounding_box:
+                if isinstance(span.bounding_box, (tuple, list)):
+                    bb = ",".join(str(c) for c in span.bounding_box)
+                else:
+                    bb = f"{getattr(span.bounding_box, 'x0', '')},{getattr(span.bounding_box, 'y0', '')},{getattr(span.bounding_box, 'x1', '')},{getattr(span.bounding_box, 'y1', '')}"
+            else:
+                bb = ""
+            doc_hasher.update(
+                f":s{span.text}:{span.confidence}:{bb}:{span.language or ''}:{span.script or ''}:".encode("utf-8")
+            )
+        if page.metadata:
+            doc_hasher.update(f":pm{json.dumps(dict(page.metadata), sort_keys=True, default=str)}:".encode("utf-8"))
         for tbl in page.tables:
             doc_hasher.update(f":th{'|'.join(tbl.headers)}:".encode("utf-8"))
             for row in tbl.rows:
@@ -59,6 +71,9 @@ def _hash_canonical_document(doc: CanonicalDocument) -> str:
         doc_hasher.update(f":dth{'|'.join(tbl.headers)}:".encode("utf-8"))
         for row in tbl.rows:
             doc_hasher.update(f":dtr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
+
+    if doc.metadata:
+        doc_hasher.update(f":dm{json.dumps(dict(doc.metadata), sort_keys=True, default=str)}:".encode("utf-8"))
 
     content_hash = doc_hasher.hexdigest()
     return f"{doc.document_id}:{doc.detected_type}:{len(doc.pages)}:{len(doc.tables)}:{content_hash}"
@@ -83,9 +98,19 @@ def compute_prior_result_digest(prior_result: Result | None) -> str:
         material = f"multi:{len(prior_result.data)}:{doc_hashes}:{prov_hash}"
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
-    # Generic factual type representation
-    data_type_name = type(prior_result.data).__name__
-    return hashlib.sha256(data_type_name.encode("utf-8")).hexdigest()
+    # Deterministic factual serialization for dataclasses / dicts / sequences / generic types
+    try:
+        if dataclasses.is_dataclass(prior_result.data):
+            data_str = json.dumps(dataclasses.asdict(prior_result.data), sort_keys=True, default=str)
+        elif isinstance(prior_result.data, (dict, list, tuple)):
+            data_str = json.dumps(prior_result.data, sort_keys=True, default=str)
+        else:
+            data_str = str(prior_result.data)
+        material = f"{type(prior_result.data).__name__}:{data_str}:{prov_hash}"
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+    except Exception:
+        data_type_name = type(prior_result.data).__name__
+        return hashlib.sha256(f"{data_type_name}:{prov_hash}".encode("utf-8")).hexdigest()
 
 
 def compute_cache_key(

@@ -120,6 +120,7 @@ class MukhaPresenter:
             importlib.util.find_spec("rapidocr") is not None
             and importlib.util.find_spec("openvino") is not None
             and importlib.util.find_spec("PIL") is not None
+            and importlib.util.find_spec("numpy") is not None
         )
         ocr_manifest = base_data / "ocr" / "manifest.json"
         if ocr_installed and ocr_manifest.exists():
@@ -127,27 +128,38 @@ class MukhaPresenter:
         else:
             statuses["ocr"] = (False, "Unavailable (Missing OCR extra dependencies or models)")
 
-        # 3. Bank Statements
-        statuses["bank_statements"] = (True, "Ready (SBI, HDFC profiles)")
+        # 3. Bank Statements (dynamic profiles detection)
+        from sarathi.shakti.bank_statements.detector import load_bank_profiles
 
-        # 4. Font Conversion
-        font_map = base_data / "fonts" / "krutidev010.json"
-        if font_map.exists():
-            statuses["font_conversion"] = (True, "Ready (KrutiDev mapping pack)")
+        bank_profs = load_bank_profiles(base_data / "banks")
+        if bank_profs:
+            prof_ids = [str(p.get("profile_id", "")).upper() for p in bank_profs if p.get("profile_id")]
+            statuses["bank_statements"] = (True, f"Ready ({', '.join(prof_ids)} profiles)")
+        else:
+            statuses["bank_statements"] = (False, "Unavailable (No bank profiles loaded)")
+
+        # 4. Font Conversion (dynamic font packs detection)
+        font_files = list((base_data / "fonts").glob("*.json")) if (base_data / "fonts").exists() else []
+        if font_files:
+            names = [f.stem for f in font_files]
+            statuses["font_conversion"] = (True, f"Ready ({len(names)} mapping packs: {', '.join(names)})")
         else:
             statuses["font_conversion"] = (False, "Unavailable (Missing font mapping packs)")
 
-        # 5. Translation
+        # 5. Translation (dynamic dependency and model check)
+        trans_installed = importlib.util.find_spec("ctranslate2") is not None
         trans_models = base_data / "translation" / "models"
         hi_en_model = trans_models / "hi-en"
         en_hi_model = trans_models / "en-hi"
-        if trans_models.exists() and hi_en_model.exists() and en_hi_model.exists():
+        if trans_installed and trans_models.exists() and hi_en_model.exists() and en_hi_model.exists():
             statuses["translation"] = (True, "Ready (IndicTrans2 CTranslate2)")
         else:
-            statuses["translation"] = (
-                False,
-                "Unavailable (Local translation model assets missing in data/translation/models/)",
-            )
+            missing_parts = []
+            if not trans_installed:
+                missing_parts.append("ctranslate2 extra")
+            if not (trans_models.exists() and hi_en_model.exists() and en_hi_model.exists()):
+                missing_parts.append("model assets")
+            statuses["translation"] = (False, f"Unavailable (Missing: {', '.join(missing_parts)})")
 
         return statuses
 

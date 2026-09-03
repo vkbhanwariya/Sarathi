@@ -12,7 +12,7 @@ import uuid
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -27,7 +27,14 @@ from sarathi.nabhi import (
     QuarantineStore,
     RetryPolicy,
 )
-from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
+from sarathi.sankalpa import (
+    Capability,
+    CapabilityDeclaration,
+    ExecutionContext,
+    PluginInfo,
+    Request,
+    Result,
+)
 from sarathi.shakti.bank_statements import BankStatementCapability
 from sarathi.shakti.darshana import DarshanaCapability, identify_request
 from sarathi.shakti.font_conversion import FontConversionCapability
@@ -50,6 +57,7 @@ class Agni:
         output_root: Path | str | None = None,
         input_root: Path | str | None = None,
         capabilities: Mapping[str, Capability] | None = None,
+        plugins: Sequence[PluginInfo] | None = None,
         inventory: DeviceInventory | None = None,
         darpana: Darpana | None = None,
         kavacha: Kavacha | None = None,
@@ -231,6 +239,35 @@ class Agni:
         self._dvara: Dvara = Dvara(registry=self._kosh, darpana=self._darpana)
         self._dvara.register_builtins(context=bootstrap_ctx)
 
+        # Register explicit plugins if supplied
+        if plugins is not None:
+            if not isinstance(plugins, (list, tuple)):
+                raise TypeError(f"plugins must be a sequence of PluginInfo or None, got {type(plugins).__name__}.")
+            for p in plugins:
+                if not isinstance(p, PluginInfo):
+                    raise TypeError(f"All items in plugins must be PluginInfo instances, got {type(p).__name__}.")
+                if not self._kosh.has_plugin(p.plugin_id):
+                    self._kosh.register_plugin(p)
+
+        # For any capability whose plugin is not yet registered in Kosh:
+        # Group custom capabilities by plugin_id so that full capability inventory is preserved
+        unregistered_plugins: dict[str, list[CapabilityDeclaration]] = {}
+        for cap_k, cap_v in self._capabilities.items():
+            if not self._kosh.has_capability(cap_k):
+                p_id = cap_v.declaration.plugin_id
+                if not self._kosh.has_plugin(p_id):
+                    unregistered_plugins.setdefault(p_id, []).append(cap_v.declaration)
+
+        for p_id, decls in unregistered_plugins.items():
+            cap_ids = tuple(d.capability_id for d in decls)
+            p_info = PluginInfo(
+                plugin_id=p_id,
+                name=p_id,
+                version=decls[0].version,
+                capabilities=cap_ids,
+            )
+            self._kosh.register_plugin(p_info)
+
         for cap_k, cap_v in self._capabilities.items():
             if not self._kosh.has_capability(cap_k):
                 self._dvara.register_capability(cap_v.declaration)
@@ -268,6 +305,17 @@ class Agni:
         )
 
         self._is_started: bool = False
+        self._is_closed: bool = False
+
+    @property
+    def is_started(self) -> bool:
+        """Return True if runtime lifecycle has started and not closed."""
+        return self._is_started
+
+    @property
+    def is_closed(self) -> bool:
+        """Return True if runtime lifecycle has been closed."""
+        return self._is_closed
 
     @property
     def settings(self) -> Settings:
@@ -360,19 +408,24 @@ class Agni:
 
     def start(self) -> None:
         """Start registered runtime components in dependency order via Prana."""
+        if self._is_closed:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message="Agni runtime instance cannot be restarted after close.",
+            )
         if not self._is_started:
             self._prana.start_all()
             self._is_started = True
 
     def close(self) -> None:
         """Close registered runtime components in reverse dependency order via Prana."""
-        if self._is_started:
-            try:
-                self._prana.close_all()
-            finally:
-                self._is_started = False
-        elif self._darpana is not None:
-            self._darpana.close()
+        if self._is_closed:
+            return
+        self._is_closed = True
+        try:
+            self._prana.close_all()
+        finally:
+            self._is_started = False
 
     def stop(self) -> None:
         """Alias for close()."""
