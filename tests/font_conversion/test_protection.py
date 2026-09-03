@@ -51,3 +51,48 @@ def test_protect_dates_amounts_identifiers_and_unicode_devanagari() -> None:
 
     assert final_text == sample
     assert validator.validate_protection_integrity(final_text, spans) is True
+
+
+def test_krutidev_statement_vocabulary_does_not_falsely_mask_as_latin() -> None:
+    """Verify Kruti Dev words with standard ASCII letters are not falsely masked as Latin words."""
+    protector = TextProtector()
+    converter = FontConverter()
+    validator = FontConversionValidator()
+
+    sample = (
+        "c;ku foosd tSu iq= izdk'k pUn tSu mez 48 Ok\"kZ] fuoklh& ih&22] "
+        "jkt vkaxu] ,u-vkj-vkbZ dkWyksuh] gYnh ?kkVh ekxZ] izrki uxj] t;iqj&302033 "
+        "(Flat No.-1411, Al Kawthar Tower, Sharjah, United Arab Emirates) "
+        "eksckbZy uEcj 8003178518 Jh eqds'k"
+    )
+
+    protected, spans = protector.protect(sample)
+    converted = converter.convert(protected, "krutidev010")
+    final_text = protector.restore(converted, spans)
+
+    # Devanagari conversions
+    assert "बयान" in final_text
+    assert "विवेक" in final_text
+    assert "जैन" in final_text
+    assert "पुत्र" in final_text
+    assert "प्रकाश" in final_text
+    assert "चन्द" in final_text
+    assert "उम्र" in final_text
+    assert "वर्ष" in final_text
+    assert "राज आंगन" in final_text
+    assert "जयपुर" in final_text
+    assert "श्री" in final_text
+    assert "मुकेश" in final_text
+
+    # No unmapped Kruti Dev remnants
+    assert "foosd" not in final_text
+    assert "tSu" not in final_text
+    assert "pUn" not in final_text
+    assert "mez" not in final_text
+    assert "cयान" not in final_text
+
+    # English parenthesized address preserved
+    assert "Flat No.-1411, Al Kawthar Tower, Sharjah, United Arab Emirates" in final_text
+    assert "8003178518" in final_text
+
+    assert validator.validate_protection_integrity(final_text, spans) is True

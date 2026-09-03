@@ -70,7 +70,12 @@ class GlossaryStore:
             return
 
         if isinstance(raw_data, dict):
-            if "entries" in raw_data and isinstance(raw_data["entries"], list):
+            if "entries" in raw_data:
+                if not isinstance(raw_data["entries"], list):
+                    raise DoshError(
+                        code=FailureCode.INVALID_CONFIGURATION,
+                        message=f"Glossary 'entries' field must be a list: {filename}",
+                    )
                 for item in raw_data["entries"]:
                     if isinstance(item, dict):
                         self._add_entry(item)

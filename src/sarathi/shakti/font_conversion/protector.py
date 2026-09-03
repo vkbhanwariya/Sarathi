@@ -78,19 +78,14 @@ _KRUTI_DIGRAPHS = (
     "mRr",
 )
 
-
-def _is_legacy_word(word: str) -> bool:
-    """Classify whether a word token is Kruti Dev encoded text or standard Latin."""
-    if any(c in word for c in _KRUTI_CHARS):
-        return True
-    if any(d in word for d in _KRUTI_DIGRAPHS):
-        return True
-    if re.search(r"^[dprtyoscvmbg]k", word):
-        return True
-    if re.search(r"[dprtyoscvmbg]k[dprtyoscvmbg]", word):
-        if not re.search(r"[aeiouAEIOU]{2,}", word):
-            return True
-    return False
+# Target structured English patterns
+_LABEL_RE = re.compile(r"\b[A-Za-z][A-Za-z\s]{1,30}:(?=\s|$)")
+_PAREN_LATIN_RE = re.compile(r"\([A-Za-z0-9\s,\.\-_/]{2,}\)")
+_TITLECASE_PHRASE_RE = re.compile(r"\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+\b")
+_KNOWN_LATIN_RE = re.compile(
+    r"\b(?:Govt|Government|India|State|Bank|SBI|HDFC|ICICI|Axis|Kotak|Pvt|Ltd|Limited|Private|Company|Distributor|Trading|Sponsored|Bail|PMLA|FIR|Tower|Flat|Road|Street|Apartment|Park|Avenue|Lane|Pass)\b",
+    re.IGNORECASE,
+)
 
 
 class TextProtector(BaseSpanProtector):
@@ -117,20 +112,19 @@ class TextProtector(BaseSpanProtector):
         if protect_devanagari:
             text = _UNICODE_DEVANAGARI_RE.sub(lambda m: _repl(m, "unicode_devanagari"), text)
 
-        # 3. Protect Percentages, Dates, Numbers, and IDs
+        # 3. Protect structured English labels, parenthesized Latin text, and TitleCase phrases
+        text = _LABEL_RE.sub(lambda m: _repl(m, "english_label"), text)
+        text = _PAREN_LATIN_RE.sub(lambda m: _repl(m, "paren_latin"), text)
+        text = _TITLECASE_PHRASE_RE.sub(lambda m: _repl(m, "english_phrase"), text)
+
+        # 4. Protect Percentages, Dates, Numbers, and IDs
         text = _PERCENT_RE.sub(lambda m: _repl(m, "percent"), text)
         text = _DATE_RE.sub(lambda m: _repl(m, "date"), text)
         text = _NUM_RE.sub(lambda m: _repl(m, "number"), text)
         text = _ID_RE.sub(lambda m: _repl(m, "id"), text)
 
-        # 4. Evidence-based word classification: protect ordinary Latin/English words
-        def _word_repl(m: re.Match) -> str:
-            word = m.group(0)
-            if not _is_legacy_word(word):
-                return _repl(m, "latin_word")
-            return word
-
-        text = re.sub(r"\b[A-Za-z]+\b", _word_repl, text)
+        # 5. Protect known Latin business/institutional terms
+        text = _KNOWN_LATIN_RE.sub(lambda m: _repl(m, "known_latin"), text)
 
         return text, protected_spans
 
