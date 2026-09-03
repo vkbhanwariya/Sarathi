@@ -186,6 +186,13 @@ class Transaction:
         object.__setattr__(self, "provenance", _validate_seq(self.provenance, ProvenanceRecord, "provenance"))
         object.__setattr__(self, "metadata", _validate_mapping(self.metadata, "metadata"))
 
+    @property
+    def posting_datetime(self) -> datetime | None:
+        """Canonical Veda alias for posting_date."""
+        if self.posting_date is None:
+            return None
+        return datetime.combine(self.posting_date, time.min)
+
 
 @dataclass(frozen=True, slots=True)
 class BankStatement:
@@ -230,6 +237,16 @@ class BankStatement:
         object.__setattr__(self, "issues", _validate_seq(self.issues, ValidationIssue, "issues"))
         object.__setattr__(self, "provenance", _validate_seq(self.provenance, ProvenanceRecord, "provenance"))
         object.__setattr__(self, "metadata", _validate_mapping(self.metadata, "metadata"))
+
+    @property
+    def statement_from(self) -> date | None:
+        """Canonical Veda alias for statement_period_start."""
+        return self.statement_period_start
+
+    @property
+    def statement_to(self) -> date | None:
+        """Canonical Veda alias for statement_period_end."""
+        return self.statement_period_end
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Mapping
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, Mapping
 
 from sarathi.sankalpa import CanonicalDocument, InputRef, Request, Result
 
@@ -42,6 +45,25 @@ def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
     return hasher.hexdigest()
 
 
+def _to_digest_serializable(obj: Any) -> Any:
+    """Recursively convert objects to JSON-serializable primitives for deterministic digest computation."""
+    if obj is None or isinstance(obj, (int, float, str, bool)):
+        return obj
+    if isinstance(obj, (datetime.date, datetime.datetime, datetime.time)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return str(obj)
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, Mapping):
+        return {str(k): _to_digest_serializable(v) for k, v in sorted(obj.items(), key=lambda x: str(x[0]))}
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [_to_digest_serializable(v) for v in obj]
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return {f.name: _to_digest_serializable(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+    return str(obj)
+
+
 def _hash_canonical_document(doc: CanonicalDocument) -> str:
     """Compute deterministic hash of a CanonicalDocument content, layout, and structure."""
     doc_hasher = hashlib.sha256()
@@ -57,18 +79,23 @@ def _hash_canonical_document(doc: CanonicalDocument) -> str:
                     bb = f"{getattr(span.bounding_box, 'x0', '')},{getattr(span.bounding_box, 'y0', '')},{getattr(span.bounding_box, 'x1', '')},{getattr(span.bounding_box, 'y1', '')}"
             else:
                 bb = ""
+            sm = f":sm{json.dumps(dict(span.metadata), sort_keys=True, default=str)}:" if span.metadata else ""
             doc_hasher.update(
-                f":s{span.text}:{span.confidence}:{bb}:{span.language or ''}:{span.script or ''}:".encode("utf-8")
+                f":s{span.text}:{span.confidence}:{bb}:{span.language or ''}:{span.script or ''}{sm}:".encode("utf-8")
             )
         if page.metadata:
             doc_hasher.update(f":pm{json.dumps(dict(page.metadata), sort_keys=True, default=str)}:".encode("utf-8"))
         for tbl in page.tables:
-            doc_hasher.update(f":th{'|'.join(tbl.headers)}:".encode("utf-8"))
+            t_name = tbl.name or ""
+            tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
+            doc_hasher.update(f":th{t_name}:{'|'.join(tbl.headers)}{tm}:".encode("utf-8"))
             for row in tbl.rows:
                 doc_hasher.update(f":tr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
 
     for tbl in doc.tables:
-        doc_hasher.update(f":dth{'|'.join(tbl.headers)}:".encode("utf-8"))
+        t_name = tbl.name or ""
+        tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
+        doc_hasher.update(f":dth{t_name}:{'|'.join(tbl.headers)}{tm}:".encode("utf-8"))
         for row in tbl.rows:
             doc_hasher.update(f":dtr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
 
@@ -100,12 +127,8 @@ def compute_prior_result_digest(prior_result: Result | None) -> str:
 
     # Deterministic factual serialization for dataclasses / dicts / sequences / generic types
     try:
-        if dataclasses.is_dataclass(prior_result.data):
-            data_str = json.dumps(dataclasses.asdict(prior_result.data), sort_keys=True, default=str)
-        elif isinstance(prior_result.data, (dict, list, tuple)):
-            data_str = json.dumps(prior_result.data, sort_keys=True, default=str)
-        else:
-            data_str = str(prior_result.data)
+        data_serializable = _to_digest_serializable(prior_result.data)
+        data_str = json.dumps(data_serializable, sort_keys=True, default=str)
         material = f"{type(prior_result.data).__name__}:{data_str}:{prov_hash}"
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
     except Exception:
