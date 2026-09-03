@@ -350,6 +350,7 @@
             requirement: state.currentRequirement,
             profile: profileToSend,
             recursive: state.isRecursive,
+        };
         if (state.currentRequirement === "ocr") {
             const customOpts = {};
             if (elements.selectOcrLang) {
