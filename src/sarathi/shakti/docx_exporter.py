@@ -17,7 +17,13 @@ from collections.abc import Callable
 from xml.sax.saxutils import escape
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import ArtifactIntent, ArtifactPayload, CanonicalDocument, TableData
+from sarathi.sankalpa import (
+    ArtifactIntent,
+    ArtifactPayload,
+    CanonicalDocument,
+    TableData,
+    WarningRecord,
+)
 
 # OpenXML Namespaces
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -315,11 +321,12 @@ def transform_docx_artifact(
     converter_fn: Callable[[str], str],
     filename: str,
     role: str = "converted_document",
+    warnings: list[WarningRecord] | None = None,
 ) -> ArtifactPayload:
-    """Transform an existing DOCX file in-place, preserving 100% of its formatting.
+    """Transform an existing DOCX file in-place, preserving OpenXML layout and document structure.
 
     Converts text within all runs of word/document.xml, word/header*.xml, word/footer*.xml
-    using converter_fn, and applies the standardized bilingual typography (Nirmala UI 14pt /
+    using converter_fn, and applies standardized bilingual typography (Nirmala UI 14pt /
     Arial 12pt) while preserving original tables, borders, headers, styles, and alignments.
     """
     try:
@@ -344,8 +351,20 @@ def transform_docx_artifact(
                         updated_entry = ET.tostring(tree, encoding="utf-8", xml_declaration=True)
                         out_zf.writestr(item, updated_entry)
                         continue
-                    except ET.ParseError:
-                        pass
+                    except ET.ParseError as exc:
+                        if item.filename == "word/document.xml":
+                            raise DoshError(
+                                code=FailureCode.VALIDATION_FAILED,
+                                message="Failed to parse main DOCX document body XML.",
+                            ) from exc
+                        if warnings is not None:
+                            warnings.append(
+                                WarningRecord(
+                                    code="DOCX_PART_CONVERSION_FAILED",
+                                    message=f"Failed to parse and convert DOCX part: {item.filename}",
+                                    stage="docx_exporter",
+                                )
+                            )
 
                 out_zf.writestr(item, raw_entry)
 
@@ -360,11 +379,23 @@ def transform_docx_artifact(
         ) from exc
 
 
+def _get_run_visual_style(r: ET.Element) -> tuple:
+    rpr = r.find(f"{{{_W_NS}}}rPr")
+    if rpr is None:
+        return ()
+    style_tags = []
+    for child in rpr:
+        tag_name = child.tag.split("}")[-1]
+        if tag_name in ("b", "bCs", "i", "iCs", "u", "strike", "dstrike", "color", "highlight", "sz", "szCs"):
+            val = child.attrib.get(f"{{{_W_NS}}}val", "true")
+            style_tags.append((tag_name, val))
+    return tuple(sorted(style_tags))
+
+
 def _merge_adjacent_compatible_runs(p: ET.Element) -> None:
-    """Merge adjacent <w:r> elements within a paragraph that share identical formatting properties."""
+    """Merge adjacent <w:r> elements within a paragraph that share identical visual styling properties."""
     r_tag = f"{{{_W_NS}}}r"
     t_tag = f"{{{_W_NS}}}t"
-    rpr_tag = f"{{{_W_NS}}}rPr"
 
     children = list(p)
     if len(children) < 2:
@@ -375,9 +406,9 @@ def _merge_adjacent_compatible_runs(p: ET.Element) -> None:
         c1 = p[i]
         c2 = p[i + 1]
         if c1.tag == r_tag and c2.tag == r_tag:
-            rpr1 = ET.tostring(c1.find(rpr_tag)) if c1.find(rpr_tag) is not None else b""
-            rpr2 = ET.tostring(c2.find(rpr_tag)) if c2.find(rpr_tag) is not None else b""
-            if rpr1 == rpr2:
+            style1 = _get_run_visual_style(c1)
+            style2 = _get_run_visual_style(c2)
+            if style1 == style2:
                 t1 = c1.find(t_tag)
                 t2 = c2.find(t_tag)
                 if t1 is not None and t2 is not None and t2.text:

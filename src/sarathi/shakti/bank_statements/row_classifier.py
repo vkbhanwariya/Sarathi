@@ -15,6 +15,7 @@ class RowType(StrEnum):
     HEADER = "header"
     OPENING_BALANCE = "opening_balance"
     CLOSING_BALANCE = "closing_balance"
+    EOD_BALANCE = "eod_balance"
     SUMMARY = "summary"
     NOISE = "noise"
 
@@ -24,6 +25,7 @@ _HEADER_KEYWORDS = frozenset(
 )
 _OPENING_KEYWORDS = frozenset({"opening balance", "b/f", "brought forward", "balance b/f", "opening bal"})
 _CLOSING_KEYWORDS = frozenset({"closing balance", "c/f", "carried forward", "balance c/f", "closing bal"})
+_EOD_KEYWORDS = frozenset({"eod balance", "end of day balance", "daily balance", "eod bal", "daily bal"})
 _SUMMARY_KEYWORDS = frozenset({"total", "grand total", "total transactions", "summary"})
 _DATE_RE = re.compile(r"\d{1,2}[/\-\s]\d{1,2}[/\-\s]\d{2,4}|\d{1,2}[/\-\s]+[a-zA-Z]{3,9}[/\-\s]+\d{2,4}")
 _NULL_WORDS = frozenset(("", "-", "--", "na", "n/a", "nil", "null"))
@@ -58,6 +60,8 @@ def classify_row(
         return RowType.CLOSING_BALANCE
     if any(k in row_str for k in _OPENING_KEYWORDS):
         return RowType.OPENING_BALANCE
+    if any(k in row_str for k in _EOD_KEYWORDS):
+        return RowType.EOD_BALANCE
     if any(row_str.startswith(k) or f" {k} " in f" {row_str} " for k in _SUMMARY_KEYWORDS):
         return RowType.SUMMARY
     if sum(1 for k in _HEADER_KEYWORDS if k in row_str) >= 2 and not _DATE_RE.search(row_str):

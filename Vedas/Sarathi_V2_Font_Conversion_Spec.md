@@ -30,6 +30,15 @@ Input
 Roopa does not contain an OCR engine. Selective OCR is a capability requirement,
 not a private implementation.
 
+## Conversion Modes
+
+Roopa supports directional and legacy-targeted conversion modes via `font_mode` configuration:
+- `auto_unicode` (default): Legacy Hindi/Devanagari encodings → standard Unicode Devanagari.
+- `to_krutidev`: Standard Unicode Devanagari → legacy KrutiDev 010 encoding.
+- `to_devlys`: Standard Unicode Devanagari → legacy DevLys 010 encoding.
+
+Any unsupported `font_mode` is strictly rejected with `VALIDATION_FAILED`. Transformed documents are typed truthfully (`unicode_document` for Unicode targets; `legacy_font_document` for legacy targets).
+
 ## Dependencies and Data
 
 ``` text

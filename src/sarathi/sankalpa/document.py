@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,3 +141,92 @@ class CanonicalDocument:
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         else:
             raise TypeError(f"metadata must be a Mapping, got {type(self.metadata)}.")
+
+
+def transform_canonical_document(
+    doc: CanonicalDocument,
+    text_transform_fn: Callable[[str], str],
+    *,
+    detected_type: str,
+    target_lang: str | None = None,
+    target_script: str | None = None,
+    span_transform_fn: Callable[[str], str] | None = None,
+) -> CanonicalDocument:
+    """Transform text, pages, spans, and tables of a CanonicalDocument with semantic fidelity.
+
+    - Transforms doc.text and all table headers/cells.
+    - Transforms page.text and each TextSpan text, updating language and script while preserving geometry.
+    - Aggregates tables across ALL pages when document-level tables were originally empty.
+    """
+    converted_tables: list[TableData] = []
+    for t in doc.tables:
+        t_rows = [tuple(text_transform_fn(str(c)) for c in r) for r in t.rows]
+        t_headers = tuple(text_transform_fn(str(h)) for h in t.headers) if t.headers else ()
+        converted_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
+
+    converted_pages: list[PageData] = []
+    for p in doc.pages:
+        p_text = text_transform_fn(p.text) if p.text else ""
+        p_page_tables: list[TableData] = []
+        for t in p.tables:
+            t_rows = [tuple(text_transform_fn(str(c)) for c in r) for r in t.rows]
+            t_headers = tuple(text_transform_fn(str(h)) for h in t.headers) if t.headers else ()
+            p_page_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
+
+        p_spans: list[TextSpan] = []
+        s_fn = span_transform_fn or text_transform_fn
+        for s in p.spans:
+            s_text = s_fn(s.text) if s.text else ""
+            p_spans.append(
+                TextSpan(
+                    text=s_text,
+                    confidence=s.confidence,
+                    bounding_box=s.bounding_box,
+                    language=target_lang if target_lang is not None else s.language,
+                    script=target_script if target_script is not None else s.script,
+                    metadata=dict(s.metadata),
+                )
+            )
+
+        converted_pages.append(
+            PageData(
+                page_number=p.page_number,
+                text=p_text,
+                spans=tuple(p_spans),
+                tables=tuple(p_page_tables),
+                metadata=p.metadata,
+            )
+        )
+
+    if doc.text and doc.text.strip():
+        new_text = text_transform_fn(doc.text)
+    elif converted_tables:
+        table_lines = []
+        for t in converted_tables:
+            if t.headers:
+                table_lines.append(" ".join(str(c) for c in t.headers))
+            for r in t.rows:
+                table_lines.append(" ".join(str(c) for c in r))
+        new_text = "\n".join(table_lines)
+    elif converted_pages:
+        new_text = "\n".join(p.text for p in converted_pages if p.text)
+    else:
+        new_text = ""
+
+    # Multi-page table aggregation (Finding 13): preserve tables from all pages if doc-level tables were empty
+    if converted_tables:
+        all_doc_tables = tuple(converted_tables)
+    elif converted_pages:
+        all_doc_tables = tuple(tbl for cp in converted_pages for tbl in cp.tables)
+    else:
+        all_doc_tables = ()
+
+    return CanonicalDocument(
+        document_id=doc.document_id,
+        source_input_id=doc.source_input_id,
+        text=new_text,
+        pages=tuple(converted_pages),
+        tables=all_doc_tables,
+        detected_type=detected_type,
+        metadata=doc.metadata,
+    )

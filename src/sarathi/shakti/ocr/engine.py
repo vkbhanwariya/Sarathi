@@ -22,10 +22,12 @@ from sarathi.sankalpa import (
     WarningRecord,
 )
 
+from sarathi.sutra import get_canonical_data_root
+
 _STAGE_NAME = "ocr"
 _PLUGIN_ID = "shakti.ocr"
 _CAPABILITY_ID = "ocr"
-_CANONICAL_DATA_ROOT = Path(__file__).resolve().parents[4] / "data" / "ocr"
+_CANONICAL_DATA_ROOT = get_canonical_data_root() / "ocr"
 _REQUIRED_MODEL_KEYS = ("det", "rec", "cls")
 _HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_FILENAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")

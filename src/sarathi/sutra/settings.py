@@ -29,6 +29,11 @@ def _freeze_value(value: Any) -> Any:
     return value
 
 
+def get_canonical_data_root() -> Path:
+    """Return the canonical base data root directory for Sarathi static domain assets."""
+    return Path(__file__).resolve().parents[3] / "data"
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Immutable container for validated TOML configuration."""

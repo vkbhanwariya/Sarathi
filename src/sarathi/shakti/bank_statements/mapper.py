@@ -20,8 +20,9 @@ from typing import Any
 import yaml
 
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.sutra import get_canonical_data_root
 
-_CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
+_CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 CANONICAL_FIELDS = (
     "date",
     "value_date",

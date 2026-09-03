@@ -48,8 +48,9 @@ from sarathi.shakti.bank_statements.table_locator import (
     get_table_header_and_data_rows,
 )
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
+from sarathi.sutra import get_canonical_data_root
 
-_CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
+_CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 
 _EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "w/d", "out", "paid out"})
 _EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "dep", "in", "paid in"})
