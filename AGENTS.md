@@ -186,3 +186,111 @@ NEVER run the full suite for local helpers, single test additions, local parsers
 - Maintain an accurate mental/reported ledger of test execution states (`PASS`, `NOT RUN`, `SKIPPED`).
 - Never claim "all tests passed" or "project validated" unless the full suite actually executed.
 - Distinguish clearly: *focused tests passed*, *subsystem tests passed*, *integration tests passed*, *full suite passed*, or *not executed*.
+
+
+### 8. Final Validation Matrix
+
+#### Local Change
+Final validation:
+- direct regression tests
+- affected subsystem tests
+- appropriate static check (`uv run python -m compileall -q <changed_python_paths>`)
+
+*No full repository suite unless evidence requires it.*
+
+#### Subsystem Change
+Final validation:
+- subsystem tests
+- affected integration tests
+- compile affected packages
+- `git diff --check`
+
+#### Global / Cross-Cutting Change
+During development:
+- phase-specific focused tests
+
+At final milestone only:
+```powershell
+uv run --group dev pytest -q
+uv run python -m compileall -q src tests
+git diff --check
+```
+Then optional-extra full/focused suites relevant to the change.
+
+
+### 9. Phase-Based Testing Rule
+
+For large implementation work, divide testing by approved phase.
+
+*Example (Yantra performance work):*
+- **Phase 1 — Execution Binding:** Run Sankalpa context tests, Yantra binding tests, focused kernel execution tests. Do NOT run OCR/Translation yet unless changed in this phase.
+- **Phase 2 — Hardware Discovery:** Run Yantra device inventory/discovery tests, Agni wiring tests, configuration tests.
+- **Phase 3 — OCR Hardware Binding:** Run Yantra focused tests, OCR engine/capability tests, OCR binding integration.
+- **Phase 4 — Translation Hardware Binding:** Run Yantra focused tests, Translation tests, Translation binding integration.
+- **Phase 5 — Queue/Concurrency:** Run Yantra scheduler tests, kernel concurrency tests, cancellation/lifecycle tests.
+- **Final Completed Milestone:** Only now run `uv run --group dev pytest -q`, `uv run python -m compileall -q src tests`, `git diff --check`, plus relevant optional extras.
+
+
+### 10. Test Result Reuse & Validation Ledger
+
+Once a test group passes for code that has not changed since that execution, do not run it again unnecessarily. Re-run a previously passing group only when:
+- its owner changed
+- its dependency changed
+- its canonical contract changed
+- a failing integration test implicates it
+- final full validation requires it
+
+Keep an internal validation ledger during the task:
+```text
+Test Group                       Last relevant code state       Result
+----------------------------------------------------------------------
+Yantra allocation                current phase                 PASS
+Sankalpa context                 current phase                 PASS
+OCR preprocessing               unchanged since pass          PASS
+Translation                     not touched                   NOT RUN
+Bank                            unrelated                     NOT RUN
+```
+Do not claim `PASS` unless it actually ran. `NOT RUN` is valid and preferable to fabricated validation.
+
+
+### 11. No Fake Validation
+
+Never say:
+- "all tests passed"
+- "project validated"
+- "fully tested"
+- "regression-free"
+
+unless the stated tests actually executed successfully. Distinguish clearly:
+- focused tests passed
+- subsystem tests passed
+- integration tests passed
+- full suite passed
+- not executed
+- skipped due optional dependency
+
+A passing focused test is not proof that the entire repository passed.
+
+
+### 12. Antigravity Execution Rule
+
+Before each pytest invocation:
+1. Inspect the changed files since the last successful test run.
+2. Identify the canonical owner.
+3. Identify direct affected tests.
+4. Select the smallest meaningful test group.
+5. Explain internally why broader tests are or are not necessary.
+6. Run only that group.
+7. Expand test scope only after the focused level passes or evidence shows broader impact.
+
+Do not reflexively execute `uv run --group dev pytest -q` after each edit.
+
+> **Test according to impact, not anxiety.**
+>
+> Local edit $\rightarrow$ local test
+> Capability edit $\rightarrow$ capability suite
+> Shared boundary $\rightarrow$ owner + direct consumers
+> Core runtime $\rightarrow$ core + affected integrations
+> Completed global milestone $\rightarrow$ full suite
+>
+> **The full suite is a final validation tool for cross-cutting work, not the default feedback loop for every small change.**
