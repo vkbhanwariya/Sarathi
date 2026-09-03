@@ -62,3 +62,35 @@ def test_detect_negative_loan_schedule() -> None:
     doc = CanonicalDocument(document_id="doc-loan-1", text=doc_text)
     evidence = detect_bank_statement(doc)
     assert evidence.is_bank_statement is False
+
+
+def test_detect_icici_bank_statement() -> None:
+    doc_text = """
+    ICICI BANK LIMITED
+    Detailed Account Statement
+    Account Name: Ms. Priya Verma
+    Account No: 123456789012
+    Cust ID: 98765432
+    IFSC Code: ICIC0001234
+    Statement Period: 01-01-2026 to 31-01-2026
+    ICICI Bank Towers, Bandra Kurla Complex
+    """
+    table = TableData(
+        rows=(
+            ("Date", "Particulars", "Cheque No.", "Withdrawals", "Deposits", "Balance"),
+            ("01-01-2026", "OPENING BALANCE", "", "", "", "50,000.00"),
+            ("10-01-2026", "NEFT-SALARY-CREDIT", "REF1122", "", "75,000.00", "1,25,000.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-icici-1",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+
+    evidence = detect_bank_statement(doc)
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "icici"
+    assert evidence.bank_name == "ICICI Bank"
+    assert evidence.account_identity is not None
+    assert evidence.account_identity.masked_account_number == "XXXXXXXX9012"

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 import yaml
 
@@ -26,39 +27,63 @@ class GlossaryStore:
         self._load()
 
     def _load(self) -> None:
+        # 1. Base canonical glossary.yaml if present
         yaml_file = self._dir / "glossary.yaml"
-        if not yaml_file.exists():
-            return
+        if yaml_file.exists():
+            try:
+                raw_data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+                self._parse_raw_data(raw_data, yaml_file.name)
+            except (OSError, yaml.YAMLError) as exc:
+                raise DoshError(
+                    code=FailureCode.INVALID_CONFIGURATION,
+                    message=f"Failed to parse translation glossary YAML: {yaml_file.name}",
+                ) from exc
 
-        try:
-            raw_data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"Failed to parse translation glossary YAML: {yaml_file.name}",
-            ) from exc
+        # 2. Domain-specific dictionary files in glossaries/
+        glossaries_dir = self._dir / "glossaries"
+        if glossaries_dir.exists() and glossaries_dir.is_dir():
+            for gfile in sorted(glossaries_dir.iterdir()):
+                if gfile.is_file() and gfile.suffix.lower() in (".json", ".yaml", ".yml"):
+                    try:
+                        content = gfile.read_text(encoding="utf-8")
+                        if gfile.suffix.lower() == ".json":
+                            parsed = json.loads(content)
+                        else:
+                            parsed = yaml.safe_load(content)
+                        self._parse_raw_data(parsed, gfile.name)
+                    except (OSError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                        raise DoshError(
+                            code=FailureCode.INVALID_CONFIGURATION,
+                            message=f"Failed to parse domain glossary file: {gfile.name}",
+                        ) from exc
 
+    def _parse_raw_data(self, raw_data: Any, filename: str) -> None:
         if raw_data is None:
             return
 
         if isinstance(raw_data, dict):
-            entries = raw_data.get("entries", [])
-            if not isinstance(entries, list):
-                raise DoshError(
-                    code=FailureCode.INVALID_CONFIGURATION,
-                    message=f"Translation glossary 'entries' field must be a list: {yaml_file.name}",
-                )
+            if "entries" in raw_data and isinstance(raw_data["entries"], list):
+                for item in raw_data["entries"]:
+                    if isinstance(item, dict):
+                        self._add_entry(item)
+            else:
+                # Key-value domain dictionary: English -> Hindi
+                for k, v in raw_data.items():
+                    if isinstance(k, str) and isinstance(v, str):
+                        clean_k = k.strip()
+                        clean_v = v.strip()
+                        if clean_k and clean_v:
+                            self._entries[TranslationDirection.EN_TO_HI][clean_k] = clean_v
+                            self._entries[TranslationDirection.HI_TO_EN][clean_v] = clean_k
         elif isinstance(raw_data, list):
-            entries = raw_data
+            for item in raw_data:
+                if isinstance(item, dict):
+                    self._add_entry(item)
         else:
             raise DoshError(
                 code=FailureCode.INVALID_CONFIGURATION,
-                message=f"Translation glossary YAML root must be a mapping or list: {yaml_file.name}",
+                message=f"Translation glossary root must be a mapping or list: {filename}",
             )
-
-        for item in entries:
-            if isinstance(item, dict):
-                self._add_entry(item)
 
     def _add_entry(self, raw: dict[str, str]) -> None:
         src = raw.get("source", "").strip()

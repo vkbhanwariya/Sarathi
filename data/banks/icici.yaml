@@ -1,0 +1,54 @@
+# ICICI Bank Statement Profile
+profile_id: "icici"
+bank_name: "ICICI Bank"
+aliases:
+  - "icici bank"
+  - "icici"
+  - "icicibank"
+  - "industrial credit and investment corporation of india"
+
+identification_keywords:
+  - "icici bank"
+  - "icicibank"
+  - "icicibank.com"
+  - "icici bank towers"
+
+headers:
+  date:
+    - "date"
+    - "transaction date"
+    - "value date"
+  description:
+    - "particulars"
+    - "description"
+    - "transaction remarks"
+  reference_number:
+    - "cheque no."
+    - "chq no"
+    - "ref no"
+    - "cheque number"
+  debit:
+    - "withdrawals"
+    - "withdrawal"
+    - "debit"
+    - "dr"
+  credit:
+    - "deposits"
+    - "deposit"
+    - "credit"
+    - "cr"
+  balance:
+    - "balance"
+    - "balance (inr)"
+    - "closing balance"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+  - "%d-%b-%Y"
+
+metadata_patterns:
+  account_number: '(?:Account\s*No(?:\.|\s*Number)?|A/c\s*No\.?)\s*[:\-]?\s*([0-9]{12})'
+  account_holder: '(?:Name|Account\s*Holder)\s*[:\-]?\s*([^\n]+)'
+  cust_id: 'Cust\s*ID\s*[:\-]?\s*([0-9]{8,10})'
+  ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*(ICIC0[A-Z0-9]{6})'
