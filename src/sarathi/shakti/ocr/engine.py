@@ -178,8 +178,8 @@ def remove_stamp_artifacts(image_arr: Any) -> Any:
 def preprocess_ocr_image(
     image_arr: Any,
     deskew: bool = True,
-    clahe: bool = True,
-    remove_stamps: bool = True,
+    clahe: bool = False,
+    remove_stamps: bool = False,
 ) -> Any:
     """Run the pre-OCR vision enhancement pipeline with strict fallback when cv2 is unavailable."""
     try:
@@ -601,10 +601,31 @@ class RapidOCREngine:
         engine = self._get_engine(target_lang)
         img_arr = np.array(image)
 
-        preprocess_opt = custom_options.get("preprocess", True) if custom_options else True
+        # Resolve preprocessing flags per execution profile and options
         is_lightweight = custom_options.get("lightweight", False) if custom_options else False
-        if preprocess_opt and not is_lightweight:
-            img_arr = preprocess_ocr_image(img_arr)
+        preprocess_requested = custom_options.get("preprocess") if custom_options else None
+        should_preprocess = (preprocess_requested is not False) and not is_lightweight
+        applied_stamp_removal = False
+
+        if should_preprocess:
+            if profile == ExecutionProfile.INSTANT:
+                # Minimum beneficial preprocessing per OCR Veda: deskew only when beneficial, no destructive filters
+                deskew = custom_options.get("deskew", True) if custom_options else True
+                clahe = custom_options.get("clahe", False) if custom_options else False
+            else:
+                # Accurate / Custom: adaptive preprocessing where evidence supports it
+                deskew = custom_options.get("deskew", True) if custom_options else True
+                clahe = custom_options.get("clahe", True) if custom_options else True
+
+            # Stamp removal is destructive and strictly opt-in per Veda safety rules
+            remove_stamps = bool(
+                custom_options.get("remove_stamps", False) or custom_options.get("inpaint_stamps", False)
+            ) if custom_options else False
+
+            if remove_stamps:
+                applied_stamp_removal = True
+
+            img_arr = preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps)
 
         output = engine(img_arr)
 
@@ -612,6 +633,14 @@ class RapidOCREngine:
         lines: list[str] = []
         conf_scores: list[float] = []
         warnings: list[WarningRecord] = []
+        if applied_stamp_removal:
+            warnings.append(
+                WarningRecord(
+                    code="EXPERIMENTAL_STAMP_REMOVAL",
+                    message="Experimental stamp inpainting applied; visual fidelity altered.",
+                    stage="ocr",
+                )
+            )
         has_invalid_confidence = False
 
         if target_lang in _DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
