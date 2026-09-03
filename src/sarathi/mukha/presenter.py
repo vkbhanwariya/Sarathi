@@ -130,16 +130,12 @@ class MukhaPresenter:
         statuses["read_native"] = (True, "Ready (Standard Extraction)")
 
         # 2. Base OCR
-        ocr_installed = (
-            importlib.util.find_spec("rapidocr") is not None
-            and importlib.util.find_spec("openvino") is not None
-            and importlib.util.find_spec("PIL") is not None
-            and importlib.util.find_spec("numpy") is not None
-        )
-        ocr_manifest = base_data / "ocr" / "manifest.json"
-        if ocr_installed and ocr_manifest.exists():
-            statuses["ocr"] = (True, "Ready (RapidOCR + OpenVINO)")
-        else:
+        try:
+            from sarathi.shakti.ocr.engine import check_ocr_readiness
+
+            ocr_ready, ocr_msg = check_ocr_readiness(data_root=base_data / "ocr")
+            statuses["ocr"] = (ocr_ready, ocr_msg)
+        except Exception:
             statuses["ocr"] = (False, "Unavailable (Missing OCR extra dependencies or models)")
 
         # 3. Bank Statements (dynamic profiles detection)

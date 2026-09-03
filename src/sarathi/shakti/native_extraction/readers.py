@@ -16,6 +16,7 @@ import python_calamine
 import xlrd
 from bs4 import BeautifulSoup
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
     PageData,
@@ -554,68 +555,60 @@ def read_docx(
     _TR_TAG = f"{_W_NAMESPACE}tr"
     _TC_TAG = f"{_W_NAMESPACE}tc"
 
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            if "word/document.xml" not in zf.namelist():
-                raise DoshError(
-                    code=FailureCode.UNSUPPORTED,
-                    message="DOCX file is missing required word/document.xml.",
-                )
-            doc_xml = zf.read("word/document.xml")
-            tree = ET.fromstring(doc_xml)
-
-            body = tree.find(f"{_W_NAMESPACE}body")
-            if body is not None:
-                tbl_count = 0
-                for elem in body:
-                    if elem.tag == _P_TAG:
-                        p_text = "".join(t.text for t in elem.iter(_T_TAG) if t.text)
-                        if p_text.strip():
-                            paragraphs.append(p_text.strip())
-                    elif elem.tag == _TBL_TAG:
-                        tbl_count += 1
-                        raw_table_rows: list[tuple[str, ...]] = []
-                        for tr in elem.findall(_TR_TAG):
-                            row_cells: list[str] = []
-                            for tc in tr.findall(_TC_TAG):
-                                tc_text = "".join(t.text for t in tc.iter(_T_TAG) if t.text).strip()
-                                row_cells.append(tc_text)
-                            if any(row_cells):
-                                raw_table_rows.append(tuple(row_cells))
-
-                        if raw_table_rows:
-                            headers = raw_table_rows[0]
-                            data_rows = tuple(raw_table_rows[1:])
-                            tables.append(
-                                TableData(
-                                    name=f"Table_{tbl_count}",
-                                    headers=headers,
-                                    rows=data_rows,
-                                )
-                            )
-                            for r in raw_table_rows:
-                                paragraphs.append(" | ".join(r))
-
-            provenances.append(
-                ProvenanceRecord(
-                    source_input_id=input_id,
-                    stage=_STAGE_NAME,
-                    plugin_id=_PLUGIN_ID,
-                    capability_id=_CAPABILITY_ID,
-                    evidence={
-                        "reader": "docx_openxml",
-                        "paragraph_count": len(paragraphs),
-                        "table_count": len(tables),
-                    },
-                )
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        if "word/document.xml" not in zf.namelist():
+            raise DoshError(
+                code=FailureCode.UNSUPPORTED,
+                message="DOCX file is missing required word/document.xml.",
             )
-    except Exception as exc:
-        if isinstance(exc, DoshError):
-            raise
-        raise DoshError(
-            code=FailureCode.CORRUPT_INPUT,
-            message="Failed to parse DOCX file structure.",
-        ) from exc
+        doc_xml = zf.read("word/document.xml")
+        tree = ET.fromstring(doc_xml)
+
+        body = tree.find(f"{_W_NAMESPACE}body")
+        if body is not None:
+            tbl_count = 0
+            for elem in body:
+                if elem.tag == _P_TAG:
+                    p_text = "".join(t.text for t in elem.iter(_T_TAG) if t.text)
+                    if p_text.strip():
+                        paragraphs.append(p_text.strip())
+                elif elem.tag == _TBL_TAG:
+                    tbl_count += 1
+                    raw_table_rows: list[tuple[str, ...]] = []
+                    for tr in elem.findall(_TR_TAG):
+                        row_cells: list[str] = []
+                        for tc in tr.findall(_TC_TAG):
+                            tc_text = "".join(t.text for t in tc.iter(_T_TAG) if t.text).strip()
+                            row_cells.append(tc_text)
+                        if any(row_cells):
+                            raw_table_rows.append(tuple(row_cells))
+
+                    if raw_table_rows:
+                        headers = raw_table_rows[0]
+                        data_rows = tuple(raw_table_rows[1:])
+                        tables.append(
+                            TableData(
+                                name=f"Table_{tbl_count}",
+                                headers=headers,
+                                rows=data_rows,
+                            )
+                        )
+                        for r in raw_table_rows:
+                            paragraphs.append(" | ".join(r))
+
+        provenances.append(
+            ProvenanceRecord(
+                source_input_id=input_id,
+                stage=_STAGE_NAME,
+                plugin_id=_PLUGIN_ID,
+                capability_id=_CAPABILITY_ID,
+                evidence={
+                    "reader": "docx_openxml",
+                    "paragraph_count": len(paragraphs),
+                    "table_count": len(tables),
+                },
+            )
+        )
 
     full_text = "\n".join(paragraphs)
     canonical_doc = CanonicalDocument(

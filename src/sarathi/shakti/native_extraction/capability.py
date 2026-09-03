@@ -128,13 +128,12 @@ class NativeExtractionCapability:
             fmt = detect_content_format(data, inp.source_path)
 
             if fmt == DetectedFormat.UNKNOWN:
-                # If file is empty, escalate to OCR
+                # If file is empty, report warning without false OCR handoff
                 if len(data) == 0:
-                    needs_ocr = True
                     all_warnings.append(
                         WarningRecord(
                             code="EMPTY_INPUT",
-                            message="Input file is empty. Escalating to OCR.",
+                            message="Input file is empty.",
                             stage="read_native",
                         )
                     )
@@ -166,28 +165,46 @@ class NativeExtractionCapability:
                 all_warnings.extend(warns)
 
                 if not _has_usable_content(doc):
-                    # Empty native content (e.g. scanned PDF with no text stream) -> escalate to OCR
-                    needs_ocr = True
-                    all_warnings.append(
-                        WarningRecord(
-                            code="NATIVE_EXTRACTION_EMPTY",
-                            message="No usable native text or tables found in document. Escalating to OCR.",
-                            stage="read_native",
+                    # Empty native content -> escalate to OCR only for OCR-capable format (PDF)
+                    if fmt == DetectedFormat.PDF:
+                        needs_ocr = True
+                        all_warnings.append(
+                            WarningRecord(
+                                code="NATIVE_EXTRACTION_EMPTY",
+                                message="No usable native text or tables found in document. Escalating to OCR.",
+                                stage="read_native",
+                            )
                         )
-                    )
+                    else:
+                        all_warnings.append(
+                            WarningRecord(
+                                code="NATIVE_EXTRACTION_EMPTY",
+                                message="No usable native text or tables found in document.",
+                                stage="read_native",
+                            )
+                        )
 
             except DoshError:
                 raise
             except _PARSE_EXCEPTIONS:
-                # Corrupted or unparseable document -> escalate to OCR
-                needs_ocr = True
-                all_warnings.append(
-                    WarningRecord(
-                        code="NATIVE_PARSE_ERROR",
-                        message="Failed to parse document content natively. Escalating to OCR.",
-                        stage="read_native",
+                # Corrupted or unparseable document -> escalate to OCR only for OCR-capable format (PDF)
+                if fmt == DetectedFormat.PDF:
+                    needs_ocr = True
+                    all_warnings.append(
+                        WarningRecord(
+                            code="NATIVE_PARSE_ERROR",
+                            message="Failed to parse document content natively. Escalating to OCR.",
+                            stage="read_native",
+                        )
                     )
-                )
+                else:
+                    all_warnings.append(
+                        WarningRecord(
+                            code="NATIVE_PARSE_ERROR",
+                            message="Failed to parse document content natively.",
+                            stage="read_native",
+                        )
+                    )
                 corrupt_doc = CanonicalDocument(
                     document_id=f"doc-{inp.input_id}",
                     source_input_id=inp.input_id,

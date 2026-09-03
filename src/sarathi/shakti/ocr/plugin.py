@@ -29,8 +29,8 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
         ExecutionProfile.CUSTOM,
     ),
     device_requirement=DeviceRequirement(
-        preferred_devices=(DeviceType.CPU,),
-        supported_devices=(DeviceType.CPU, DeviceType.GPU),
+        preferred_devices=(DeviceType.GPU, DeviceType.CPU),
+        supported_devices=(DeviceType.GPU, DeviceType.CPU),
         supported_backends=("openvino", "cpu"),
     ),
 )

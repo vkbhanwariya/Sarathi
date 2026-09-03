@@ -47,6 +47,13 @@
         selectProfile: document.getElementById("select-profile"),
         ocrLangRow: document.getElementById("ocr-lang-row"),
         selectOcrLang: document.getElementById("select-ocr-lang"),
+        ocrCustomControls: document.getElementById("ocr-custom-controls"),
+        chkOcrPreprocess: document.getElementById("chk-ocr-preprocess"),
+        chkOcrDeskew: document.getElementById("chk-ocr-deskew"),
+        chkOcrClahe: document.getElementById("chk-ocr-clahe"),
+        chkOcrBinarize: document.getElementById("chk-ocr-binarize"),
+        chkOcrFallback: document.getElementById("chk-ocr-fallback"),
+        chkOcrValidation: document.getElementById("chk-ocr-validation"),
         fontModeRow: document.getElementById("font-mode-row"),
         selectFontMode: document.getElementById("select-font-mode"),
         preflightSummary: document.getElementById("preflight-summary"),
@@ -343,9 +350,21 @@
             requirement: state.currentRequirement,
             profile: profileToSend,
             recursive: state.isRecursive,
-        };
-        if (state.currentRequirement === "ocr" && elements.selectOcrLang) {
-            payload.custom_options = { lang: elements.selectOcrLang.value };
+        if (state.currentRequirement === "ocr") {
+            const customOpts = {};
+            if (elements.selectOcrLang) {
+                customOpts.lang = elements.selectOcrLang.value;
+            }
+            if (state.currentProfile === "custom") {
+                customOpts.engine = "rapidocr";
+                if (elements.chkOcrPreprocess) customOpts.preprocess = elements.chkOcrPreprocess.checked;
+                if (elements.chkOcrDeskew) customOpts.deskew = elements.chkOcrDeskew.checked;
+                if (elements.chkOcrClahe) customOpts.clahe = elements.chkOcrClahe.checked;
+                if (elements.chkOcrBinarize) customOpts.binarize = elements.chkOcrBinarize.checked;
+                if (elements.chkOcrFallback) customOpts.fallback_enabled = elements.chkOcrFallback.checked;
+                if (elements.chkOcrValidation) customOpts.validation_enabled = elements.chkOcrValidation.checked;
+            }
+            payload.custom_options = customOpts;
         } else if (state.currentRequirement === "font_conversion" && elements.selectFontMode) {
             payload.custom_options = { font_mode: elements.selectFontMode.value };
         }
@@ -735,6 +754,7 @@
         // Profile Selector
         elements.selectProfile.addEventListener("change", (e) => {
             state.currentProfile = e.target.value;
+            updateRequirementOptionsVisibility();
         });
 
         // Run Actions
@@ -764,6 +784,14 @@
                 elements.ocrLangRow.classList.remove("hidden");
             } else {
                 elements.ocrLangRow.classList.add("hidden");
+            }
+        }
+        // OCR custom profile controls: visible strictly for OCR Custom profile
+        if (elements.ocrCustomControls) {
+            if (state.currentRequirement === "ocr" && state.currentProfile === "custom") {
+                elements.ocrCustomControls.classList.remove("hidden");
+            } else {
+                elements.ocrCustomControls.classList.add("hidden");
             }
         }
         // Font conversion mode row: visible strictly for Font Conversion

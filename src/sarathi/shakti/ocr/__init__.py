@@ -10,7 +10,7 @@ Exposes:
 from __future__ import annotations
 
 from sarathi.shakti.ocr.capability import OCRCapability
-from sarathi.shakti.ocr.engine import RapidOCREngine
+from sarathi.shakti.ocr.engine import RapidOCREngine, check_ocr_readiness
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION, PLUGIN_INFO
 
 __all__ = [
@@ -18,4 +18,5 @@ __all__ = [
     "OCRCapability",
     "PLUGIN_INFO",
     "RapidOCREngine",
+    "check_ocr_readiness",
 ]

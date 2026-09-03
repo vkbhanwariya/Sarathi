@@ -37,8 +37,38 @@ def _is_usable_document(doc: CanonicalDocument) -> bool:
     return has_text or has_tables
 
 
+_SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
+    "engine",
+    "lang",
+    "preprocess",
+    "deskew",
+    "clahe",
+    "lightweight",
+    "binarize",
+    "english_numbers_only",
+    "remove_stamps",
+    "inpaint_stamps",
+    "fallback_enabled",
+    "validation_enabled",
+    "progress_callback",
+})
+
+_BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = frozenset({
+    "preprocess",
+    "deskew",
+    "clahe",
+    "lightweight",
+    "binarize",
+    "english_numbers_only",
+    "remove_stamps",
+    "inpaint_stamps",
+    "fallback_enabled",
+    "validation_enabled",
+})
+
+
 class OCRCapability:
-    """Canonical executable capability for OCR Phase 1 (Instant profile)."""
+    """Instance-owned OCR capability implementing PP-OCR OpenVINO text extraction."""
 
     def __init__(
         self,
@@ -57,7 +87,7 @@ class OCRCapability:
         context: ExecutionContext,
         prior_result: Result | None = None,
     ) -> Result:
-        """Execute RapidOCR on inputs requiring OCR, preserving existing native outputs."""
+        """Execute OCR extraction on input documents."""
         if not isinstance(request, Request):
             raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
         if not isinstance(context, ExecutionContext):
@@ -75,11 +105,24 @@ class OCRCapability:
         # Validate custom options
         if request.custom_options:
             if request.profile == ExecutionProfile.CUSTOM:
-                opt_engine = request.custom_options.get("engine")
-                if opt_engine is not None and opt_engine != "rapidocr":
+                unknown_opts = set(request.custom_options.keys()) - _SUPPORTED_CUSTOM_OPTIONS
+                if unknown_opts:
                     raise DoshError(
                         code=FailureCode.VALIDATION_FAILED,
-                        message=f"Requested OCR engine '{opt_engine}' is not supported or not installed.",
+                        message=f"Unsupported custom option(s): {', '.join(sorted(unknown_opts))}.",
+                    )
+                for bool_opt in _BOOLEAN_CUSTOM_OPTIONS:
+                    val = request.custom_options.get(bool_opt)
+                    if val is not None and not isinstance(val, bool):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message=f"Custom option '{bool_opt}' must be a boolean, got {type(val).__name__}.",
+                        )
+                opt_engine = request.custom_options.get("engine")
+                if opt_engine is not None and str(opt_engine).lower().strip() != "rapidocr":
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Requested OCR engine '{opt_engine}' is not supported. Only 'rapidocr' is supported.",
                     )
             opt_lang = request.custom_options.get("lang")
             if opt_lang is not None:
@@ -191,7 +234,12 @@ class OCRCapability:
                     return _task
 
                 subtasks = [_make_page_task(p_idx, p_img) for p_idx, p_img in enumerate(images, 1)]
-                page_results = self._yantra.execute_subtasks(subtasks, context=context)
+                max_concurrency = (
+                    context.execution_binding.approved_concurrency if context.execution_binding else None
+                )
+                page_results = self._yantra.execute_subtasks(
+                    subtasks, context=context, max_concurrency=max_concurrency
+                )
                 for page_data, prov, page_warnings in page_results:
                     pages.append(page_data)
                     all_provenance.append(prov)
@@ -246,32 +294,48 @@ class OCRCapability:
 
         result_data: Any = final_docs[0] if len(final_docs) == 1 else tuple(final_docs)
 
-        # Aggregate overall measured confidence across OCR pages only when all pages have factual unaltered RapidOCR mean
-        all_ocr_pages = [p for doc in final_docs for p in doc.pages]
+        # Aggregate overall measured confidence across OCR pages produced in this pass
+        ocr_pages: list[PageData] = []
+        for inp, doc in zip(request.inputs, final_docs):
+            if inp.input_id not in prior_docs or not _is_usable_document(prior_docs[inp.input_id]):
+                ocr_pages.extend(doc.pages)
+
         scores: list[float] = [
             float(p.metadata["confidence"])
-            for p in all_ocr_pages
+            for p in ocr_pages
             if isinstance(p.metadata.get("confidence"), (int, float))
         ]
+
+        page_models = {
+            prov.evidence.get("model")
+            for prov in all_provenance
+            if prov.stage == "ocr" and bool(prov.evidence) and prov.evidence.get("model")
+        }
+        evidence_dict: dict[str, Any] = {
+            "engine": "rapidocr",
+            "backend": "openvino",
+            "page_count": len(scores),
+        }
+        if len(page_models) == 1:
+            evidence_dict["model"] = next(iter(page_models))
+        elif page_models:
+            evidence_dict["models"] = sorted(str(m) for m in page_models)
+        else:
+            evidence_dict["model"] = "PP-OCRv5"
 
         overall_confidence: ConfidenceValue | None = (
             ConfidenceValue(
                 score=round(sum(scores) / len(scores), 4),
                 method="rapidocr_mean",
-                evidence={
-                    "engine": "rapidocr",
-                    "backend": "openvino",
-                    "model": "PP-OCRv5",
-                    "page_count": len(scores),
-                },
+                evidence=evidence_dict,
             )
-            if (scores and len(scores) == len(all_ocr_pages))
+            if (scores and ocr_pages and len(scores) == len(ocr_pages))
             else None
         )
 
         metadata: dict[str, Any] = {
             "ocr_coverage": {
-                "total_pages": len(all_ocr_pages),
+                "total_pages": len(ocr_pages),
                 "unaltered_rapidocr_pages": len(scores),
             }
         }
