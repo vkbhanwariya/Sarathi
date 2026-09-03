@@ -201,6 +201,10 @@ class Darpana:
         with self._lock:
             return tuple(self._pramana_history)
 
+    def start(self) -> None:
+        """Start Darpana telemetry service (no-op; initializes on instantiation)."""
+        pass
+
     def close(self) -> None:
         """Flush and close underlying persistent history store if configured."""
         if self._history_store is not None:

@@ -4,39 +4,11 @@ from __future__ import annotations
 
 import re
 
+from sarathi.shakti.font_conversion.detector import _KRUTI_SIGNATURES
 from sarathi.shakti.translation.models import Language, TranslationDirection
 
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
-
-# Legacy font signatures (e.g. Kruti Dev markers)
-_LEGACY_SIGNATURES = (
-    "[k",
-    "vk",
-    "vks",
-    "vkS",
-    "Fk",
-    "/k",
-    "Hk",
-    "'k",
-    ";Z",
-    "jZ",
-    ";k",
-    "D;",
-    "x~",
-    "LVs",
-    "cSa",
-    ".k",
-    "fdr",
-    "fd",
-    "fr",
-    "fn",
-    "fc",
-    "f[",
-    "fH",
-    "fF",
-    "fD",
-)
 
 
 class LanguageDetector:
@@ -60,7 +32,7 @@ class LanguageDetector:
         """Check if text contains legacy Hindi font markers requiring Roopa Font Conversion."""
         if not text or not text.strip():
             return False
-        matches = [s for s in _LEGACY_SIGNATURES if s in text]
+        matches = [s for s in _KRUTI_SIGNATURES if s in text]
         return len(matches) >= 2
 
     def resolve_direction(

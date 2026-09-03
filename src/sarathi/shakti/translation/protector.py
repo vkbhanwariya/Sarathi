@@ -9,20 +9,19 @@ from __future__ import annotations
 import re
 from typing import Sequence
 
+from sarathi.shakti.font_conversion.protector import (
+    _DATE_RE,
+    _EMAIL_RE,
+    _ID_RE,
+    _NUM_RE,
+    _PERCENT_RE,
+    _URL_RE,
+    BaseSpanProtector,
+)
 from sarathi.shakti.translation.models import TranslationSpan
 
-_PROT_START = "\ue000"
-_PROT_END = "\ue001"
 
-_URL_RE = re.compile(r"https?://\S+|www\.\S+")
-_EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}")
-_DATE_RE = re.compile(r"\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b")
-_NUM_RE = re.compile(r"(?:Rs\.?|₹|\$|€|£)?\s*\b\d{1,3}(?:,\d{2,3})*(?:\.\d+)?\s*%?\b")
-_PERCENT_RE = re.compile(r"\b\d+%\b|\(\d+%\)")
-_ID_RE = re.compile(r"\b[A-Z0-9_-]{4,}\b")
-
-
-class TranslationProtector:
+class TranslationProtector(BaseSpanProtector):
     """Protects and restores non-translatable factual spans."""
 
     def protect(self, text: str, custom_terms: Sequence[str] = ()) -> tuple[str, list[TranslationSpan]]:
@@ -33,7 +32,7 @@ class TranslationProtector:
         def _repl(match: re.Match, span_type: str) -> str:
             nonlocal placeholder_idx
             original = match.group(0)
-            placeholder = f"{_PROT_START}{chr(0xE100 + placeholder_idx)}{_PROT_END}"
+            placeholder = self.format_placeholder(placeholder_idx)
             protected_spans.append(
                 TranslationSpan(placeholder=placeholder, original_text=original, span_type=span_type)
             )
@@ -59,8 +58,5 @@ class TranslationProtector:
 
         return text, protected_spans
 
-    def restore(self, text: str, spans: Sequence[TranslationSpan]) -> str:
-        """Restore all protected spans from placeholders byte-for-byte."""
-        for s in spans:
-            text = text.replace(s.placeholder, s.original_text)
-        return text
+
+__all__ = ["TranslationProtector"]

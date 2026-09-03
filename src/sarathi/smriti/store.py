@@ -165,7 +165,10 @@ class SmritiCache:
             self._l2.put(key, result)
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
-        """Invalidate across both L1 Memory and L2 SQLite tiers."""
+        """Invalidate across both L1 Memory and L2 SQLite tiers.
+
+        Returns total persistent entries invalidated in L2 (or L1 if L2 is not configured).
+        """
         l1_count = self._l1.invalidate(key=key, capability_id=capability_id)
         l2_count = self._l2.invalidate(key=key, capability_id=capability_id) if self._l2 else 0
-        return max(l1_count, l2_count)
+        return l2_count if self._l2 is not None else l1_count

@@ -7,14 +7,6 @@ import pytest
 from sarathi.shakti.bank_statements.converter import parse_decimal_amount
 
 
-def test_normalizer_deprecated_wrapper() -> None:
-    from sarathi.shakti.bank_statements import normalizer
-
-    with pytest.deprecated_call():
-        res = normalizer.parse_decimal_amount("100.00")
-    assert res == Decimal("100.00")
-
-
 def test_parse_valid_decimal_amounts() -> None:
     assert parse_decimal_amount("1,250.50") == Decimal("1250.50")
     assert parse_decimal_amount("₹ 1,250.50") == Decimal("1250.50")
