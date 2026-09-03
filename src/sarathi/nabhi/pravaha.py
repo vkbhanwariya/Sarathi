@@ -14,6 +14,7 @@ import hashlib
 import re
 import time
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -427,14 +428,7 @@ class Pravaha:
                 if w not in accumulated_warnings:
                     accumulated_warnings.append(w)
             if res.warnings != tuple(accumulated_warnings):
-                return Result(
-                    data=res.data,
-                    artifact_payloads=res.artifact_payloads,
-                    provenance=res.provenance,
-                    warnings=tuple(accumulated_warnings),
-                    next_requirement=res.next_requirement,
-                    resume_self=res.resume_self,
-                )
+                return replace(res, warnings=tuple(accumulated_warnings))
             return res
 
         while True:
