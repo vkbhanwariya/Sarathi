@@ -195,19 +195,35 @@ class Dvara:
         if not isinstance(declaration, CapabilityDeclaration):
             raise TypeError(f"declaration must be a CapabilityDeclaration, got {type(declaration).__name__}.")
 
-        if plugin is None:
-            if not self._registry.has_plugin(declaration.plugin_id):
-                plugin = PluginInfo(
-                    plugin_id=declaration.plugin_id,
-                    name=declaration.plugin_id,
-                    version=declaration.version,
-                    capabilities=(declaration.capability_id,),
-                )
-        elif not isinstance(plugin, PluginInfo):
+        if plugin is not None and not isinstance(plugin, PluginInfo):
             raise TypeError(f"plugin must be a PluginInfo instance or None, got {type(plugin).__name__}.")
 
-        if plugin is not None and not self._registry.has_plugin(plugin.plugin_id):
-            self._registry.register_plugin(plugin)
+        if plugin is not None:
+            if declaration.capability_id not in plugin.capabilities:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Capability '{declaration.capability_id}' is not declared in plugin '{plugin.plugin_id}'.",
+                )
+            if declaration.plugin_id != plugin.plugin_id:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Capability '{declaration.capability_id}' plugin_id '{declaration.plugin_id}' mismatches plugin '{plugin.plugin_id}'.",
+                )
+            if not self._registry.has_plugin(plugin.plugin_id):
+                self._registry.register_plugin(plugin)
+
+        if not self._registry.has_plugin(declaration.plugin_id):
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Owning plugin '{declaration.plugin_id}' must be registered before capability '{declaration.capability_id}'.",
+            )
+
+        existing_plugin = self._registry.get_plugin(declaration.plugin_id)
+        if declaration.capability_id not in existing_plugin.capabilities:
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED,
+                message=f"Capability '{declaration.capability_id}' is not declared in plugin '{existing_plugin.plugin_id}'.",
+            )
 
         if not self._registry.has_capability(declaration.capability_id):
             self._registry.register_capability(declaration)

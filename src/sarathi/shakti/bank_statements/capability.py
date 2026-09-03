@@ -97,12 +97,12 @@ class BankStatementCapability:
                 message="No CanonicalDocument provided to BankStatementCapability.",
             )
 
-        # If all documents have no text/tables but have pages, handoff to OCR
-        if all(not d.text.strip() and not any(p.tables for p in d.pages) and not d.tables and d.pages for d in docs):
+        # If any document has no text and no tables, handoff to OCR
+        if any(not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs):
             return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
 
         statements: list[BankStatement] = []
-        all_warnings: list[WarningRecord] = []
+        all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
         all_provs: list[ProvenanceRecord] = list(prior_result.provenance)
 
         for doc in docs:

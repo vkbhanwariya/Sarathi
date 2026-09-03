@@ -189,7 +189,7 @@ class Yantra:
                 self.release(allocation, context=context)
             except Exception as rel_err:
                 if exec_exc is not None:
-                    exec_exc.add_note(f"Additionally, resource release failed: {rel_err}")
+                    exec_exc.add_note(f"Additionally, resource release failed: {type(rel_err).__name__}")
                     if self._darpana is not None:
                         from sarathi.darpana import MarutiRecord
 

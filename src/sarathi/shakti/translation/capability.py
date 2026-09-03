@@ -73,8 +73,8 @@ class TranslationCapability:
                 message="TranslationCapability requires a prior Result containing a CanonicalDocument or sequence of CanonicalDocuments.",
             )
 
-        # If document text, pages, and tables are completely empty, request OCR continuation through Pravaha
-        if all(
+        # If any document text, pages, and tables are completely empty, request OCR continuation through Pravaha
+        if any(
             not d.text.strip()
             and not d.tables
             and not any(p.text.strip() or p.tables for p in d.pages)
@@ -113,6 +113,7 @@ class TranslationCapability:
         translated_docs: list[CanonicalDocument] = []
         payloads: list[ArtifactPayload] = []
         provs: list[ProvenanceRecord] = list(prior_result.provenance)
+        all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
 
         for idx, doc in enumerate(docs):
             full_text = doc.text
@@ -231,4 +232,5 @@ class TranslationCapability:
             artifact_payloads=tuple(payloads),
             confidence=None,
             provenance=tuple(provs),
+            warnings=tuple(all_warnings),
         )

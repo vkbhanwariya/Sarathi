@@ -28,7 +28,13 @@ from sarathi.nabhi.quarantine import (
     QuarantineStore,
     RetryPolicy,
 )
-from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
+from sarathi.sankalpa import (
+    Capability,
+    ExecutionContext,
+    Request,
+    Result,
+    WarningRecord,
+)
 from sarathi.smriti import SmritiCache, compute_cache_key, compute_input_fingerprint
 from sarathi.yantra import Yantra
 
@@ -412,6 +418,24 @@ class Pravaha:
         prior_result: Result | None = None
         seen_requirements: set[str] = {request.requirement}
         completed_capability_ids: set[str] = set()
+        accumulated_warnings: list[WarningRecord] = []
+
+        def _sync_warnings(res: Result | None) -> Result | None:
+            if res is None:
+                return None
+            for w in res.warnings:
+                if w not in accumulated_warnings:
+                    accumulated_warnings.append(w)
+            if res.warnings != tuple(accumulated_warnings):
+                return Result(
+                    data=res.data,
+                    artifact_payloads=res.artifact_payloads,
+                    provenance=res.provenance,
+                    warnings=tuple(accumulated_warnings),
+                    next_requirement=res.next_requirement,
+                    resume_self=res.resume_self,
+                )
+            return res
 
         while True:
             # Pre-execution validation: validate all planned capabilities against Kosh and executable bindings
@@ -535,7 +559,7 @@ class Pravaha:
                         )
 
                 if cached_result is not None:
-                    prior_result = cached_result
+                    prior_result = _sync_warnings(cached_result)
                 else:
                     try:
                         scope = (
@@ -552,11 +576,13 @@ class Pravaha:
                             else nullcontext()
                         )
                         with scope:
-                            prior_result = self._yantra.execute(
-                                capability=cap,
-                                request=current_request,
-                                context=current_ctx,
-                                prior_result=prior_result,
+                            prior_result = _sync_warnings(
+                                self._yantra.execute(
+                                    capability=cap,
+                                    request=current_request,
+                                    context=current_ctx,
+                                    prior_result=prior_result,
+                                )
                             )
 
                         # Check cancellation immediately after Yantra execution before caching or continuation
@@ -566,9 +592,24 @@ class Pravaha:
                         if self._smriti is not None and cache_key is not None:
                             try:
                                 self._smriti.put(cache_key, prior_result)
-                            except Exception:
-                                # Auxiliary cache write failure must not fail successful capability execution
-                                pass
+                            except Exception as cache_err:
+                                if self._darpana is not None:
+                                    from sarathi.darpana import MarutiRecord
+
+                                    self._darpana.record_maruti(
+                                        MarutiRecord(
+                                            run_id=current_ctx.run_id,
+                                            request_id=current_ctx.request_id,
+                                            trace_id=current_ctx.trace_id,
+                                            span_id=current_ctx.span_id,
+                                            phase_name="cache.write_failure",
+                                            component="smriti",
+                                            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                            duration_ns=0,
+                                            outcome="failure",
+                                            attributes={"error_type": type(cache_err).__name__},
+                                        )
+                                    )
 
                         self._record_pramana_if_available(cap, prior_result, current_ctx)
 
@@ -649,13 +690,28 @@ class Pravaha:
                                     record=curr_rec,
                                     prior_result=prior_result,
                                 )
-                                prior_result = retry_res
+                                prior_result = _sync_warnings(retry_res)
                                 if self._smriti is not None and cache_key is not None:
                                     try:
                                         self._smriti.put(cache_key, prior_result)
-                                    except Exception:
-                                        # Auxiliary cache write failure must not fail successful capability execution
-                                        pass
+                                    except Exception as cache_err:
+                                        if self._darpana is not None:
+                                            from sarathi.darpana import MarutiRecord
+
+                                            self._darpana.record_maruti(
+                                                MarutiRecord(
+                                                    run_id=current_ctx.run_id,
+                                                    request_id=current_ctx.request_id,
+                                                    trace_id=current_ctx.trace_id,
+                                                    span_id=current_ctx.span_id,
+                                                    phase_name="cache.write_failure",
+                                                    component="smriti",
+                                                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                                    duration_ns=0,
+                                                    outcome="failure",
+                                                    attributes={"error_type": type(cache_err).__name__},
+                                                )
+                                            )
                                 break
                             except DoshError as retry_err:
                                 last_err = retry_err
@@ -672,7 +728,7 @@ class Pravaha:
 
             # Normal final result
             if prior_result.next_requirement is None:
-                return prior_result
+                return _sync_warnings(prior_result)
 
             next_req_id = prior_result.next_requirement
             if next_req_id in seen_requirements:
