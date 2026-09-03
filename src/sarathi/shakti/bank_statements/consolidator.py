@@ -18,10 +18,12 @@ import polars as pl
 from openpyxl.styles import Font, PatternFill
 
 from sarathi.sankalpa import ArtifactIntent, ArtifactPayload
+from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
     BankStatementConsolidationResult,
     Transaction,
+    ValidationIssue,
     ValidationStatus,
 )
 
@@ -30,19 +32,42 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
     """Consolidate multiple statements into a unified consolidation result in stable chronological order."""
     import datetime
 
-    # Flatten all valid transactions across statements into a single unified sequence
-    valid_txns: list[Transaction] = []
+    # Flatten all valid transactions across statements into a single sequence
+    raw_valid_txns: list[Transaction] = []
     for stmt in statements:
         for tx in stmt.transactions:
             if tx.status != ValidationStatus.INVALID:
-                valid_txns.append(tx)
+                raw_valid_txns.append(tx)
 
+    all_issues: list[ValidationIssue] = []
+
+    # Perform cross-statement deduplication across overlapping statements
+    if len(statements) > 1 and raw_valid_txns:
+        dedup_res = deduplicate_transactions(raw_valid_txns)
+        deduped_valid_txns = list(dedup_res.unique_transactions)
+        for orig, dup, decision, reason in dedup_res.duplicates:
+            all_issues.append(
+                ValidationIssue(
+                    code="CROSS_STATEMENT_DUPLICATE",
+                    message=f"Duplicate transaction eliminated across statements: {reason}",
+                    severity="info",
+                    context={
+                        "description": dup.description,
+                        "date": dup.transaction_date.isoformat(),
+                        "amount": str(dup.debit if dup.debit is not None else dup.credit),
+                    },
+                )
+            )
+    else:
+        deduped_valid_txns = raw_valid_txns
+
+    # Veda rule: transaction_date -> transaction_time when available -> original source row order (sequence_id)
     sorted_valid_txns = tuple(
         sorted(
-            valid_txns,
+            deduped_valid_txns,
             key=lambda tx: (
                 tx.transaction_date,
-                getattr(tx, "posting_date", None) or tx.transaction_date,
+                tx.transaction_time or datetime.time.min,
                 getattr(tx, "sequence_id", 0) or 0,
             ),
         )
@@ -55,11 +80,7 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
     sorted_statements = sorted(statements, key=_earliest_tx_date)
     reordered_statements: list[BankStatement] = []
 
-    total_debits = Decimal("0")
-    total_credits = Decimal("0")
-    total_txns = 0
     overall_status = ValidationStatus.VALID
-    all_issues = []
 
     for stmt in sorted_statements:
         if stmt.status == ValidationStatus.INVALID:
@@ -68,13 +89,13 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
             overall_status = ValidationStatus.WARNING
         all_issues.extend(stmt.issues)
 
-        # Sort transactions within each statement in chronological order
+        # Sort transactions within each statement in canonical chronological order
         sorted_txs = tuple(
             sorted(
                 stmt.transactions,
                 key=lambda tx: (
                     tx.transaction_date,
-                    getattr(tx, "posting_date", None) or tx.transaction_date,
+                    tx.transaction_time or datetime.time.min,
                     getattr(tx, "sequence_id", 0) or 0,
                 ),
             )
@@ -103,12 +124,10 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
             )
         )
 
-        for tx in stmt.transactions:
-            total_txns += 1
-            if tx.debit is not None:
-                total_debits += tx.debit
-            if tx.credit is not None:
-                total_credits += tx.credit
+    # Calculate summary metrics strictly from canonical valid deduplicated transactions
+    total_txns = len(sorted_valid_txns)
+    total_debits = sum((tx.debit for tx in sorted_valid_txns if tx.debit is not None), Decimal("0"))
+    total_credits = sum((tx.credit for tx in sorted_valid_txns if tx.credit is not None), Decimal("0"))
 
     return BankStatementConsolidationResult(
         statements=tuple(reordered_statements),
@@ -138,27 +157,26 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
     currencies: list[str] = []
     statuses: list[str] = []
 
-    for stmt in consolidation.statements:
-        ident = stmt.account_identity
+    for tx in consolidation.transactions:
+        ident = tx.account_identity
         masked_acc = ident.masked_account_number if ident else None
         fingerprint = ident.account_fingerprint if ident else None
         holder = ident.account_holder if ident else None
 
-        for tx in stmt.transactions:
-            dates.append(tx.transaction_date.isoformat())
-            times.append(tx.transaction_time.isoformat() if tx.transaction_time else None)
-            descriptions.append(tx.description)
-            ref_nums.append(tx.reference_number)
-            chq_nums.append(tx.cheque_number)
-            debits.append(tx.debit)
-            credits.append(tx.credit)
-            balances.append(tx.running_balance)
-            bank_names.append(tx.bank_name)
-            masked_accs.append(masked_acc)
-            fingerprints.append(fingerprint)
-            acc_holders.append(holder)
-            currencies.append(tx.currency)
-            statuses.append(tx.status.value)
+        dates.append(tx.transaction_date.isoformat())
+        times.append(tx.transaction_time.isoformat() if tx.transaction_time else None)
+        descriptions.append(tx.description)
+        ref_nums.append(tx.reference_number)
+        chq_nums.append(tx.cheque_number)
+        debits.append(tx.debit)
+        credits.append(tx.credit)
+        balances.append(tx.running_balance)
+        bank_names.append(tx.bank_name)
+        masked_accs.append(masked_acc)
+        fingerprints.append(fingerprint)
+        acc_holders.append(holder)
+        currencies.append(tx.currency)
+        statuses.append(tx.status.value)
 
     df = pl.DataFrame(
         {
@@ -221,30 +239,29 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
         cell.fill = header_fill
         cell.font = header_font
 
-    for stmt in consolidation.statements:
-        ident = stmt.account_identity
+    for tx in consolidation.transactions:
+        ident = tx.account_identity
         masked_acc = ident.masked_account_number if ident else ""
         fingerprint = ident.account_fingerprint if ident else ""
         holder = ident.account_holder if ident else ""
 
-        for tx in stmt.transactions:
-            ws.append(
-                [
-                    tx.transaction_date.strftime("%d-%m-%Y"),
-                    tx.transaction_time.strftime("%H:%M:%S") if tx.transaction_time else "",
-                    tx.description,
-                    tx.reference_number or "",
-                    tx.cheque_number or "",
-                    str(tx.debit) if tx.debit is not None else "",
-                    str(tx.credit) if tx.credit is not None else "",
-                    str(tx.running_balance) if tx.running_balance is not None else "",
-                    tx.bank_name,
-                    masked_acc or "",
-                    fingerprint or "",
-                    holder or "",
-                    tx.status.value.upper(),
-                ]
-            )
+        ws.append(
+            [
+                tx.transaction_date.strftime("%d-%m-%Y"),
+                tx.transaction_time.strftime("%H:%M:%S") if tx.transaction_time else "",
+                tx.description,
+                tx.reference_number or "",
+                tx.cheque_number or "",
+                str(tx.debit) if tx.debit is not None else "",
+                str(tx.credit) if tx.credit is not None else "",
+                str(tx.running_balance) if tx.running_balance is not None else "",
+                tx.bank_name,
+                masked_acc,
+                fingerprint,
+                holder,
+                tx.status.value.upper(),
+            ]
+        )
 
     buf = io.BytesIO()
     wb.save(buf)
