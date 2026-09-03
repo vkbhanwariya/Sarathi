@@ -79,6 +79,14 @@ class FontConverter:
         for src, tgt in profile.post_corrections:
             text = text.replace(src, tgt)
 
+        # 5b. Typewriter artifact post-normalization
+        # Number comma fix: Remington digits typed with ']' or 'ए' between digits: e.g. 30]000 -> 30,000
+        text = re.sub(r"(?<=\d)[\]ए](?=\d)", ",", text)
+        # Rupee shorthand prefix: ःपये / :पये -> रुपये
+        text = re.sub(r"(?:[:ः]पये)", "रुपये", text)
+        # Typist reph/matra inversion: कायार्लय -> कार्यालय
+        text = text.replace("कायार्लय", "कार्यालय")
+
         # 6. NFC Unicode normalization
         return unicodedata.normalize("NFC", text)
 
