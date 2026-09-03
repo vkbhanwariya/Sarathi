@@ -42,16 +42,33 @@ class DeterministicTestBackend:
                 src = item["source"].strip()
                 tgt = item["target"].strip()
 
-                norm_src = _slotize(src)
                 from sarathi.shakti.translation.glossary import GlossaryStore
+                from sarathi.shakti.translation.protector import TranslationProtector
+
                 glossary = GlossaryStore()
+                protector = TranslationProtector()
+                p_src, p_spans = protector.protect(src, glossary_mappings=glossary.get_terms(direction))
+                norm_p_src = _PUA_RE.sub("__SLOT__", p_src.strip())
+
+                norm_src = _slotize(src)
                 glossary_src = _slotize(glossary.apply_glossary(src, direction))
 
-                if norm_s == norm_src or s.strip() == src or norm_s == glossary_src or s.strip() == glossary.apply_glossary(src, direction).strip():
-                    norm_tgt = _slotize(tgt)
-                    out_sent = norm_tgt
-                    for p in placeholders:
-                        out_sent = out_sent.replace("__SLOT__", p, 1)
+                if (
+                    norm_s == norm_p_src
+                    or norm_s == norm_src
+                    or s.strip() == src
+                    or norm_s == glossary_src
+                    or s.strip() == glossary.apply_glossary(src, direction).strip()
+                ):
+                    out_sent = tgt
+                    for span in p_spans:
+                        if span.original_text in out_sent:
+                            out_sent = out_sent.replace(span.original_text, span.placeholder, 1)
+                    if out_sent == tgt and placeholders:
+                        norm_tgt = _slotize(tgt)
+                        out_sent = norm_tgt
+                        for p in placeholders:
+                            out_sent = out_sent.replace("__SLOT__", p, 1)
                     results.append(out_sent)
                     matched = True
                     break

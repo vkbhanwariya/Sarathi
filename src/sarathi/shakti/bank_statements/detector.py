@@ -16,8 +16,9 @@ import yaml
 from sarathi.sankalpa import CanonicalDocument
 from sarathi.shakti.bank_statements.mapper import load_bank_profile_yaml
 from sarathi.shakti.bank_statements.models import AccountIdentity, create_account_identity
+from sarathi.sutra import get_canonical_data_root
 
-_CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
+_CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 
 _BANK_KEYWORD_SCORE = 0.3
 _TABLE_HEADER_SCORE = 0.4

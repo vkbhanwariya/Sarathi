@@ -16,8 +16,9 @@ from sarathi.shakti.translation.models import (
     TranslationResult,
 )
 from sarathi.shakti.translation.protector import TranslationProtector
+from sarathi.sutra import get_canonical_data_root
 
-_CANONICAL_TRANSLATION_DATA_DIR = Path(__file__).resolve().parents[4] / "data" / "translation"
+_CANONICAL_TRANSLATION_DATA_DIR = get_canonical_data_root() / "translation"
 _SENTENCE_SPLIT_RE = re.compile(r"([^।\.\?\!\n]+[।\.\?\!]?)", re.UNICODE)
 
 
@@ -168,23 +169,25 @@ class CTranslate2TranslationEngine:
                 metadata={},
             )
 
-        # 1. Protect factual spans
-        protected_text, spans = self._protector.protect(text)
+        # 1. Retrieve domain glossary mappings for this direction
+        glossary_terms = self._glossary.get_terms(direction)
 
-        # 2. Split into sentences
+        # 2. Protect factual spans and domain glossary terms (Finding 37)
+        protected_text, spans = self._protector.protect(text, glossary_mappings=glossary_terms)
+
+        # 3. Split into sentences
         raw_sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.findall(protected_text) if s.strip()]
         if not raw_sentences:
             raw_sentences = [protected_text]
 
-        # 3. Pre-process sentences: apply approved Anubhava overrides and domain glossary
+        # 4. Pre-process sentences: apply approved Anubhava overrides
         prepared_sentences: list[str] = []
         for sent in raw_sentences:
             dir_key = direction.value
             for d in (dir_key, "both"):
                 for src_c, tgt_c in self._anubhava_corrections.get(d, {}).items():
                     sent = sent.replace(src_c, tgt_c)
-            p_sent = self._glossary.apply_glossary(sent, direction)
-            prepared_sentences.append(p_sent)
+            prepared_sentences.append(sent)
 
         # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)
         backend = self._ensure_backend()

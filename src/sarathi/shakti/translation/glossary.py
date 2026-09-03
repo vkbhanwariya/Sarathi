@@ -11,8 +11,9 @@ import yaml
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.translation.models import TranslationDirection
+from sarathi.sutra import get_canonical_data_root
 
-_CANONICAL_GLOSSARY_DIR = Path(__file__).resolve().parents[4] / "data" / "translation"
+_CANONICAL_GLOSSARY_DIR = get_canonical_data_root() / "translation"
 
 
 class GlossaryStore:
@@ -73,8 +74,11 @@ class GlossaryStore:
                         clean_k = k.strip()
                         clean_v = v.strip()
                         if clean_k and clean_v:
-                            self._entries[TranslationDirection.EN_TO_HI][clean_k] = clean_v
-                            self._entries[TranslationDirection.HI_TO_EN][clean_v] = clean_k
+                            self._add_term(TranslationDirection.EN_TO_HI, clean_k, clean_v)
+                            # Split composite synonyms (e.g. "शब्द 1 / शब्द 2") so each maps back to English
+                            synonyms = [s.strip() for s in re.split(r"[/,]", clean_v) if s.strip()]
+                            for syn in synonyms:
+                                self._add_term(TranslationDirection.HI_TO_EN, syn, clean_k)
         elif isinstance(raw_data, list):
             for item in raw_data:
                 if isinstance(item, dict):
@@ -85,13 +89,28 @@ class GlossaryStore:
                 message=f"Translation glossary root must be a mapping or list: {filename}",
             )
 
+    def _add_term(self, direction: TranslationDirection, source: str, target: str) -> None:
+        table = self._entries[direction]
+        if source in table and table[source] != target:
+            # Preserve deterministic first-write on duplicate collision
+            return
+        table[source] = target
+
     def _add_entry(self, raw: dict[str, str]) -> None:
         src = raw.get("source", "").strip()
         tgt = raw.get("target", "").strip()
         d_str = raw.get("direction", "hi-en").strip().lower()
-        direction = TranslationDirection.HI_TO_EN if d_str == "hi-en" else TranslationDirection.EN_TO_HI
+        if d_str in ("hi-en", "hi_to_en", "hi_en"):
+            direction = TranslationDirection.HI_TO_EN
+        elif d_str in ("en-hi", "en_to_hi", "en_hi"):
+            direction = TranslationDirection.EN_TO_HI
+        else:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Invalid translation glossary direction '{d_str}'. Must be 'hi-en' or 'en-hi'.",
+            )
         if src and tgt:
-            self._entries[direction][src] = tgt
+            self._add_term(direction, src, tgt)
 
     def get_terms(self, direction: TranslationDirection) -> Mapping[str, str]:
         """Return the dictionary of source -> target glossary terms for direction."""

@@ -192,7 +192,9 @@ Sarathi/
 │       │   ├── app.py
 │       │   ├── presenter.py
 │       │   ├── state.py
-│       │   └── components.py
+│       │   ├── components.py
+│       │   ├── intake.py
+│       │   └── server.py
 │       ├── smriti/
 │       │   ├── key.py
 │       │   ├── memory.py
@@ -208,6 +210,7 @@ Sarathi/
 │       ├── dosh/
 │       │   └── errors.py
 │       └── shakti/
+│           ├── docx_exporter.py
 │           ├── darshana/
 │           ├── native_extraction/
 │           ├── ocr/

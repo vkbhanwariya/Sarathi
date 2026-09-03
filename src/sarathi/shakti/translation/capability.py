@@ -18,6 +18,7 @@ from sarathi.sankalpa import (
     Result,
     TableData,
     WarningRecord,
+    transform_canonical_document,
 )
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.translation.detector import LanguageDetector
@@ -25,6 +26,7 @@ from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
     TranslatorBackend,
 )
+from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
 
@@ -142,58 +144,20 @@ class TranslationCapability:
                 # 1. Translate main document text
                 t_res = self._engine.translate(full_text, direction=direction)
 
-                # 2. Translate table data if present
-                converted_tables: list[TableData] = []
-                for t in doc.tables:
-                    t_rows: list[tuple[str, ...]] = []
-                    for row in t.rows:
-                        r_cells = [
-                            self._engine.translate(str(cell), direction=direction).translated_text for cell in row
-                        ]
-                        t_rows.append(tuple(r_cells))
-                    t_headers = (
-                        tuple(self._engine.translate(str(h), direction=direction).translated_text for h in t.headers)
-                        if t.headers
-                        else ()
-                    )
-                    converted_tables.append(
-                        TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata)
-                    )
+                def _trans_text(raw: str) -> str:
+                    if not raw or not raw.strip():
+                        return raw
+                    return self._engine.translate(raw, direction=direction).translated_text
 
-                # 3. Translate page text if present (preserving spans)
-                converted_pages: list[PageData] = []
-                for p in doc.pages:
-                    p_res = self._engine.translate(p.text, direction=direction)
-                    p_tables: list[TableData] = []
-                    for t in p.tables:
-                        t_rows = [
-                            tuple(self._engine.translate(str(cell), direction=direction).translated_text for cell in row)
-                            for row in t.rows
-                        ]
-                        t_headers = (
-                            tuple(self._engine.translate(str(h), direction=direction).translated_text for h in t.headers)
-                            if t.headers
-                            else ()
-                        )
-                        p_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
-                    converted_pages.append(
-                        PageData(
-                            page_number=p.page_number,
-                            text=p_res.translated_text,
-                            spans=p.spans,
-                            tables=tuple(p_tables),
-                            metadata=p.metadata,
-                        )
-                    )
+                tgt_lang = "en" if direction == TranslationDirection.HI_TO_EN else "hi"
+                tgt_script = "Latn" if direction == TranslationDirection.HI_TO_EN else "Deva"
 
-                translated_doc = CanonicalDocument(
-                    document_id=doc.document_id,
-                    source_input_id=doc.source_input_id,
-                    text=t_res.translated_text,
-                    pages=tuple(converted_pages),
-                    tables=tuple(converted_tables or (converted_pages[0].tables if converted_pages else ())),
+                translated_doc = transform_canonical_document(
+                    doc,
+                    _trans_text,
                     detected_type="translated_document",
-                    metadata=doc.metadata,
+                    target_lang=tgt_lang,
+                    target_script=tgt_script,
                 )
                 translated_docs.append(translated_doc)
 

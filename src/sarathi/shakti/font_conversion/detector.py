@@ -7,8 +7,9 @@ import struct
 from pathlib import Path
 
 from sarathi.shakti.font_conversion.models import LegacyFontProfile
+from sarathi.sutra import get_canonical_data_root
 
-_CANONICAL_FONTS_DIR = Path(__file__).resolve().parents[4] / "data" / "fonts"
+_CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
 
 _KRUTI_SIGNATURES = (
     "[k",
@@ -219,15 +220,11 @@ class LegacyFontDetector:
             return None, 0.0
 
         # Without hint, select based on strongest signature match
-        if len(c_matches) >= 2 and len(c_matches) >= len(k_matches):
+        if len(c_matches) >= 2 and len(c_matches) >= len(k_matches) and len(c_matches) >= len(s_matches):
             return "chanakya010", conf
         elif len(s_matches) >= 2 and len(s_matches) >= len(k_matches):
             return "shusha010", conf
         elif len(k_matches) >= 2:
             return "krutidev010", conf
-        elif "krutidev010" in self._profiles:
-            return "krutidev010", conf
-        elif self._profiles:
-            return next(iter(self._profiles)), conf
 
         return None, 0.0

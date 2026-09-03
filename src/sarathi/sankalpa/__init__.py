@@ -27,6 +27,7 @@ from sarathi.sankalpa.document import (
     PageData,
     TableData,
     TextSpan,
+    transform_canonical_document,
 )
 from sarathi.sankalpa.execution_profile import (
     CustomProfileOptions,
@@ -64,5 +65,6 @@ __all__ = [
     "SecurityDeclaration",
     "TableData",
     "TextSpan",
+    "transform_canonical_document",
     "WarningRecord",
 ]
