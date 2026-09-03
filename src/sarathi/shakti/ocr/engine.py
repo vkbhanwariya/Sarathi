@@ -153,6 +153,8 @@ class TesseractFallbackAdapter:
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self._timeout_seconds,
                 check=False,
             )
@@ -199,14 +201,14 @@ class TesseractFallbackAdapter:
                 return text, measured_conf
             else:
                 # Fallback for plain text output without TSV confidence
-                plain_text = unicodedata.normalize("NFC", res.stdout.strip())
+                plain_text = unicodedata.normalize("NFC", (res.stdout or "").strip())
                 if not plain_text:
                     raise DoshError(
                         code=FailureCode.EXECUTION_FAILED,
                         message="Tesseract fallback produced unusable output.",
                     )
                 return plain_text, None
-        except (subprocess.SubprocessError, OSError):
+        except (subprocess.SubprocessError, OSError, UnicodeDecodeError):
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Tesseract fallback execution failed.",

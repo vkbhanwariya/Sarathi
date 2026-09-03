@@ -18,8 +18,8 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Request,
     Result,
-    WarningRecord,
 )
+from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 
@@ -328,6 +328,15 @@ class OCRCapability:
                         media_type="application/json",
                     ),
                     content=json.dumps(doc_dict, ensure_ascii=False, indent=2).encode("utf-8"),
+                )
+            )
+
+            # 3. Formatted DOCX output
+            payloads.append(
+                build_docx_payload(
+                    doc=doc,
+                    filename=f"{stem}_ocr.docx",
+                    role="ocr_document",
                 )
             )
 

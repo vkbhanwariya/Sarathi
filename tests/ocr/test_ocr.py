@@ -165,10 +165,11 @@ class TestOCRPhase1Instant:
         assert res.confidence.evidence["backend"] == "openvino"
 
         # Confirmed artifact payloads
-        assert len(res.artifact_payloads) == 2
+        assert len(res.artifact_payloads) == 3
         names = [p.intent.name for p in res.artifact_payloads]
         assert "invoice_ocr.txt" in names
         assert "invoice_ocr.json" in names
+        assert "invoice_ocr.docx" in names
         txt_payload = next(p for p in res.artifact_payloads if p.intent.name == "invoice_ocr.txt")
         assert b"INVOICE-98765" in txt_payload.content
         assert res.confidence.evidence["model"] == "PP-OCRv5"

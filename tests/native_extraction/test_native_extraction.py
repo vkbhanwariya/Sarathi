@@ -888,3 +888,30 @@ class TestNativeExtraction:
         assert "read_native" in PLUGIN_INFO.capabilities
         assert CAPABILITY_DECLARATION.capability_id == "read_native"
         assert CAPABILITY_DECLARATION.plugin_id == "shakti.native_extraction"
+
+    def test_native_extraction_emits_docx_artifact(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        txt_path = tmp_path / "sample_doc.txt"
+        txt_path.write_text("Hello World\nनमस्ते भारत", encoding="utf-8")
+
+        req = Request(
+            request_id="req-docx-1",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-docx-1",
+                    source_path=txt_path,
+                    display_name="sample_doc.txt",
+                    size_bytes=txt_path.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+        payload_names = {p.intent.name for p in res.artifact_payloads}
+        assert "sample_doc_extracted.txt" in payload_names
+        assert "sample_doc_extracted.docx" in payload_names
+        docx_payload = next(p for p in res.artifact_payloads if p.intent.name == "sample_doc_extracted.docx")
+        assert len(docx_payload.content) > 0
+        assert docx_payload.intent.media_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

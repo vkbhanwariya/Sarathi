@@ -294,6 +294,45 @@ def test_tesseract_adapter_handles_subprocess_failure(monkeypatch: pytest.Monkey
     assert exc_info.value.code == FailureCode.EXECUTION_FAILED
 
 
+def test_tesseract_adapter_handles_devanagari_utf8_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proves Tesseract adapter decodes UTF-8 Devanagari output without UnicodeDecodeError."""
+    adapter = TesseractFallbackAdapter(executable_path="mock_tesseract.exe")
+    monkeypatch.setattr(adapter, "is_available", lambda: True)
+
+    tsv_devanagari = (
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+        "5\t1\t1\t1\t1\t1\t10\t10\t40\t20\t92.0\tआदेश\n"
+    )
+
+    class MockSubprocessResult:
+        returncode = 0
+        stdout = tsv_devanagari
+
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockSubprocessResult())
+
+    img = Image.new("RGB", (100, 50), color="white")
+    text, conf = adapter.recognize_crop(img)
+    assert text == "आदेश"
+    assert conf == pytest.approx(0.92)
+
+
+def test_tesseract_adapter_handles_none_stdout_without_strip_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proves res.stdout=None raises DoshError(EXECUTION_FAILED) without AttributeError."""
+    adapter = TesseractFallbackAdapter(executable_path="mock_tesseract.exe")
+    monkeypatch.setattr(adapter, "is_available", lambda: True)
+
+    class MockSubprocessResult:
+        returncode = 0
+        stdout = None
+
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: MockSubprocessResult())
+
+    img = Image.new("RGB", (100, 50), color="white")
+    with pytest.raises(DoshError) as exc_info:
+        adapter.recognize_crop(img)
+    assert exc_info.value.code == FailureCode.EXECUTION_FAILED
+
+
 def test_deferred_layout_preserving_profile_rejected_safely(tmp_path: Path) -> None:
     """Verify LAYOUT_PRESERVING is rejected as UNSUPPORTED until layout models are proven."""
     img_path = tmp_path / "table.png"
