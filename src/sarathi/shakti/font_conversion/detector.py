@@ -202,29 +202,93 @@ class LegacyFontDetector:
         c_matches = [s for s in _CHANAKYA_SIGNATURES if s in text]
         s_matches = [s for s in _SHUSHA_SIGNATURES if s in text]
 
-        has_evidence = (len(k_matches) >= 2) or (len(c_matches) >= 2) or (len(s_matches) >= 2)
-        if not has_evidence:
+        # Check for legacy signatures
+        has_kruti_family = len(k_matches) >= 2
+        has_chanakya_family = len(c_matches) >= 2
+        has_shusha_family = len(s_matches) >= 2
+
+        if not (has_kruti_family or has_chanakya_family or has_shusha_family):
             # Insufficient text evidence: do not authorize destructive conversion
             return None, 0.0
 
         max_matches = max(len(k_matches), len(c_matches), len(s_matches))
         conf = min(1.0, 0.5 + max_matches * 0.1)
 
-        # If font_hint provided, validate against candidate profiles
+        # If font_hint provided, validate strictly against candidate profile AND actual evidence
         if font_hint:
             hint_lower = font_hint.lower().strip()
+            target_profile = None
             for prof in self._profiles.values():
                 if hint_lower == prof.profile_id.lower() or hint_lower in [a.lower() for a in prof.aliases]:
-                    return prof.profile_id, conf
-            # Incompatible hint provided despite legacy text: reject hint mismatch
-            return None, 0.0
+                    target_profile = prof
+                    break
+
+            if target_profile is None:
+                # Unknown hint
+                return None, 0.0
+
+            # Verify that text evidence actually supports the hinted profile family
+            fam = target_profile.family
+            if fam in ("krutidev", "devlys"):
+                if not has_kruti_family:
+                    return None, 0.0
+            elif fam == "chanakya":
+                if not has_chanakya_family:
+                    return None, 0.0
+            elif fam == "shusha":
+                if not has_shusha_family:
+                    return None, 0.0
+            elif fam == "shivaji":
+                # Shivaji is hint-only unless evidence explicitly matches
+                pass
+
+            return target_profile.profile_id, conf
 
         # Without hint, select based on strongest signature match
-        if len(c_matches) >= 2 and len(c_matches) >= len(k_matches) and len(c_matches) >= len(s_matches):
+        if has_chanakya_family and len(c_matches) >= len(k_matches) and len(c_matches) >= len(s_matches):
             return "chanakya010", conf
-        elif len(s_matches) >= 2 and len(s_matches) >= len(k_matches):
+        elif has_shusha_family and len(s_matches) >= len(k_matches):
             return "shusha010", conf
-        elif len(k_matches) >= 2:
+        elif has_kruti_family:
             return "krutidev010", conf
 
         return None, 0.0
+
+
+_NORMALIZED_FAMILY_CACHE: dict[str, str] = {}
+_DEFAULT_PROFILES: dict[str, LegacyFontProfile] | None = None
+
+
+def normalize_font_family_name(font_name: str | None, profiles: dict[str, LegacyFontProfile] | None = None) -> str:
+    """Normalize a font name or family string to a canonical semantic identity.
+
+    Normalizes case, removes punctuation/spaces, and matches against registered legacy
+    font profiles and aliases. If not a recognized legacy font, returns the cleaned lowercase string.
+    """
+    if not font_name:
+        return ""
+    if profiles is None and font_name in _NORMALIZED_FAMILY_CACHE:
+        return _NORMALIZED_FAMILY_CACHE[font_name]
+
+    cleaned = "".join(c for c in font_name.lower() if c.isalnum())
+    if not cleaned:
+        return ""
+
+    if profiles is None:
+        global _DEFAULT_PROFILES
+        if _DEFAULT_PROFILES is None:
+            _DEFAULT_PROFILES = load_font_profiles()
+        profiles = _DEFAULT_PROFILES
+
+    for prof in profiles.values():
+        cand_keys = [prof.profile_id, prof.family, prof.name] + list(prof.aliases)
+        for cand in cand_keys:
+            cand_cleaned = "".join(c for c in cand.lower() if c.isalnum())
+            if cleaned == cand_cleaned:
+                if profiles is _DEFAULT_PROFILES:
+                    _NORMALIZED_FAMILY_CACHE[font_name] = prof.family
+                return prof.family
+
+    if profiles is _DEFAULT_PROFILES:
+        _NORMALIZED_FAMILY_CACHE[font_name] = cleaned
+    return cleaned

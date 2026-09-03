@@ -8,13 +8,24 @@ import unicodedata
 from pathlib import Path
 
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.shakti.font_conversion.akshara import (
+    reorder_pre_base_matra_legacy,
+    reorder_reph_unicode,
+    synthesize_akshara_unicode,
+)
 from sarathi.shakti.font_conversion.detector import load_font_profiles
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
 _CANONICAL_ANUBHAVA_PATH = get_canonical_data_root() / "font_conversion" / "anubhava.toml"
-_KRUTI_CONSONANTS = "(?:[DPRFYOCLHEUI]|x~)?(?:\\[k|\\?k|Fk|/k|Hk|'k|\\\"k|\\.k|[dxptTVBMrnuc;jyo\\?ghKs])"
-_REPH_DEVANAGARI_RE = re.compile(r"([ऀ-ॿ])Z")
+
+# Kruti/Remington legacy cluster regex pattern:
+# Captures optional half-consonants (D, P, R, F, Y, O, L, C, H, E, U, I, x~, etc.) + base consonant + optional sub-ra ('z')
+# In Remington: uppercase letters D, P, R, F, Y, O, L, C, H, E, U, I are half-consonants (क्, च्, त्, थ्, ल्, व्, स्, ब्, भ्, म्, न्, प्)
+# Lowercase letters d, x, p, t, T, V, B, M, r, n, u, c, ;, j, y, o, ?, g, h, K, s, e are base consonants (क, ग, च, ज, झ, ट, ठ, ड, त, द, न, ब, य, र, ल, व, ?, घ, ह, ज्ञ, स, म)
+_KRUTI_HALF_CONSONANTS = r"(?:[DPRFYOCLHUI]|E(?!$)|x~|\{|\&|J~)"
+_KRUTI_BASE_CONSONANTS = r"(?:\[k|\?k|Fk|/k|Hk|'k|\"k|\.k|\{k|[dixptTVBMrnuc;jyo\?ghKs]|e|J|K|ç|ä|ñ|ò|ó|ô|õ|ö|÷|ø|ù|ú|û|ü|ý|þ|=)"
+_KRUTI_CONSONANT_CLUSTER = rf"(?:{_KRUTI_HALF_CONSONANTS})*{_KRUTI_BASE_CONSONANTS}z?"
 
 
 def _load_anubhava_corrections(anubhava_path: Path | None = None) -> dict[str, dict[str, str]]:
@@ -48,7 +59,7 @@ class FontConverter:
         self._anubhava_corrections = _load_anubhava_corrections(anubhava_path)
 
     def convert(self, text: str, profile_id: str) -> str:
-        """Apply legacy-to-Unicode mapping, pre-base matra reordering, and NFC normalization."""
+        """Apply legacy-to-Unicode mapping, profile-specific pre-base matra reordering, and Akshara synthesis."""
         profile = self._profiles.get(profile_id)
         if profile is None:
             return text
@@ -58,38 +69,61 @@ class FontConverter:
         for src, tgt in corrections.items():
             text = text.replace(src, tgt)
 
-        # 2. Pre-reordering for 'f' (choti-i matra pre-base reordering in Kruti Dev)
-        text = re.sub(rf"f({_KRUTI_CONSONANTS})", r"\1f", text)
+        # 2. Profile-specific pre-base matra reordering (e.g. 'f' in KrutiDev/DevLys)
+        # ONLY execute if the active profile defines this prefix!
+        if profile.family in ("krutidev", "devlys"):
+            if "f" in profile.prefixes:
+                text = reorder_pre_base_matra_legacy(
+                    text,
+                    prefix_char="f",
+                    matra_unicode="ि",
+                    consonant_chars_pattern=_KRUTI_CONSONANT_CLUSTER,
+                )
+        elif profile.family == "chanakya":
+            for pfx in profile.prefixes.keys():
+                if pfx in text:
+                    # In Chanakya, prefix Ç or É is followed by base consonant glyphs
+                    text = re.sub(rf"{re.escape(pfx)}([^\s])", r"\1" + pfx, text)
+        elif profile.family == "shusha":
+            if "D" in profile.prefixes and "D" in text:
+                text = re.sub(r"D([a-z])", r"\1D", text)
+        elif profile.family == "shivaji":
+            if "C" in profile.prefixes and "C" in text:
+                text = re.sub(r"C([a-z0-9])", r"\1C", text)
 
         # 3. Apply Multi-char and Single-char mappings (sorted by key length descending)
         sorted_keys = sorted(profile.mappings.keys(), key=len, reverse=True)
-        pattern = re.compile("|".join(re.escape(k) for k in sorted_keys))
+        if sorted_keys:
+            pattern = re.compile("|".join(re.escape(k) for k in sorted_keys))
 
-        def _map_match(m: re.Match) -> str:
-            return profile.mappings.get(m.group(0), m.group(0))
+            def _map_match(m: re.Match) -> str:
+                return profile.mappings.get(m.group(0), m.group(0))
 
-        text = pattern.sub(_map_match, text)
+            text = pattern.sub(_map_match, text)
 
-        # 4. Handle Postfix Reph ('Z' -> 'र्' moving before immediately preceding Devanagari character)
+        # 4. Handle Postfix Reph at logical Akshara level
         reph_char = profile.postfix_reph
-        reph_unicode = profile.reph_unicode
-        if reph_char in text:
-            text = _REPH_DEVANAGARI_RE.sub(lambda m: f"{reph_unicode}{m.group(1)}", text)
+        reph_uni = profile.reph_unicode
+        if reph_char and reph_char in text:
+            text = reorder_reph_unicode(text, reph_marker=reph_char, reph_unicode=reph_uni)
 
-        # 5. Post-corrections
+        # 5. Post-corrections declared in profile
         for src, tgt in profile.post_corrections:
             text = text.replace(src, tgt)
 
-        # 5b. Typewriter artifact post-normalization
-        # Number comma fix: Remington digits typed with ']' or 'ए' between digits: e.g. 30]000 -> 30,000
-        text = re.sub(r"(?<=\d)[\]ए](?=\d)", ",", text)
-        # Rupee shorthand prefix: ःपये / :पये -> रुपये
-        text = re.sub(r"(?:[:ः]पये)", "रुपये", text)
-        # Typist reph/matra inversion: कायार्लय -> कार्यालय
-        text = text.replace("कायार्लय", "कार्यालय")
+        # 5b. Typewriter artifact post-normalization (restricted strictly to KrutiDev / DevLys)
+        if profile.family in ("krutidev", "devlys"):
+            # Remington digits typed with ']' or 'ए' between digits: e.g. 30]000 -> 30,000
+            text = re.sub(r"(?<=\d)[\]ए](?=\d)", ",", text)
+            # Remington colon following Devanagari characters typed for visarga (e.g. पुनः)
+            text = re.sub(r"(?<=[\u0900-\u097F]):(?!\d)", "\u0903", text)
+            # Rupee shorthand prefix: ःपये / :पये -> रुपये
+            text = re.sub(r"(?:[:ः]पये)", "रुपये", text)
+            # Typist reph/matra inversion: कायार्लय -> कार्यालय
+            text = text.replace("कायार्लय", "कार्यालय")
 
-        # 6. NFC Unicode normalization
-        return unicodedata.normalize("NFC", text)
+        # 6. Akshara Unicode synthesis and canonical NFC normalization
+        return synthesize_akshara_unicode(text)
 
     def convert_to_legacy(self, text: str, target_profile_id: str = "krutidev010") -> str:
         """Convert standard Unicode Devanagari text into legacy font encoding (KrutiDev or DevLys)."""

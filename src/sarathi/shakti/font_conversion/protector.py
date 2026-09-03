@@ -81,7 +81,9 @@ _KRUTI_DIGRAPHS = (
 # Target structured English patterns
 _LABEL_RE = re.compile(r"\b[A-Za-z][A-Za-z\s]{1,30}:(?=\s|$)")
 _PAREN_LATIN_RE = re.compile(r"\([A-Za-z0-9\s,\.\-_/]{2,}\)")
-_TITLECASE_PHRASE_RE = re.compile(r"\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+\b")
+_TITLECASE_PHRASE_RE = re.compile(
+    r"\b[A-Z][a-z]{2,}(?:\s+(?:of|and|the|in|for|to|at|by|on|from|with)\s+[A-Z][a-z]{2,}|\s+[A-Z][a-z]{2,})+\b"
+)
 _KNOWN_LATIN_RE = re.compile(
     r"\b(?:Govt|Government|India|State|Bank|SBI|HDFC|ICICI|Axis|Kotak|Pvt|Ltd|Limited|Private|Company|Distributor|Trading|Sponsored|Bail|PMLA|FIR|Tower|Flat|Road|Street|Apartment|Park|Avenue|Lane|Pass)\b",
     re.IGNORECASE,
