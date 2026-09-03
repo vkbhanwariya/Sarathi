@@ -91,6 +91,10 @@ class DeviceInventory:
                 return dev
         return None
 
+    def get(self, device_id: str) -> DeviceInfo | None:
+        """Return device by device_id or None if not found."""
+        return self.get_device(device_id)
+
     def __len__(self) -> int:
         return len(self.devices)
 

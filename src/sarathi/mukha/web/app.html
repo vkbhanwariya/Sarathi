@@ -149,6 +149,31 @@
                                 </select>
                             </div>
 
+                            <!-- OCR Custom Configuration Controls -->
+                            <div id="ocr-custom-controls" class="form-row hidden" style="border: 1px solid var(--border-subtle); padding: 10px; border-radius: 6px; margin-top: 8px;">
+                                <label class="form-label" style="font-weight: 600; margin-bottom: 6px;">Custom OCR Settings</label>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" id="chk-ocr-preprocess" checked> Preprocessing
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" id="chk-ocr-deskew" checked> Auto-Deskew
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" id="chk-ocr-clahe"> CLAHE Contrast
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" id="chk-ocr-binarize"> Binarization
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" id="chk-ocr-fallback" checked> Fallback (Tesseract)
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <input type="checkbox" id="chk-ocr-validation" checked> Validation Gate
+                                    </label>
+                                </div>
+                            </div>
+
                             <!-- Font Conversion Target Mode Selection -->
                             <div id="font-mode-row" class="form-row hidden">
                                 <label class="form-label" for="select-font-mode">Conversion Target</label>

@@ -207,9 +207,15 @@ class Yantra:
         effective_concurrency = self._max_workers
         if max_concurrency is not None and max_concurrency > 0:
             effective_concurrency = min(effective_concurrency, max_concurrency)
+        elif (
+            context is not None
+            and context.execution_binding is not None
+            and context.execution_binding.approved_concurrency > 0
+        ):
+            effective_concurrency = min(effective_concurrency, context.execution_binding.approved_concurrency)
 
-        # Bounded sliding window: at most effective_concurrency * 2 in flight
-        window_size = max(2, min(len(subtasks), effective_concurrency * 2))
+        # Bounded sliding window: at most effective_concurrency in flight
+        window_size = max(1, min(len(subtasks), effective_concurrency))
 
         ordered_results: list[Any] = [None] * len(subtasks)
         in_flight: dict[Future[Any], int] = {}
@@ -348,12 +354,15 @@ class Yantra:
                 context.cancellation_token.check_cancelled()
 
             # Construct factual ExecutionBinding directly from allocator reservation
+            dev = self.inventory.get(allocation.device_id)
+            approved_concurrency = dev.capacity if dev is not None else 1
             binding = ExecutionBinding(
                 device_id=allocation.device_id,
                 device_type=allocation.device_type,
                 backend=allocation.backend,
                 backend_device_id=allocation.backend_device_id,
                 is_spillover=allocation.is_spillover,
+                approved_concurrency=approved_concurrency,
             )
             bound_context = context.with_execution_binding(binding)
 

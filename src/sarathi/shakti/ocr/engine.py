@@ -407,6 +407,168 @@ class TesseractFallbackAdapter:
             tmp_path.unlink(missing_ok=True)
 
 
+def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
+    """Verify that all required OCR dependencies, manifest, and model files are factually valid.
+
+    Returns:
+        (is_ready, status_or_reason)
+    """
+    import importlib.util
+
+    for mod in ("rapidocr", "openvino", "PIL", "numpy"):
+        if importlib.util.find_spec(mod) is None:
+            return False, "Unavailable (Missing required OCR Python libraries)"
+
+    target_root = data_root.resolve() if data_root is not None else _CANONICAL_DATA_ROOT
+    manifest_file = target_root / "manifest.json"
+    models_dir = target_root / "models"
+
+    try:
+        if not manifest_file.exists() or manifest_file.is_symlink() or not manifest_file.is_file():
+            return False, "Unavailable (OCR model manifest is missing or invalid)"
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or "models" not in manifest or not isinstance(manifest["models"], dict):
+            return False, "Unavailable (OCR model manifest structure is invalid)"
+
+        if not models_dir.exists() or models_dir.is_symlink() or not models_dir.is_dir():
+            return False, "Unavailable (OCR models directory is missing or invalid)"
+
+        models_meta = manifest["models"]
+        for key in _REQUIRED_MODEL_KEYS:
+            if key not in models_meta or not isinstance(models_meta[key], dict):
+                return False, "Unavailable (OCR model manifest is missing required model entry)"
+            entry = models_meta[key]
+            filename = entry.get("filename")
+            expected_sha = entry.get("sha256")
+            if not filename or not expected_sha or not _is_safe_filename(filename):
+                return False, "Unavailable (OCR model specification is invalid)"
+
+            model_path = models_dir / filename
+            if not model_path.exists() or model_path.is_symlink() or not model_path.is_file():
+                return False, "Unavailable (Required OCR model asset is missing)"
+
+            h = hashlib.sha256()
+            with open(model_path, "rb") as f:
+                while chunk := f.read(65536):
+                    h.update(chunk)
+            if h.hexdigest().lower() != expected_sha.lower():
+                return False, "Unavailable (OCR model asset checksum mismatch)"
+
+        return True, "Ready (RapidOCR + OpenVINO)"
+    except Exception:
+        return False, "Unavailable (OCR preflight verification failed)"
+
+
+def _parse_rapidocr_output(
+    output: Any,
+    filter_opt: bool = True,
+) -> tuple[list[str], list[TextSpan], list[float], list[WarningRecord], bool, bool]:
+    lines: list[str] = []
+    spans: list[TextSpan] = []
+    conf_scores: list[float] = []
+    warnings: list[WarningRecord] = []
+    has_invalid_confidence = False
+    has_invalid_geometry = False
+
+    if output and output.txts:
+        for text_val, box_val, score_val in zip(
+            output.txts,
+            output.boxes if output.boxes is not None else [None] * len(output.txts),
+            output.scores if output.scores is not None else [None] * len(output.txts),
+        ):
+            norm_text = unicodedata.normalize("NFC", str(text_val or "").strip())
+            if filter_opt:
+                norm_text = filter_english_and_numbers(norm_text)
+            if norm_text:
+                lines.append(norm_text)
+                conf: float | None = None
+                if score_val is not None:
+                    try:
+                        score_float = float(score_val)
+                        if (
+                            not math.isnan(score_float)
+                            and not math.isinf(score_float)
+                            and 0.0 <= score_float <= 1.0
+                        ):
+                            conf = score_float
+                            conf_scores.append(conf)
+                        else:
+                            has_invalid_confidence = True
+                            warnings.append(
+                                WarningRecord(
+                                    code="OCR_INVALID_CONFIDENCE",
+                                    message="Engine returned out-of-bounds or non-finite confidence ratio.",
+                                    stage=_STAGE_NAME,
+                                )
+                            )
+                    except (TypeError, ValueError):
+                        has_invalid_confidence = True
+                        warnings.append(
+                            WarningRecord(
+                                code="OCR_INVALID_CONFIDENCE",
+                                message="Engine returned non-numeric confidence value.",
+                                stage=_STAGE_NAME,
+                            )
+                        )
+                else:
+                    has_invalid_confidence = True
+                    warnings.append(
+                        WarningRecord(
+                            code="OCR_INVALID_CONFIDENCE",
+                            message="Engine returned missing confidence value.",
+                            stage=_STAGE_NAME,
+                        )
+                    )
+
+                bounding_box: tuple[float, float, float, float] | None = None
+                if box_val is not None:
+                    try:
+                        if len(box_val) < 4:
+                            has_invalid_geometry = True
+                            warnings.append(
+                                WarningRecord(
+                                    code="OCR_INVALID_GEOMETRY",
+                                    message="Engine returned bounding box with fewer than 4 points.",
+                                    stage=_STAGE_NAME,
+                                )
+                            )
+                        else:
+                            min_x = min(float(pt[0]) for pt in box_val)
+                            min_y = min(float(pt[1]) for pt in box_val)
+                            max_x = max(float(pt[0]) for pt in box_val)
+                            max_y = max(float(pt[1]) for pt in box_val)
+                            if any(math.isnan(v) or math.isinf(v) for v in (min_x, min_y, max_x, max_y)):
+                                has_invalid_geometry = True
+                                warnings.append(
+                                    WarningRecord(
+                                        code="OCR_INVALID_GEOMETRY",
+                                        message="Engine returned non-finite bounding box coordinates.",
+                                        stage=_STAGE_NAME,
+                                    )
+                                )
+                            else:
+                                bounding_box = (min_x, min_y, max_x, max_y)
+                    except (TypeError, ValueError, IndexError):
+                        has_invalid_geometry = True
+                        warnings.append(
+                            WarningRecord(
+                                code="OCR_INVALID_GEOMETRY",
+                                message="Engine returned malformed or non-numeric bounding box coordinates.",
+                                stage=_STAGE_NAME,
+                            )
+                        )
+
+                spans.append(
+                    TextSpan(
+                        text=norm_text,
+                        bounding_box=bounding_box,
+                        confidence=conf,
+                    )
+                )
+
+    return lines, spans, conf_scores, warnings, has_invalid_confidence, has_invalid_geometry
+
+
 class RapidOCREngine:
     """Instance-owned RapidOCR + PP-OCRv5/v6 + OpenVINO engine adapter."""
 
@@ -423,6 +585,7 @@ class RapidOCREngine:
         self._default_lang: str = default_lang
         self._tesseract: TesseractFallbackAdapter = tesseract_adapter or TesseractFallbackAdapter()
         self._init_lock: threading.Lock = threading.Lock()
+        self._local: threading.local = threading.local()
 
     @property
     def default_lang(self) -> str:
@@ -437,9 +600,41 @@ class RapidOCREngine:
         if self._engine is not None:
             return self._engine
 
+        if not hasattr(self._local, "engines"):
+            self._local.engines = {}
+
+        clean_lang = str(lang).lower().strip() if lang else self._default_lang
+        if clean_lang in _V6_LANGS:
+            engine_key = "v6_en"
+        elif clean_lang in _DEV_LANGS:
+            engine_key = "devanagari"
+        else:
+            engine_key = "en"
+
+        target_device = "CPU"
+        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+            target_device = execution_binding.backend_device_id or "GPU"
+
+        cache_key = f"{engine_key}:{target_device}"
+
+        if cache_key in self._local.engines:
+            return self._local.engines[cache_key]
+
+        if cache_key in self._engines:
+            cand = self._engines[cache_key]
+            try:
+                from rapidocr import RapidOCR
+
+                if not isinstance(cand, RapidOCR):
+                    return cand
+            except ImportError:
+                return cand
+            if getattr(cand, "_owner_thread", None) == threading.get_ident():
+                return cand
+
         with self._init_lock:
-            if self._engine is not None:
-                return self._engine
+            if cache_key in self._local.engines:
+                return self._local.engines[cache_key]
             return self._get_engine_unlocked(lang=lang, execution_binding=execution_binding)
 
     def _get_engine_unlocked(self, lang: str = "en", execution_binding: ExecutionBinding | None = None) -> Any:
@@ -518,8 +713,19 @@ class RapidOCREngine:
             rec_key = "rec"
 
         cache_key = f"{engine_key}:{target_device}"
+        if hasattr(self._local, "engines") and cache_key in self._local.engines:
+            return self._local.engines[cache_key]
         if cache_key in self._engines:
-            return self._engines[cache_key]
+            cand = self._engines[cache_key]
+            try:
+                from rapidocr import RapidOCR
+
+                if not isinstance(cand, RapidOCR):
+                    return cand
+            except ImportError:
+                return cand
+            if getattr(cand, "_owner_thread", None) == threading.get_ident():
+                return cand
 
         # 2. Validate target recognition model entry
         if rec_key not in models_meta or not isinstance(models_meta[rec_key], dict):
@@ -659,6 +865,10 @@ class RapidOCREngine:
             }
 
         engine_inst = RapidOCR(params=params)
+        setattr(engine_inst, "_owner_thread", threading.get_ident())
+        if not hasattr(self._local, "engines"):
+            self._local.engines = {}
+        self._local.engines[cache_key] = engine_inst
         self._engines[cache_key] = engine_inst
         self._engines[engine_key] = engine_inst
         if rec_key == "rec_v6_en":
@@ -721,12 +931,27 @@ class RapidOCREngine:
 
             img_arr = preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps)
 
+        # Synchronize preprocessed image for geometrically aligned cropping
+        from PIL import Image
+
+        if isinstance(img_arr, np.ndarray):
+            processed_img = Image.fromarray(img_arr)
+        elif hasattr(image, "copy"):
+            processed_img = image.copy()
+        else:
+            processed_img = image
+
         output = engine(img_arr)
 
-        spans: list[TextSpan] = []
-        lines: list[str] = []
-        conf_scores: list[float] = []
-        warnings: list[WarningRecord] = []
+        if target_lang in _DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
+            filter_opt = False
+        else:
+            filter_opt = custom_options.get("english_numbers_only", True) if custom_options else True
+
+        lines, spans, conf_scores, parse_warnings, has_invalid_confidence, has_invalid_geometry = (
+            _parse_rapidocr_output(output, filter_opt=filter_opt)
+        )
+        warnings: list[WarningRecord] = list(parse_warnings)
         if applied_stamp_removal:
             warnings.append(
                 WarningRecord(
@@ -735,108 +960,93 @@ class RapidOCREngine:
                     stage="ocr",
                 )
             )
-        has_invalid_confidence = False
 
-        if target_lang in _DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
-            filter_opt = False
-        else:
-            filter_opt = custom_options.get("english_numbers_only", True) if custom_options else True
+        # Advanced profile processing
+        fallback_applied = False
+        fallback_required = False
+        fallback_unavailable = False
+        fallback_failed = False
+        is_binarized = False
 
-        if output and output.txts:
-            for text_val, box_val, score_val in zip(
-                output.txts,
-                output.boxes if output.boxes is not None else [None] * len(output.txts),
-                output.scores if output.scores is not None else [None] * len(output.txts),
-            ):
-                norm_text = unicodedata.normalize("NFC", str(text_val or "").strip())
-                if filter_opt:
-                    norm_text = filter_english_and_numbers(norm_text)
-                if norm_text:
-                    lines.append(norm_text)
-                    conf: float | None = None
-                    if score_val is not None:
-                        try:
-                            score_float = float(score_val)
-                            if (
-                                not math.isnan(score_float)
-                                and not math.isinf(score_float)
-                                and 0.0 <= score_float <= 1.0
-                            ):
-                                conf = score_float
-                                conf_scores.append(conf)
-                            else:
-                                has_invalid_confidence = True
-                                warnings.append(
-                                    WarningRecord(
-                                        code="OCR_INVALID_CONFIDENCE",
-                                        message="Engine returned out-of-bounds or non-finite confidence ratio.",
-                                        stage=_STAGE_NAME,
-                                    )
-                                )
-                        except (TypeError, ValueError):
-                            has_invalid_confidence = True
+        if profile == ExecutionProfile.ACCURATE and spans:
+            # Accurate mode: targeted Tesseract 5 fallback only for weak spans (< 0.65)
+            fallback_enabled = (
+                custom_options.get("fallback_enabled", True) if custom_options else True
+            )
+            if fallback_enabled:
+                tess_lang = "hin" if target_lang in _DEV_LANGS else "eng"
+                for idx, span in enumerate(spans):
+                    if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
+                        fallback_required = True
+                        if not self._tesseract.is_available():
+                            fallback_unavailable = True
                             warnings.append(
                                 WarningRecord(
-                                    code="OCR_INVALID_CONFIDENCE",
-                                    message="Engine returned non-numeric confidence value.",
+                                    code="OCR_FALLBACK_UNAVAILABLE",
+                                    message="Tesseract 5 fallback engine is not available on this host.",
                                     stage=_STAGE_NAME,
                                 )
                             )
-                    else:
-                        has_invalid_confidence = True
-                        warnings.append(
-                            WarningRecord(
-                                code="OCR_INVALID_CONFIDENCE",
-                                message="Engine returned missing confidence value.",
-                                stage=_STAGE_NAME,
-                            )
+                            break
+
+                        min_x, min_y, max_x, max_y = span.bounding_box
+                        w, h = processed_img.size if hasattr(processed_img, "size") else (int(max_x), int(max_y))
+                        box_crop = (
+                            max(0, int(min_x) - 2),
+                            max(0, int(min_y) - 2),
+                            min(w, int(max_x) + 2),
+                            min(h, int(max_y) + 2),
                         )
 
-                    bounding_box: tuple[float, float, float, float] | None = None
-                    if box_val is not None:
-                        try:
-                            if len(box_val) < 4:
-                                warnings.append(
-                                    WarningRecord(
-                                        code="OCR_INVALID_GEOMETRY",
-                                        message="Engine returned bounding box with fewer than 4 points.",
-                                        stage=_STAGE_NAME,
-                                    )
-                                )
-                            else:
-                                min_x = min(float(pt[0]) for pt in box_val)
-                                min_y = min(float(pt[1]) for pt in box_val)
-                                max_x = max(float(pt[0]) for pt in box_val)
-                                max_y = max(float(pt[1]) for pt in box_val)
-                                if any(math.isnan(v) or math.isinf(v) for v in (min_x, min_y, max_x, max_y)):
-                                    warnings.append(
-                                        WarningRecord(
-                                            code="OCR_INVALID_GEOMETRY",
-                                            message="Engine returned non-finite bounding box coordinates.",
-                                            stage=_STAGE_NAME,
+                        if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(processed_img, "crop"):
+                            cropped = processed_img.crop(box_crop)
+                            try:
+                                try:
+                                    tess_res = self._tesseract.recognize_crop(cropped, language=tess_lang)
+                                except TypeError:
+                                    tess_res = self._tesseract.recognize_crop(cropped)
+                                if tess_res is not None:
+                                    tess_text, tess_conf = tess_res
+                                    if tess_conf is None:
+                                        warnings.append(
+                                            WarningRecord(
+                                                code="OCR_FALLBACK_CONFIDENCE_UNAVAILABLE",
+                                                message="Tesseract fallback confidence score is unavailable.",
+                                                stage=_STAGE_NAME,
+                                            )
                                         )
+                                    if tess_conf is not None and tess_conf > span.confidence:
+                                        spans[idx] = TextSpan(
+                                            text=tess_text,
+                                            confidence=tess_conf,
+                                            bounding_box=span.bounding_box,
+                                        )
+                                        if idx < len(lines):
+                                            lines[idx] = tess_text
+                                            fallback_applied = True
+                            except DoshError:
+                                fallback_failed = True
+                                warnings.append(
+                                    WarningRecord(
+                                        code="OCR_FALLBACK_FAILED",
+                                        message="Tesseract 5 fallback execution failed.",
+                                        stage=_STAGE_NAME,
                                     )
-                                else:
-                                    bounding_box = (min_x, min_y, max_x, max_y)
-                        except (TypeError, ValueError, IndexError):
-                            warnings.append(
-                                WarningRecord(
-                                    code="OCR_INVALID_GEOMETRY",
-                                    message="Engine returned malformed or non-numeric bounding box coordinates.",
-                                    stage=_STAGE_NAME,
                                 )
-                            )
 
-                    spans.append(
-                        TextSpan(
-                            text=norm_text,
-                            bounding_box=bounding_box,
-                            confidence=conf,
-                        )
-                    )
+        elif profile == ExecutionProfile.CUSTOM:
+            if custom_options and custom_options.get("binarize") and hasattr(processed_img, "convert"):
+                is_binarized = True
+                gray = processed_img.convert("L")
+                threshold_img = gray.point(lambda p: 255 if p > 128 else 0)
+                cust_out = engine(np.array(threshold_img))
+                lines, spans, conf_scores, cust_warns, has_invalid_confidence, has_invalid_geometry = (
+                    _parse_rapidocr_output(cust_out, filter_opt=filter_opt)
+                )
+                warnings.extend(cust_warns)
 
-        page_text = "\n".join(lines)
-        if not page_text.strip():
+        final_page_text = "\n".join(lines)
+        if not final_page_text.strip():
             warnings.append(
                 WarningRecord(
                     code="OCR_EMPTY_PAGE",
@@ -868,82 +1078,42 @@ class RapidOCREngine:
                 },
             )
 
-        # Advanced profile processing
-        fallback_applied = False
-
-        if profile == ExecutionProfile.ACCURATE and spans:
-            # Accurate mode: targeted Tesseract 5 fallback only for weak spans (< 0.65)
-            tess_lang = "hin" if target_lang in _DEV_LANGS else "eng"
-            for idx, span in enumerate(spans):
-                if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
-                    if not self._tesseract.is_available():
-                        warnings.append(
-                            WarningRecord(
-                                code="OCR_FALLBACK_UNAVAILABLE",
-                                message="Tesseract 5 fallback engine is not available on this host.",
-                                stage=_STAGE_NAME,
-                            )
-                        )
-                        break
-
-                    min_x, min_y, max_x, max_y = span.bounding_box
-                    w, h = image.size if hasattr(image, "size") else (int(max_x), int(max_y))
-                    box_crop = (
-                        max(0, int(min_x) - 2),
-                        max(0, int(min_y) - 2),
-                        min(w, int(max_x) + 2),
-                        min(h, int(max_y) + 2),
-                    )
-
-                    if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(image, "crop"):
-                        cropped = image.crop(box_crop)
-                        try:
-                            try:
-                                tess_res = self._tesseract.recognize_crop(cropped, language=tess_lang)
-                            except TypeError:
-                                tess_res = self._tesseract.recognize_crop(cropped)
-                            if tess_res is not None:
-                                tess_text, tess_conf = tess_res
-                                if tess_conf is None:
-                                    warnings.append(
-                                        WarningRecord(
-                                            code="OCR_FALLBACK_CONFIDENCE_UNAVAILABLE",
-                                            message="Tesseract fallback confidence score is unavailable.",
-                                            stage=_STAGE_NAME,
-                                        )
-                                    )
-                                if tess_conf is not None and tess_conf > span.confidence:
-                                    spans[idx] = TextSpan(
-                                        text=tess_text,
-                                        confidence=tess_conf,
-                                        bounding_box=span.bounding_box,
-                                    )
-                                    if idx < len(lines):
-                                        lines[idx] = tess_text
-                                        fallback_applied = True
-                        except DoshError:
-                            warnings.append(
-                                WarningRecord(
-                                    code="OCR_FALLBACK_FAILED",
-                                    message="Tesseract 5 fallback execution failed.",
-                                    stage=_STAGE_NAME,
-                                )
-                            )
-
-        elif profile == ExecutionProfile.CUSTOM:
-            if custom_options and custom_options.get("binarize") and hasattr(image, "convert"):
-                gray = image.convert("L")
-                threshold_img = gray.point(lambda p: 255 if p > 128 else 0)
-                cust_out = engine(np.array(threshold_img))
-                if cust_out and cust_out.txts:
-                    lines = [unicodedata.normalize("NFC", str(t).strip()) for t in cust_out.txts if str(t).strip()]
-
         if fallback_applied:
             # If Tesseract text replaces a RapidOCR span, do not retain page/run confidence labelled rapidocr_mean
             page_confidence = None
 
-        final_page_text = "\n".join(lines) if lines else page_text
-        metadata: dict[str, Any] = {"profile": profile.value}
+        # Determine deterministic validation outcome
+        validation_outcome: str
+        if not final_page_text.strip():
+            validation_outcome = "empty"
+        elif has_invalid_confidence:
+            validation_outcome = "invalid_confidence"
+        elif has_invalid_geometry:
+            validation_outcome = "invalid_geometry"
+        elif fallback_applied:
+            validation_outcome = "fallback_improved"
+        elif fallback_failed:
+            validation_outcome = "fallback_failed"
+        elif fallback_unavailable:
+            validation_outcome = "fallback_unavailable"
+        elif fallback_required:
+            validation_outcome = "weak_confidence"
+        else:
+            validation_outcome = "usable"
+
+        if target_lang in _DEV_LANGS:
+            scope = "full_devanagari"
+        elif filter_opt:
+            scope = "english_and_numbers"
+        else:
+            scope = "multilingual"
+
+        metadata: dict[str, Any] = {
+            "profile": profile.value,
+            "validation_outcome": validation_outcome,
+            "model": model_label,
+            "scope": scope,
+        }
         if page_confidence is not None:
             metadata["confidence"] = page_confidence.score
 
@@ -952,13 +1122,21 @@ class RapidOCREngine:
             "backend": "openvino",
             "device": target_device,
             "model": model_label,
-            "scope": "english_and_numbers",
+            "scope": scope,
             "profile": profile.value,
             "box_count": len(spans),
+            "validation_outcome": validation_outcome,
         }
+        if is_binarized:
+            evidence_dict["binarized"] = True
         if fallback_applied:
             evidence_dict["fallback_engine"] = "tesseract5"
             evidence_dict["fallback_applied"] = True
+        elif fallback_required:
+            evidence_dict["fallback_engine"] = "tesseract5"
+            evidence_dict["fallback_status"] = (
+                "unavailable" if fallback_unavailable else ("failed" if fallback_failed else "unimproved")
+            )
 
         provenance = ProvenanceRecord(
             source_input_id=input_id,
@@ -978,3 +1156,14 @@ class RapidOCREngine:
         )
 
         return page_data, provenance, page_confidence, tuple(warnings)
+
+
+__all__ = [
+    "RapidOCREngine",
+    "TesseractFallbackAdapter",
+    "check_ocr_readiness",
+    "deskew_image",
+    "extract_images_from_bytes",
+    "filter_english_and_numbers",
+    "preprocess_ocr_image",
+]

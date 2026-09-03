@@ -19,3 +19,6 @@ allowed_secrets = []
 history_enabled = false
 live_buffer_capacity = 256
 history_path = "Runtime/Telemetry/history.jsonl"
+
+[hardware]
+detect_accelerators = true

@@ -29,6 +29,7 @@ class ExecutionBinding:
     backend: str
     backend_device_id: str
     is_spillover: bool = False
+    approved_concurrency: int = 1
 
     def __post_init__(self) -> None:
         if not self.device_id or not isinstance(self.device_id, str) or not self.device_id.strip():
@@ -41,6 +42,12 @@ class ExecutionBinding:
             raise ValueError("backend_device_id must be a non-empty string.")
         if not isinstance(self.is_spillover, bool):
             raise TypeError(f"is_spillover must be a bool, got {type(self.is_spillover).__name__}.")
+        if (
+            not isinstance(self.approved_concurrency, int)
+            or isinstance(self.approved_concurrency, bool)
+            or self.approved_concurrency <= 0
+        ):
+            raise ValueError("approved_concurrency must be a positive integer (> 0).")
 
 
 @dataclass(frozen=True, slots=True)
