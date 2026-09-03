@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Mapping
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -39,12 +40,13 @@ class TranslationCapability:
         darpana: Darpana | None = None,
         data_root: Path | None = None,
         backend: TranslatorBackend | None = None,
+        engine: CTranslate2TranslationEngine | None = None,
     ) -> None:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
         self._detector = LanguageDetector()
         self._protector = TranslationProtector()
-        self._engine = CTranslate2TranslationEngine(
+        self._engine = engine if engine is not None else CTranslate2TranslationEngine(
             data_root=data_root,
             backend=backend,
             protector=self._protector,
@@ -147,7 +149,12 @@ class TranslationCapability:
                     if not raw or not raw.strip():
                         return raw
                     if raw not in translation_cache:
-                        translation_cache[raw] = self._engine.translate(raw, direction=direction)
+                        try:
+                            translation_cache[raw] = self._engine.translate(
+                                raw, direction=direction, execution_binding=context.execution_binding
+                            )
+                        except TypeError:
+                            translation_cache[raw] = self._engine.translate(raw, direction=direction)
                     return translation_cache[raw].translated_text
 
                 tgt_lang = "en" if direction == TranslationDirection.HI_TO_EN else "hi"
@@ -176,6 +183,11 @@ class TranslationCapability:
                     else ("en" if direction == TranslationDirection.HI_TO_EN else "hi")
                 )
                 prot_count = sum(r.protected_spans_count for r in translation_cache.values())
+                device_val = (
+                    primary_res.metadata.get("device", "cpu")
+                    if primary_res and isinstance(primary_res.metadata, Mapping)
+                    else "cpu"
+                )
 
                 prov = ProvenanceRecord(
                     source_input_id=doc.source_input_id,
@@ -186,6 +198,8 @@ class TranslationCapability:
                         "source_language": src_lang_val,
                         "target_language": tgt_lang_val,
                         "protected_spans_count": prot_count,
+                        "device": device_val,
+                        "backend": "ctranslate2",
                     },
                 )
                 provs.append(prov)

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.sankalpa import DeviceType, ExecutionBinding
 from sarathi.shakti.translation.glossary import GlossaryStore
 from sarathi.shakti.translation.models import (
     Language,
@@ -122,7 +123,12 @@ class CTranslate2TranslationEngine:
                 self._translators: dict[str, Any] = {}
                 self._spms: dict[str, Any] = {}
 
-            def translate_sentences(self, sentences: Sequence[str], direction: TranslationDirection) -> list[str]:
+            def translate_sentences(
+                self,
+                sentences: Sequence[str],
+                direction: TranslationDirection,
+                execution_binding: ExecutionBinding | None = None,
+            ) -> tuple[list[str], str]:
                 # Native model inference using CTranslate2 and SentencePiece
                 dir_key = direction.value
                 model_info = self._manifest.get("models", {}).get(dir_key)
@@ -138,17 +144,44 @@ class CTranslate2TranslationEngine:
                         code=FailureCode.DEPENDENCY_UNAVAILABLE,
                         message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
                     )
-                if dir_key not in self._translators:
-                    self._translators[dir_key] = ctranslate2.Translator(str(model_path))
+
+                device = "cpu"
+                device_index = 0
+                if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+                    try:
+                        if hasattr(ctranslate2, "get_cuda_device_count") and ctranslate2.get_cuda_device_count() > 0:
+                            device = "cuda"
+                            device_index = 0
+                    except Exception:
+                        device = "cpu"
+
+                trans_key = f"{dir_key}:{device}:{device_index}"
+                if trans_key not in self._translators:
+                    try:
+                        self._translators[trans_key] = ctranslate2.Translator(
+                            str(model_path), device=device, device_index=device_index
+                        )
+                    except Exception:
+                        if device != "cpu":
+                            device = "cpu"
+                            trans_key = f"{dir_key}:cpu:0"
+                            if trans_key not in self._translators:
+                                self._translators[trans_key] = ctranslate2.Translator(
+                                    str(model_path), device="cpu", device_index=0
+                                )
+                        else:
+                            raise
+
+                if dir_key not in self._spms:
                     sp = sentencepiece.SentencePieceProcessor()
                     sp.load(str(spm_path))
                     self._spms[dir_key] = sp
 
-                translator = self._translators[dir_key]
+                translator = self._translators[trans_key]
                 spm = self._spms[dir_key]
                 tokenized = [spm.encode_as_pieces(s) for s in sentences]
                 results = translator.translate_batch(tokenized)
-                return [spm.decode_pieces(r.hypotheses[0]) for r in results]
+                return [spm.decode_pieces(r.hypotheses[0]) for r in results], device
 
         self._initialized_backend = _CTranslate2NativeBackend(self._data_root, manifest_dict)
         return self._initialized_backend
@@ -157,10 +190,15 @@ class CTranslate2TranslationEngine:
         self,
         text: str,
         direction: TranslationDirection = TranslationDirection.HI_TO_EN,
+        execution_binding: ExecutionBinding | None = None,
     ) -> TranslationResult:
         """Translate normalized Unicode text via CTranslate2 with span protection and glossary."""
         src_lang = Language.HINDI if direction == TranslationDirection.HI_TO_EN else Language.ENGLISH
         tgt_lang = Language.ENGLISH if direction == TranslationDirection.HI_TO_EN else Language.HINDI
+
+        target_device = "cpu"
+        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+            target_device = execution_binding.backend_device_id or "cuda"
 
         if not text or not text.strip():
             return TranslationResult(
@@ -169,7 +207,7 @@ class CTranslate2TranslationEngine:
                 target_language=tgt_lang,
                 direction=direction,
                 protected_spans_count=0,
-                metadata={},
+                metadata={"device": target_device, "backend": "ctranslate2"},
             )
 
         # 1. Retrieve domain glossary mappings for this direction
@@ -194,7 +232,16 @@ class CTranslate2TranslationEngine:
 
         # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)
         backend = self._ensure_backend()
-        translated_sentences = backend.translate_sentences(prepared_sentences, direction)
+        try:
+            backend_res = backend.translate_sentences(prepared_sentences, direction, execution_binding=execution_binding)
+        except TypeError:
+            backend_res = backend.translate_sentences(prepared_sentences, direction)
+
+        if isinstance(backend_res, tuple) and len(backend_res) == 2:
+            translated_sentences, factual_device = backend_res
+        else:
+            translated_sentences = backend_res
+            factual_device = target_device
 
         translated_body = " ".join(translated_sentences)
 
@@ -207,5 +254,9 @@ class CTranslate2TranslationEngine:
             target_language=tgt_lang,
             direction=direction,
             protected_spans_count=len(spans),
-            metadata={"sentences_count": len(raw_sentences)},
+            metadata={
+                "sentences_count": len(raw_sentences),
+                "device": factual_device,
+                "backend": "ctranslate2",
+            },
         )
