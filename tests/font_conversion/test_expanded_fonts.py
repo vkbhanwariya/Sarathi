@@ -131,4 +131,5 @@ def test_font_conversion_selective_ocr_oracle_fallback() -> None:
 
     result = cap.execute(req, ctx, prior)
     assert result.data is not None
+    assert result.data.text == "पुनर्प्राप्त पाठ"
     assert any(p.evidence.get("recovered_via") == "selective_ocr" for p in result.provenance)

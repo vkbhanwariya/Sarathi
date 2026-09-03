@@ -146,6 +146,7 @@ class FontConversionCapability:
                     else (detected_profile or "krutidev010")
                 )
 
+                ocr_recovered_text: str | None = None
                 if is_to_legacy:
                     # Preserve detected_profile for legacy-to-legacy decoding; conf reflects detection evidence
                     pass
@@ -153,8 +154,9 @@ class FontConversionCapability:
                     # Default: auto_unicode
                     if detected_profile is None and self._ocr_oracle is not None and hasattr(self._ocr_oracle, "recover_text"):
                         try:
-                            recovered_text, oracle_conf = self._ocr_oracle.recover_text(full_text)
-                            if recovered_text and recovered_text != full_text:
+                            rec_txt, oracle_conf = self._ocr_oracle.recover_text(full_text)
+                            if rec_txt and rec_txt != full_text:
+                                ocr_recovered_text = rec_txt
                                 detected_profile = "visual_oracle"
                                 conf = oracle_conf
                                 all_provs.append(
@@ -184,6 +186,20 @@ class FontConversionCapability:
 
                 def _conv_text(raw: str) -> str:
                     nonlocal total_spans_count
+                    if not raw or not raw.strip():
+                        return raw
+                    if ocr_recovered_text is not None:
+                        if raw == full_text:
+                            return ocr_recovered_text
+                        if self._ocr_oracle is not None and hasattr(self._ocr_oracle, "recover_text"):
+                            try:
+                                sub_rec, _ = self._ocr_oracle.recover_text(raw)
+                                if sub_rec:
+                                    return sub_rec
+                            except Exception:
+                                pass
+                        return raw
+
                     prot, c_spans = self._protector.protect(raw, protect_devanagari=not is_to_legacy)
                     total_spans_count += len(c_spans)
                     if is_to_legacy:
