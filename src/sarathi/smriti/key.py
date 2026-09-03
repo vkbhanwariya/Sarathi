@@ -41,33 +41,46 @@ def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
     return hasher.hexdigest()
 
 
+def _hash_canonical_document(doc: CanonicalDocument) -> str:
+    """Compute deterministic hash of a CanonicalDocument content and structure."""
+    doc_hasher = hashlib.sha256()
+    doc_hasher.update(doc.text.encode("utf-8"))
+
+    for page in doc.pages:
+        doc_hasher.update(f":p{page.page_number}:{page.text}:".encode("utf-8"))
+        for span in page.spans:
+            doc_hasher.update(f":s{span.text}:{span.confidence}:".encode("utf-8"))
+        for tbl in page.tables:
+            doc_hasher.update(f":th{'|'.join(tbl.headers)}:".encode("utf-8"))
+            for row in tbl.rows:
+                doc_hasher.update(f":tr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
+
+    for tbl in doc.tables:
+        doc_hasher.update(f":dth{'|'.join(tbl.headers)}:".encode("utf-8"))
+        for row in tbl.rows:
+            doc_hasher.update(f":dtr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
+
+    content_hash = doc_hasher.hexdigest()
+    return f"{doc.document_id}:{doc.detected_type}:{len(doc.pages)}:{len(doc.tables)}:{content_hash}"
+
+
 def compute_prior_result_digest(prior_result: Result | None) -> str:
     """Compute a deterministic, privacy-safe digest of upstream prior_result state."""
     if prior_result is None or prior_result.data is None:
         return "none"
 
+    prov_hash = "|".join(f"{p.capability_id}:{p.stage}" for p in prior_result.provenance)
+
     if isinstance(prior_result.data, CanonicalDocument):
-        doc = prior_result.data
-        doc_hasher = hashlib.sha256()
-        doc_hasher.update(doc.text.encode("utf-8"))
+        doc_material = _hash_canonical_document(prior_result.data)
+        material = f"{doc_material}:{prov_hash}"
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
-        for page in doc.pages:
-            doc_hasher.update(f":p{page.page_number}:{page.text}:".encode("utf-8"))
-            for span in page.spans:
-                doc_hasher.update(f":s{span.text}:{span.confidence}:".encode("utf-8"))
-            for tbl in page.tables:
-                doc_hasher.update(f":th{'|'.join(tbl.headers)}:".encode("utf-8"))
-                for row in tbl.rows:
-                    doc_hasher.update(f":tr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
-
-        for tbl in doc.tables:
-            doc_hasher.update(f":dth{'|'.join(tbl.headers)}:".encode("utf-8"))
-            for row in tbl.rows:
-                doc_hasher.update(f":dtr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
-
-        content_hash = doc_hasher.hexdigest()
-        prov_hash = "|".join(f"{p.capability_id}:{p.stage}" for p in prior_result.provenance)
-        material = f"{doc.document_id}:{doc.detected_type}:{len(doc.pages)}:{len(doc.tables)}:{content_hash}:{prov_hash}"
+    if isinstance(prior_result.data, (tuple, list)) and all(
+        isinstance(d, CanonicalDocument) for d in prior_result.data
+    ):
+        doc_hashes = "|".join(_hash_canonical_document(d) for d in prior_result.data)
+        material = f"multi:{len(prior_result.data)}:{doc_hashes}:{prov_hash}"
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     # Generic factual type representation

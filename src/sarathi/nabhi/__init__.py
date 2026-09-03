@@ -2,6 +2,7 @@
 
 Exposes:
 - ArtifactBoundary: Global artifact staging, atomic commit, and run manifest boundary.
+- Dvara: Capability and plugin registration gatekeeper.
 - Kosh: Plugin and capability declaration registry.
 - Prana: Runtime component lifecycle coordinator.
 - CapabilityPlan: Resolved capability plan.

@@ -646,6 +646,8 @@ class Pravaha:
                                     prior_result=prior_result,
                                 )
                                 prior_result = retry_res
+                                if self._smriti is not None and cache_key is not None:
+                                    self._smriti.put(cache_key, prior_result)
                                 break
                             except DoshError as retry_err:
                                 last_err = retry_err

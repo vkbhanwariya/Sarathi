@@ -33,6 +33,7 @@ from sarathi.shakti.darshana import DarshanaCapability, identify_request
 from sarathi.shakti.font_conversion import FontConversionCapability
 from sarathi.shakti.native_extraction import NativeExtractionCapability
 from sarathi.shakti.ocr import OCRCapability
+from sarathi.shakti.translation import TranslationCapability
 from sarathi.smriti import SmritiCache
 from sarathi.sutra import Settings, load_settings
 from sarathi.yantra import DeviceInventory, Yantra
@@ -180,8 +181,6 @@ class Agni:
                     raise TypeError(f"Capability '{cap_k}' does not implement Capability protocol.")
             active_capabilities = dict(capabilities)
         else:
-            from sarathi.shakti.translation import TranslationCapability
-
             active_capabilities = {
                 "identify": DarshanaCapability(),
                 "read_native": NativeExtractionCapability(),
@@ -242,6 +241,8 @@ class Agni:
 
         # Prana & QuarantineStore
         self._prana: Prana = Prana()
+        if self._darpana is not None:
+            self._prana.register("darpana", self._darpana)
         self._quarantine_store: QuarantineStore = QuarantineStore(
             root=self._runtime_root / "Quarantine",
         )
