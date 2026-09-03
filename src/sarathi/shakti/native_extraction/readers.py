@@ -596,19 +596,19 @@ def read_docx(
                         for r in raw_table_rows:
                             paragraphs.append(" | ".join(r))
 
-        provenances.append(
-            ProvenanceRecord(
-                source_input_id=input_id,
-                stage=_STAGE_NAME,
-                plugin_id=_PLUGIN_ID,
-                capability_id=_CAPABILITY_ID,
-                evidence={
-                    "reader": "docx_openxml",
-                    "paragraph_count": len(paragraphs),
-                    "table_count": len(tables),
-                },
-            )
+    provenances.append(
+        ProvenanceRecord(
+            source_input_id=input_id,
+            stage=_STAGE_NAME,
+            plugin_id=_PLUGIN_ID,
+            capability_id=_CAPABILITY_ID,
+            evidence={
+                "reader": "docx_openxml",
+                "paragraph_count": len(paragraphs),
+                "table_count": len(tables),
+            },
         )
+    )
 
     full_text = "\n".join(paragraphs)
     canonical_doc = CanonicalDocument(
