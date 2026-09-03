@@ -102,15 +102,29 @@ class MukhaPresenter:
     @staticmethod
     def audit_capability_status(
         data_root: Path | None = None,
+        kosh: Any | None = None,
     ) -> dict[str, tuple[bool, str]]:
-        """Audit availability status of built-in capabilities without false promises.
+        """Audit availability status of capabilities without false promises.
 
+        When Kosh is provided, availability is projected from canonical registry state.
         Returns dict mapping capability_id -> (is_available, status_or_reason).
         """
+        from sarathi.sutra import get_canonical_data_root
+
+        if kosh is not None and hasattr(kosh, "has_capability"):
+            statuses: dict[str, tuple[bool, str]] = {}
+            for cap_id in ("read_native", "ocr", "bank_statements", "font_conversion", "translation"):
+                decl = kosh.get_capability(cap_id)
+                if decl is not None:
+                    statuses[cap_id] = (True, f"Ready ({decl.plugin_id})")
+                else:
+                    statuses[cap_id] = (False, "Not registered in Kosh")
+            return statuses
+
         import importlib.util
 
-        base_data = data_root or Path(__file__).resolve().parents[3] / "data"
-        statuses: dict[str, tuple[bool, str]] = {}
+        base_data = data_root or get_canonical_data_root()
+        statuses = {}
 
         # 1. Native Extraction
         statuses["read_native"] = (True, "Ready (Standard Extraction)")

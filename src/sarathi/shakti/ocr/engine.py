@@ -125,6 +125,21 @@ def deskew_image(image_arr: Any) -> tuple[Any, float]:
         return image_arr, 0.0
 
 
+def is_low_contrast_image(image_arr: Any, std_threshold: float = 40.0) -> bool:
+    """Check if image has low global contrast based on pixel intensity standard deviation."""
+    try:
+        import numpy as np
+
+        if not isinstance(image_arr, np.ndarray) or image_arr.size == 0:
+            return False
+        if len(image_arr.shape) == 3:
+            gray = 0.299 * image_arr[:, :, 0] + 0.587 * image_arr[:, :, 1] + 0.114 * image_arr[:, :, 2]
+            return float(np.std(gray)) < std_threshold
+        return float(np.std(image_arr)) < std_threshold
+    except Exception:
+        return False
+
+
 def apply_clahe(image_arr: Any, clip_limit: float = 2.0, tile_grid_size: tuple[int, int] = (8, 8)) -> Any:
     """Apply Contrast Limited Adaptive Histogram Equalization (CLAHE) if cv2 is available."""
     try:
@@ -617,7 +632,10 @@ class RapidOCREngine:
             else:
                 # Accurate / Custom: adaptive preprocessing where evidence supports it
                 deskew = custom_options.get("deskew", True) if custom_options else True
-                clahe = custom_options.get("clahe", True) if custom_options else True
+                if custom_options and "clahe" in custom_options:
+                    clahe = bool(custom_options["clahe"])
+                else:
+                    clahe = is_low_contrast_image(img_arr)
 
             # Stamp removal is destructive and strictly opt-in per Veda safety rules
             remove_stamps = bool(

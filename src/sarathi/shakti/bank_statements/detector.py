@@ -191,7 +191,7 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
     raw_acc_holder: str | None = None
     raw_ifsc: str | None = None
 
-    best_candidate: tuple[float, str, str, str | None, str | None, str | None, list[str]] | None = None
+    top_candidates: list[tuple[float, str, str, str | None, str | None, str | None, list[str]]] = []
 
     for prof in profiles:
         prof_id = prof.get("profile_id", "")
@@ -231,15 +231,29 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
                 cand_score += 0.1
                 cand_reasons.append(f"Extracted IFSC pattern: {m_ifsc_val}")
 
-        if best_candidate is None or cand_score > best_candidate[0]:
-            best_candidate = (cand_score, prof_id, bank_name, m_acc_val, m_holder_val, m_ifsc_val, cand_reasons)
+        cand_tuple = (cand_score, prof_id, bank_name, m_acc_val, m_holder_val, m_ifsc_val, cand_reasons)
+        if not top_candidates or cand_score > top_candidates[0][0]:
+            top_candidates = [cand_tuple]
+        elif cand_score == top_candidates[0][0]:
+            top_candidates.append(cand_tuple)
 
-    if best_candidate is not None:
-        cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons = (
-            best_candidate
-        )
-        score += cand_score
-        reasons.extend(cand_reasons)
+    if top_candidates:
+        if len(top_candidates) == 1:
+            cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons = (
+                top_candidates[0]
+            )
+            score += cand_score
+            reasons.extend(cand_reasons)
+        else:
+            # Exact tie between competing profiles: mark ambiguous, default to generic
+            tied_names = [c[1] for c in top_candidates]
+            cand_score = top_candidates[0][0]
+            matched_profile_id = "generic"
+            matched_bank_name = None
+            score += cand_score
+            reasons.append(
+                f"Ambiguous bank profiles with identical evidence score ({cand_score:.2f}): {tied_names}. Defaulted to generic profile."
+            )
 
     if score >= 0.5 and matched_profile_id is None:
         matched_profile_id = "generic"

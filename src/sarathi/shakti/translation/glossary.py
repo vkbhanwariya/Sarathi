@@ -19,13 +19,20 @@ _CANONICAL_GLOSSARY_DIR = get_canonical_data_root() / "translation"
 class GlossaryStore:
     """Loads and applies static domain glossaries."""
 
-    def __init__(self, glossary_dir: Path | None = None) -> None:
+    def __init__(self, glossary_dir: Path | None = None, strict: bool = False) -> None:
         self._dir = glossary_dir.resolve() if glossary_dir is not None else _CANONICAL_GLOSSARY_DIR
+        self._strict = strict
+        self._collisions: list[dict[str, str]] = []
         self._entries: dict[TranslationDirection, dict[str, str]] = {
             TranslationDirection.HI_TO_EN: {},
             TranslationDirection.EN_TO_HI: {},
         }
         self._load()
+
+    @property
+    def collisions(self) -> tuple[dict[str, str], ...]:
+        """Return all recorded source-term collisions across loaded glossaries."""
+        return tuple(self._collisions)
 
     def _load(self) -> None:
         # 1. Base canonical glossary.yaml if present
@@ -92,7 +99,21 @@ class GlossaryStore:
     def _add_term(self, direction: TranslationDirection, source: str, target: str) -> None:
         table = self._entries[direction]
         if source in table and table[source] != target:
-            # Preserve deterministic first-write on duplicate collision
+            coll = {
+                "direction": direction.value,
+                "source": source,
+                "existing_target": table[source],
+                "conflicting_target": target,
+            }
+            self._collisions.append(coll)
+            if self._strict:
+                raise DoshError(
+                    code=FailureCode.INVALID_CONFIGURATION,
+                    message=(
+                        f"Translation glossary conflict for '{source}' in direction '{direction.value}': "
+                        f"existing '{table[source]}' vs conflicting '{target}'"
+                    ),
+                )
             return
         table[source] = target
 

@@ -29,8 +29,11 @@ def _load_translation_anubhava(data_root: Path) -> dict[str, dict[str, str]]:
         return {}
     try:
         data = tomllib.loads(anubhava_file.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"Failed to parse translation Anubhava TOML: {anubhava_file.name}",
+        ) from exc
     corrections: dict[str, dict[str, str]] = {}
     for item in data.get("corrections", []):
         if isinstance(item, dict) and (
