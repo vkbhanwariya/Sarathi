@@ -26,7 +26,7 @@ from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
     TranslatorBackend,
 )
-from sarathi.shakti.translation.models import TranslationDirection
+from sarathi.shakti.translation.models import TranslationDirection, TranslationResult
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
 
@@ -141,13 +141,14 @@ class TranslationCapability:
                 else nullcontext()
             )
             with scope:
-                # 1. Translate main document text
-                t_res = self._engine.translate(full_text, direction=direction)
+                translation_cache: dict[str, TranslationResult] = {}
 
                 def _trans_text(raw: str) -> str:
                     if not raw or not raw.strip():
                         return raw
-                    return self._engine.translate(raw, direction=direction).translated_text
+                    if raw not in translation_cache:
+                        translation_cache[raw] = self._engine.translate(raw, direction=direction)
+                    return translation_cache[raw].translated_text
 
                 tgt_lang = "en" if direction == TranslationDirection.HI_TO_EN else "hi"
                 tgt_script = "Latn" if direction == TranslationDirection.HI_TO_EN else "Deva"
@@ -161,15 +162,30 @@ class TranslationCapability:
                 )
                 translated_docs.append(translated_doc)
 
+                primary_res = translation_cache.get(doc.text) or (
+                    next(iter(translation_cache.values())) if translation_cache else None
+                )
+                src_lang_val = (
+                    primary_res.source_language.value
+                    if primary_res
+                    else ("hi" if direction == TranslationDirection.HI_TO_EN else "en")
+                )
+                tgt_lang_val = (
+                    primary_res.target_language.value
+                    if primary_res
+                    else ("en" if direction == TranslationDirection.HI_TO_EN else "hi")
+                )
+                prot_count = sum(r.protected_spans_count for r in translation_cache.values())
+
                 prov = ProvenanceRecord(
                     source_input_id=doc.source_input_id,
                     capability_id="translation",
                     stage="translation",
                     evidence={
                         "direction": direction.value,
-                        "source_language": t_res.source_language.value,
-                        "target_language": t_res.target_language.value,
-                        "protected_spans_count": t_res.protected_spans_count,
+                        "source_language": src_lang_val,
+                        "target_language": tgt_lang_val,
+                        "protected_spans_count": prot_count,
                     },
                 )
                 provs.append(prov)
@@ -181,7 +197,7 @@ class TranslationCapability:
                         role="translated_text",
                         media_type="text/plain",
                     ),
-                    content=t_res.translated_text.encode("utf-8"),
+                    content=translated_doc.text.encode("utf-8"),
                 )
                 docx_payload = build_docx_payload(
                     doc=translated_doc,

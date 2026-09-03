@@ -298,10 +298,17 @@ def test_generic_arbitrary_capability_continuation(tmp_path: Path) -> None:
     alpha = AlphaCap()
     beta = BetaCap()
 
+    from sarathi.sankalpa import PluginInfo
+
     agni = Agni(
         runtime_root=tmp_path / "Runtime",
         output_root=tmp_path / "Output",
         input_root=tmp_path / "Input",
+        plugins=[
+            PluginInfo(plugin_id="plugin.init", name="Init", version="1.0.0", capabilities=("init_cap",)),
+            PluginInfo(plugin_id="plugin.alpha", name="Alpha", version="1.0.0", capabilities=("alpha_cap",)),
+            PluginInfo(plugin_id="plugin.beta", name="Beta", version="1.0.0", capabilities=("beta_cap",)),
+        ],
         capabilities={
             "init_cap": init,
             "alpha_cap": alpha,
