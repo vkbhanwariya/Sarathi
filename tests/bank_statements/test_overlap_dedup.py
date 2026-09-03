@@ -1,6 +1,6 @@
 """Tests for Overlapping Statement Period Deduplication and Sparse Balances."""
 
-from datetime import date
+from datetime import date, time
 from decimal import Decimal
 
 from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
@@ -149,19 +149,19 @@ def test_consolidate_statements_flattens_and_sorts_chronologically() -> None:
         transactions=(tx_jan5, tx_jan2, tx_invalid),
     )
 
-    tx_jan3_late_post = Transaction(
+    tx_jan3_early = Transaction(
         transaction_date=date(2026, 1, 3),
-        posting_date=date(2026, 1, 4),
-        description="Jan 3 Late Posting",
+        transaction_time=time(10, 30),
+        description="Jan 3 Early Tx",
         bank_name="SBI",
         debit=Decimal("50.00"),
         sequence_id=1,
         account_identity=ident,
     )
-    tx_jan3_same_post = Transaction(
+    tx_jan3_late = Transaction(
         transaction_date=date(2026, 1, 3),
-        posting_date=date(2026, 1, 3),
-        description="Jan 3 Same Day Posting",
+        transaction_time=time(15, 45),
+        description="Jan 3 Late Tx",
         bank_name="SBI",
         credit=Decimal("300.00"),
         sequence_id=2,
@@ -171,13 +171,13 @@ def test_consolidate_statements_flattens_and_sorts_chronologically() -> None:
         bank_name="SBI",
         bank_profile="sbi",
         account_identity=ident,
-        transactions=(tx_jan3_late_post, tx_jan3_same_post),
+        transactions=(tx_jan3_late, tx_jan3_early),
     )
 
     res = consolidate_statements([stmt1, stmt2])
     # tx_invalid excluded from valid transactions
     assert len(res.transactions) == 4
     assert res.transactions[0].description == "Jan 2 Tx"
-    assert res.transactions[1].description == "Jan 3 Same Day Posting"
-    assert res.transactions[2].description == "Jan 3 Late Posting"
+    assert res.transactions[1].description == "Jan 3 Early Tx"
+    assert res.transactions[2].description == "Jan 3 Late Tx"
     assert res.transactions[3].description == "Jan 5 Tx"

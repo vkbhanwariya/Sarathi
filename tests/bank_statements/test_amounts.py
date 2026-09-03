@@ -33,6 +33,6 @@ def test_parse_empty_and_null_amounts() -> None:
     assert parse_decimal_amount("nil") is None
 
 
-def test_parse_invalid_amount_raises_error() -> None:
-    with pytest.raises(ValueError):
-        parse_decimal_amount("invalid_non_numeric_amount")
+def test_parse_invalid_amount_returns_none() -> None:
+    """Per Bank Veda, unparseable amounts stay unresolved (None) rather than raising or defaulting."""
+    assert parse_decimal_amount("invalid_non_numeric_amount") is None

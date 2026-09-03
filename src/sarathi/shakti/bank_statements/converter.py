@@ -41,8 +41,9 @@ def parse_decimal_amount(raw_val: Any) -> Decimal | None:
             try:
                 amt = Decimal(cleaned_num)
                 return -amt if is_negative else amt
-            except InvalidOperation as err:
-                raise ValueError(f"Failed to parse monetary Decimal amount from {raw_val!r}.") from err
+            except InvalidOperation:
+                # Per Bank Veda: failed parsing stays unresolved / None, never silently converted or raised
+                return None
         case _:
             return parse_decimal_amount(str(raw_val))
 

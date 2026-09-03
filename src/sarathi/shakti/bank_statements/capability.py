@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 from contextlib import nullcontext
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Sequence
@@ -244,23 +245,7 @@ class BankStatementCapability:
                             if cont_text:
                                 prev = raw_txns[-1]
                                 updated_desc = f"{prev.description} {cont_text}".strip()
-                                raw_txns[-1] = Transaction(
-                                    transaction_date=prev.transaction_date,
-                                    description=updated_desc,
-                                    bank_name=prev.bank_name,
-                                    transaction_time=prev.transaction_time,
-                                    reference_number=prev.reference_number,
-                                    cheque_number=prev.cheque_number,
-                                    debit=prev.debit,
-                                    credit=prev.credit,
-                                    running_balance=prev.running_balance,
-                                    account_identity=prev.account_identity,
-                                    currency=prev.currency,
-                                    status=prev.status,
-                                    issues=prev.issues,
-                                    provenance=prev.provenance,
-                                    metadata=prev.metadata,
-                                )
+                                raw_txns[-1] = replace(prev, description=updated_desc)
                     case RowType.TRANSACTION:
                         tx_date = parse_date(_get_cell(row_cells, d_col))
                         # Inherit date from previous transaction if row has financial figures but lacks a date
@@ -330,6 +315,7 @@ class BankStatementCapability:
                                     status=tx_status,
                                     issues=tuple(tx_issues),
                                     provenance=(prov,),
+                                    sequence_id=row_idx,
                                 )
                             )
 

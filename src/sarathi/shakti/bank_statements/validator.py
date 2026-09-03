@@ -8,6 +8,7 @@ Validates:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 from sarathi.shakti.bank_statements.models import (
@@ -59,9 +60,17 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
     if not transactions:
         return statement
 
-    # Check if transactions appear in reverse chronological order
-    is_reverse = len(transactions) >= 2 and all(
-        transactions[i].transaction_date >= transactions[i + 1].transaction_date for i in range(len(transactions) - 1)
+    # Check if transactions appear in reverse chronological order (strictly descending dates required)
+    has_strictly_descending = any(
+        transactions[i].transaction_date > transactions[i + 1].transaction_date for i in range(len(transactions) - 1)
+    )
+    is_reverse = (
+        len(transactions) >= 2
+        and has_strictly_descending
+        and all(
+            transactions[i].transaction_date >= transactions[i + 1].transaction_date
+            for i in range(len(transactions) - 1)
+        )
     )
 
     total_debits = sum((tx.debit or Decimal("0") for tx in transactions), Decimal("0"))
@@ -108,27 +117,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
         statement_issues.extend(issues)
         combined_tx_issues = tuple(list(tx.issues) + [i for i in issues if i not in tx.issues])
         validated_transactions.append(
-            Transaction(
-                transaction_date=tx.transaction_date,
-                description=tx.description,
-                bank_name=tx.bank_name,
-                transaction_time=tx.transaction_time,
-                reference_number=tx.reference_number,
-                cheque_number=tx.cheque_number,
-                debit=tx.debit,
-                credit=tx.credit,
-                running_balance=tx.running_balance,
-                account_identity=tx.account_identity,
-                currency=tx.currency,
-                status=tx_status,
-                issues=combined_tx_issues,
-                provenance=tx.provenance,
-                metadata=tx.metadata,
-                posting_date=tx.posting_date,
-                value_date=tx.value_date,
-                transaction_datetime=tx.transaction_datetime,
-                sequence_id=tx.sequence_id,
-            )
+            replace(tx, status=tx_status, issues=combined_tx_issues)
         )
 
     # Re-order back to original presentation order
@@ -156,21 +145,14 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
             )
 
     overall_status = ValidationStatus.VALID
-    if any(t.status == ValidationStatus.WARNING for t in final_txns) or statement_issues:
+    if any(t.status == ValidationStatus.INVALID for t in final_txns):
+        overall_status = ValidationStatus.INVALID
+    elif any(t.status == ValidationStatus.WARNING for t in final_txns) or statement_issues:
         overall_status = ValidationStatus.WARNING
 
-    return BankStatement(
-        bank_name=statement.bank_name,
-        bank_profile=statement.bank_profile,
-        account_identity=statement.account_identity,
-        statement_period_start=statement.statement_period_start,
-        statement_period_end=statement.statement_period_end,
-        opening_balance=statement.opening_balance,
-        closing_balance=statement.closing_balance,
-        currency=statement.currency,
+    return replace(
+        statement,
         transactions=tuple(final_txns),
         status=overall_status,
         issues=tuple(statement_issues),
-        provenance=statement.provenance,
-        metadata=statement.metadata,
     )
