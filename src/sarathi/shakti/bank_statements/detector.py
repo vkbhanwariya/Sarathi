@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from sarathi.sankalpa import CanonicalDocument
+from sarathi.shakti.bank_statements.mapper import load_bank_profile_yaml
 from sarathi.shakti.bank_statements.models import AccountIdentity, create_account_identity
 
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
@@ -23,30 +24,38 @@ _TABLE_HEADER_SCORE = 0.4
 _ACCOUNT_METADATA_SCORE = 0.3
 
 _BANK_INDICATORS = {
+    "account number",
     "account statement",
     "statement of account",
     "bank statement",
     "transaction details",
-    "account summary",
-    "statement period",
-    "opening balance",
+    "available balance",
     "closing balance",
-    "clear balance",
-    "drawing power",
-    "mod balance",
-    "cif no",
-    "ifsc code",
-    "micr code",
-    "nomination",
+    "opening balance",
+    "debit",
+    "credit",
+    "cheque no",
+    "withdrawal",
+    "deposit",
+    "ifsc",
+    "micr",
+    "branch",
+    "value date",
+    "particulars",
 }
 
 _NON_BANK_INDICATORS = {
+    "invoice",
+    "bill to",
+    "ship to",
     "tax invoice",
-    "bill of supply",
-    "invoice number",
-    "loan amortisation schedule",
-    "repayment schedule",
+    "purchase order",
     "credit card statement",
+    "payment receipt",
+    "delivery challan",
+    "bill of supply",
+    "loan account statement",
+    "total amount due",
     "minimum amount due",
     "credit limit",
     "available credit",
@@ -65,6 +74,7 @@ class DetectionEvidence:
     account_identity: AccountIdentity | None
     matched_keywords: tuple[str, ...]
     reasons: tuple[str, ...]
+    ifsc: str | None = None
 
 
 def load_bank_profiles(banks_dir: Path | None = None) -> list[dict[str, Any]]:
@@ -74,15 +84,12 @@ def load_bank_profiles(banks_dir: Path | None = None) -> list[dict[str, Any]]:
         return []
 
     profiles = []
-    for yaml_file in target_dir.glob("*.yaml"):
+    for yaml_file in sorted(target_dir.glob("*.yaml")):
         if yaml_file.name == "common.yaml":
             continue
-        try:
-            data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "profile_id" in data:
-                profiles.append(data)
-        except (OSError, yaml.YAMLError):
-            continue
+        data = load_bank_profile_yaml(yaml_file)
+        if isinstance(data, dict) and "profile_id" in data:
+            profiles.append(data)
     return profiles
 
 
@@ -176,37 +183,62 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
         score += _TABLE_HEADER_SCORE
         reasons.append("Detected valid transaction table headers with Date and Debit/Credit/Balance columns.")
 
-    # 3. Bank Profile Identification
+    # 3. Bank Profile Identification via multi-signal best-match evidence scoring
     matched_profile_id: str | None = None
     matched_bank_name: str | None = None
     raw_acc_num: str | None = None
     raw_acc_holder: str | None = None
+    raw_ifsc: str | None = None
+
+    best_candidate: tuple[float, str, str, str | None, str | None, str | None, list[str]] | None = None
 
     for prof in profiles:
+        prof_id = prof.get("profile_id", "")
+        bank_name = prof.get("bank_name", prof_id)
         all_kw = prof.get("identification_keywords", []) + prof.get("aliases", [])
         matches = [kw for kw in all_kw if kw.lower() in full_text]
-        if matches:
-            matched_profile_id = prof.get("profile_id")
-            matched_bank_name = prof.get("bank_name")
-            score += 0.2
-            reasons.append(f"Matched bank profile '{matched_profile_id}' ({matched_bank_name}) on keywords {matches}.")
+        if not matches:
+            continue
 
-            patterns = prof.get("metadata_patterns", {})
-            search_target = composite_raw if composite_raw.strip() else document.text
-            if "account_number" in patterns:
-                m_acc = re.search(patterns["account_number"], search_target, re.IGNORECASE)
-                if m_acc:
-                    raw_acc_num = m_acc.group(1).strip()
-                    score += 0.1
-                    reasons.append("Extracted account number pattern.")
+        cand_score = min(0.4, 0.15 * len(matches))
+        cand_reasons = [f"Matched bank profile '{prof_id}' ({bank_name}) on keywords {matches[:4]}."]
 
-            if "account_holder" in patterns:
-                m_holder = re.search(patterns["account_holder"], search_target, re.IGNORECASE)
-                if m_holder:
-                    raw_acc_holder = m_holder.group(1).strip()
-                    score += 0.1
-                    reasons.append("Extracted account holder pattern.")
-            break
+        patterns = prof.get("metadata_patterns", {})
+        search_target = composite_raw if composite_raw.strip() else document.text
+
+        m_acc_val: str | None = None
+        if "account_number" in patterns:
+            m_acc = re.search(patterns["account_number"], search_target, re.IGNORECASE)
+            if m_acc:
+                m_acc_val = m_acc.group(1).strip()
+                cand_score += 0.2
+                cand_reasons.append("Extracted account number pattern.")
+
+        m_holder_val: str | None = None
+        if "account_holder" in patterns:
+            m_holder = re.search(patterns["account_holder"], search_target, re.IGNORECASE)
+            if m_holder:
+                m_holder_val = m_holder.group(1).strip()
+                cand_score += 0.1
+                cand_reasons.append("Extracted account holder pattern.")
+
+        m_ifsc_val: str | None = None
+        if "ifsc" in patterns:
+            m_ifsc = re.search(patterns["ifsc"], search_target, re.IGNORECASE)
+            if m_ifsc:
+                m_ifsc_val = m_ifsc.group(1).strip()
+                cand_score += 0.1
+                cand_reasons.append(f"Extracted IFSC pattern: {m_ifsc_val}")
+
+        if best_candidate is None or cand_score > best_candidate[0]:
+            best_candidate = (cand_score, prof_id, bank_name, m_acc_val, m_holder_val, m_ifsc_val, cand_reasons)
+
+    if best_candidate is not None:
+        cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons = (
+            best_candidate
+        )
+        score += cand_score
+        reasons.extend(cand_reasons)
 
     if score >= 0.5 and matched_profile_id is None:
         matched_profile_id = "generic"
@@ -219,6 +251,7 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
             raw_account_number=raw_acc_num,
             account_holder=raw_acc_holder,
             bank_profile=matched_profile_id,
+            ifsc=raw_ifsc,
         )
 
     return DetectionEvidence(
@@ -229,4 +262,5 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
         account_identity=account_identity,
         matched_keywords=tuple(matched_keywords),
         reasons=tuple(reasons),
+        ifsc=raw_ifsc,
     )

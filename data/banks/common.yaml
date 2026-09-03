@@ -7,11 +7,20 @@ aliases:
     - "tran date"
     - "post date"
     - "posting date"
+    - "दिनांक"
+    - "तारीख"
+  value_date:
     - "value date"
     - "val date"
     - "value dt"
-    - "दिनांक"
-    - "तारीख"
+    - "val. date"
+    - "value dte"
+  time:
+    - "time"
+    - "txn time"
+    - "transaction time"
+    - "সময়"
+    - "समय"
   description:
     - "narration"
     - "description"

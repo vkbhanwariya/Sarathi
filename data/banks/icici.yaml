@@ -17,15 +17,19 @@ headers:
   date:
     - "date"
     - "transaction date"
+  value_date:
     - "value date"
   description:
     - "particulars"
     - "description"
     - "transaction remarks"
   reference_number:
+    - "ref no"
+    - "reference no"
+    - "reference number"
+  cheque_number:
     - "cheque no."
     - "chq no"
-    - "ref no"
     - "cheque number"
   debit:
     - "withdrawals"

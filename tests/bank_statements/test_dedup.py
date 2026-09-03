@@ -80,6 +80,7 @@ def test_deduplicate_merges_provenance_on_drop() -> None:
         description="Salary Credit",
         bank_name="HDFC Bank",
         account_identity=ident,
+        reference_number="SAL20260101",
         credit=Decimal("75000.00"),
         provenance=(p1,),
     )
@@ -88,6 +89,7 @@ def test_deduplicate_merges_provenance_on_drop() -> None:
         description="Salary Credit",
         bank_name="HDFC Bank",
         account_identity=ident,
+        reference_number="SAL20260101",
         credit=Decimal("75000.00"),
         provenance=(p2,),
     )
@@ -95,7 +97,35 @@ def test_deduplicate_merges_provenance_on_drop() -> None:
     res = deduplicate_transactions([tx1, tx2])
     assert len(res.unique_transactions) == 1
     assert len(res.duplicates) == 1
+    assert res.duplicates[0][2] == DuplicateDecision.PROVEN_DUPLICATE
     surviving = res.unique_transactions[0]
     assert len(surviving.provenance) == 2
     assert p1 in surviving.provenance
     assert p2 in surviving.provenance
+
+
+def test_deduplicate_probable_retains_both_transactions() -> None:
+    """Without reference or running balance, matching date/amount/narration is PROBABLE and retains both."""
+    ident = create_account_identity("HDFC Bank", "5010099999")
+    tx1 = Transaction(
+        transaction_date=date(2026, 1, 1),
+        description="ATM Cash Withdrawal",
+        bank_name="HDFC Bank",
+        account_identity=ident,
+        debit=Decimal("5000.00"),
+    )
+    tx2 = Transaction(
+        transaction_date=date(2026, 1, 1),
+        description="ATM Cash Withdrawal",
+        bank_name="HDFC Bank",
+        account_identity=ident,
+        debit=Decimal("5000.00"),
+    )
+
+    res = deduplicate_transactions([tx1, tx2])
+    # Both transactions are preserved per Bank Veda
+    assert len(res.unique_transactions) == 2
+    assert len(res.duplicates) == 1
+    assert res.duplicates[0][2] == DuplicateDecision.PROBABLE_DUPLICATE
+    # Second transaction receives warning issue
+    assert any(iss.code == "PROBABLE_DUPLICATE_TRANSACTION" for iss in res.unique_transactions[1].issues)
