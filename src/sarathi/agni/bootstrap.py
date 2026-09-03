@@ -265,6 +265,10 @@ class Agni:
 
         # Yantra & Manthan
         self._yantra: Yantra = Yantra(self._inventory, darpana=self._darpana)
+        for cap in self._capabilities.values():
+            if hasattr(cap, "_yantra") and getattr(cap, "_yantra") is None:
+                object.__setattr__(cap, "_yantra", self._yantra)
+
         self._manthan: Manthan = Manthan(registry=self._kosh)
 
         # Prana & QuarantineStore

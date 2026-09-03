@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -24,6 +24,9 @@ from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 
+if TYPE_CHECKING:
+    from sarathi.yantra import Yantra
+
 
 def _is_usable_document(doc: CanonicalDocument) -> bool:
     """Check whether a CanonicalDocument contains usable text or table data."""
@@ -42,9 +45,11 @@ class OCRCapability:
         declaration: CapabilityDeclaration = CAPABILITY_DECLARATION,
         engine: RapidOCREngine | None = None,
         data_root: Path | None = None,
+        yantra: Yantra | None = None,
     ) -> None:
         self.declaration: CapabilityDeclaration = declaration
         self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine(data_root=data_root)
+        self._yantra: Yantra | None = yantra
 
     def execute(
         self,
@@ -150,55 +155,58 @@ class OCRCapability:
                 progress_cb = request.custom_options["progress_callback"]
 
             # Perform OCR on each page image
-            # If multiple pages and running on real engine, execute concurrently with thread-local engines
+            # If multiple pages and Yantra is available, execute concurrently via Yantra's bounded executor
             pages = []
-            if len(images) > 1 and self._engine._engine is None:
-                import os
+            if len(images) > 1 and self._engine._engine is None and self._yantra is not None:
                 import threading
-                from concurrent.futures import ThreadPoolExecutor
 
                 thread_local = threading.local()
 
                 def _get_worker_engine() -> RapidOCREngine:
                     if not hasattr(thread_local, "engine"):
-                        thread_local.engine = RapidOCREngine(
-                            data_root=self._engine._data_root,
-                            tesseract_adapter=self._engine._tesseract,
-                            default_lang=self._engine._default_lang,
-                        )
+                        if type(self._engine) is RapidOCREngine:
+                            thread_local.engine = RapidOCREngine(
+                                data_root=self._engine._data_root,
+                                tesseract_adapter=self._engine._tesseract,
+                                default_lang=self._engine._default_lang,
+                            )
+                        else:
+                            thread_local.engine = self._engine
                     return thread_local.engine
 
-                def _process_page(item: tuple[int, Any]) -> tuple[int, PageData, ProvenanceRecord, list[WarningRecord]]:
-                    p_idx, p_img = item
-                    if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-                        context.cancellation_token.check_cancelled()
+                def _make_page_task(
+                    p_idx: int, p_img: Any
+                ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
+                    def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
+                        if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                            context.cancellation_token.check_cancelled()
 
-                    w_id = str(threading.get_ident() % 1000)
-                    if progress_cb is not None:
-                        progress_cb(
-                            file_display_name=inp.display_name,
-                            page_number=p_idx,
-                            total_pages=len(images),
-                            worker_id=w_id,
-                            stage="Optical Character Recognition (OCR)",
+                        w_id = str(threading.get_ident() % 1000)
+                        if progress_cb is not None:
+                            progress_cb(
+                                file_display_name=inp.display_name,
+                                page_number=p_idx,
+                                total_pages=len(images),
+                                worker_id=w_id,
+                                stage="Optical Character Recognition (OCR)",
+                            )
+
+                        eng = _get_worker_engine()
+                        p_data, p_prov, _, p_warns = eng.ocr_page(
+                            p_img,
+                            p_idx,
+                            inp.input_id,
+                            profile=request.profile,
+                            custom_options=request.custom_options,
+                            execution_binding=context.execution_binding,
                         )
+                        return p_data, p_prov, p_warns
 
-                    eng = _get_worker_engine()
-                    p_data, p_prov, _, p_warns = eng.ocr_page(
-                        p_img,
-                        p_idx,
-                        inp.input_id,
-                        profile=request.profile,
-                        custom_options=request.custom_options,
-                    )
-                    return p_idx, p_data, p_prov, p_warns
+                    return _task
 
-                max_workers = min(len(images), max(1, min(4, os.cpu_count() or 4)))
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures_results = list(executor.map(_process_page, enumerate(images, 1)))
-
-                futures_results.sort(key=lambda r: r[0])
-                for _, page_data, prov, page_warnings in futures_results:
+                subtasks = [_make_page_task(p_idx, p_img) for p_idx, p_img in enumerate(images, 1)]
+                page_results = self._yantra.execute_subtasks(subtasks, context=context)
+                for page_data, prov, page_warnings in page_results:
                     pages.append(page_data)
                     all_provenance.append(prov)
                     all_warnings.extend(page_warnings)
@@ -222,6 +230,7 @@ class OCRCapability:
                         inp.input_id,
                         profile=request.profile,
                         custom_options=request.custom_options,
+                        execution_binding=context.execution_binding,
                     )
                     pages.append(page_data)
                     all_provenance.append(prov)
