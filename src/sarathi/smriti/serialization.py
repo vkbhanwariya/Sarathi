@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -16,6 +17,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Result,
     TableData,
+    TextSpan,
     WarningRecord,
 )
 
@@ -49,6 +51,17 @@ def serialize_result(result: Result) -> str:
                 "page_number": p.page_number,
                 "text": p.text,
                 "metadata": dict(p.metadata),
+                "spans": [
+                    {
+                        "text": s.text,
+                        "confidence": s.confidence,
+                        "bounding_box": list(s.bounding_box) if s.bounding_box is not None else None,
+                        "language": s.language,
+                        "script": s.script,
+                        "metadata": dict(s.metadata),
+                    }
+                    for s in p.spans
+                ],
                 "tables": [
                     {
                         "name": t.name,
@@ -80,6 +93,7 @@ def serialize_result(result: Result) -> str:
                     "name": p.intent.name,
                     "role": p.intent.role,
                     "media_type": p.intent.media_type,
+                    "relative_path": str(p.intent.relative_path) if p.intent.relative_path is not None else None,
                     "metadata": dict(p.intent.metadata),
                 },
                 "content_b64": base64.b64encode(p.content).decode("ascii"),
@@ -142,6 +156,17 @@ def deserialize_result(json_str: str) -> Result:
     d = raw["data"]
     pages = []
     for p in d.get("pages", []):
+        p_spans = [
+            TextSpan(
+                text=s["text"],
+                confidence=s.get("confidence"),
+                bounding_box=tuple(s["bounding_box"]) if s.get("bounding_box") is not None else None,
+                language=s.get("language"),
+                script=s.get("script"),
+                metadata=MappingProxyType(s.get("metadata", {})),
+            )
+            for s in p.get("spans", [])
+        ]
         p_tables = [
             TableData(
                 name=t["name"],
@@ -155,6 +180,7 @@ def deserialize_result(json_str: str) -> Result:
             PageData(
                 page_number=p["page_number"],
                 text=p["text"],
+                spans=tuple(p_spans),
                 tables=tuple(p_tables),
                 metadata=MappingProxyType(p.get("metadata", {})),
             )
@@ -180,18 +206,22 @@ def deserialize_result(json_str: str) -> Result:
         metadata=MappingProxyType(d.get("metadata", {})),
     )
 
-    payloads = [
-        ArtifactPayload(
-            intent=ArtifactIntent(
-                name=p["intent"]["name"],
-                role=p["intent"]["role"],
-                media_type=p["intent"]["media_type"],
-                metadata=MappingProxyType(p["intent"].get("metadata", {})),
-            ),
-            content=base64.b64decode(p["content_b64"].encode("ascii")),
+    payloads = []
+    for p in raw.get("artifact_payloads", []):
+        intent_dict = p.get("intent", {})
+        rel_path = intent_dict.get("relative_path")
+        payloads.append(
+            ArtifactPayload(
+                intent=ArtifactIntent(
+                    name=intent_dict["name"],
+                    role=intent_dict["role"],
+                    media_type=intent_dict["media_type"],
+                    relative_path=Path(rel_path) if rel_path else None,
+                    metadata=MappingProxyType(intent_dict.get("metadata", {})),
+                ),
+                content=base64.b64decode(p["content_b64"].encode("ascii")),
+            )
         )
-        for p in raw.get("artifact_payloads", [])
-    ]
 
     warns = [
         WarningRecord(

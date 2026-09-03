@@ -17,6 +17,7 @@ from sarathi.sankalpa import (
     Request,
     Result,
     TableData,
+    WarningRecord,
 )
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.translation.detector import LanguageDetector

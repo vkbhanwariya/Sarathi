@@ -564,7 +564,11 @@ class Pravaha:
                             current_ctx.cancellation_token.check_cancelled()
 
                         if self._smriti is not None and cache_key is not None:
-                            self._smriti.put(cache_key, prior_result)
+                            try:
+                                self._smriti.put(cache_key, prior_result)
+                            except Exception:
+                                # Auxiliary cache write failure must not fail successful capability execution
+                                pass
 
                         self._record_pramana_if_available(cap, prior_result, current_ctx)
 
@@ -647,7 +651,11 @@ class Pravaha:
                                 )
                                 prior_result = retry_res
                                 if self._smriti is not None and cache_key is not None:
-                                    self._smriti.put(cache_key, prior_result)
+                                    try:
+                                        self._smriti.put(cache_key, prior_result)
+                                    except Exception:
+                                        # Auxiliary cache write failure must not fail successful capability execution
+                                        pass
                                 break
                             except DoshError as retry_err:
                                 last_err = retry_err
