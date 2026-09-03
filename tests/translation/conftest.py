@@ -43,8 +43,11 @@ class DeterministicTestBackend:
                 tgt = item["target"].strip()
 
                 norm_src = _slotize(src)
+                from sarathi.shakti.translation.glossary import GlossaryStore
+                glossary = GlossaryStore()
+                glossary_src = _slotize(glossary.apply_glossary(src, direction))
 
-                if norm_s == norm_src or s.strip() == src:
+                if norm_s == norm_src or s.strip() == src or norm_s == glossary_src or s.strip() == glossary.apply_glossary(src, direction).strip():
                     norm_tgt = _slotize(tgt)
                     out_sent = norm_tgt
                     for p in placeholders:
