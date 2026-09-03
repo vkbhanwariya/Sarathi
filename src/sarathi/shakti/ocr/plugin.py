@@ -30,6 +30,6 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     ),
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.CPU,),
-        supported_devices=(DeviceType.CPU,),
+        supported_devices=(DeviceType.CPU, DeviceType.GPU),
     ),
 )
