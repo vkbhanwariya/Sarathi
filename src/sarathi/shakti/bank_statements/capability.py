@@ -25,7 +25,11 @@ from sarathi.shakti.bank_statements.consolidator import (
     build_xlsx_artifact,
     consolidate_statements,
 )
-from sarathi.shakti.bank_statements.converter import parse_date, parse_decimal_amount
+from sarathi.shakti.bank_statements.converter import (
+    parse_date,
+    parse_decimal_amount,
+    parse_time,
+)
 from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.detector import detect_bank_statement, load_bank_profiles
 from sarathi.shakti.bank_statements.mapper import HeaderMapper
@@ -137,6 +141,9 @@ class BankStatementCapability:
                     bank_name=detection.bank_name or "Unknown Bank",
                     bank_profile=detection.matched_profile or "generic",
                     account_identity=detection.account_identity,
+                    ifsc=detection.ifsc or (detection.account_identity.ifsc if detection.account_identity else None),
+                    account_holder=detection.account_identity.account_holder if detection.account_identity else None,
+                    account_type=detection.account_identity.account_type if detection.account_identity else None,
                     opening_balance=open_bal,
                     closing_balance=close_bal,
                     transactions=dedup_res.unique_transactions,
@@ -221,6 +228,7 @@ class BankStatementCapability:
                 m.canonical_field: m.column_index for m in self._mapper.map_headers(hdr_cells, profile_id=profile_id)
             }
             d_col, desc_col = mappings.get("date"), mappings.get("description")
+            val_date_col, time_col = mappings.get("value_date"), mappings.get("time")
             dr_col, cr_col = mappings.get("debit"), mappings.get("credit")
             amt_col, dir_col = mappings.get("amount"), mappings.get("direction")
             b_col = mappings.get("balance")
@@ -230,94 +238,118 @@ class BankStatementCapability:
                 continue
 
             amt_indices = [c for c in (dr_col, cr_col, amt_col, b_col) if c is not None]
+            table_txns: list[Transaction] = []
+
             for row_idx, row in enumerate(data_rows, start=1):
                 row_cells = [str(c) for c in row]
                 match classify_row(row_cells, date_col_idx=d_col, amount_col_indices=amt_indices):
                     case RowType.OPENING_BALANCE:
-                        open_bal = parse_decimal_amount(_get_cell(row_cells, b_col)) or open_bal
+                        parsed_open = parse_decimal_amount(_get_cell(row_cells, b_col))
+                        if parsed_open is not None:
+                            open_bal = parsed_open
                     case RowType.CLOSING_BALANCE:
-                        close_bal = parse_decimal_amount(_get_cell(row_cells, b_col)) or close_bal
+                        parsed_close = parse_decimal_amount(_get_cell(row_cells, b_col))
+                        if parsed_close is not None:
+                            close_bal = parsed_close
                     case RowType.CONTINUATION:
-                        if raw_txns:
+                        target_list = table_txns if table_txns else raw_txns
+                        if target_list:
                             cont_text = _get_cell(row_cells, desc_col) or " ".join(
                                 c.strip() for c in row_cells if c.strip()
                             )
                             if cont_text:
-                                prev = raw_txns[-1]
+                                prev = target_list[-1]
                                 updated_desc = f"{prev.description} {cont_text}".strip()
-                                raw_txns[-1] = replace(prev, description=updated_desc)
+                                target_list[-1] = replace(prev, description=updated_desc)
+                                if target_list is table_txns and raw_txns:
+                                    raw_txns[-1] = target_list[-1]
                     case RowType.TRANSACTION:
                         tx_date = parse_date(_get_cell(row_cells, d_col))
-                        # Inherit date from previous transaction if row has financial figures but lacks a date
-                        if tx_date is None and raw_txns:
-                            tx_date = raw_txns[-1].transaction_date
+                        # Inherit date from previous transaction ONLY within the same table
+                        if tx_date is None and table_txns:
+                            tx_date = table_txns[-1].transaction_date
 
-                        if tx_date is not None:
-                            tx_debit = parse_decimal_amount(_get_cell(row_cells, dr_col))
-                            tx_credit = parse_decimal_amount(_get_cell(row_cells, cr_col))
-                            tx_bal = parse_decimal_amount(_get_cell(row_cells, b_col))
-
-                            # Handle single amount column with strict explicit direction or signed semantics
-                            if tx_debit is None and tx_credit is None and amt_col is not None:
-                                parsed_amt = parse_decimal_amount(_get_cell(row_cells, amt_col))
-                                raw_dir = _get_cell(row_cells, dir_col)
-                                norm_dir = raw_dir.lower().strip() if raw_dir else ""
-
-                                if norm_dir in _EXPLICIT_DR_INDICATORS:
-                                    tx_debit = abs(parsed_amt) if parsed_amt is not None else None
-                                    tx_credit = None
-                                elif norm_dir in _EXPLICIT_CR_INDICATORS:
-                                    tx_credit = abs(parsed_amt) if parsed_amt is not None else None
-                                    tx_debit = None
-                                elif has_signed_semantics and parsed_amt is not None:
-                                    if parsed_amt < Decimal("0"):
-                                        tx_debit = abs(parsed_amt)
-                                        tx_credit = None
-                                    elif parsed_amt > Decimal("0"):
-                                        tx_credit = parsed_amt
-                                        tx_debit = None
-                                else:
-                                    # Direction absent or ambiguous: do NOT guess financial direction
-                                    tx_debit = None
-                                    tx_credit = None
-
-                            tx_status = ValidationStatus.VALID
-                            tx_issues: list[ValidationIssue] = []
-                            if tx_debit is None and tx_credit is None:
-                                tx_status = ValidationStatus.INVALID
-                                tx_iss = ValidationIssue(
-                                    code="MISSING_AMOUNT",
-                                    message=f"Row {row_idx}: Transaction amount direction could not be determined.",
-                                    severity="error",
-                                    context={"row_index": row_idx},
-                                )
-                                tx_issues.append(tx_iss)
-                                issues.append(tx_iss)
-
-                            prov = ProvenanceRecord(
-                                source_input_id=doc.source_input_id,
-                                capability_id="bank_statements",
-                                stage="bank_extraction",
-                                page_number=page_num,
-                                evidence={"row_index": row_idx},
+                        if tx_date is None:
+                            # Financial row has no date and cannot inherit: record explicit issue
+                            iss = ValidationIssue(
+                                code="MISSING_TRANSACTION_DATE",
+                                message=f"Row {row_idx}: Transaction row lacks a valid date and has no predecessor in table to inherit from.",
+                                severity="error",
+                                context={"row_index": row_idx, "page_number": page_num},
                             )
-                            raw_txns.append(
-                                Transaction(
-                                    transaction_date=tx_date,
-                                    description=_get_cell(row_cells, desc_col) or "",
-                                    bank_name=bank_name,
-                                    reference_number=_get_cell(row_cells, ref_col),
-                                    cheque_number=_get_cell(row_cells, chq_col),
-                                    debit=tx_debit,
-                                    credit=tx_credit,
-                                    running_balance=tx_bal,
-                                    account_identity=account_identity,
-                                    status=tx_status,
-                                    issues=tuple(tx_issues),
-                                    provenance=(prov,),
-                                    sequence_id=row_idx,
-                                )
+                            issues.append(iss)
+                            continue
+
+                        tx_time = parse_time(_get_cell(row_cells, time_col)) if time_col is not None else None
+                        tx_val_date = parse_date(_get_cell(row_cells, val_date_col)) if val_date_col is not None else None
+
+                        tx_debit = parse_decimal_amount(_get_cell(row_cells, dr_col))
+                        tx_credit = parse_decimal_amount(_get_cell(row_cells, cr_col))
+                        tx_bal = parse_decimal_amount(_get_cell(row_cells, b_col))
+
+                        # Handle single amount column with strict explicit direction or signed semantics
+                        if tx_debit is None and tx_credit is None and amt_col is not None:
+                            parsed_amt = parse_decimal_amount(_get_cell(row_cells, amt_col))
+                            raw_dir = _get_cell(row_cells, dir_col)
+                            norm_dir = raw_dir.lower().strip() if raw_dir else ""
+
+                            if norm_dir in _EXPLICIT_DR_INDICATORS:
+                                tx_debit = abs(parsed_amt) if parsed_amt is not None else None
+                                tx_credit = None
+                            elif norm_dir in _EXPLICIT_CR_INDICATORS:
+                                tx_credit = abs(parsed_amt) if parsed_amt is not None else None
+                                tx_debit = None
+                            elif has_signed_semantics and parsed_amt is not None:
+                                if parsed_amt < Decimal("0"):
+                                    tx_debit = abs(parsed_amt)
+                                    tx_credit = None
+                                elif parsed_amt > Decimal("0"):
+                                    tx_credit = parsed_amt
+                                    tx_debit = None
+                            else:
+                                # Direction absent or ambiguous: do NOT guess financial direction
+                                tx_debit = None
+                                tx_credit = None
+
+                        tx_status = ValidationStatus.VALID
+                        tx_issues: list[ValidationIssue] = []
+                        if tx_debit is None and tx_credit is None:
+                            tx_status = ValidationStatus.INVALID
+                            tx_iss = ValidationIssue(
+                                code="MISSING_AMOUNT",
+                                message=f"Row {row_idx}: Transaction amount direction could not be determined.",
+                                severity="error",
+                                context={"row_index": row_idx},
                             )
+                            tx_issues.append(tx_iss)
+                            issues.append(tx_iss)
+
+                        prov = ProvenanceRecord(
+                            source_input_id=doc.source_input_id,
+                            capability_id="bank_statements",
+                            stage="bank_extraction",
+                            page_number=page_num,
+                            evidence={"row_index": row_idx},
+                        )
+                        new_tx = Transaction(
+                            transaction_date=tx_date,
+                            transaction_time=tx_time,
+                            value_date=tx_val_date,
+                            description=_get_cell(row_cells, desc_col) or "",
+                            bank_name=bank_name,
+                            reference_number=_get_cell(row_cells, ref_col),
+                            cheque_number=_get_cell(row_cells, chq_col),
+                            debit=tx_debit,
+                            credit=tx_credit,
+                            running_balance=tx_bal,
+                            account_identity=account_identity,
+                            status=tx_status,
+                            issues=tuple(tx_issues),
+                            provenance=(prov,),
+                            sequence_id=row_idx,
+                        )
+                        raw_txns.append(new_tx)
+                        table_txns.append(new_tx)
 
         return raw_txns, open_bal, close_bal, issues
 

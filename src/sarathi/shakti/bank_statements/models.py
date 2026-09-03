@@ -31,8 +31,6 @@ class DuplicateDecision(StrEnum):
     PROVEN_DUPLICATE = "proven_duplicate"
     PROBABLE_DUPLICATE = "probable_duplicate"
     DISTINCT = "distinct"
-    PROVEN = "proven_duplicate"
-    PROBABLE = "probable_duplicate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +43,7 @@ class AccountIdentity:
     account_holder: str | None = None
     account_type: str | None = None
     bank_profile: str | None = None
+    ifsc: str | None = None
 
     def __post_init__(self) -> None:
         if not self.bank_name or not self.bank_name.strip():
@@ -57,6 +56,7 @@ def create_account_identity(
     account_holder: str | None = None,
     bank_profile: str | None = None,
     account_type: str | None = None,
+    ifsc: str | None = None,
 ) -> AccountIdentity:
     """Create a safe AccountIdentity with masked account number and deterministic fingerprint."""
     masked: str | None = None
@@ -81,6 +81,7 @@ def create_account_identity(
         account_holder=account_holder.strip() if account_holder else None,
         account_type=account_type.strip() if account_type else None,
         bank_profile=bank_profile.strip() if bank_profile else None,
+        ifsc=ifsc.strip() if ifsc else None,
     )
 
 
@@ -209,6 +210,7 @@ class BankStatement:
     branch: str | None = None
     ifsc: str | None = None
     balance_as_on: Decimal | None = None
+    bank_code: str | None = None
 
     def __post_init__(self) -> None:
         if not self.bank_name or not isinstance(self.bank_name, str):

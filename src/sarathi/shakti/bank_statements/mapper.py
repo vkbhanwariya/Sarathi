@@ -24,6 +24,8 @@ from sarathi.dosh import DoshError, FailureCode
 _CANONICAL_BANKS_DIR = Path(__file__).resolve().parents[4] / "data" / "banks"
 CANONICAL_FIELDS = (
     "date",
+    "value_date",
+    "time",
     "description",
     "reference_number",
     "cheque_number",
@@ -46,41 +48,42 @@ class ColumnMapping:
     confidence: float
 
 
+def load_bank_profile_yaml(path: Path) -> dict[str, Any]:
+    """Canonical single-owner loader for bank profile YAML files with fail-fast validation."""
+    if not path.exists():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"Failed to parse bank profile YAML: {path.name}",
+        ) from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"Bank profile YAML root must be a mapping: {path.name}",
+        )
+    return data
+
+
 class HeaderMapper:
     """Resolves raw table headers to canonical field names."""
 
     def __init__(self, banks_dir: Path | None = None) -> None:
         self._banks_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
-        self._common_config = self._load_yaml(self._banks_dir / "common.yaml")
+        self._common_config = load_bank_profile_yaml(self._banks_dir / "common.yaml")
         self._profiles = (
             {
                 data["profile_id"]: data
                 for f in self._banks_dir.glob("*.yaml")
-                if f.name != "common.yaml" and isinstance((data := self._load_yaml(f)), dict) and "profile_id" in data
+                if f.name != "common.yaml" and isinstance((data := load_bank_profile_yaml(f)), dict) and "profile_id" in data
             }
             if self._banks_dir.exists()
             else {}
         )
-
-    @staticmethod
-    def _load_yaml(path: Path) -> dict[str, Any]:
-        if not path.exists():
-            return {}
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"Failed to parse bank profile YAML: {path.name}",
-            ) from exc
-        if data is None:
-            return {}
-        if not isinstance(data, dict):
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"Bank profile YAML root must be a mapping: {path.name}",
-            )
-        return data
 
     def map_headers(
         self,
@@ -123,7 +126,8 @@ class HeaderMapper:
                 if any(cleaned == str(a).strip().lower() for a in source.get(field, [])):
                     return ColumnMapping(idx, raw_header, field, match_type, 1.0)
 
-        # 2. Fuzzy matches (>= 92%): Bank fuzzy -> Generic fuzzy
+        # 2. Fuzzy matches: Bank fuzzy -> Generic fuzzy
+        # Veda specification: >= 0.92 automatic when unambiguous; 0.85-0.91 only if beats runner-up by >= 0.05
         for match_type, source in [("bank_fuzzy", bank_headers), ("generic_fuzzy", common_aliases)]:
             scored = [
                 (SequenceMatcher(None, cleaned, str(a).strip().lower()).ratio(), field)
@@ -131,8 +135,17 @@ class HeaderMapper:
                 for a in source.get(field, [])
             ]
             if scored:
-                best_score, best_field = max(scored, key=lambda x: x[0])
+                scored.sort(key=lambda x: x[0], reverse=True)
+                best_score, best_field = scored[0]
+                runner_up_score = scored[1][0] if len(scored) > 1 else 0.0
+
                 if best_score >= 0.92:
-                    return ColumnMapping(idx, raw_header, best_field, match_type, best_score)
+                    if len(scored) > 1 and scored[1][0] == best_score and scored[1][1] != best_field:
+                        # Ambiguous tie: leave unresolved
+                        continue
+                    return ColumnMapping(idx, raw_header, best_field, match_type, round(best_score, 4))
+                elif 0.85 <= best_score < 0.92:
+                    if (best_score - runner_up_score) >= 0.05:
+                        return ColumnMapping(idx, raw_header, best_field, match_type, round(best_score, 4))
 
         return None
