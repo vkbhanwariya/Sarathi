@@ -4,8 +4,6 @@ import io
 import zipfile
 from xml.etree import ElementTree as ET
 
-import pytest
-
 from sarathi.shakti.docx_exporter import (
     _merge_adjacent_compatible_runs,
     transform_docx_artifact,

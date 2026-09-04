@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import unicodedata
-from pathlib import Path
-
-import pytest
 
 from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import LegacyFontDetector
