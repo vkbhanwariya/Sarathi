@@ -30,18 +30,25 @@ class CacheKey:
 def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
     """Compute a stable, privacy-safe SHA-256 fingerprint from factual input content streamed in request order."""
     hasher = hashlib.sha256()
-    for inp in inputs:
-        # Stream raw content bytes when source file exists
+    hasher.update(f"COUNT:{len(inputs)}:".encode("utf-8"))
+    for idx, inp in enumerate(inputs):
+        hasher.update(
+            f"INP:{idx}:ID:{len(inp.input_id)}:{inp.input_id}:NAME:{len(inp.display_name)}:{inp.display_name}:SIZE:{inp.size_bytes}:TYPE:{inp.media_type or ''}:".encode("utf-8")
+        )
+        file_read_ok = False
         if inp.source_path and inp.source_path.is_file():
             try:
                 with open(inp.source_path, "rb") as f:
+                    hasher.update(b":FILE_START:")
                     while chunk := f.read(65536):
+                        hasher.update(f"CHUNK:{len(chunk)}:".encode("ascii"))
                         hasher.update(chunk)
-                continue
+                    hasher.update(b":FILE_END:")
+                    file_read_ok = True
             except (OSError, PermissionError):
                 pass
-        # Metadata fallback for virtual/mocked inputs
-        hasher.update(f"{inp.input_id}:{inp.display_name}:{inp.size_bytes}:{inp.media_type or ''}".encode("utf-8"))
+        if not file_read_ok:
+            hasher.update(b":NO_FILE:")
     return hasher.hexdigest()
 
 
@@ -57,7 +64,10 @@ def _to_digest_serializable(obj: Any) -> Any:
         return str(obj)
     if isinstance(obj, Mapping):
         return {str(k): _to_digest_serializable(v) for k, v in sorted(obj.items(), key=lambda x: str(x[0]))}
-    if isinstance(obj, (list, tuple, set, frozenset)):
+    if isinstance(obj, (set, frozenset)):
+        items = [_to_digest_serializable(v) for v in obj]
+        return sorted(items, key=lambda x: str(x))
+    if isinstance(obj, (list, tuple)):
         return [_to_digest_serializable(v) for v in obj]
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return {f.name: _to_digest_serializable(getattr(obj, f.name)) for f in dataclasses.fields(obj)}

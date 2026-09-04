@@ -11,8 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from sarathi.sankalpa import CanonicalDocument
 from sarathi.shakti.bank_statements.mapper import load_bank_profile_yaml
 from sarathi.shakti.bank_statements.models import AccountIdentity, create_account_identity

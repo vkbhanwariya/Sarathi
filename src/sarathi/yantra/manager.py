@@ -17,7 +17,6 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     Capability,
     DeviceRequirement,
-    DeviceType,
     ExecutionBinding,
     ExecutionContext,
     Request,

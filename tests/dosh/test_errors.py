@@ -16,8 +16,9 @@ class TestFailureCode:
             "validation_failed": FailureCode.VALIDATION_FAILED,
             "resource_unavailable": FailureCode.RESOURCE_UNAVAILABLE,
             "security_denied": FailureCode.SECURITY_DENIED,
+            "operation_cancelled": FailureCode.OPERATION_CANCELLED,
         }
-        assert len(FailureCode) == 7
+        assert len(FailureCode) == 8
         for val, enum_member in expected_codes.items():
             assert enum_member.value == val
 

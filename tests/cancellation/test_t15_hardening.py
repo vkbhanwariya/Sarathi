@@ -229,7 +229,7 @@ def test_continuation_preserves_cancellation_token_and_bypasses_retry(tmp_path: 
     with pytest.raises(DoshError) as exc_info:
         agni.execute(req)
 
-    assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+    assert exc_info.value.code is FailureCode.OPERATION_CANCELLED
     assert exc_info.value.context.get("cancelled") is True
     assert stage2.executed is False
 

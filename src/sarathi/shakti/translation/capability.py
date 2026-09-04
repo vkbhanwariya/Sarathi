@@ -13,11 +13,9 @@ from sarathi.sankalpa import (
     ArtifactPayload,
     CanonicalDocument,
     ExecutionContext,
-    PageData,
     ProvenanceRecord,
     Request,
     Result,
-    TableData,
     WarningRecord,
 )
 from sarathi.sankalpa.document import transform_canonical_document
@@ -149,12 +147,9 @@ class TranslationCapability:
                     if not raw or not raw.strip():
                         return raw
                     if raw not in translation_cache:
-                        try:
-                            translation_cache[raw] = self._engine.translate(
-                                raw, direction=direction, execution_binding=context.execution_binding
-                            )
-                        except TypeError:
-                            translation_cache[raw] = self._engine.translate(raw, direction=direction)
+                        translation_cache[raw] = self._engine.translate(
+                            raw, direction=direction, execution_binding=context.execution_binding
+                        )
                     return translation_cache[raw].translated_text
 
                 tgt_lang = "en" if direction == TranslationDirection.HI_TO_EN else "hi"

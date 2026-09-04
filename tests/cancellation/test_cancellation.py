@@ -81,7 +81,7 @@ def test_cancellation_before_execution(tmp_path: Path) -> None:
         agni.execute(req)
 
     err = exc_info.value
-    assert err.code is FailureCode.EXECUTION_FAILED
+    assert err.code is FailureCode.OPERATION_CANCELLED
     assert "cancelled" in err.message.lower()
     assert err.context.get("cancelled") is True
 

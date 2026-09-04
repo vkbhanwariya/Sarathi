@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
+
 from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
@@ -20,10 +25,12 @@ class DarshanaCapability:
     def __init__(
         self,
         declaration: CapabilityDeclaration = CAPABILITY_DECLARATION,
+        darpana: Darpana | None = None,
     ) -> None:
         if not isinstance(declaration, CapabilityDeclaration):
             raise TypeError(f"declaration must be a CapabilityDeclaration, got {type(declaration).__name__}.")
         self.declaration: CapabilityDeclaration = declaration
+        self._darpana: Darpana | None = darpana
 
     def execute(
         self,

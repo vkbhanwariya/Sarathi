@@ -25,12 +25,12 @@ class CancellationToken:
         return self._event.is_set()
 
     def check_cancelled(self) -> None:
-        """Raise DoshError(FailureCode.EXECUTION_FAILED) if cancellation was requested."""
+        """Raise DoshError(FailureCode.OPERATION_CANCELLED) if cancellation was requested."""
         if self._event.is_set():
             from sarathi.dosh import DoshError, FailureCode
 
             raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
+                code=FailureCode.OPERATION_CANCELLED,
                 message="Execution was cancelled.",
                 context={"cancelled": True},
             )

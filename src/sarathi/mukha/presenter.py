@@ -8,7 +8,7 @@ or fabricate metrics.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
 from sarathi.kavacha import Kavacha

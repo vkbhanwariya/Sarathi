@@ -251,13 +251,13 @@ class Pravaha:
         # Check cancellation before retry execution; cancellation bypasses retry
         if request.cancellation_token is not None and request.cancellation_token.is_cancelled:
             raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
+                code=FailureCode.OPERATION_CANCELLED,
                 message="Execution was cancelled before retry attempt.",
                 context={"cancelled": True},
             )
         if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
             raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
+                code=FailureCode.OPERATION_CANCELLED,
                 message="Execution was cancelled before retry attempt.",
                 context={"cancelled": True},
             )
@@ -488,14 +488,14 @@ class Pravaha:
                                 component="nabhi.pravaha",
                                 timestamp_utc=datetime.now(timezone.utc).isoformat(),
                                 duration_ns=0,
-                                outcome="failure",
+                                outcome="cancelled",
                                 error_type="DoshError",
-                                failure_code=FailureCode.EXECUTION_FAILED,
+                                failure_code=FailureCode.OPERATION_CANCELLED,
                                 attributes={"reason": "cancelled_by_user", "cancelled": True},
                             )
                         )
                     raise DoshError(
-                        code=FailureCode.EXECUTION_FAILED,
+                        code=FailureCode.OPERATION_CANCELLED,
                         message="Execution was cancelled.",
                         context={"cancelled": True},
                     )
@@ -608,8 +608,13 @@ class Pravaha:
                         self._record_pramana_if_available(cap, prior_result, current_ctx)
 
                     except DoshError as dosh_err:
-                        is_cancelled = bool(dosh_err.context.get("cancelled")) or (
-                            current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled
+                        is_cancelled = (
+                            dosh_err.code == FailureCode.OPERATION_CANCELLED
+                            or bool(dosh_err.context.get("cancelled"))
+                            or (
+                                current_ctx.cancellation_token is not None
+                                and current_ctx.cancellation_token.is_cancelled
+                            )
                         )
                         if is_cancelled:
                             raise dosh_err
@@ -708,6 +713,16 @@ class Pravaha:
                                             )
                                 break
                             except DoshError as retry_err:
+                                is_cancelled = (
+                                    retry_err.code == FailureCode.OPERATION_CANCELLED
+                                    or bool(retry_err.context.get("cancelled"))
+                                    or (
+                                        current_ctx.cancellation_token is not None
+                                        and current_ctx.cancellation_token.is_cancelled
+                                    )
+                                )
+                                if is_cancelled:
+                                    raise retry_err
                                 last_err = retry_err
                                 curr_rec = self._quarantine_store.get_record(curr_rec.quarantine_id) or curr_rec
                                 if not self._retry_policy.is_retryable(last_err.code, curr_rec.attempt_count):

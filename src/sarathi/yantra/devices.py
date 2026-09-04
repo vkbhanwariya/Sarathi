@@ -11,7 +11,8 @@ OS queries, or dynamic detection.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from types import MappingProxyType
+from typing import Mapping, Sequence
 
 from sarathi.sankalpa import DeviceType
 
@@ -25,6 +26,7 @@ class DeviceInfo:
     capacity: int
     supported_backends: tuple[str, ...] | None = None
     memory_bytes: int | None = None
+    backend_locators: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         if not self.device_id or not isinstance(self.device_id, str) or not self.device_id.strip():
@@ -58,6 +60,16 @@ class DeviceInfo:
         if self.memory_bytes is not None:
             if not isinstance(self.memory_bytes, int) or isinstance(self.memory_bytes, bool) or self.memory_bytes < 0:
                 raise ValueError("memory_bytes must be a non-negative integer or None.")
+
+        if self.backend_locators is not None:
+            if not isinstance(self.backend_locators, Mapping):
+                raise TypeError(f"backend_locators must be a Mapping, got {type(self.backend_locators).__name__}.")
+            cleaned_locators = {
+                str(k).strip().lower(): str(v).strip()
+                for k, v in self.backend_locators.items()
+                if str(k).strip()
+            }
+            object.__setattr__(self, "backend_locators", MappingProxyType(cleaned_locators))
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +134,7 @@ class DeviceInventory:
                 device_type=DeviceType.CPU,
                 capacity=actual_capacity,
                 supported_backends=("cpu", "openvino"),
+                backend_locators={"cpu": "CPU", "openvino": "CPU"},
             ),
         ]
 
@@ -150,17 +163,20 @@ class DeviceInventory:
                 pass
 
             # Add OpenVINO GPUs (and note if also CUDA-accessible)
-            for idx, _ in enumerate(ov_gpus):
+            for idx, ov_name in enumerate(ov_gpus):
                 dev_id = f"gpu-{idx}"
                 backends = ["openvino"]
+                locators: dict[str, str] = {"openvino": ov_name}
                 if idx < cuda_count:
                     backends.append("cuda")
+                    locators["cuda"] = str(idx)
                 devices.append(
                     DeviceInfo(
                         device_id=dev_id,
                         device_type=DeviceType.GPU,
                         capacity=2,
                         supported_backends=tuple(backends),
+                        backend_locators=locators,
                     )
                 )
 
@@ -174,11 +190,12 @@ class DeviceInventory:
                             device_type=DeviceType.GPU,
                             capacity=2,
                             supported_backends=("cuda",),
+                            backend_locators={"cuda": str(idx)},
                         )
                     )
 
             # Add OpenVINO NPUs
-            for idx, _ in enumerate(ov_npus):
+            for idx, ov_name in enumerate(ov_npus):
                 dev_id = f"npu-{idx}"
                 devices.append(
                     DeviceInfo(
@@ -186,6 +203,7 @@ class DeviceInventory:
                         device_type=DeviceType.NPU,
                         capacity=2,
                         supported_backends=("openvino",),
+                        backend_locators={"openvino": ov_name},
                     )
                 )
 

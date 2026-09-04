@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import csv
 import xml.etree.ElementTree as ET
-from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from zipfile import BadZipFile
+
+if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
 
 import openpyxl.utils.exceptions
 import pymupdf
@@ -25,6 +27,7 @@ from sarathi.sankalpa import (
     Result,
     WarningRecord,
 )
+from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_content_format
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
@@ -86,8 +89,13 @@ def _has_usable_content(doc: CanonicalDocument) -> bool:
 class NativeExtractionCapability:
     """Canonical executable capability for Shruti Native Extraction."""
 
-    def __init__(self, declaration: CapabilityDeclaration = CAPABILITY_DECLARATION) -> None:
+    def __init__(
+        self,
+        declaration: CapabilityDeclaration = CAPABILITY_DECLARATION,
+        darpana: Darpana | None = None,
+    ) -> None:
         self.declaration: CapabilityDeclaration = declaration
+        self._darpana: Darpana | None = darpana
 
     def execute(
         self,
@@ -215,10 +223,11 @@ class NativeExtractionCapability:
 
         payloads: list[ArtifactPayload] = []
         if not needs_ocr:
-            for inp, doc in zip(request.inputs, extracted_docs):
+            for idx, (inp, doc) in enumerate(zip(request.inputs, extracted_docs)):
                 has_content = bool(doc.text.strip()) or bool(doc.tables) or any(p.text.strip() or p.tables for p in doc.pages)
                 if has_content:
-                    stem = Path(inp.display_name).stem if inp.display_name else inp.input_id
+                    txt_name = format_artifact_filename(inp, "extracted", "txt", all_inputs=request.inputs, index=idx)
+                    docx_name = format_artifact_filename(inp, "extracted", "docx", all_inputs=request.inputs, index=idx)
                     if doc.text.strip():
                         if len(doc.pages) > 1:
                             page_sections = []
@@ -244,7 +253,7 @@ class NativeExtractionCapability:
                     payloads.append(
                         ArtifactPayload(
                             intent=ArtifactIntent(
-                                name=f"{stem}_extracted.txt",
+                                name=txt_name,
                                 role="extracted_text",
                                 media_type="text/plain",
                             ),
@@ -254,7 +263,7 @@ class NativeExtractionCapability:
                     payloads.append(
                         build_docx_payload(
                             doc=doc,
-                            filename=f"{stem}_extracted.docx",
+                            filename=docx_name,
                             role="extracted_document",
                         )
                     )

@@ -26,6 +26,7 @@ class FailureCode(StrEnum):
     VALIDATION_FAILED = "validation_failed"
     RESOURCE_UNAVAILABLE = "resource_unavailable"
     SECURITY_DENIED = "security_denied"
+    OPERATION_CANCELLED = "operation_cancelled"
 
 
 class DoshError(Exception):

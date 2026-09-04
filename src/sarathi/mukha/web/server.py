@@ -10,7 +10,6 @@ from __future__ import annotations
 import importlib.resources
 import json
 import mimetypes
-import os
 import subprocess
 import sys
 import threading
@@ -19,7 +18,7 @@ import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
@@ -66,11 +65,79 @@ def _serialize_dataclass(obj: Any) -> Any:
     return str(obj)
 
 
-class MukhaHTTPHandler(BaseHTTPRequestHandler):
-    """Loopback-only HTTP request handler for the Mukha Web UI."""
+_ALLOWED_LOOPBACK_HOSTNAMES = frozenset({"127.0.0.1", "localhost", "::1"})
 
-    # Maximum payload size: 1 MB
-    MAX_BODY_SIZE = 1_048_576
+
+def _is_authorized_loopback_host(host_header: str) -> bool:
+    """Structurally parse and validate Host header against approved loopback endpoints."""
+    if not host_header or not isinstance(host_header, str):
+        return False
+    clean = host_header.strip()
+    if not clean:
+        return False
+
+    # Handle bracketed IPv6: [::1] or [::1]:port
+    if clean.startswith("["):
+        closing = clean.find("]")
+        if closing == -1:
+            return False
+        hostname = clean[1:closing]
+        port_part = clean[closing + 1 :]
+        if port_part:
+            if not port_part.startswith(":"):
+                return False
+            port_str = port_part[1:]
+            try:
+                port = int(port_str)
+                if not (1 <= port <= 65535):
+                    return False
+            except ValueError:
+                return False
+        return hostname.lower() in _ALLOWED_LOOPBACK_HOSTNAMES
+
+    # Handle standard host[:port]
+    if ":" in clean:
+        parts = clean.split(":")
+        if len(parts) != 2:
+            return False
+        hostname, port_str = parts[0], parts[1]
+        try:
+            port = int(port_str)
+            if not (1 <= port <= 65535):
+                return False
+        except ValueError:
+            return False
+    else:
+        hostname = clean
+
+    return hostname.lower() in _ALLOWED_LOOPBACK_HOSTNAMES
+
+
+def _is_authorized_loopback_origin(origin_header: str) -> bool:
+    """Structurally validate Origin header against approved loopback endpoints."""
+    if not origin_header or not isinstance(origin_header, str):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(origin_header)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if parsed.hostname is None or parsed.hostname.lower() not in _ALLOWED_LOOPBACK_HOSTNAMES:
+            return False
+        if parsed.port is not None and not (1 <= parsed.port <= 65535):
+            return False
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+class MukhaHTTPHandler(BaseHTTPRequestHandler):
+    """Loopback-only HTTP request handler for the interactive Mukha presentation server."""
+
+    MAX_BODY_SIZE: int = 1_048_576  # 1 MB strict limit
+    _SECURITY_CSP: str = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    )
 
     @property
     def mukha_app(self) -> MukhaWebServer:
@@ -96,19 +163,24 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
     def _validate_host_and_origin(self) -> bool:
         """Validate Host and Origin headers to enforce strict loopback security."""
         host = self.headers.get("Host", "")
-        if not host.startswith(("127.0.0.1", "localhost")):
+        if not _is_authorized_loopback_host(host):
             self._drain_body()
             self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Forbidden Host header."})
             return False
 
         origin = self.headers.get("Origin")
-        if origin is not None:
-            parsed = urllib.parse.urlparse(origin)
-            if parsed.hostname not in ("127.0.0.1", "localhost"):
-                self._drain_body()
-                self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Forbidden Origin header."})
-                return False
+        if origin is not None and not _is_authorized_loopback_origin(origin):
+            self._drain_body()
+            self._send_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Forbidden Origin header."})
+            return False
         return True
+
+    def _apply_security_headers(self, cache_control: str = "no-store") -> None:
+        """Apply centralized response security and caching headers."""
+        self.send_header("Content-Security-Policy", self._SECURITY_CSP)
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", cache_control)
 
     def _send_json(self, status: int, data: dict[str, Any]) -> None:
         """Send a structured JSON response."""
@@ -121,7 +193,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("X-Content-Type-Options", "nosniff")
+        self._apply_security_headers(cache_control="no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -347,7 +419,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(content)))
-        self.send_header("Cache-Control", "no-cache")
+        self._apply_security_headers(cache_control="no-cache")
         self.end_headers()
         self.wfile.write(content)
 
@@ -378,7 +450,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", mime_type)
         self.send_header("Content-Length", str(file_size))
         self.send_header("Content-Disposition", f'attachment; filename="{target_file.name}"')
-        self.send_header("X-Content-Type-Options", "nosniff")
+        self._apply_security_headers(cache_control="no-store")
         self.end_headers()
 
         with open(target_file, "rb") as f:
@@ -420,20 +492,6 @@ class MukhaWebServer:
         self._live_progress: dict[str, Any] = {}
         self._live_workers: dict[str, dict[str, Any]] = {}
 
-    def _detect_allocated_device(self) -> str:
-        """Detect the best hardware accelerator available for execution."""
-        try:
-            import openvino as ov
-
-            core = ov.Core()
-            avail = core.available_devices
-            if "GPU" in avail:
-                return "GPU"
-            if "NPU" in avail:
-                return "NPU"
-        except Exception:
-            pass
-        return "CPU"
 
     @property
     def output_root(self) -> Path:
@@ -526,11 +584,12 @@ class MukhaWebServer:
                 "translation": "Machine Translation",
             }
             active_stage = stage_names.get(active_req.requirement, active_req.requirement) if active_req else "Processing"
-            allocated_device = self._detect_allocated_device()
 
             with self._lock:
                 live_prog = dict(self._live_progress)
                 live_workers = dict(self._live_workers)
+
+            allocated_device = live_prog.get("device_type") or "CPU"
 
             curr_page = live_prog.get("page_number")
             tot_pages = live_prog.get("total_pages")
@@ -704,7 +763,7 @@ class MukhaWebServer:
             ) -> None:
                 with self._lock:
                     now = time.perf_counter_ns()
-                    dev = device_type or self._detect_allocated_device()
+                    dev = device_type or "CPU"
                     info = {
                         "worker_id": str(worker_id),
                         "file_display_name": file_display_name,

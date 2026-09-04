@@ -208,6 +208,7 @@ class BankStatementCapability:
         issues: list[ValidationIssue] = []
         open_bal: Decimal | None = None
         close_bal: Decimal | None = None
+        current_sequence_id = 0
 
         active_profile = self._profiles.get(profile_id or "", {})
         has_signed_semantics = bool(active_profile.get("signed_amounts", False))
@@ -339,6 +340,7 @@ class BankStatementCapability:
                             page_number=page_num,
                             evidence={"row_index": row_idx},
                         )
+                        current_sequence_id += 1
                         new_tx = Transaction(
                             transaction_date=tx_date,
                             transaction_time=tx_time,
@@ -354,7 +356,7 @@ class BankStatementCapability:
                             status=tx_status,
                             issues=tuple(tx_issues),
                             provenance=(prov,),
-                            sequence_id=row_idx,
+                            sequence_id=current_sequence_id,
                         )
                         raw_txns.append(new_tx)
                         table_txns.append(new_tx)

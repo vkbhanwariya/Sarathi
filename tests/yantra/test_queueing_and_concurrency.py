@@ -159,7 +159,7 @@ class TestQueueingAndWaiting:
 
         assert not t.is_alive()
         assert isinstance(caught_error, DoshError)
-        assert caught_error.code == FailureCode.EXECUTION_FAILED
+        assert caught_error.code == FailureCode.OPERATION_CANCELLED
         assert caught_error.context.get("cancelled") is True
 
         # Verify allocator didn't leak slots
@@ -221,7 +221,7 @@ class TestYantraExecuteSubtasks:
 
         with pytest.raises(DoshError) as exc_info:
             yantra.execute_subtasks([lambda: 1, lambda: 2], context=ctx)
-        assert exc_info.value.code == FailureCode.EXECUTION_FAILED
+        assert exc_info.value.code == FailureCode.OPERATION_CANCELLED
         assert exc_info.value.context.get("cancelled") is True
 
 

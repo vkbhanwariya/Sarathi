@@ -36,7 +36,12 @@ def test_translation_artifact_matches_canonical_doc_exactly(monkeypatch: pytest.
         def __init__(self) -> None:
             self.call_count = 0
 
-        def translate(self, text: str, direction: TranslationDirection) -> TranslationResult:
+        def translate(
+            self,
+            text: str,
+            direction: TranslationDirection,
+            execution_binding: Any = None,
+        ) -> TranslationResult:
             self.call_count += 1
             return TranslationResult(
                 translated_text=f"Translated: {text}",

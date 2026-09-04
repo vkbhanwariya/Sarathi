@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceRequirement, DeviceType, ExecutionContext
@@ -299,10 +300,19 @@ class _ResourceAllocator:
         else:
             chosen_backend = dev_backends[0] if dev_backends else "cpu"
 
-        if dev.device_type == DeviceType.GPU:
-            backend_dev_id = "GPU" if chosen_backend == "openvino" else "cuda"
+        locators = getattr(dev, "backend_locators", None)
+        if locators and chosen_backend in locators:
+            backend_dev_id = locators[chosen_backend]
+        elif dev.device_type == DeviceType.GPU:
+            import re
+            m = re.search(r"(\d+)", dev.device_id)
+            idx_str = m.group(1) if m else "0"
+            backend_dev_id = f"GPU.{idx_str}" if chosen_backend == "openvino" else idx_str
         elif dev.device_type == DeviceType.NPU:
-            backend_dev_id = "NPU"
+            import re
+            m = re.search(r"(\d+)", dev.device_id)
+            idx_str = m.group(1) if m else ""
+            backend_dev_id = f"NPU.{idx_str}" if idx_str else "NPU"
         else:
             backend_dev_id = "CPU"
 

@@ -7,7 +7,7 @@ alphanumeric IDs/codes, references, and domain terminology survive translation 1
 from __future__ import annotations
 
 import re
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from sarathi.shakti.font_conversion.protector import (
     _DATE_RE,

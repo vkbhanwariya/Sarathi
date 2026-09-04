@@ -29,7 +29,6 @@ from sarathi.nabhi import (
 )
 from sarathi.sankalpa import (
     Capability,
-    CapabilityDeclaration,
     ExecutionContext,
     PluginInfo,
     Request,
@@ -152,7 +151,7 @@ class Agni:
         else:
             hist_path = None
         active_darpana = darpana or Darpana(
-            capacity=1000,
+            capacity=active_settings.telemetry_live_buffer_capacity,
             history_path=hist_path,
             history_format=active_settings.telemetry_history_format,
             history_max_records=active_settings.telemetry_history_max_records,
@@ -177,7 +176,21 @@ class Agni:
             validated_output_root,
         )
 
-        # 6. Validate Capabilities Mapping
+        # 5. Validate Inventory & Instantiate Yantra (topological dependency order)
+        active_inventory: DeviceInventory
+        if inventory is not None:
+            if not isinstance(inventory, DeviceInventory):
+                raise TypeError(
+                    f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}."
+                )
+            active_inventory = inventory
+        else:
+            active_inventory = Yantra.default_inventory(
+                detect_accelerators=active_settings.hardware_detect_accelerators
+            )
+        active_yantra: Yantra = Yantra(active_inventory, darpana=active_darpana)
+
+        # 6. Validate Capabilities Mapping & Inject Default Dependencies
         active_capabilities: dict[str, Capability]
         if capabilities is not None:
             if not isinstance(capabilities, Mapping):
@@ -190,28 +203,15 @@ class Agni:
             active_capabilities = dict(capabilities)
         else:
             active_capabilities = {
-                "identify": DarshanaCapability(),
-                "read_native": NativeExtractionCapability(),
-                "ocr": OCRCapability(),
+                "identify": DarshanaCapability(darpana=active_darpana),
+                "read_native": NativeExtractionCapability(darpana=active_darpana),
+                "ocr": OCRCapability(yantra=active_yantra, darpana=active_darpana),
                 "bank_statements": BankStatementCapability(darpana=active_darpana),
                 "font_conversion": FontConversionCapability(darpana=active_darpana),
                 "translation": TranslationCapability(darpana=active_darpana),
             }
 
-        # 7. Validate Inventory - use factual default inventory
-        active_inventory: DeviceInventory
-        if inventory is not None:
-            if not isinstance(inventory, DeviceInventory):
-                raise TypeError(
-                    f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}."
-                )
-            active_inventory = inventory
-        else:
-            active_inventory = Yantra.default_inventory(
-                detect_accelerators=active_settings.hardware_detect_accelerators
-            )
-
-        # 8. Validate Retry Policy
+        # 7. Validate Retry Policy
         active_retry_policy: RetryPolicy = RetryPolicy(
             max_retries=active_settings.pipeline_max_retries,
         )
@@ -224,8 +224,9 @@ class Agni:
         self._output_root: Path = validated_output_root
         self._input_root: Path = validated_input_root
         self._kavacha: Kavacha = active_kavacha
-        self._capabilities: dict[str, Capability] = active_capabilities
         self._inventory: DeviceInventory = active_inventory
+        self._yantra: Yantra = active_yantra
+        self._capabilities: dict[str, Capability] = active_capabilities
         self._retry_policy: RetryPolicy = active_retry_policy
 
         # Artifact Boundary
@@ -264,12 +265,6 @@ class Agni:
                         ),
                     )
                 self._dvara.register_capability(cap_v.declaration)
-
-        # Yantra & Manthan
-        self._yantra: Yantra = Yantra(self._inventory, darpana=self._darpana)
-        for cap in self._capabilities.values():
-            if hasattr(cap, "_yantra") and getattr(cap, "_yantra") is None:
-                object.__setattr__(cap, "_yantra", self._yantra)
 
         self._manthan: Manthan = Manthan(registry=self._kosh)
 

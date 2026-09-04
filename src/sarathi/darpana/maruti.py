@@ -54,8 +54,8 @@ class MarutiRecord:
         if self.duration_ns < 0:
             raise ValueError(f"duration_ns cannot be negative, got {self.duration_ns}.")
 
-        if self.outcome not in ("success", "failure"):
-            raise ValueError(f"outcome must be 'success' or 'failure', got {self.outcome!r}.")
+        if self.outcome not in ("success", "failure", "cancelled"):
+            raise ValueError(f"outcome must be 'success', 'failure', or 'cancelled', got {self.outcome!r}.")
 
         if self.error_type is not None and not isinstance(self.error_type, str):
             raise TypeError(f"error_type must be a str or None, got {type(self.error_type).__name__}.")

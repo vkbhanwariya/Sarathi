@@ -53,7 +53,7 @@ class MockTesseractAdapter(TesseractFallbackAdapter):
     def is_available(self) -> bool:
         return self._available
 
-    def recognize_crop(self, crop_image: Any) -> tuple[str, float | None]:
+    def recognize_crop(self, crop_image: Any, language: str | None = None) -> tuple[str, float | None]:
         if not self._available:
             raise DoshError(
                 code=FailureCode.DEPENDENCY_UNAVAILABLE,

@@ -170,9 +170,15 @@ class Darpana:
             self.record_maruti(record)
         except BaseException as exc:
             duration_ns = max(0, time.perf_counter_ns() - start_ns)
-            from sarathi.dosh import DoshError
+            from sarathi.dosh import DoshError, FailureCode
 
             f_code = exc.code if isinstance(exc, DoshError) else None
+            is_cancelled = (
+                f_code == FailureCode.OPERATION_CANCELLED
+                or bool(isinstance(exc, DoshError) and exc.context.get("cancelled"))
+                or (context.cancellation_token is not None and context.cancellation_token.is_cancelled)
+            )
+            outcome = "cancelled" if is_cancelled else "failure"
 
             record = MarutiRecord(
                 run_id=context.run_id,
@@ -183,7 +189,7 @@ class Darpana:
                 component=component.strip(),
                 timestamp_utc=start_time_utc,
                 duration_ns=duration_ns,
-                outcome="failure",
+                outcome=outcome,
                 error_type=type(exc).__name__,
                 failure_code=f_code,
                 attributes=safe_attributes,
