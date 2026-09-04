@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.kavacha.policy import SecurityPolicy
+from sarathi.kavacha.policy import OutboundRequest, SecurityPolicy
 from sarathi.sankalpa import InputRef, SecurityDeclaration
 
 
@@ -40,6 +40,23 @@ class Kavacha:
             raise DoshError(
                 code=FailureCode.SECURITY_DENIED,
                 message=decision.message or "Security policy denied authorization.",
+            )
+
+    def authorize_outbound(self, request: OutboundRequest) -> None:
+        """Authorize an outbound request against the active policy.
+
+        Raises:
+            DoshError(FailureCode.SECURITY_DENIED): If any outbound requirement violates policy.
+            TypeError: If request is not an OutboundRequest.
+        """
+        if not isinstance(request, OutboundRequest):
+            raise TypeError(f"request must be an OutboundRequest instance, got {type(request).__name__}.")
+
+        decision = self._policy.evaluate_outbound(request)
+        if not decision.allowed:
+            raise DoshError(
+                code=FailureCode.SECURITY_DENIED,
+                message=decision.message or "Security policy denied outbound request authorization.",
             )
 
     def validate_source_destination_overlap(

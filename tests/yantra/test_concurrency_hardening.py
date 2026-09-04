@@ -99,7 +99,7 @@ def test_allocator_cancellation_after_dispatch_cleans_active_and_dispatches_next
     # Waiter 1 must have raised EXECUTION_FAILED with cancelled=True
     assert len(waiter1_result) == 1
     assert isinstance(waiter1_result[0], DoshError)
-    assert waiter1_result[0].code == FailureCode.EXECUTION_FAILED
+    assert waiter1_result[0].code == FailureCode.OPERATION_CANCELLED
     assert waiter1_result[0].context.get("cancelled") is True
 
     # Waiter 2 must have successfully received an Allocation because waiter 1 cleaned up & dispatched next!

@@ -24,7 +24,6 @@ from sarathi.sankalpa import (
     TextSpan,
     WarningRecord,
 )
-
 from sarathi.sutra import get_canonical_data_root
 
 _STAGE_NAME = "ocr"
@@ -194,10 +193,10 @@ def apply_clahe(image_arr: Any, clip_limit: float = 2.0, tile_grid_size: tuple[i
 
         if len(image_arr.shape) == 3:
             lab = cv2.cvtColor(image_arr, cv2.COLOR_RGB2LAB)
-            l, a, b = cv2.split(lab)
+            l_ch, a_ch, b_ch = cv2.split(lab)
             clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-            cl = clahe.apply(l)
-            limg = cv2.merge((cl, a, b))
+            cl = clahe.apply(l_ch)
+            limg = cv2.merge((cl, a_ch, b_ch))
             return cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
         else:
             clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
@@ -1001,10 +1000,7 @@ class RapidOCREngine:
                         if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(processed_img, "crop"):
                             cropped = processed_img.crop(box_crop)
                             try:
-                                try:
-                                    tess_res = self._tesseract.recognize_crop(cropped, language=tess_lang)
-                                except TypeError:
-                                    tess_res = self._tesseract.recognize_crop(cropped)
+                                tess_res = self._tesseract.recognize_crop(cropped, language=tess_lang)
                                 if tess_res is not None:
                                     tess_text, tess_conf = tess_res
                                     if tess_conf is None:

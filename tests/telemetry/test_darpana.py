@@ -119,7 +119,7 @@ class TestMarutiTelemetry:
                 outcome="success",
             )
 
-        with pytest.raises(ValueError, match="outcome must be 'success' or 'failure'"):
+        with pytest.raises(ValueError, match="outcome must be 'success', 'failure', or 'cancelled'"):
             MarutiRecord(
                 run_id="run-1",
                 request_id="req-1",

@@ -92,7 +92,7 @@ def test_translation_unknown_language_raises_dosh_error() -> None:
 class DummyMockTranslationBackend(TranslatorBackend):
     """Simple mock translation backend for testing capability and batching."""
 
-    def translate_sentences(self, sentences: list[str], direction) -> list[str]:
+    def translate_sentences(self, sentences: list[str], direction, execution_binding: Any = None) -> list[str]:
         return [f"Translated({s})" for s in sentences]
 
 

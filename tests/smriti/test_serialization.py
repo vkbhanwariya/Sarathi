@@ -156,3 +156,38 @@ def test_sqlite_prunes_corrupted_entry_and_returns_miss(tmp_path: Path) -> None:
     with store._lock, store._get_connection() as conn:
         row = conn.execute("SELECT COUNT(*) FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)).fetchone()
         assert row[0] == 0
+
+
+def test_multidocument_envelope_serialization_round_trip() -> None:
+    """Verify that multi-document tuples in Result.data round-trip losslessly."""
+    doc1 = CanonicalDocument(document_id="doc-1", source_input_id="in-1", text="Doc 1 text")
+    doc2 = CanonicalDocument(document_id="doc-2", source_input_id="in-2", text="Doc 2 text")
+
+    res = Result(data=(doc1, doc2))
+    assert is_cacheable_result(res) is True
+
+    serialized = serialize_result(res)
+    assert '"_type": "MultiCanonicalDocument"' in serialized
+
+    restored = deserialize_result(serialized)
+    assert isinstance(restored.data, tuple)
+    assert len(restored.data) == 2
+    assert restored.data[0].document_id == "doc-1"
+    assert restored.data[0].text == "Doc 1 text"
+    assert restored.data[1].document_id == "doc-2"
+    assert restored.data[1].text == "Doc 2 text"
+
+
+def test_metadata_filters_non_serializable_objects() -> None:
+    """Verify metadata filters out runtime objects like lambdas without crashing."""
+    doc = CanonicalDocument(
+        document_id="doc-clean",
+        text="Clean doc",
+        metadata={"valid_str": "hello", "valid_int": 42, "func": lambda x: x},
+    )
+    res = Result(data=doc)
+    serialized = serialize_result(res)
+    restored = deserialize_result(serialized)
+    assert restored.data.metadata["valid_str"] == "hello"
+    assert restored.data.metadata["valid_int"] == 42
+    assert "func" not in restored.data.metadata

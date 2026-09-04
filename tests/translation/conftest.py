@@ -3,7 +3,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import pytest
 
@@ -29,7 +29,12 @@ class DeterministicTestBackend:
     def __init__(self, corpus_path: Path = _FIXTURE_PATH) -> None:
         self._corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
 
-    def translate_sentences(self, sentences: Sequence[str], direction: TranslationDirection) -> list[str]:
+    def translate_sentences(
+        self,
+        sentences: Sequence[str],
+        direction: TranslationDirection,
+        execution_binding: Any = None,
+    ) -> list[str]:
         results = []
         for s in sentences:
             placeholders = _PUA_RE.findall(s)

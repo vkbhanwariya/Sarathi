@@ -15,16 +15,19 @@ from sarathi.sankalpa import (
     ConfidenceValue,
     ExecutionContext,
     ExecutionProfile,
+    PageData,
     ProvenanceRecord,
     Request,
     Result,
     WarningRecord,
 )
+from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 
 if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
     from sarathi.yantra import Yantra
 
 
@@ -76,10 +79,12 @@ class OCRCapability:
         engine: RapidOCREngine | None = None,
         data_root: Path | None = None,
         yantra: Yantra | None = None,
+        darpana: Darpana | None = None,
     ) -> None:
         self.declaration: CapabilityDeclaration = declaration
         self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine(data_root=data_root)
         self._yantra: Yantra | None = yantra
+        self._darpana: Darpana | None = darpana
 
     def execute(
         self,
@@ -342,14 +347,16 @@ class OCRCapability:
 
         # Construct confirmed artifact payloads for extracted text and structured JSON
         payloads: list[ArtifactPayload] = []
-        for inp, doc in zip(request.inputs, final_docs):
-            stem = Path(inp.display_name).stem if inp.display_name else inp.input_id
+        for idx, (inp, doc) in enumerate(zip(request.inputs, final_docs)):
+            txt_name = format_artifact_filename(inp, "ocr", "txt", all_inputs=request.inputs, index=idx)
+            json_name = format_artifact_filename(inp, "ocr", "json", all_inputs=request.inputs, index=idx)
+            docx_name = format_artifact_filename(inp, "ocr", "docx", all_inputs=request.inputs, index=idx)
 
             # 1. Plain text extracted output
             payloads.append(
                 ArtifactPayload(
                     intent=ArtifactIntent(
-                        name=f"{stem}_ocr.txt",
+                        name=txt_name,
                         role="extracted_text",
                         media_type="text/plain",
                     ),
@@ -383,7 +390,7 @@ class OCRCapability:
             payloads.append(
                 ArtifactPayload(
                     intent=ArtifactIntent(
-                        name=f"{stem}_ocr.json",
+                        name=json_name,
                         role="ocr_document",
                         media_type="application/json",
                     ),
@@ -395,7 +402,7 @@ class OCRCapability:
             payloads.append(
                 build_docx_payload(
                     doc=doc,
-                    filename=f"{stem}_ocr.docx",
+                    filename=docx_name,
                     role="ocr_document",
                 )
             )

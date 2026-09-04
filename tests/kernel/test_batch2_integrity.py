@@ -233,7 +233,7 @@ class TestFingerprintAndPravahaIntegrity:
         with pytest.raises(DoshError) as exc_info:
             pravaha._execute_retry_attempt(cap_mock, req, ctx, rec)
 
-        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        assert exc_info.value.code is FailureCode.OPERATION_CANCELLED
         assert exc_info.value.context.get("cancelled") is True
 
 

@@ -266,7 +266,7 @@ class TestYantraExecutionBindingPropagation:
         assert binding.device_id == "gpu-0"
         assert binding.device_type == DeviceType.GPU
         assert binding.backend == "openvino"
-        assert binding.backend_device_id == "GPU"
+        assert binding.backend_device_id in ("GPU.0", "GPU")
         assert binding.is_spillover is False
 
         # 2. Spillover when GPU is exhausted

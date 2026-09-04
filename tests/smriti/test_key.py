@@ -142,3 +142,39 @@ def test_non_primitive_options_and_metadata_serialization_safe(tmp_path: Path) -
     # Must not raise TypeError
     key = compute_cache_key(req, "ocr", "1.0.0")
     assert len(key.key_hash) == 64
+
+
+def test_framed_input_fingerprint_boundary_safety(tmp_path: Path) -> None:
+    """Framed hashing ensures ['ab', 'c'] does not collide with ['a', 'bc']."""
+    file_ab = tmp_path / "ab.txt"
+    file_ab.write_bytes(b"ab")
+    file_c = tmp_path / "c.txt"
+    file_c.write_bytes(b"c")
+
+    file_a = tmp_path / "a.txt"
+    file_a.write_bytes(b"a")
+    file_bc = tmp_path / "bc.txt"
+    file_bc.write_bytes(b"bc")
+
+    inp_ab = InputRef(input_id="1", source_path=file_ab, display_name="f1", size_bytes=2)
+    inp_c = InputRef(input_id="2", source_path=file_c, display_name="f2", size_bytes=1)
+
+    inp_a = InputRef(input_id="1", source_path=file_a, display_name="f1", size_bytes=1)
+    inp_bc = InputRef(input_id="2", source_path=file_bc, display_name="f2", size_bytes=2)
+
+    fp_1 = compute_input_fingerprint((inp_ab, inp_c))
+    fp_2 = compute_input_fingerprint((inp_a, inp_bc))
+
+    assert fp_1 != fp_2
+
+
+def test_set_deterministic_serialization() -> None:
+    """Sets in custom options or metadata are deterministically sorted in digest computation."""
+    from sarathi.smriti.key import _to_digest_serializable
+
+    s1 = {"banana", "apple", "cherry", "date"}
+    res1 = _to_digest_serializable(s1)
+    res2 = _to_digest_serializable(frozenset(s1))
+
+    assert res1 == ["apple", "banana", "cherry", "date"]
+    assert res2 == ["apple", "banana", "cherry", "date"]

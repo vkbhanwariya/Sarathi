@@ -19,6 +19,7 @@ from sarathi.dosh import DoshError, FailureCode
 
 if TYPE_CHECKING:
     from sarathi.kavacha import SecurityPolicy
+    from sarathi.smriti import CachePolicy
 
 
 def _freeze_value(value: Any) -> Any:
@@ -234,6 +235,18 @@ class Settings:
         return raw.lower()
 
     @property
+    def telemetry_live_buffer_capacity(self) -> int:
+        """Return validated telemetry live buffer capacity, defaulting to 1000."""
+        sec = self.get_section("telemetry")
+        raw = sec.get("live_buffer_capacity", 1000) if sec is not None else 1000
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"telemetry.live_buffer_capacity must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
     def telemetry_history_max_records(self) -> int:
         """Return validated telemetry history maximum records, defaulting to 1000."""
         sec = self.get_section("telemetry")
@@ -256,6 +269,80 @@ class Settings:
                 message="hardware.detect_accelerators must be a boolean.",
             )
         return raw
+
+    @property
+    def cache_enabled(self) -> bool:
+        """Return validated cache.enabled boolean, defaulting to True."""
+        sec = self.get_section("cache")
+        raw = sec.get("enabled", True) if sec is not None else True
+        if not isinstance(raw, bool):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="cache.enabled must be a boolean.",
+            )
+        return raw
+
+    @property
+    def cache_dir(self) -> Path | None:
+        """Return validated cache directory path, defaulting to None."""
+        sec = self.get_section("cache")
+        raw = sec.get("dir", None) if sec is not None else None
+        if raw is None:
+            return None
+        if not isinstance(raw, (str, Path)) or not str(raw).strip():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="cache.dir must be a non-empty string or Path if specified.",
+            )
+        return Path(raw)
+
+    @property
+    def cache_ttl_seconds(self) -> int | None:
+        """Return validated cache TTL in seconds, defaulting to 86400 (None disables TTL)."""
+        sec = self.get_section("cache")
+        raw = sec.get("ttl_seconds", 86400) if sec is not None else 86400
+        if raw is None:
+            return None
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"cache.ttl_seconds must be a positive integer or None, got {raw!r}.",
+            )
+        return raw
+
+    @property
+    def cache_max_entries_l1(self) -> int:
+        """Return validated cache max entries for L1 memory, defaulting to 200."""
+        sec = self.get_section("cache")
+        raw = sec.get("max_entries_l1", 200) if sec is not None else 200
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"cache.max_entries_l1 must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
+    def cache_max_entries_l2(self) -> int:
+        """Return validated cache max entries for L2 persistent store, defaulting to 2000."""
+        sec = self.get_section("cache")
+        raw = sec.get("max_entries_l2", 2000) if sec is not None else 2000
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"cache.max_entries_l2 must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    def cache_policy(self) -> CachePolicy:
+        """Construct a validated CachePolicy from configuration."""
+        from sarathi.smriti import CachePolicy
+
+        return CachePolicy(
+            ttl_seconds=self.cache_ttl_seconds,
+            max_entries_l1=self.cache_max_entries_l1,
+            max_entries_l2=self.cache_max_entries_l2,
+        )
 
     def security_policy(self) -> SecurityPolicy:
         """Construct a validated SecurityPolicy from configuration."""

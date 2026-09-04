@@ -52,7 +52,12 @@ def _load_translation_anubhava(data_root: Path) -> dict[str, dict[str, str]]:
 class TranslatorBackend(Protocol):
     """Protocol for local model inference backend."""
 
-    def translate_sentences(self, sentences: Sequence[str], direction: TranslationDirection) -> list[str]:
+    def translate_sentences(
+        self,
+        sentences: Sequence[str],
+        direction: TranslationDirection,
+        execution_binding: ExecutionBinding | None = None,
+    ) -> list[str] | tuple[list[str], str]:
         """Translate a batch of sentences."""
         ...
 
@@ -158,7 +163,13 @@ class CTranslate2TranslationEngine:
                         try:
                             if hasattr(ctranslate2, "get_cuda_device_count") and ctranslate2.get_cuda_device_count() > 0:
                                 device = "cuda"
-                                device_index = 0
+                                dev_str = str(execution_binding.backend_device_id).strip()
+                                if ":" in dev_str:
+                                    dev_str = dev_str.split(":")[-1]
+                                try:
+                                    device_index = int(dev_str)
+                                except ValueError:
+                                    device_index = 0
                         except Exception:
                             device = "cpu"
 
@@ -240,10 +251,7 @@ class CTranslate2TranslationEngine:
 
         # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)
         backend = self._ensure_backend()
-        try:
-            backend_res = backend.translate_sentences(prepared_sentences, direction, execution_binding=execution_binding)
-        except TypeError:
-            backend_res = backend.translate_sentences(prepared_sentences, direction)
+        backend_res = backend.translate_sentences(prepared_sentences, direction, execution_binding=execution_binding)
 
         if isinstance(backend_res, tuple) and len(backend_res) == 2:
             translated_sentences, factual_device = backend_res
