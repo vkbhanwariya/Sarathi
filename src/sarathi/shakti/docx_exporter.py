@@ -14,6 +14,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
+from typing import Any
 from xml.sax.saxutils import escape
 
 from sarathi.dosh import DoshError, FailureCode
@@ -316,6 +317,143 @@ def build_docx_payload(
     )
 
 
+class DocxStyleResolver:
+    """Resolves effective OpenXML run fonts through styles and docDefaults hierarchy."""
+
+    def __init__(self, styles_xml: bytes | None = None) -> None:
+        self.doc_default_fonts: dict[str, str] = {}
+        self.styles: dict[str, dict[str, Any]] = {}
+        if styles_xml:
+            self._parse_styles(styles_xml)
+
+    def _parse_styles(self, styles_xml: bytes) -> None:
+        try:
+            root = ET.fromstring(styles_xml)
+        except Exception:
+            return
+
+        # 1. docDefaults
+        rpr_def = root.find(f".//{{{_W_NS}}}docDefaults/{{{_W_NS}}}rPrDefault/{{{_W_NS}}}rPr")
+        if rpr_def is not None:
+            rf = rpr_def.find(f"{{{_W_NS}}}rFonts")
+            if rf is not None:
+                for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
+                    val = rf.attrib.get(f"{{{_W_NS}}}{attr}")
+                    if val:
+                        self.doc_default_fonts[attr] = val
+
+        # 2. styles
+        for s in root.findall(f"{{{_W_NS}}}style"):
+            style_id = s.attrib.get(f"{{{_W_NS}}}styleId")
+            if not style_id:
+                continue
+            style_type = s.attrib.get(f"{{{_W_NS}}}type", "paragraph")
+            based_on = None
+            bo_elem = s.find(f"{{{_W_NS}}}basedOn")
+            if bo_elem is not None:
+                based_on = bo_elem.attrib.get(f"{{{_W_NS}}}val")
+
+            fonts: dict[str, str] = {}
+            rpr = s.find(f"{{{_W_NS}}}rPr")
+            if rpr is not None:
+                rf = rpr.find(f"{{{_W_NS}}}rFonts")
+                if rf is not None:
+                    for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
+                        val = rf.attrib.get(f"{{{_W_NS}}}{attr}")
+                        if val:
+                            fonts[attr] = val
+
+            self.styles[style_id] = {
+                "type": style_type,
+                "based_on": based_on,
+                "fonts": fonts,
+            }
+
+    def resolve_run_font(
+        self,
+        r: ET.Element,
+        p: ET.Element | None = None,
+        is_ascii_text: bool = True,
+    ) -> str | None:
+        """Resolve effective font name for run r following the OpenXML hierarchy."""
+        # 1. Direct rPr
+        rpr = r.find(f"{{{_W_NS}}}rPr")
+        if rpr is not None:
+            rf = rpr.find(f"{{{_W_NS}}}rFonts")
+            if rf is not None:
+                font = self._pick_channel(rf, is_ascii_text)
+                if font:
+                    return font
+
+            # 2. Character style (rStyle)
+            rstyle = rpr.find(f"{{{_W_NS}}}rStyle")
+            if rstyle is not None:
+                sid = rstyle.attrib.get(f"{{{_W_NS}}}val")
+                font = self._resolve_style_font(sid, is_ascii_text)
+                if font:
+                    return font
+
+        # 3. Paragraph style (pStyle)
+        if p is not None:
+            ppr = p.find(f"{{{_W_NS}}}pPr")
+            if ppr is not None:
+                pstyle = ppr.find(f"{{{_W_NS}}}pStyle")
+                if pstyle is not None:
+                    sid = pstyle.attrib.get(f"{{{_W_NS}}}val")
+                    font = self._resolve_style_font(sid, is_ascii_text)
+                    if font:
+                        return font
+
+        # 4. Document defaults
+        channel = "ascii" if is_ascii_text else "cs"
+        if channel in self.doc_default_fonts:
+            return self.doc_default_fonts[channel]
+        if "ascii" in self.doc_default_fonts:
+            return self.doc_default_fonts["ascii"]
+
+        return None
+
+    def _pick_channel(self, rf: ET.Element, is_ascii_text: bool) -> str | None:
+        if is_ascii_text:
+            return (
+                rf.attrib.get(f"{{{_W_NS}}}ascii")
+                or rf.attrib.get(f"{{{_W_NS}}}hAnsi")
+                or rf.attrib.get(f"{{{_W_NS}}}cs")
+            )
+        else:
+            return (
+                rf.attrib.get(f"{{{_W_NS}}}cs")
+                or rf.attrib.get(f"{{{_W_NS}}}ascii")
+                or rf.attrib.get(f"{{{_W_NS}}}hAnsi")
+            )
+
+    def _resolve_style_font(self, style_id: str | None, is_ascii_text: bool) -> str | None:
+        visited: set[str] = set()
+        curr = style_id
+        while curr and curr not in visited:
+            visited.add(curr)
+            s_info = self.styles.get(curr)
+            if not s_info:
+                break
+            fonts = s_info.get("fonts", {})
+            channel = "ascii" if is_ascii_text else "cs"
+            if channel in fonts:
+                return fonts[channel]
+            if is_ascii_text and "hAnsi" in fonts:
+                return fonts["hAnsi"]
+            if fonts.get("ascii"):
+                return fonts["ascii"]
+            curr = s_info.get("based_on")
+        return None
+
+
+_NON_DELETABLE_RUN_CHILDREN = frozenset({
+    "tab", "br", "cr", "sym", "drawing", "fldChar", "instrText",
+    "noBreakHyphen", "softHyphen", "commentReference", "annotationRef",
+    "footnoteReference", "endnoteReference",
+})
+
+
 def transform_docx_artifact(
     input_bytes: bytes,
     converter_fn: Callable[[str], str],
@@ -323,33 +461,41 @@ def transform_docx_artifact(
     role: str = "converted_document",
     warnings: list[WarningRecord] | None = None,
     preserve_modern_fonts: bool | None = None,
+    preserve_typography: bool = False,
 ) -> ArtifactPayload:
-    """Transform an existing DOCX file in-place, preserving OpenXML layout and document structure.
-
-    Converts text within all runs of word/document.xml, word/header*.xml, word/footer*.xml
-    using converter_fn, and applies standardized bilingual typography (Nirmala UI 14pt /
-    Arial 12pt) while preserving original tables, borders, headers, styles, and alignments.
-    """
+    """Transform an existing DOCX file in-place, preserving OpenXML layout and document structure."""
     try:
         in_buf = io.BytesIO(input_bytes)
         out_buf = io.BytesIO()
         should_preserve_modern = preserve_modern_fonts if preserve_modern_fonts is not None else (role == "converted_document")
 
         with zipfile.ZipFile(in_buf, "r") as in_zf, zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
+            styles_xml = in_zf.read("word/styles.xml") if "word/styles.xml" in in_zf.namelist() else None
+            style_resolver = DocxStyleResolver(styles_xml)
+
             for item in in_zf.infolist():
                 raw_entry = in_zf.read(item.filename)
 
-                # Process document, headers, footers
+                # Process visible story parts: document, headers, footers, footnotes, endnotes, comments
                 is_target_xml = (
                     item.filename == "word/document.xml"
                     or (item.filename.startswith("word/header") and item.filename.endswith(".xml"))
                     or (item.filename.startswith("word/footer") and item.filename.endswith(".xml"))
+                    or (item.filename.startswith("word/footnotes") and item.filename.endswith(".xml"))
+                    or (item.filename.startswith("word/endnotes") and item.filename.endswith(".xml"))
+                    or (item.filename.startswith("word/comments") and item.filename.endswith(".xml"))
                 )
 
                 if is_target_xml:
                     try:
                         tree = ET.fromstring(raw_entry)
-                        _transform_xml_tree(tree, converter_fn, preserve_modern_fonts=should_preserve_modern)
+                        _transform_xml_tree(
+                            tree,
+                            converter_fn,
+                            preserve_modern_fonts=should_preserve_modern,
+                            preserve_typography=preserve_typography,
+                            style_resolver=style_resolver,
+                        )
                         updated_entry = ET.tostring(tree, encoding="utf-8", xml_declaration=True)
                         out_zf.writestr(item, updated_entry)
                         continue
@@ -375,6 +521,8 @@ def transform_docx_artifact(
             content=out_buf.getvalue(),
         )
     except Exception as exc:
+        if isinstance(exc, DoshError):
+            raise
         raise DoshError(
             code=FailureCode.VALIDATION_FAILED,
             message="Failed to transform DOCX document structure.",
@@ -404,20 +552,25 @@ def _get_run_visual_style(r: ET.Element) -> tuple:
     return tuple(sorted(style_tags))
 
 
-def _merge_adjacent_compatible_runs(p: ET.Element) -> None:
-    """Merge adjacent <w:r> elements within a paragraph that share identical visual styling properties."""
+def _merge_adjacent_compatible_runs(container: ET.Element) -> None:
+    """Merge adjacent compatible <w:r> elements without deleting semantic nodes."""
     r_tag = f"{{{_W_NS}}}r"
     t_tag = f"{{{_W_NS}}}t"
 
-    children = list(p)
+    children = list(container)
     if len(children) < 2:
         return
 
     i = 0
-    while i < len(p) - 1:
-        c1 = p[i]
-        c2 = p[i + 1]
+    while i < len(container) - 1:
+        c1 = container[i]
+        c2 = container[i + 1]
         if c1.tag == r_tag and c2.tag == r_tag:
+            # Check if c2 contains any non-deletable child
+            has_non_deletable = any(
+                child.tag.split("}")[-1] in _NON_DELETABLE_RUN_CHILDREN
+                for child in c2
+            )
             style1 = _get_run_visual_style(c1)
             style2 = _get_run_visual_style(c2)
             if style1 == style2:
@@ -425,8 +578,11 @@ def _merge_adjacent_compatible_runs(p: ET.Element) -> None:
                 t2 = c2.find(t_tag)
                 if t1 is not None and t2 is not None and t2.text:
                     t1.text = (t1.text or "") + t2.text
-                    p.remove(c2)
-                    continue
+                    if not has_non_deletable:
+                        container.remove(c2)
+                        continue
+                    else:
+                        t2.text = ""
         i += 1
 
 
@@ -434,23 +590,22 @@ def _transform_xml_tree(
     tree: ET.Element,
     converter_fn: Callable[[str], str],
     preserve_modern_fonts: bool = False,
+    preserve_typography: bool = False,
+    style_resolver: DocxStyleResolver | None = None,
 ) -> None:
     """Transform paragraphs and runs within an ElementTree OpenXML element."""
+    from sarathi.shakti.font_conversion.detector import load_font_profiles, resolve_profile_from_font_name
+
     p_tag = f"{{{_W_NS}}}p"
     r_tag = f"{{{_W_NS}}}r"
     t_tag = f"{{{_W_NS}}}t"
+    sym_tag = f"{{{_W_NS}}}sym"
     rpr_tag = f"{{{_W_NS}}}rPr"
     rfonts_tag = f"{{{_W_NS}}}rFonts"
     sz_tag = f"{{{_W_NS}}}sz"
     szcs_tag = f"{{{_W_NS}}}szCs"
 
-    modern_font_names = (
-        "bookman", "calibri", "arial", "times", "cambria", "georgia",
-        "verdana", "tahoma", "courier", "segoe", "helvetica", "trebuchet",
-    )
-    modern_devanagari_fonts = (
-        "mangal", "nirmala ui", "nirmala", "aparajita", "kokila", "utsaah",
-    )
+    profiles = load_font_profiles()
 
     import inspect
     converter_takes_font = False
@@ -462,80 +617,110 @@ def _transform_xml_tree(
     except Exception:
         converter_takes_font = False
 
+    # Process all containers that can hold runs (paragraphs, table cells, hyperlinks, sdt)
     for p in tree.iter(p_tag):
+        # Merge runs at paragraph level and within sub-containers like w:hyperlink
         _merge_adjacent_compatible_runs(p)
-        # We collect run modifications per paragraph
-        children = list(p)
-        for child in children:
-            if child.tag != r_tag:
-                continue
+        for sub_container in p.findall(f"{{{_W_NS}}}hyperlink"):
+            _merge_adjacent_compatible_runs(sub_container)
 
-            # Check text inside run
-            t_elems = child.findall(t_tag)
-            if not t_elems:
-                continue
+        # Iterate all runs in paragraph (including nested)
+        for parent in [p] + p.findall(f"{{{_W_NS}}}hyperlink"):
+            children = list(parent)
+            for child in children:
+                if child.tag != r_tag:
+                    continue
 
-            full_run_text = "".join(t.text for t in t_elems if t.text)
-            if not full_run_text:
-                continue
+                # 1. Check and convert <w:sym> elements
+                for sym in list(child.findall(sym_tag)):
+                    sym_font = sym.attrib.get(f"{{{_W_NS}}}font")
+                    sym_char = sym.attrib.get(f"{{{_W_NS}}}char")
+                    if sym_font and sym_char:
+                        prof_id, _ = resolve_profile_from_font_name(sym_font, profiles)
+                        if prof_id and prof_id in profiles:
+                            prof = profiles[prof_id]
+                            hex_code = sym_char.upper()
+                            if hex_code in prof.symbols:
+                                mapped_char = prof.symbols[hex_code]
+                                s_idx = list(child).index(sym)
+                                child.remove(sym)
+                                new_t = ET.Element(t_tag)
+                                new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+                                new_t.text = mapped_char
+                                child.insert(s_idx, new_t)
 
-            # Extract run font name if present
-            run_font_name: str | None = None
-            is_modern_run = False
-            rpr = child.find(rpr_tag)
-            if rpr is not None:
-                rf = rpr.find(rfonts_tag)
-                if rf is not None:
-                    # Look up primary ascii or cs font name
-                    val_str = " ".join(rf.attrib.values()).lower()
-                    run_font_name = rf.attrib.get(f"{{{_W_NS}}}ascii") or rf.attrib.get(f"{{{_W_NS}}}cs") or rf.attrib.get(f"{{{_W_NS}}}hAnsi")
-                    if preserve_modern_fonts and any(m in val_str for m in modern_font_names):
-                        is_modern_run = True
-                    # If explicitly formatted in a known modern Unicode Devanagari font, preserve it!
-                    if any(m in val_str for m in modern_devanagari_fonts):
-                        is_modern_run = True
+                # 2. Check text inside run
+                t_elems = child.findall(t_tag)
+                if not t_elems:
+                    continue
 
-            if is_modern_run:
-                converted_text = full_run_text
-            else:
-                if converter_takes_font and run_font_name:
-                    converted_text = converter_fn(full_run_text, font_name=run_font_name)
+                full_run_text = "".join(t.text for t in t_elems if t.text)
+                if not full_run_text:
+                    continue
+
+                # Resolve effective font name using StyleResolver
+                is_ascii = all(ord(c) < 128 for c in full_run_text)
+                effective_font: str | None = None
+                if style_resolver is not None:
+                    effective_font = style_resolver.resolve_run_font(child, p, is_ascii_text=is_ascii)
+                if not effective_font:
+                    rpr = child.find(rpr_tag)
+                    if rpr is not None:
+                        rf = rpr.find(rfonts_tag)
+                        if rf is not None:
+                            effective_font = rf.attrib.get(f"{{{_W_NS}}}ascii") or rf.attrib.get(f"{{{_W_NS}}}hAnsi") or rf.attrib.get(f"{{{_W_NS}}}cs")
+
+                # Detect if run font is modern or legacy
+                resolved_prof, fam = resolve_profile_from_font_name(effective_font, profiles)
+                is_modern_run = (fam == "modern") and preserve_modern_fonts
+
+                if is_modern_run:
+                    converted_text = full_run_text
                 else:
-                    converted_text = converter_fn(full_run_text)
+                    if converter_takes_font and effective_font:
+                        converted_text = converter_fn(full_run_text, font_name=effective_font)
+                    else:
+                        converted_text = converter_fn(full_run_text)
 
-            segments = segment_text_by_script(converted_text)
-            if not segments:
-                for t in t_elems:
-                    t.text = ""
-                continue
+                segments = segment_text_by_script(converted_text)
+                if not segments:
+                    for t in t_elems:
+                        t.text = ""
+                    continue
 
-            # Read existing run properties
-            rpr = child.find(rpr_tag)
-            if rpr is None:
-                rpr = ET.Element(rpr_tag)
-                child.insert(0, rpr)
+                rpr = child.find(rpr_tag)
+                if rpr is None:
+                    rpr = ET.Element(rpr_tag)
+                    child.insert(0, rpr)
 
-            if len(segments) == 1:
-                chunk, is_dev = segments[0]
-                _apply_font_to_rpr(rpr, is_dev, rfonts_tag, sz_tag, szcs_tag)
-                t_elems[0].text = chunk
-                t_elems[0].attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
-                for extra_t in t_elems[1:]:
-                    child.remove(extra_t)
-            else:
-                # Multiple script segments: split into replacement runs
-                idx = list(p).index(child)
-                p.remove(child)
-                for offset, (chunk, is_dev) in enumerate(segments):
-                    new_r = ET.Element(r_tag)
-                    new_rpr = ET.fromstring(ET.tostring(rpr))
-                    _apply_font_to_rpr(new_rpr, is_dev, rfonts_tag, sz_tag, szcs_tag)
-                    new_r.append(new_rpr)
-                    new_t = ET.Element(t_tag)
-                    new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
-                    new_t.text = chunk
-                    new_r.append(new_t)
-                    p.insert(idx + offset, new_r)
+                if len(segments) == 1:
+                    chunk, is_dev = segments[0]
+                    _apply_font_to_rpr(rpr, is_dev, rfonts_tag, sz_tag, szcs_tag, preserve_typography=preserve_typography)
+                    t_elems[0].text = chunk
+                    t_elems[0].attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+                    for extra_t in t_elems[1:]:
+                        child.remove(extra_t)
+                else:
+                    # Multi-script segmentation: preserve original run, update first chunk, clone formatting for rest
+                    chunk0, is_dev0 = segments[0]
+                    _apply_font_to_rpr(rpr, is_dev0, rfonts_tag, sz_tag, szcs_tag, preserve_typography=preserve_typography)
+                    t_elems[0].text = chunk0
+                    t_elems[0].attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+                    for extra_t in t_elems[1:]:
+                        child.remove(extra_t)
+
+                    # Insert additional script runs after child in parent
+                    c_idx = list(parent).index(child)
+                    for offset, (chunk, is_dev) in enumerate(segments[1:], start=1):
+                        new_r = ET.Element(r_tag)
+                        new_rpr = ET.fromstring(ET.tostring(rpr))
+                        _apply_font_to_rpr(new_rpr, is_dev, rfonts_tag, sz_tag, szcs_tag, preserve_typography=preserve_typography)
+                        new_r.append(new_rpr)
+                        new_t = ET.Element(t_tag)
+                        new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+                        new_t.text = chunk
+                        new_r.append(new_t)
+                        parent.insert(c_idx + offset, new_r)
 
 
 def _apply_font_to_rpr(
@@ -544,10 +729,10 @@ def _apply_font_to_rpr(
     rfonts_tag: str,
     sz_tag: str,
     szcs_tag: str,
+    preserve_typography: bool = False,
 ) -> None:
-    """Set font and size on a <w:rPr> element, preserving bold, italic, and shadow."""
+    """Set font on a <w:rPr> element, preserving original size when preserve_typography is True."""
     font = _HINDI_FONT if is_devanagari else _ENGLISH_FONT
-    size_str = str(_HINDI_HALF_PT if is_devanagari else _ENGLISH_HALF_PT)
 
     # Fonts
     rfonts = rpr.find(rfonts_tag)
@@ -557,13 +742,15 @@ def _apply_font_to_rpr(
     rfonts.attrib[f"{{{_W_NS}}}hAnsi"] = font
     rfonts.attrib[f"{{{_W_NS}}}cs"] = font
 
-    # Size
-    sz = rpr.find(sz_tag)
-    if sz is None:
-        sz = ET.SubElement(rpr, sz_tag)
-    sz.attrib[f"{{{_W_NS}}}val"] = size_str
+    # Size: only standardize if preserve_typography is False
+    if not preserve_typography:
+        size_str = str(_HINDI_HALF_PT if is_devanagari else _ENGLISH_HALF_PT)
+        sz = rpr.find(sz_tag)
+        if sz is None:
+            sz = ET.SubElement(rpr, sz_tag)
+        sz.attrib[f"{{{_W_NS}}}val"] = size_str
 
-    szcs = rpr.find(szcs_tag)
-    if szcs is None:
-        szcs = ET.SubElement(rpr, szcs_tag)
-    szcs.attrib[f"{{{_W_NS}}}val"] = size_str
+        szcs = rpr.find(szcs_tag)
+        if szcs is None:
+            szcs = ET.SubElement(rpr, szcs_tag)
+        szcs.attrib[f"{{{_W_NS}}}val"] = size_str

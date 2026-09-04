@@ -64,9 +64,13 @@ class FontConverter:
         if profile is None:
             return text
 
-        # 1. Apply verified Anubhava corrections first
-        corrections = self._anubhava_corrections.get(profile_id, {})
-        for src, tgt in corrections.items():
+        # 1. Apply verified Anubhava corrections: generic first, profile-specific second
+        generic_corrections = self._anubhava_corrections.get("generic", {})
+        for src, tgt in generic_corrections.items():
+            text = text.replace(src, tgt)
+
+        profile_corrections = self._anubhava_corrections.get(profile_id, {})
+        for src, tgt in profile_corrections.items():
             text = text.replace(src, tgt)
 
         # 2. Profile-specific pre-base matra reordering (e.g. 'f' in KrutiDev/DevLys)
@@ -82,7 +86,6 @@ class FontConverter:
         elif profile.family == "chanakya":
             for pfx in profile.prefixes.keys():
                 if pfx in text:
-                    # In Chanakya, prefix Ç or É is followed by base consonant glyphs
                     text = re.sub(rf"{re.escape(pfx)}([^\s])", r"\1" + pfx, text)
         elif profile.family == "shusha":
             if "D" in profile.prefixes and "D" in text:
@@ -91,15 +94,11 @@ class FontConverter:
             if "C" in profile.prefixes and "C" in text:
                 text = re.sub(r"C([a-z0-9])", r"\1C", text)
 
-        # 3. Apply Multi-char and Single-char mappings (sorted by key length descending)
-        sorted_keys = sorted(profile.mappings.keys(), key=len, reverse=True)
-        if sorted_keys:
-            pattern = re.compile("|".join(re.escape(k) for k in sorted_keys))
-
-            def _map_match(m: re.Match) -> str:
-                return profile.mappings.get(m.group(0), m.group(0))
-
-            text = pattern.sub(_map_match, text)
+        # 3. Apply Multi-char and Single-char mappings using precompiled forward transducer
+        if profile.compiled_forward_regex is not None:
+            text = profile.compiled_forward_regex.sub(
+                lambda m: profile.mappings.get(m.group(0), m.group(0)), text
+            )
 
         # 4. Handle Postfix Reph at logical Akshara level
         reph_char = profile.postfix_reph
@@ -111,22 +110,15 @@ class FontConverter:
         for src, tgt in profile.post_corrections:
             text = text.replace(src, tgt)
 
-        # 5b. Typewriter artifact post-normalization (restricted strictly to KrutiDev / DevLys)
-        if profile.family in ("krutidev", "devlys"):
-            # Remington digits typed with ']' or 'ए' between digits: e.g. 30]000 -> 30,000
-            text = re.sub(r"(?<=\d)[\]ए](?=\d)", ",", text)
-            # Remington colon following Devanagari characters typed for visarga (e.g. पुनः)
-            text = re.sub(r"(?<=[\u0900-\u097F]):(?!\d)", "\u0903", text)
-            # Rupee shorthand prefix: ःपये / :पये -> रुपये
-            text = re.sub(r"(?:[:ः]पये)", "रुपये", text)
-            # Typist reph/matra inversion: कायार्लय -> कार्यालय
-            text = text.replace("कायार्लय", "कार्यालय")
+        # 5b. Family corrections (e.g. typewriter artifact corrections declared in profile)
+        for src, tgt in profile.family_corrections:
+            text = text.replace(src, tgt)
 
         # 6. Akshara Unicode synthesis and canonical NFC normalization
         return synthesize_akshara_unicode(text)
 
     def convert_to_legacy(self, text: str, target_profile_id: str = "krutidev010") -> str:
-        """Convert standard Unicode Devanagari text into legacy font encoding (KrutiDev or DevLys)."""
+        """Convert standard Unicode Devanagari text into legacy font encoding using precompiled reverse transducers."""
         pid = target_profile_id.lower().strip()
         profile = self._profiles.get(pid)
         if profile is None:
@@ -143,20 +135,11 @@ class FontConverter:
         # 2. Handle reph 'र्': in Unicode it precedes consonant, in Kruti/DevLys 'Z' follows
         norm_text = re.sub(r"र्((?:[क-ह]्)*[क-ह](?:[ाीुूेैोौ]|ं|ँ)?)", r"\1Z", norm_text)
 
-        # 3. Build reverse mapping (Unicode -> Legacy), longest Unicode matches first
-        reverse_map: dict[str, str] = {}
-        for leg_k, uni_v in profile.mappings.items():
-            if uni_v and uni_v not in reverse_map:
-                reverse_map[uni_v] = leg_k
-
-        # Also add prefix if not present
-        for leg_k, uni_v in profile.prefixes.items():
-            if uni_v and uni_v not in reverse_map:
-                reverse_map[uni_v] = leg_k
-
-        sorted_uni = sorted(reverse_map.keys(), key=len, reverse=True)
-        if sorted_uni:
-            pattern = re.compile("|".join(re.escape(u) for u in sorted_uni))
-            norm_text = pattern.sub(lambda m: reverse_map.get(m.group(0), m.group(0)), norm_text)
+        # 3. Apply precompiled reverse mapping (Unicode -> Legacy)
+        if profile.compiled_reverse_regex is not None:
+            rev_map = profile.compiled_reverse_map
+            norm_text = profile.compiled_reverse_regex.sub(
+                lambda m: rev_map.get(m.group(0), m.group(0)), norm_text
+            )
 
         return norm_text

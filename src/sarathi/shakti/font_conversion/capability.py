@@ -12,18 +12,24 @@ from sarathi.sankalpa import (
     ArtifactPayload,
     CanonicalDocument,
     ExecutionContext,
-    PageData,
     ProvenanceRecord,
     Request,
     Result,
-    TableData,
     TextSpan,
     WarningRecord,
 )
 from sarathi.sankalpa.document import transform_canonical_document
 from sarathi.shakti.docx_exporter import build_docx_payload, transform_docx_artifact
 from sarathi.shakti.font_conversion.converter import FontConverter
-from sarathi.shakti.font_conversion.detector import LegacyFontDetector
+from sarathi.shakti.font_conversion.detector import (
+    LegacyFontDetector,
+    decide_run_profile,
+    rank_profiles_from_text,
+    resolve_profile_from_font_name,
+)
+from sarathi.shakti.font_conversion.models import (
+    ConversionMetrics,
+)
 from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.font_conversion.protector import TextProtector
 from sarathi.shakti.font_conversion.validator import FontConversionValidator
@@ -40,7 +46,6 @@ class FontConversionCapability:
         darpana: Darpana | None = None,
         fonts_dir: Path | None = None,
         anubhava_path: Path | None = None,
-        ocr_oracle: Any | None = None,
     ) -> None:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
@@ -49,7 +54,6 @@ class FontConversionCapability:
         self._protector = TextProtector()
         self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava_path=anubhava_path)
         self._validator = FontConversionValidator()
-        self._ocr_oracle = ocr_oracle
 
     def execute(
         self,
@@ -85,13 +89,15 @@ class FontConversionCapability:
                 message="No CanonicalDocument provided to FontConversionCapability.",
             )
 
-        # If any document text, pages, and tables are completely empty, request OCR continuation through Pravaha
-        if any(
-            not d.text.strip()
-            and not d.tables
-            and not any(p.text.strip() or p.tables for p in d.pages)
-            for d in docs
-        ):
+        def _is_doc_empty(d: CanonicalDocument) -> bool:
+            return (
+                not d.text.strip()
+                and not d.tables
+                and not any(p.text.strip() or p.tables for p in d.pages)
+            )
+
+        # Item-scoped batch escalation: if all documents are completely empty, request OCR handoff
+        if all(_is_doc_empty(d) for d in docs):
             return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
 
         converted_docs: list[CanonicalDocument] = []
@@ -100,6 +106,18 @@ class FontConversionCapability:
         all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
 
         for idx, doc in enumerate(docs):
+            if _is_doc_empty(doc):
+                # Preserve empty document and record classified warning without failing entire batch
+                converted_docs.append(doc)
+                all_warnings.append(
+                    WarningRecord(
+                        code="EMPTY_DOCUMENT_SKIPPED",
+                        message=f"Document '{doc.document_id}' is empty; skipped font conversion.",
+                        stage="font_conversion",
+                    )
+                )
+                continue
+
             full_text = doc.text
             if not full_text.strip() and doc.tables:
                 table_lines = []
@@ -146,32 +164,29 @@ class FontConversionCapability:
                     else (detected_profile or "krutidev010")
                 )
 
-                ocr_recovered_text: str | None = None
-                if is_to_legacy:
-                    # Preserve detected_profile for legacy-to-legacy decoding; conf reflects detection evidence
-                    pass
-                else:
-                    # Default: auto_unicode
-                    if detected_profile is None and self._ocr_oracle is not None and hasattr(self._ocr_oracle, "recover_text"):
-                        try:
-                            rec_txt, oracle_conf = self._ocr_oracle.recover_text(full_text)
-                            if rec_txt and rec_txt != full_text:
-                                ocr_recovered_text = rec_txt
-                                detected_profile = "visual_oracle"
-                                conf = oracle_conf
-                                all_provs.append(
-                                    ProvenanceRecord(
-                                        stage="font_conversion",
-                                        plugin_id="shakti.font_conversion",
-                                        capability_id="font_conversion",
-                                        evidence={"recovered_via": "selective_ocr", "profile": "visual_oracle"},
-                                    )
-                                )
-                        except Exception:
-                            pass
+                # Legacy-to-legacy validation: only reject if neither explicit font alias nor text margin >= 1.0
+                if is_to_legacy and self._detector.is_legacy_text(full_text):
+                    if not detected_profile:
+                        candidates = rank_profiles_from_text(full_text, self._detector._profiles)
+                        if not candidates or candidates[0].score < 2.0:
+                            raise DoshError(
+                                code=FailureCode.VALIDATION_FAILED,
+                                message="Ambiguous source legacy encoding for legacy-to-legacy conversion.",
+                            )
+                        if len(candidates) > 1 and (candidates[0].score - candidates[1].score) < 1.0:
+                            raise DoshError(
+                                code=FailureCode.VALIDATION_FAILED,
+                                message="Ambiguous source legacy encoding for legacy-to-legacy conversion.",
+                            )
 
-                    if detected_profile is None:
-                        # No legacy font detected; keep original document
+                # If auto_unicode and no legacy detected, preserve original doc
+                if not is_to_legacy and detected_profile is None:
+                    # Check if any span or table has legacy font hint
+                    has_any_legacy_span = any(
+                        s.metadata.get("font_name") and resolve_profile_from_font_name(s.metadata.get("font_name"), self._detector._profiles)[0]
+                        for p in doc.pages for s in p.spans
+                    )
+                    if not has_any_legacy_span:
                         converted_docs.append(doc)
                         all_warnings.append(
                             WarningRecord(
@@ -183,32 +198,56 @@ class FontConversionCapability:
                         continue
 
                 total_spans_count = 0
+                metrics = ConversionMetrics()
+                profiles_used: set[str] = set()
 
                 def _conv_text(raw: str, font_name: str | None = None) -> str:
                     nonlocal total_spans_count
                     if not raw or not raw.strip():
                         return raw
-                    if ocr_recovered_text is not None:
-                        if raw == full_text:
-                            return ocr_recovered_text
-                        if self._ocr_oracle is not None and hasattr(self._ocr_oracle, "recover_text"):
-                            try:
-                                sub_rec, _ = self._ocr_oracle.recover_text(raw)
-                                if sub_rec:
-                                    return sub_rec
-                            except Exception:
-                                pass
+
+                    if is_to_legacy:
+                        active_profile = target_profile
+                        metrics.runs_scanned += 1
+                        metrics.runs_converted += 1
+                        profiles_used.add(active_profile)
+                        if detected_profile and detected_profile != target_profile:
+                            inter = self._converter.convert(raw, profile_id=detected_profile)
+                        else:
+                            inter = raw
+                        return self._converter.convert_to_legacy(inter, target_profile_id=active_profile)
+
+                    # Eliminate document-level profile leakage
+                    decision = decide_run_profile(
+                        run_font=font_name,
+                        run_text=raw,
+                        doc_profile=detected_profile,
+                        profiles=self._detector._profiles,
+                    )
+                    metrics.runs_scanned += 1
+
+                    if decision.decision == "preserve":
+                        metrics.runs_preserved += 1
+                        return raw
+                    if decision.decision == "ambiguous":
+                        metrics.runs_ambiguous += 1
+                        return raw
+                    if decision.decision != "convert" or not decision.profile:
+                        metrics.runs_preserved += 1
                         return raw
 
-                    # Determine active profile for this segment
-                    active_profile = detected_profile
-                    if font_name and not is_to_legacy:
-                        run_prof, _ = self._detector.detect(raw, font_hint=font_name)
-                        if run_prof:
-                            active_profile = run_prof
+                    active_profile = decision.profile
+                    metrics.runs_converted += 1
+                    profiles_used.add(active_profile)
 
-                    prot, c_spans = self._protector.protect(raw, protect_devanagari=not is_to_legacy)
+                    is_explicit_legacy = (decision.reason == "exact_source_font_alias")
+                    prot, c_spans = self._protector.protect(
+                        raw,
+                        protect_devanagari=not is_to_legacy,
+                        is_explicit_legacy=is_explicit_legacy,
+                    )
                     total_spans_count += len(c_spans)
+
                     if is_to_legacy:
                         if active_profile is not None and active_profile != target_profile:
                             inter = self._converter.convert(prot, profile_id=active_profile)
@@ -217,6 +256,7 @@ class FontConversionCapability:
                         c_raw = self._converter.convert_to_legacy(inter, target_profile_id=target_profile)
                     else:
                         c_raw = self._converter.convert(prot, profile_id=active_profile)
+
                     restored = self._protector.restore(c_raw, c_spans)
                     if not is_to_legacy:
                         if not self._validator.validate_protection_integrity(restored, c_spans):
@@ -226,16 +266,28 @@ class FontConversionCapability:
                             )
                         is_struct_valid, defects = self._validator.validate_devanagari_structure(restored)
                         if not is_struct_valid:
-                            all_warnings.append(
-                                WarningRecord(
-                                    code="STRUCTURAL_DEVANAGARI_DEFECT",
-                                    message=f"Converted text has structural Devanagari defect(s): {', '.join(defects)}",
-                                    stage="font_conversion",
-                                )
+                            metrics.structural_failures += 1
+                            raise DoshError(
+                                code=FailureCode.VALIDATION_FAILED,
+                                message=f"Converted text has structural Devanagari defect(s): {', '.join(defects)}",
                             )
                     return restored
 
                 final_text = _conv_text(full_text)
+
+                def _span_transform(span: TextSpan | str) -> TextSpan | str:
+                    if isinstance(span, TextSpan):
+                        f_name = span.metadata.get("font_name") if span.metadata else None
+                        conv_t = _conv_text(span.text, font_name=f_name)
+                        return TextSpan(
+                            text=conv_t,
+                            confidence=span.confidence,
+                            bounding_box=span.bounding_box,
+                            language="hi" if not is_to_legacy else doc.metadata.get("language"),
+                            script="Deva" if not is_to_legacy else "Latn",
+                            metadata=dict(span.metadata),
+                        )
+                    return _conv_text(span)
 
                 target_doc_type = "legacy_font_document" if is_to_legacy else "unicode_document"
                 converted_doc = transform_canonical_document(
@@ -244,6 +296,7 @@ class FontConversionCapability:
                     detected_type=target_doc_type,
                     target_lang="hi" if not is_to_legacy else doc.metadata.get("language"),
                     target_script="Deva" if not is_to_legacy else "Latn",
+                    span_transform_fn=_span_transform,
                 )
                 converted_docs.append(converted_doc)
 
@@ -253,8 +306,13 @@ class FontConversionCapability:
                     stage="font_conversion",
                     evidence={
                         "profile_id": detected_profile,
+                        "profiles_used": sorted(profiles_used),
                         "confidence": conf,
                         "protected_spans_count": total_spans_count,
+                        "runs_scanned": metrics.runs_scanned,
+                        "runs_converted": metrics.runs_converted,
+                        "runs_preserved": metrics.runs_preserved,
+                        "runs_ambiguous": metrics.runs_ambiguous,
                     },
                 )
                 all_provs.append(prov)
@@ -277,11 +335,9 @@ class FontConversionCapability:
                     else f"Converted_{doc.source_input_id or doc.document_id}.docx"
                 )
 
-                # Attempt in-place transformation if original source file is a valid DOCX
+                # Deterministic source association (no positional fallback!)
                 docx_payload: ArtifactPayload | None = None
                 matching_inp = next((i for i in request.inputs if i.input_id == doc.source_input_id), None)
-                if matching_inp is None and idx < len(request.inputs):
-                    matching_inp = request.inputs[idx]
 
                 if (
                     matching_inp is not None
@@ -289,31 +345,22 @@ class FontConversionCapability:
                     and matching_inp.source_path.suffix.lower() == ".docx"
                     and matching_inp.source_path.is_file()
                 ):
-                    try:
-                        raw_docx_bytes = matching_inp.source_path.read_bytes()
-                        docx_payload = transform_docx_artifact(
-                            input_bytes=raw_docx_bytes,
-                            converter_fn=_conv_text,
-                            filename=docx_artifact_name,
-                            role="converted_document",
-                            warnings=all_warnings,
-                        )
-                    except Exception:
-                        docx_payload = None
-                        all_warnings.append(
-                            WarningRecord(
-                                code="DOCX_FIDELITY_DOWNGRADE",
-                                message="Original DOCX structure could not be transformed; generated minimal reconstruction fallback.",
-                                stage="font_conversion",
-                            )
-                        )
-
-                if docx_payload is None:
+                    raw_docx_bytes = matching_inp.source_path.read_bytes()
+                    docx_payload = transform_docx_artifact(
+                        input_bytes=raw_docx_bytes,
+                        converter_fn=_conv_text,
+                        filename=docx_artifact_name,
+                        role="converted_document",
+                        warnings=all_warnings,
+                        preserve_typography=True,
+                    )
+                else:
                     docx_payload = build_docx_payload(
                         doc=converted_doc,
                         filename=docx_artifact_name,
                         role="converted_document",
                     )
+
                 payloads.append(docx_payload)
 
         final_data = tuple(converted_docs) if is_batch else converted_docs[0]

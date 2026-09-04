@@ -74,5 +74,13 @@
     "9": "त्र",
     "0": "ज्ञ"
   },
-  "post_corrections": []
+  "post_corrections": [],
+  "schema_version": "1.0.0",
+  "detection_signatures": [
+    "aA", "bA", "cA", "dA", "uA", "vA", "wA", "pA", "sA", "tA",
+    "rA", "yA"
+  ],
+  "negative_signatures": [
+    "[k", "vk", "vks", "vkS", "Fk", "/k", "Hk", "¥æ", "§Z"
+  ]
 }

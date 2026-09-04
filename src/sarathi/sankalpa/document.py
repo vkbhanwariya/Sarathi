@@ -150,7 +150,7 @@ def transform_canonical_document(
     detected_type: str,
     target_lang: str | None = None,
     target_script: str | None = None,
-    span_transform_fn: Callable[[str], str] | None = None,
+    span_transform_fn: Callable[[TextSpan], TextSpan | str] | Callable[[str], str] | None = None,
 ) -> CanonicalDocument:
     """Transform text, pages, spans, and tables of a CanonicalDocument with semantic fidelity.
 
@@ -174,9 +174,19 @@ def transform_canonical_document(
             p_page_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
 
         p_spans: list[TextSpan] = []
-        s_fn = span_transform_fn or text_transform_fn
         for s in p.spans:
-            s_text = s_fn(s.text) if s.text else ""
+            if span_transform_fn is not None:
+                try:
+                    res = span_transform_fn(s)  # type: ignore[arg-type]
+                except TypeError:
+                    res = span_transform_fn(s.text)  # type: ignore[call-arg]
+                if isinstance(res, TextSpan):
+                    p_spans.append(res)
+                    continue
+                s_text = str(res) if res is not None else ""
+            else:
+                s_text = text_transform_fn(s.text) if s.text else ""
+
             p_spans.append(
                 TextSpan(
                     text=s_text,

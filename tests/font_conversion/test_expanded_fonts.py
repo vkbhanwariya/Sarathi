@@ -5,13 +5,10 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-import pytest
-
 from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result
 from sarathi.shakti.font_conversion.capability import FontConversionCapability
 from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import (
-    LegacyFontDetector,
     extract_ttf_font_family,
     load_font_profiles,
 )
@@ -114,22 +111,16 @@ def test_ttf_font_family_extraction_corrupt_or_truncated() -> None:
     assert extract_ttf_font_family(b"\x00\x01\x00\x00\x00\x01\x00\x00") is None
 
 
-def test_font_conversion_selective_ocr_oracle_fallback() -> None:
-    """Verify FontConversionCapability invokes visual oracle when text has unmapped font."""
-    class MockVisualOracle:
-        def recover_text(self, text: str) -> tuple[str, float]:
-            return "पुनर्प्राप्त पाठ", 0.95
+def test_font_conversion_escalates_to_ocr_when_documents_empty() -> None:
+    """Verify FontConversionCapability escalates via canonical Pravaha handoff when documents are empty."""
+    cap = FontConversionCapability()
 
-    oracle = MockVisualOracle()
-    cap = FontConversionCapability(ocr_oracle=oracle)
-
-    doc = CanonicalDocument(document_id="doc-unk", text="unmapped_legacy_token")
+    doc = CanonicalDocument(document_id="doc-empty", text="")
     prior = Result(data=doc)
     ctx = ExecutionContext("run-1", "req-1", "t-1", "s-1")
-    inp = InputRef(input_id="inp-1", source_path=Path("sample.txt"), display_name="sample.txt", size_bytes=10)
+    inp = InputRef(input_id="inp-1", source_path=Path("sample.txt"), display_name="sample.txt", size_bytes=0)
     req = Request(request_id="req-1", requirement="font_conversion", inputs=(inp,))
 
     result = cap.execute(req, ctx, prior)
-    assert result.data is not None
-    assert result.data.text == "पुनर्प्राप्त पाठ"
-    assert any(p.evidence.get("recovered_via") == "selective_ocr" for p in result.provenance)
+    assert result.next_requirement == "ocr"
+    assert result.resume_self is True

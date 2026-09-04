@@ -110,8 +110,6 @@ def synthesize_akshara_unicode(text: str) -> str:
     """
     # Fix misplaced matra before virama: e.g. ि् -> ्ि
     text = text.replace("\u093f\u094d", "\u094d\u093f")
-    # Fix redundant/misplaced virama + aa matra: ्ा -> empty
-    text = text.replace("\u094d\u093e", "")
     # Fix misplaced modifiers: e.g. Anusvara before Matra (ंी -> ीं, ंा -> ां, ें -> ें)
     text = re.sub(
         rf"({DEVA_MODIFIERS})({DEVA_MATRAS})",

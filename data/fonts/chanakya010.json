@@ -139,5 +139,13 @@
     "8": "८",
     "9": "९"
   },
-  "post_corrections": []
+  "post_corrections": [],
+  "schema_version": "1.0.0",
+  "detection_signatures": [
+    "¥æ", "§Z", "§ü", "°ð", "ƒæ", "Ûæ", "ÿæ", "˜æ", "™æ", "æò",
+    "æñ", "¥æò", "¥æð", "¥æñ", "¥ô", "¥õ"
+  ],
+  "negative_signatures": [
+    "[k", "vk", "vks", "vkS", "Fk", "/k", "Hk", "'k", ";Z"
+  ]
 }

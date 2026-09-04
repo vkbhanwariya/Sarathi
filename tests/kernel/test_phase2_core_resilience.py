@@ -106,11 +106,11 @@ def test_mixed_batch_ocr_handoff_font_and_translation() -> None:
     )
     ctx = ExecutionContext("run-1", "req-batch", "t1", "s1")
 
-    # Font conversion capability
+    # Font conversion capability: item-scoped escalation (Directive 26: populated docs converted, empty doc records warning)
     font_cap = FontConversionCapability()
     res_font = font_cap.execute(req, ctx, prior_result=Result(data=(doc_with_text, doc_empty)))
-    assert res_font.next_requirement == "ocr"
-    assert res_font.resume_self is True
+    assert res_font.next_requirement is None
+    assert any(w.code == "EMPTY_DOCUMENT_SKIPPED" for w in res_font.warnings)
 
     # Translation capability
     trans_cap = TranslationCapability()

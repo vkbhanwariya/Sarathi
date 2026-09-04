@@ -7,7 +7,7 @@ and existing Unicode Devanagari text round-trip 100% untouched.
 from __future__ import annotations
 
 import re
-from typing import Sequence
+from typing import Any, Sequence
 
 from sarathi.shakti.font_conversion.models import ProtectedSpan
 
@@ -80,7 +80,7 @@ _KRUTI_DIGRAPHS = (
 
 # Target structured English patterns
 _LABEL_RE = re.compile(r"\b[A-Za-z][A-Za-z\s]{1,30}:(?=\s|$)")
-_PAREN_LATIN_RE = re.compile(r"\([A-Za-z0-9\s,\.\-_/]{2,}\)")
+_PAREN_LATIN_RE = re.compile(r"\([A-Za-z0-9\s,\.\-_/\ue000-\ue200]{2,}\)")
 _TITLECASE_PHRASE_RE = re.compile(
     r"\b[A-Z][a-z]{2,}(?:\s+(?:of|and|the|in|for|to|at|by|on|from|with)\s+[A-Z][a-z]{2,}|\s+[A-Z][a-z]{2,})+\b"
 )
@@ -93,7 +93,12 @@ _KNOWN_LATIN_RE = re.compile(
 class TextProtector(BaseSpanProtector):
     """Protects and restores non-legacy text spans during font conversion."""
 
-    def protect(self, text: str, protect_devanagari: bool = True) -> tuple[str, list[ProtectedSpan]]:
+    def protect(
+        self,
+        text: str,
+        protect_devanagari: bool = True,
+        is_explicit_legacy: bool = False,
+    ) -> tuple[str, list[ProtectedSpan]]:
         """Identify protected spans, replace them with unique PUA placeholders, and return them."""
         protected_spans: list[ProtectedSpan] = []
         placeholder_idx = 0
@@ -114,19 +119,22 @@ class TextProtector(BaseSpanProtector):
         if protect_devanagari:
             text = _UNICODE_DEVANAGARI_RE.sub(lambda m: _repl(m, "unicode_devanagari"), text)
 
-        # 3. Protect structured English labels, parenthesized Latin text, and TitleCase phrases
-        text = _LABEL_RE.sub(lambda m: _repl(m, "english_label"), text)
-        text = _PAREN_LATIN_RE.sub(lambda m: _repl(m, "paren_latin"), text)
-        text = _TITLECASE_PHRASE_RE.sub(lambda m: _repl(m, "english_phrase"), text)
+        # 3. For unknown/mixed content, protect parenthesized Latin phrases before numbers to preserve them intact
+        if not is_explicit_legacy:
+            text = _PAREN_LATIN_RE.sub(lambda m: _repl(m, "paren_latin"), text)
 
-        # 4. Protect Percentages, Dates, Numbers, and IDs
+        # 4. Protect strongly evidenced Percentages, Dates, Numbers, and Reference IDs
         text = _PERCENT_RE.sub(lambda m: _repl(m, "percent"), text)
         text = _DATE_RE.sub(lambda m: _repl(m, "date"), text)
         text = _NUM_RE.sub(lambda m: _repl(m, "number"), text)
         text = _ID_RE.sub(lambda m: _repl(m, "id"), text)
 
-        # 5. Protect known Latin business/institutional terms
-        text = _KNOWN_LATIN_RE.sub(lambda m: _repl(m, "known_latin"), text)
+        # 5. For unknown-font content, also protect remaining structured English phrases and known institutional terms
+        if not is_explicit_legacy:
+            text = _LABEL_RE.sub(lambda m: _repl(m, "english_label"), text)
+            text = _PAREN_LATIN_RE.sub(lambda m: _repl(m, "paren_latin"), text)
+            text = _TITLECASE_PHRASE_RE.sub(lambda m: _repl(m, "english_phrase"), text)
+            text = _KNOWN_LATIN_RE.sub(lambda m: _repl(m, "known_latin"), text)
 
         return text, protected_spans
 

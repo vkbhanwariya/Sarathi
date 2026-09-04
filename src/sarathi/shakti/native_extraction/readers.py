@@ -538,12 +538,15 @@ def read_docx(
     data: bytes,
     input_id: str,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
-    """Extract full text, paragraphs, and tables from a DOCX (OpenXML) document."""
+    """Extract full text, paragraphs, spans with font evidence, and tables from a DOCX document."""
     import xml.etree.ElementTree as ET
     import zipfile
 
+    from sarathi.shakti.docx_exporter import DocxStyleResolver
+
     tables: list[TableData] = []
     paragraphs: list[str] = []
+    spans: list[TextSpan] = []
     provenances: list[ProvenanceRecord] = []
     warnings: list[WarningRecord] = []
 
@@ -561,27 +564,74 @@ def read_docx(
                 code=FailureCode.UNSUPPORTED,
                 message="DOCX file is missing required word/document.xml.",
             )
+        styles_xml = zf.read("word/styles.xml") if "word/styles.xml" in zf.namelist() else None
+        style_resolver = DocxStyleResolver(styles_xml)
+
         doc_xml = zf.read("word/document.xml")
         tree = ET.fromstring(doc_xml)
 
         body = tree.find(f"{_W_NAMESPACE}body")
         if body is not None:
             tbl_count = 0
+            p_count = 0
             for elem in body:
                 if elem.tag == _P_TAG:
-                    p_text = "".join(t.text for t in elem.iter(_T_TAG) if t.text)
-                    if p_text.strip():
-                        paragraphs.append(p_text.strip())
+                    p_count += 1
+                    p_runs_text: list[str] = []
+                    run_count = 0
+                    for r in elem.findall(_R_TAG):
+                        r_text = "".join(t.text for t in r.findall(_T_TAG) if t.text)
+                        if r_text:
+                            run_count += 1
+                            p_runs_text.append(r_text)
+                            is_ascii = all(ord(c) < 128 for c in r_text)
+                            effective_font = style_resolver.resolve_run_font(r, elem, is_ascii_text=is_ascii)
+
+                            # Determine font source
+                            font_source = "doc_defaults"
+                            rpr = r.find(f"{_W_NAMESPACE}rPr")
+                            if rpr is not None:
+                                if rpr.find(f"{_W_NAMESPACE}rFonts") is not None:
+                                    font_source = "direct_run_property"
+                                elif rpr.find(f"{_W_NAMESPACE}rStyle") is not None:
+                                    font_source = "character_style"
+                            elif elem.find(f"{_W_NAMESPACE}pPr/{_W_NAMESPACE}pStyle") is not None:
+                                font_source = "paragraph_style"
+
+                            spans.append(
+                                TextSpan(
+                                    text=r_text,
+                                    metadata={
+                                        "font_name": effective_font or "",
+                                        "font_source": font_source,
+                                        "run_index": run_count,
+                                        "paragraph_index": p_count,
+                                        "document_part": "document",
+                                    },
+                                )
+                            )
+                    p_text = "".join(p_runs_text).strip()
+                    if p_text:
+                        paragraphs.append(p_text)
                 elif elem.tag == _TBL_TAG:
                     tbl_count += 1
                     raw_table_rows: list[tuple[str, ...]] = []
+                    cell_fonts: list[list[str]] = []
                     for tr in elem.findall(_TR_TAG):
                         row_cells: list[str] = []
+                        row_font_list: list[str] = []
                         for tc in tr.findall(_TC_TAG):
                             tc_text = "".join(t.text for t in tc.iter(_T_TAG) if t.text).strip()
                             row_cells.append(tc_text)
+                            first_r = tc.find(f".//{_R_TAG}")
+                            first_p = tc.find(f".//{_P_TAG}")
+                            c_font = ""
+                            if first_r is not None:
+                                c_font = style_resolver.resolve_run_font(first_r, first_p) or ""
+                            row_font_list.append(c_font)
                         if any(row_cells):
                             raw_table_rows.append(tuple(row_cells))
+                            cell_fonts.append(row_font_list)
 
                     if raw_table_rows:
                         headers = raw_table_rows[0]
@@ -591,10 +641,11 @@ def read_docx(
                                 name=f"Table_{tbl_count}",
                                 headers=headers,
                                 rows=data_rows,
+                                metadata={"cell_fonts": cell_fonts},
                             )
                         )
-                        for r in raw_table_rows:
-                            paragraphs.append(" | ".join(r))
+                        for r_row in raw_table_rows:
+                            paragraphs.append(" | ".join(r_row))
 
     provenances.append(
         ProvenanceRecord(
@@ -605,16 +656,24 @@ def read_docx(
             evidence={
                 "reader": "docx_openxml",
                 "paragraph_count": len(paragraphs),
+                "span_count": len(spans),
                 "table_count": len(tables),
             },
         )
     )
 
     full_text = "\n".join(paragraphs)
+    page = PageData(
+        page_number=1,
+        text=full_text,
+        spans=tuple(spans),
+        tables=tuple(tables),
+    )
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",
         source_input_id=input_id,
         text=full_text,
+        pages=(page,),
         tables=tuple(tables),
         detected_type="docx",
         metadata={"reader": "docx_openxml"},

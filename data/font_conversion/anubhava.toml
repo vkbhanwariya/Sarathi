@@ -10,3 +10,15 @@ profile_id = "krutidev010"
 source = "LVsV cSad"
 target = "स्टेट बैंक"
 verified = true
+
+[[corrections]]
+profile_id = "devlys010"
+source = "LVsV cSad"
+target = "स्टेट बैंक"
+verified = true
+
+[[corrections]]
+profile_id = "generic"
+source = "कायार्लय"
+target = "कार्यालय"
+verified = true
