@@ -401,6 +401,7 @@ priority
    approved_concurrency = dev.capacity if parallelizable else 1
    ```
    Non-parallel capabilities receive an `ExecutionBinding` with `approved_concurrency = 1` regardless of physical device capacity, natively bounding subtask execution to single-concurrency.
+3. **Hardware Capacity Configuration**: Accelerator capacities and queuing limits are configured via Sutra `[hardware]` (`detect_accelerators`, `gpu_capacity_per_device`, `npu_capacity_per_device`, `max_queue_depth`). Yantra's thread pool capacity derives canonically from the sum of active device capacities, avoiding redundant or conflicting override controls.
 
 Yantra then performs:
 
