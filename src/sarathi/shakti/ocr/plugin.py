@@ -33,6 +33,7 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.GPU, DeviceType.CPU),
         supported_devices=(DeviceType.GPU, DeviceType.CPU),
+        parallelizable=True,
         supported_backends=("openvino", "cpu"),
     ),
 )

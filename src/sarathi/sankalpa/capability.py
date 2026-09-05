@@ -80,7 +80,7 @@ class DeviceRequirement:
 
     preferred_devices: tuple[DeviceType, ...] = (DeviceType.CPU,)
     supported_devices: tuple[DeviceType, ...] = (DeviceType.CPU,)
-    parallelizable: bool = True
+    parallelizable: bool = False
     estimated_memory_bytes: int | None = None
     priority: int = 0
     supported_backends: tuple[str, ...] | None = None
