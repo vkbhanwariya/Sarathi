@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Mapping
+from typing import TYPE_CHECKING, Callable, Mapping
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
+
+if TYPE_CHECKING:
+    from sarathi.yantra import Yantra
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
@@ -39,9 +42,11 @@ class TranslationCapability:
         data_root: Path | None = None,
         backend: TranslatorBackend | None = None,
         engine: CTranslate2TranslationEngine | None = None,
+        yantra: Yantra | None = None,
     ) -> None:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
+        self._yantra = yantra
         self._detector = LanguageDetector()
         self._protector = TranslationProtector()
         self._engine = engine if engine is not None else CTranslate2TranslationEngine(
@@ -117,7 +122,13 @@ class TranslationCapability:
         provs: list[ProvenanceRecord] = list(prior_result.provenance)
         all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
 
-        for idx, doc in enumerate(docs):
+        def _process_single_doc(
+            idx: int,
+            doc: CanonicalDocument,
+        ) -> tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload]]:
+            if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                context.cancellation_token.check_cancelled()
+
             full_text = doc.text
             if not full_text.strip() and doc.tables:
                 table_lines = []
@@ -162,7 +173,6 @@ class TranslationCapability:
                     target_lang=tgt_lang,
                     target_script=tgt_script,
                 )
-                translated_docs.append(translated_doc)
 
                 primary_res = translation_cache.get(doc.text) or (
                     next(iter(translation_cache.values())) if translation_cache else None
@@ -197,7 +207,6 @@ class TranslationCapability:
                         "backend": "ctranslate2",
                     },
                 )
-                provs.append(prov)
 
                 suffix = f"_{idx + 1}" if len(docs) > 1 else ""
                 txt_payload = ArtifactPayload(
@@ -213,7 +222,27 @@ class TranslationCapability:
                     filename=f"Translated_Document{suffix}.docx",
                     role="translated_document",
                 )
-                payloads.extend([txt_payload, docx_payload])
+                return translated_doc, prov, [txt_payload, docx_payload]
+
+        is_parallelizable = self.declaration.device_requirement.parallelizable
+        if len(docs) > 1 and self._yantra is not None and is_parallelizable:
+            def _make_task(
+                i: int, d: CanonicalDocument
+            ) -> Callable[[], tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload]]]:
+                return lambda: _process_single_doc(i, d)
+
+            subtasks = [_make_task(idx, doc) for idx, doc in enumerate(docs)]
+            task_results = self._yantra.execute_subtasks(subtasks, context=context)
+            for t_doc, t_prov, t_payloads in task_results:
+                translated_docs.append(t_doc)
+                provs.append(t_prov)
+                payloads.extend(t_payloads)
+        else:
+            for idx, doc in enumerate(docs):
+                t_doc, t_prov, t_payloads = _process_single_doc(idx, doc)
+                translated_docs.append(t_doc)
+                provs.append(t_prov)
+                payloads.extend(t_payloads)
 
         result_data = translated_docs[0] if len(translated_docs) == 1 else tuple(translated_docs)
         return Result(

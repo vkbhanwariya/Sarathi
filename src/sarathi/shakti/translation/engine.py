@@ -173,20 +173,42 @@ class CTranslate2TranslationEngine:
                         except Exception:
                             device = "cpu"
 
-                    trans_key = f"{dir_key}:{device}:{device_index}"
+                    approved = (
+                        execution_binding.approved_concurrency
+                        if execution_binding is not None and execution_binding.approved_concurrency > 0
+                        else 1
+                    )
+                    if device == "cpu":
+                        inter_threads = approved
+                        intra_threads = 1
+                    else:
+                        inter_threads = approved
+                        intra_threads = 0
+
+                    trans_key = f"{dir_key}:{device}:{device_index}:{inter_threads}:{intra_threads}"
                     with self._lock:
                         if trans_key not in self._translators:
                             try:
                                 self._translators[trans_key] = ctranslate2.Translator(
-                                    str(model_path), device=device, device_index=device_index
+                                    str(model_path),
+                                    device=device,
+                                    device_index=device_index,
+                                    inter_threads=inter_threads,
+                                    intra_threads=intra_threads,
                                 )
                             except Exception:
                                 if device != "cpu":
                                     device = "cpu"
-                                    trans_key = f"{dir_key}:cpu:0"
+                                    inter_threads = approved
+                                    intra_threads = 1
+                                    trans_key = f"{dir_key}:cpu:0:{inter_threads}:{intra_threads}"
                                     if trans_key not in self._translators:
                                         self._translators[trans_key] = ctranslate2.Translator(
-                                            str(model_path), device="cpu", device_index=0
+                                            str(model_path),
+                                            device="cpu",
+                                            device_index=0,
+                                            inter_threads=inter_threads,
+                                            intra_threads=intra_threads,
                                         )
                                 else:
                                     raise

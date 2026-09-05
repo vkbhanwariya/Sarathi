@@ -59,7 +59,9 @@ class TestTranslationDeviceBinding:
             assert res.translated_text == "Hello World"
             assert res.metadata["device"] == "cuda"
             assert res.metadata["backend"] == "ctranslate2"
-            mock_trans_cls.assert_called_once_with(str(models_dir), device="cuda", device_index=0)
+            mock_trans_cls.assert_called_once_with(
+                str(models_dir), device="cuda", device_index=0, inter_threads=1, intra_threads=0
+            )
 
     def test_translation_engine_falls_back_to_cpu_when_cuda_unavailable(self, tmp_path) -> None:
         models_dir = tmp_path / "models" / "hi-en"
@@ -94,7 +96,9 @@ class TestTranslationDeviceBinding:
 
             assert res.translated_text == "Hello"
             assert res.metadata["device"] == "cpu"
-            mock_trans_cls.assert_called_once_with(str(models_dir), device="cpu", device_index=0)
+            mock_trans_cls.assert_called_once_with(
+                str(models_dir), device="cpu", device_index=0, inter_threads=1, intra_threads=1
+            )
 
     def test_translation_capability_records_device_in_provenance(self) -> None:
         mock_engine = MagicMock(spec=CTranslate2TranslationEngine)

@@ -37,7 +37,7 @@ class TranslationProvider(PluginProvider):
             TranslationCapability,
         )
 
-        return {"translation": TranslationCapability(darpana=services.darpana)}
+        return {"translation": TranslationCapability(darpana=services.darpana, yantra=services.yantra)}
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:
         base_data = (services.data_root if services and services.data_root else get_canonical_data_root()) / "translation"
