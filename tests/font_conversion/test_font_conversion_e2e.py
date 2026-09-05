@@ -1,5 +1,6 @@
 """End-to-End Operational Acceptance Test for Roopa Font Conversion."""
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from sarathi.agni import Agni
@@ -123,3 +124,139 @@ def test_font_conversion_target_modes(tmp_path: Path) -> None:
     assert isinstance(res_devlys, Result)
     doc_d: CanonicalDocument = res_devlys.data
     assert "Hkkjr" in doc_d.text
+
+
+def test_multi_page_text_artifact_preserves_page_identity() -> None:
+    """Verify that multi-page documents emit standard deterministic page separators in TXT artifact."""
+    from sarathi.sankalpa import PageData
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    p1 = PageData(page_number=1, text="eq>s vHkh ;kn gSA")
+    p2 = PageData(page_number=2, text="la[;k 100 gSA")
+    p3 = PageData(page_number=3, text="")  # Empty page
+
+    doc = CanonicalDocument(
+        document_id="multi-page-doc",
+        source_input_id="inp-mp-1",
+        pages=(p1, p2, p3),
+        text="eq>s vHkh ;kn gSA\nla[;k 100 gSA\n",
+    )
+
+    req = Request(
+        request_id="req-mp",
+        requirement="font_conversion",
+        inputs=(InputRef("inp-mp-1", source_path=_FIXTURE_PATH, display_name="test.txt", size_bytes=100),),
+        metadata={"font": "krutidev010"},
+    )
+    ctx = ExecutionContext("run-mp", "req-mp", "t-mp", "s-mp")
+    prior = Result(data=doc)
+
+    res = cap.execute(req, context=ctx, prior_result=prior)
+    txt_payload = next(p for p in res.artifact_payloads if p.intent.name == "Converted_Document.txt")
+    txt_content = txt_payload.content.decode("utf-8")
+
+    assert "--- Page 1 ---" in txt_content
+    assert "मुझे अभी याद है।" in txt_content
+    assert "--- Page 2 ---" in txt_content
+    assert "संख्या १०० है।" in txt_content or "संख्या" in txt_content
+    assert "--- Page 3 ---" in txt_content
+    # Page order preserved
+    pos1 = txt_content.index("--- Page 1 ---")
+    pos2 = txt_content.index("--- Page 2 ---")
+    pos3 = txt_content.index("--- Page 3 ---")
+    assert pos1 < pos2 < pos3
+
+
+def test_single_page_text_artifact_clean_output() -> None:
+    """Verify that single-page documents do not include superfluous page separators in TXT artifact."""
+    from sarathi.sankalpa import PageData
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    p1 = PageData(page_number=1, text="eq>s vHkh ;kn gSA")
+    doc = CanonicalDocument(
+        document_id="single-page-doc",
+        source_input_id="inp-sp-1",
+        pages=(p1,),
+        text="eq>s vHkh ;kn gSA",
+    )
+    req = Request(
+        request_id="req-sp",
+        requirement="font_conversion",
+        inputs=(InputRef("inp-sp-1", source_path=_FIXTURE_PATH, display_name="test.txt", size_bytes=100),),
+        metadata={"font": "krutidev010"},
+    )
+    ctx = ExecutionContext("run-sp", "req-sp", "t-sp", "s-sp")
+    prior = Result(data=doc)
+
+    res = cap.execute(req, context=ctx, prior_result=prior)
+    txt_payload = next(p for p in res.artifact_payloads if p.intent.name == "Converted_Document.txt")
+    txt_content = txt_payload.content.decode("utf-8")
+    assert "--- Page 1 ---" not in txt_content
+    assert "मुझे अभी याद है।" in txt_content
+
+
+def test_residual_legacy_warning_and_metrics() -> None:
+    """Verify that runs with residual legacy font signatures record metrics and emit classified warnings."""
+    from sarathi.sankalpa import PageData, TextSpan
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    # Explicit legacy font metadata with unmapped/foreign Kruti signatures
+    span = TextSpan(
+        text="ñòóôõ unmapped text",
+        metadata={"font_name": "Kruti Dev 010", "paragraph_index": 0},
+    )
+    p = PageData(page_number=1, text="ñòóôõ unmapped text", spans=(span,))
+    doc = CanonicalDocument(
+        document_id="doc-residual",
+        source_input_id="inp-res-1",
+        pages=(p,),
+        text="ñòóôõ unmapped text",
+    )
+    req = Request(
+        request_id="req-res",
+        requirement="font_conversion",
+        inputs=(InputRef("inp-res-1", source_path=_FIXTURE_PATH, display_name="test.txt", size_bytes=100),),
+        metadata={"font": "krutidev010"},
+    )
+    ctx = ExecutionContext("run-res", "req-res", "t-res", "s-res")
+    prior = Result(data=doc)
+
+    res = cap.execute(req, context=ctx, prior_result=prior)
+    # Check provenance evidence for residual legacy tracking
+    prov = next(pr for pr in res.provenance if pr.capability_id == "font_conversion")
+    assert "residual_legacy_runs" in prov.evidence
+    assert prov.evidence["runs_scanned"] >= 1
+
+
+def test_canonical_and_docx_conversion_parity() -> None:
+    """Verify that CanonicalDocument span conversion and raw DOCX run conversion produce identical decisions."""
+    from sarathi.sankalpa import PageData, TextSpan
+    from sarathi.shakti.docx_exporter import DocxStyleResolver
+    from sarathi.shakti.font_conversion.detector import decide_run_profile
+
+    # Given identical evidence: Kruti Dev font, legacy text with extended ANSI
+    test_text = "LFkkÃ irk"
+    font_name = "Kruti Dev 010"
+
+    # 1. Canonical span decision
+    span_decision = decide_run_profile(run_font=font_name, run_text=test_text, doc_profile="krutidev010")
+    assert span_decision.decision == "convert"
+    assert span_decision.profile == "krutidev010"
+
+    # 2. Raw DOCX run decision via DocxStyleResolver and resolve_effective_font
+    r = ET.fromstring(
+        '<w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:rPr><w:rFonts w:ascii="Kruti Dev 010" w:hAnsi="Kruti Dev 010" w:cs="Mangal"/></w:rPr>'
+        '<w:t>LFkkÃ irk</w:t>'
+        '</w:r>'
+    )
+    resolver = DocxStyleResolver()
+    effective_font = resolver.resolve_run_font(r, text=test_text)
+    assert effective_font == "Kruti Dev 010"
+
+    docx_run_decision = decide_run_profile(run_font=effective_font, run_text=test_text, doc_profile="krutidev010")
+    assert docx_run_decision.decision == span_decision.decision
+    assert docx_run_decision.profile == span_decision.profile

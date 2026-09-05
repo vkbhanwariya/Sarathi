@@ -120,10 +120,43 @@ class FontConversionValidator:
 
         return (len(defects) == 0, defects)
 
+    def validate_residual_legacy(
+        self,
+        text: str,
+        is_explicit_legacy: bool = False,
+    ) -> tuple[bool, list[str]]:
+        """Check whether converted text retains unmapped legacy font signatures."""
+        defects: list[str] = []
+        if not text or not text.strip():
+            return True, []
+
+        found_residuals = [ch for ch in text if ch in _RESIDUAL_KRUTI_GLYPHS]
+        if found_residuals:
+            defects.append(f"RESIDUAL_LEGACY_GLYPHS:{len(found_residuals)}")
+
+        for d in _RESIDUAL_DIGRAPHS:
+            if d in text:
+                defects.append(f"RESIDUAL_UNMAPPED_DIGRAPH:{d}")
+                break
+
+        if is_explicit_legacy:
+            from sarathi.shakti.text.legacy_detection import _KRUTI_SIGNATURES
+
+            unmapped_sigs = [s for s in _KRUTI_SIGNATURES if s in text]
+            if unmapped_sigs:
+                defects.append(f"RESIDUAL_EXPLICIT_LEGACY_SIGNATURES:{len(unmapped_sigs)}")
+
+        return (len(defects) == 0, defects)
+
 
 def validate_devanagari_structure(text: str) -> tuple[bool, list[str]]:
     """Validate structural soundness of converted Devanagari Unicode text."""
     return FontConversionValidator().validate_devanagari_structure(text)
+
+
+def validate_residual_legacy(text: str, is_explicit_legacy: bool = False) -> tuple[bool, list[str]]:
+    """Check whether converted text retains unmapped legacy font signatures."""
+    return FontConversionValidator().validate_residual_legacy(text, is_explicit_legacy=is_explicit_legacy)
 
 
 def calculate_mapping_coverage(
@@ -140,4 +173,5 @@ __all__ = [
     "MappingMetrics",
     "calculate_mapping_coverage",
     "validate_devanagari_structure",
+    "validate_residual_legacy",
 ]

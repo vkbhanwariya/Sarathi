@@ -552,3 +552,76 @@ def normalize_font_family_name(font_name: str | None, profiles: dict[str, Legacy
     if profiles is _DEFAULT_PROFILES:
         _NORMALIZED_FAMILY_CACHE[font_name] = cleaned
     return cleaned
+
+
+_DEVANAGARI_UNICODE_RE = re.compile(r"[\u0900-\u097F\u1CD0-\u1CFF\uA8E0-\uA8FF]")
+
+
+def resolve_effective_font(
+    *,
+    ascii_font: str | None = None,
+    hansi_font: str | None = None,
+    cs_font: str | None = None,
+    run_text: str = "",
+    profiles: dict[str, LegacyFontProfile] | None = None,
+) -> str | None:
+    """Resolve the effective font for an OOXML run based on font channel declarations and text evidence.
+
+    Principles:
+    1. If the text contains genuine Unicode Devanagari, select the complex script channel (cs)
+       or appropriate modern font.
+    2. If ascii or hAnsi resolves to a registered legacy font profile and the text exhibits
+       legacy characteristics (or does not contradict the profile), prioritize the legacy
+       font over a generic modern complex script font (such as Mangal).
+    3. Exact declared legacy font alias is stronger evidence than generic modern fallback.
+    4. If neither ascii nor hAnsi is legacy, but cs is legacy, select cs.
+    5. Fallback to ascii -> hAnsi -> cs.
+    """
+    if profiles is None:
+        global _DEFAULT_PROFILES
+        if _DEFAULT_PROFILES is None:
+            _DEFAULT_PROFILES = load_font_profiles()
+        profiles = _DEFAULT_PROFILES
+
+    # 1. Genuine Unicode Devanagari in text: cs channel or modern font applies
+    if run_text and _DEVANAGARI_UNICODE_RE.search(run_text):
+        return cs_font or ascii_font or hansi_font
+
+    # 2. Check if ascii or hAnsi declares a known legacy font
+    prof_a, fam_a = resolve_profile_from_font_name(ascii_font, profiles)
+    prof_h, fam_h = resolve_profile_from_font_name(hansi_font, profiles)
+
+    legacy_cand = None
+    cand_prof_id = None
+    if prof_a is not None:
+        legacy_cand = ascii_font
+        cand_prof_id = prof_a
+    elif prof_h is not None:
+        legacy_cand = hansi_font
+        cand_prof_id = prof_h
+
+    if legacy_cand and cand_prof_id:
+        # Check text evidence: does the text contradict this profile?
+        if run_text and run_text.strip():
+            cands = rank_profiles_from_text(run_text, profiles, candidate_profiles=[cand_prof_id])
+            if cands:
+                cand = cands[0]
+                # If strong negative signatures or severe structural defects, do not force legacy
+                if cand.negative_signatures or (
+                    not cand.is_structurally_valid and "COLLAPSED_CONSONANTS" in cand.structural_defects
+                ):
+                    return cs_font or ascii_font or hansi_font
+        # Text does not contradict; declared legacy font takes precedence over generic cs (e.g. Mangal)
+        return legacy_cand
+
+    # 3. Check if cs_font declares a legacy font
+    prof_cs, fam_cs = resolve_profile_from_font_name(cs_font, profiles)
+    if prof_cs is not None:
+        return cs_font
+
+    # 4. If neither is legacy: if text has complex script characters (non-ascii outside Latin-1), pick cs
+    has_cs_chars = any(ord(c) >= 0x0900 for c in run_text) if run_text else False
+    if has_cs_chars:
+        return cs_font or ascii_font or hansi_font
+
+    return ascii_font or hansi_font or cs_font

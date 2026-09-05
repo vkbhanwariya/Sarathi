@@ -110,6 +110,9 @@ def synthesize_akshara_unicode(text: str) -> str:
     """
     # Fix misplaced matra before virama: e.g. ि् -> ्ि
     text = text.replace("\u093f\u094d", "\u094d\u093f")
+    # Resolve invalid virama immediately followed by a dependent vowel matra:
+    # On typewriters, typists often typed the half-consonant key followed by a matra (e.g. ख् + े -> खे, ख् + ु -> खु).
+    text = re.sub(r"\u094d([\u0941-\u0944\u0947-\u094c])", r"\1", text)
     # Fix misplaced modifiers: e.g. Anusvara before Matra (ंी -> ीं, ंा -> ां, ें -> ें)
     text = re.sub(
         rf"({DEVA_MODIFIERS})({DEVA_MATRAS})",

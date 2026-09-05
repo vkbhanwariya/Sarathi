@@ -610,7 +610,7 @@ def read_docx(
                             p_runs_text.append(r_text)
                             has_complex_script = any("\u0900" <= c <= "\u0d7f" for c in r_text)
                             effective_font = style_resolver.resolve_run_font(
-                                r, elem, is_ascii_text=not has_complex_script
+                                r, elem, text=r_text
                             )
 
                             # Determine font source

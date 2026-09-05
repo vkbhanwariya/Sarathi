@@ -87,6 +87,7 @@ class ConversionMetrics:
     symbols_converted: int = 0
     symbols_unmapped: int = 0
     structural_failures: int = 0
+    residual_legacy_runs: int = 0
     candidate_retries: int = 0
     quality_confidence: float | None = None
 
