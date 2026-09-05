@@ -245,6 +245,11 @@ class Agni:
                     )
                 seen_capability_ids.add(c_id)
 
+        all_candidate_providers = active_providers
+        disabled_pids = set(active_settings.plugins_disabled)
+        if disabled_pids and capabilities is None:
+            active_providers = tuple(p for p in active_providers if p.plugin_info.plugin_id not in disabled_pids)
+
         # 6. Validate Capabilities Mapping & Inject Default Dependencies
         active_capabilities: dict[str, Capability]
         dvara_providers: tuple[PluginProvider, ...]
@@ -350,6 +355,8 @@ class Agni:
         )
 
         self._active_providers: tuple[PluginProvider, ...] = dvara_providers
+        self._disabled_plugins: tuple[str, ...] = tuple(active_settings.plugins_disabled)
+        self._all_candidate_providers: tuple[PluginProvider, ...] = all_candidate_providers
         self._readiness_lock: threading.Lock = threading.Lock()
         self._readiness_cache: dict[str, CapabilityReadiness] | None = None
 
@@ -487,6 +494,11 @@ class Agni:
         """Return active plugin providers configured for this runtime."""
         return self._active_providers
 
+    @property
+    def disabled_plugins(self) -> tuple[str, ...]:
+        """Return operator-disabled plugin IDs configured for this runtime."""
+        return self._disabled_plugins
+
     @staticmethod
     def _validate_bootstrap_consistency(
         kosh: Kosh,
@@ -564,6 +576,16 @@ class Agni:
                         status=ReadinessStatus.READY,
                         reason="Capability ready",
                     )
+
+            # Record disabled status for operator-disabled plugins
+            for prov in self._all_candidate_providers:
+                if prov.plugin_info.plugin_id in self._disabled_plugins:
+                    for decl in prov.declarations:
+                        results[decl.capability_id] = CapabilityReadiness(
+                            ready=False,
+                            status=ReadinessStatus.DISABLED,
+                            reason="Disabled by operator configuration (plugins.disabled)",
+                        )
 
             self._readiness_cache = results
             return MappingProxyType(self._readiness_cache)

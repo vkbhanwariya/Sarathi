@@ -360,3 +360,24 @@ class Settings:
                 code=FailureCode.INVALID_CONFIGURATION,
                 message="Invalid security policy configuration.",
             ) from err
+
+    @property
+    def plugins_disabled(self) -> tuple[str, ...]:
+        """Return validated tuple of operator-disabled plugin IDs, defaulting to ()." """
+        sec = self.get_section("plugins")
+        raw = sec.get("disabled", ()) if sec is not None else ()
+        if isinstance(raw, str):
+            clean = raw.strip()
+            return (clean,) if clean else ()
+        if isinstance(raw, (list, tuple)):
+            for item in raw:
+                if not isinstance(item, str) or not item.strip():
+                    raise DoshError(
+                        code=FailureCode.INVALID_CONFIGURATION,
+                        message="plugins.disabled items must be non-empty strings.",
+                    )
+            return tuple(str(item).strip() for item in raw)
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message="plugins.disabled must be a sequence of strings.",
+        )
