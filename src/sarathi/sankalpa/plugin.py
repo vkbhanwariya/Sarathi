@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,3 +72,53 @@ class PluginInfo:
             object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         else:
             raise TypeError(f"metadata must be a Mapping, got {type(self.metadata)}.")
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from sarathi.sankalpa.capability import Capability, CapabilityDeclaration
+    from sarathi.sankalpa.readiness import CapabilityReadiness
+
+
+@dataclass(frozen=True, slots=True)
+class PluginServices:
+    """Canonical injected services passed to plugin providers for capability construction and probes."""
+
+    darpana: Any | None = None
+    yantra: Any | None = None
+    kavacha: Any | None = None
+    settings: Any | None = None
+    data_root: Path | None = None
+
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class PluginProvider(Protocol):
+    """Canonical provider contract owning the integration description and factory of a plugin."""
+
+    @property
+    def plugin_info(self) -> PluginInfo:
+        """Metadata and declared capabilities of the plugin."""
+        ...
+
+    @property
+    def declarations(self) -> tuple[CapabilityDeclaration, ...]:
+        """Capability declarations provided by this plugin."""
+        ...
+
+    def create_capabilities(
+        self,
+        services: PluginServices,
+    ) -> Mapping[str, Capability]:
+        """Construct executable capability mapping using approved shared services."""
+        ...
+
+    def readiness(
+        self,
+        services: PluginServices | None = None,
+    ) -> Mapping[str, CapabilityReadiness]:
+        """Audit operational readiness of all capabilities declared by this provider."""
+        ...

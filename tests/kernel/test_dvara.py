@@ -110,7 +110,7 @@ class TestDvaraConstructorAndRegistration:
         assert not kosh.has_plugin("shakti.native_extraction")
 
     def test_preflight_fails_when_plugin_capabilities_mismatch(self, kosh: Kosh) -> None:
-        from unittest.mock import patch
+        from sarathi.shakti.darshana.provider import DarshanaProvider
 
         # 1. Test missing capability in declarations vs PluginInfo.capabilities
         tampered_plugin = PluginInfo(
@@ -121,17 +121,21 @@ class TestDvaraConstructorAndRegistration:
             capabilities=("identify", "extra_cap"),
         )
 
-        dvara = Dvara(kosh)
-        with patch("sarathi.nabhi.dvara.DARSHANA_PLUGIN", tampered_plugin):
-            with pytest.raises(DoshError) as exc_info:
-                dvara.register_builtins()
+        class TamperedDarshanaProvider(DarshanaProvider):
+            @property
+            def plugin_info(self) -> PluginInfo:
+                return tampered_plugin
 
-            assert exc_info.value.code is FailureCode.VALIDATION_FAILED
-            assert "Declared capabilities for plugin 'shakti.darshana' do not exactly match" in exc_info.value.message
-            # Kosh must be completely unmodified
-            assert not kosh.has_plugin("shakti.darshana")
-            assert not kosh.has_plugin("shakti.ocr")
-            assert not kosh.has_plugin("shakti.native_extraction")
+        dvara = Dvara(kosh, providers=[TamperedDarshanaProvider()])
+        with pytest.raises(DoshError) as exc_info:
+            dvara.register_builtins()
+
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Declared capabilities for plugin 'shakti.darshana' do not exactly match" in exc_info.value.message
+        # Kosh must be completely unmodified
+        assert not kosh.has_plugin("shakti.darshana")
+        assert not kosh.has_plugin("shakti.ocr")
+        assert not kosh.has_plugin("shakti.native_extraction")
 
 
 class TestDarshanaManthanIntegrationWiring:

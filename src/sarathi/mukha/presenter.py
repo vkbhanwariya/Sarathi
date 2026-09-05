@@ -103,14 +103,21 @@ class MukhaPresenter:
     def audit_capability_status(
         data_root: Path | None = None,
         kosh: Any | None = None,
+        agni: Any | None = None,
+        providers: Sequence[Any] | None = None,
     ) -> dict[str, tuple[bool, str]]:
         """Audit availability status of capabilities without false promises.
 
+        When Agni or providers are supplied, availability is audited via their readiness probes.
         When Kosh is provided, availability is projected from canonical registry state.
         Returns dict mapping capability_id -> (is_available, status_or_reason).
         """
-        from sarathi.sutra import get_canonical_data_root
+        # 1. Agni runtime audit (cached and thread-safe)
+        if agni is not None and hasattr(agni, "audit_readiness"):
+            readiness_map = agni.audit_readiness()
+            return {cap_id: (r.ready, r.reason) for cap_id, r in readiness_map.items()}
 
+        # 2. Projected from canonical Kosh registry state
         if kosh is not None and hasattr(kosh, "capabilities"):
             statuses: dict[str, tuple[bool, str]] = {}
             for decl in kosh.capabilities():
@@ -122,57 +129,29 @@ class MukhaPresenter:
                     statuses[cap_id] = (False, "Not registered in Kosh")
             return statuses
 
-
-
-        import importlib.util
+        # 3. Direct provider evaluation
+        from sarathi.sankalpa import PluginServices
+        from sarathi.sutra import get_canonical_data_root
 
         base_data = data_root or get_canonical_data_root()
+        services = PluginServices(data_root=base_data)
+
+        active_provs: Sequence[Any]
+        if providers is not None:
+            active_provs = providers
+        else:
+            from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
+            active_provs = BUILTIN_PLUGIN_PROVIDERS
+
         statuses = {}
-
-        # 1. Native Extraction
-        statuses["read_native"] = (True, "Ready (Standard Extraction)")
-
-        # 2. Base OCR
-        try:
-            from sarathi.shakti.ocr.engine import check_ocr_readiness
-
-            ocr_ready, ocr_msg = check_ocr_readiness(data_root=base_data / "ocr")
-            statuses["ocr"] = (ocr_ready, ocr_msg)
-        except Exception:
-            statuses["ocr"] = (False, "Unavailable (Missing OCR extra dependencies or models)")
-
-        # 3. Bank Statements (dynamic profiles detection)
-        from sarathi.shakti.bank_statements.detector import load_bank_profiles
-
-        bank_profs = load_bank_profiles(base_data / "banks")
-        if bank_profs:
-            prof_ids = [str(p.get("profile_id", "")).upper() for p in bank_profs if p.get("profile_id")]
-            statuses["bank_statements"] = (True, f"Ready ({', '.join(prof_ids)} profiles)")
-        else:
-            statuses["bank_statements"] = (False, "Unavailable (No bank profiles loaded)")
-
-        # 4. Font Conversion (dynamic font packs detection)
-        font_files = list((base_data / "fonts").glob("*.json")) if (base_data / "fonts").exists() else []
-        if font_files:
-            names = [f.stem for f in font_files]
-            statuses["font_conversion"] = (True, f"Ready ({len(names)} mapping packs: {', '.join(names)})")
-        else:
-            statuses["font_conversion"] = (False, "Unavailable (Missing font mapping packs)")
-
-        # 5. Translation (dynamic dependency and model check)
-        trans_installed = importlib.util.find_spec("ctranslate2") is not None
-        trans_models = base_data / "translation" / "models"
-        hi_en_model = trans_models / "hi-en"
-        en_hi_model = trans_models / "en-hi"
-        if trans_installed and trans_models.exists() and hi_en_model.exists() and en_hi_model.exists():
-            statuses["translation"] = (True, "Ready (IndicTrans2 CTranslate2)")
-        else:
-            missing_parts = []
-            if not trans_installed:
-                missing_parts.append("ctranslate2 extra")
-            if not (trans_models.exists() and hi_en_model.exists() and en_hi_model.exists()):
-                missing_parts.append("model assets")
-            statuses["translation"] = (False, f"Unavailable (Missing: {', '.join(missing_parts)})")
+        for prov in active_provs:
+            try:
+                for cap_id, r in prov.readiness(services).items():
+                    statuses[cap_id] = (r.ready, r.reason)
+            except Exception as exc:
+                for decl in getattr(prov, "declarations", ()):
+                    statuses[decl.capability_id] = (False, f"Readiness probe error: {type(exc).__name__}")
 
         return statuses
 

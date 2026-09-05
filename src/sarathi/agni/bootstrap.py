@@ -7,11 +7,13 @@ lifecycle management, and canonical request execution. Wires owners together; do
 from __future__ import annotations
 
 import re
+import threading
 import time
 import uuid
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from sarathi.darpana import Darpana
@@ -29,19 +31,19 @@ from sarathi.nabhi import (
 )
 from sarathi.sankalpa import (
     Capability,
+    CapabilityReadiness,
     ExecutionContext,
     PluginInfo,
+    PluginProvider,
+    PluginServices,
+    ReadinessStatus,
     Request,
     Result,
 )
-from sarathi.shakti.bank_statements import BankStatementCapability
-from sarathi.shakti.darshana import DarshanaCapability, identify_request
-from sarathi.shakti.font_conversion import FontConversionCapability
-from sarathi.shakti.native_extraction import NativeExtractionCapability
-from sarathi.shakti.ocr import OCRCapability
-from sarathi.shakti.translation import TranslationCapability
+from sarathi.shakti.darshana import identify_request
+from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
 from sarathi.smriti import SmritiCache
-from sarathi.sutra import Settings, load_settings
+from sarathi.sutra import Settings, get_canonical_data_root, load_settings
 from sarathi.yantra import DeviceInventory, Yantra
 
 
@@ -57,6 +59,8 @@ class Agni:
         input_root: Path | str | None = None,
         capabilities: Mapping[str, Capability] | None = None,
         plugins: Sequence[PluginInfo] | None = None,
+        plugin_providers: Sequence[PluginProvider] | None = None,
+        extra_plugin_providers: Sequence[PluginProvider] | None = None,
         inventory: DeviceInventory | None = None,
         darpana: Darpana | None = None,
         kavacha: Kavacha | None = None,
@@ -74,9 +78,13 @@ class Agni:
             output_root: Optional output directory override.
             input_root: Optional input directory override.
             capabilities: Optional capability mapping override (useful for testing).
+            plugins: Optional explicit PluginInfo sequence for custom extensions.
+            plugin_providers: Optional override of plugin providers (defaults to BUILTIN_PLUGIN_PROVIDERS).
+            extra_plugin_providers: Optional additional plugin providers registered alongside defaults.
             inventory: Optional DeviceInventory override for Yantra.
             darpana: Optional Darpana telemetry service instance.
             kavacha: Optional Kavacha security service instance.
+            smriti: Optional SmritiCache service instance.
             context: Optional bootstrap ExecutionContext.
 
         Raises:
@@ -190,8 +198,56 @@ class Agni:
             )
         active_yantra: Yantra = Yantra(active_inventory, darpana=active_darpana)
 
+        # 5b. Validate Plugin Providers & Compose Active Providers
+        active_providers: tuple[PluginProvider, ...]
+        if plugin_providers is not None:
+            if not isinstance(plugin_providers, (list, tuple)):
+                raise TypeError(
+                    f"plugin_providers must be a sequence of PluginProvider or None, got {type(plugin_providers).__name__}."
+                )
+            for p in plugin_providers:
+                if not isinstance(p, PluginProvider):
+                    raise TypeError(f"All items in plugin_providers must implement PluginProvider, got {type(p).__name__}.")
+            active_providers = tuple(plugin_providers)
+        else:
+            active_providers = BUILTIN_PLUGIN_PROVIDERS
+
+        if extra_plugin_providers is not None:
+            if not isinstance(extra_plugin_providers, (list, tuple)):
+                raise TypeError(
+                    f"extra_plugin_providers must be a sequence of PluginProvider or None, got {type(extra_plugin_providers).__name__}."
+                )
+            for p in extra_plugin_providers:
+                if not isinstance(p, PluginProvider):
+                    raise TypeError(
+                        f"All items in extra_plugin_providers must implement PluginProvider, got {type(p).__name__}."
+                    )
+            active_providers = active_providers + tuple(extra_plugin_providers)
+
+        # Preflight active providers for duplicate plugin IDs or capability IDs
+        seen_plugin_ids: set[str] = set()
+        seen_capability_ids: set[str] = set()
+        for prov in active_providers:
+            p_id = prov.plugin_info.plugin_id
+            if p_id in seen_plugin_ids:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Duplicate plugin ID '{p_id}' detected across plugin providers.",
+                )
+            seen_plugin_ids.add(p_id)
+
+            for decl in prov.declarations:
+                c_id = decl.capability_id
+                if c_id in seen_capability_ids:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=f"Duplicate capability ID '{c_id}' declared across plugin providers.",
+                    )
+                seen_capability_ids.add(c_id)
+
         # 6. Validate Capabilities Mapping & Inject Default Dependencies
         active_capabilities: dict[str, Capability]
+        dvara_providers: tuple[PluginProvider, ...]
         if capabilities is not None:
             if not isinstance(capabilities, Mapping):
                 raise TypeError(f"capabilities must be a Mapping or None, got {type(capabilities).__name__}.")
@@ -200,16 +256,37 @@ class Agni:
                     raise TypeError("Capability mapping keys must be non-empty strings.")
                 if not isinstance(cap_v, Capability):
                     raise TypeError(f"Capability '{cap_k}' does not implement Capability protocol.")
+                if cap_k != cap_v.declaration.capability_id:
+                    raise DoshError(
+                        code=FailureCode.VALIDATION_FAILED,
+                        message=(
+                            f"Capability mapping key '{cap_k}' does not match declaration "
+                            f"capability_id '{cap_v.declaration.capability_id}'."
+                        ),
+                    )
             active_capabilities = dict(capabilities)
+            # When replacement capabilities are explicitly supplied, register matching providers into Kosh
+            replacement_plugin_ids = {c.declaration.plugin_id for c in active_capabilities.values()}
+            dvara_providers = tuple(p for p in active_providers if p.plugin_info.plugin_id in replacement_plugin_ids)
         else:
-            active_capabilities = {
-                "identify": DarshanaCapability(darpana=active_darpana),
-                "read_native": NativeExtractionCapability(darpana=active_darpana),
-                "ocr": OCRCapability(yantra=active_yantra, darpana=active_darpana),
-                "bank_statements": BankStatementCapability(darpana=active_darpana),
-                "font_conversion": FontConversionCapability(darpana=active_darpana),
-                "translation": TranslationCapability(darpana=active_darpana),
-            }
+            services = PluginServices(
+                yantra=active_yantra,
+                darpana=active_darpana,
+                kavacha=active_kavacha,
+                settings=active_settings,
+                data_root=get_canonical_data_root(),
+            )
+            active_capabilities = {}
+            for prov in active_providers:
+                prov_caps = prov.create_capabilities(services)
+                for cap_k, cap_v in prov_caps.items():
+                    if cap_k in active_capabilities:
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message=f"Duplicate capability ID '{cap_k}' returned by provider '{prov.plugin_info.plugin_id}'.",
+                        )
+                    active_capabilities[cap_k] = cap_v
+            dvara_providers = active_providers
 
         # 7. Validate Retry Policy
         active_retry_policy: RetryPolicy = RetryPolicy(
@@ -239,7 +316,7 @@ class Agni:
 
         # Kosh & Dvara
         self._kosh: Kosh = Kosh()
-        self._dvara: Dvara = Dvara(registry=self._kosh, darpana=self._darpana)
+        self._dvara: Dvara = Dvara(registry=self._kosh, darpana=self._darpana, providers=dvara_providers)
         self._dvara.register_builtins(context=bootstrap_ctx)
 
         # Register explicit plugins if supplied
@@ -265,6 +342,16 @@ class Agni:
                         ),
                     )
                 self._dvara.register_capability(cap_v.declaration)
+
+        # Bootstrap Consistency Validation: Verify Kosh declarations and executable bindings match 1-to-1
+        self._validate_bootstrap_consistency(
+            kosh=self._kosh,
+            capabilities=self._capabilities,
+        )
+
+        self._active_providers: tuple[PluginProvider, ...] = dvara_providers
+        self._readiness_lock: threading.Lock = threading.Lock()
+        self._readiness_cache: dict[str, CapabilityReadiness] | None = None
 
         self._manthan: Manthan = Manthan(registry=self._kosh)
 
@@ -394,6 +481,92 @@ class Agni:
     def capabilities(self) -> Mapping[str, Capability]:
         """Return an immutable snapshot of configured executable capabilities."""
         return dict(self._capabilities)
+
+    @property
+    def plugin_providers(self) -> tuple[PluginProvider, ...]:
+        """Return active plugin providers configured for this runtime."""
+        return self._active_providers
+
+    @staticmethod
+    def _validate_bootstrap_consistency(
+        kosh: Kosh,
+        capabilities: Mapping[str, Capability],
+    ) -> None:
+        """Validate 1-to-1 invariant between Kosh declarations and executable capability bindings.
+
+        Enforces:
+        1. Every registered capability in Kosh has a matching executable in capabilities.
+        2. Every executable in capabilities has a matching declaration in Kosh.
+        3. Executable's declaration strictly matches the declaration stored in Kosh.
+        """
+        # 1. Every Kosh declaration must have an executable binding
+        for kosh_decl in kosh.capabilities():
+            if kosh_decl.capability_id not in capabilities:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Registered capability '{kosh_decl.capability_id}' in Kosh has no matching executable binding in runtime.",
+                )
+
+        # 2. Every executable binding must have a matching declaration in Kosh
+        for cap_id, cap_obj in capabilities.items():
+            if not kosh.has_capability(cap_id):
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=f"Executable capability '{cap_id}' has no matching declaration registered in Kosh.",
+                )
+            kosh_decl = kosh.get_capability(cap_id)
+            if cap_obj.declaration != kosh_decl:
+                raise DoshError(
+                    code=FailureCode.VALIDATION_FAILED,
+                    message=(
+                        f"Declaration mismatch for capability '{cap_id}': "
+                        "executable declaration does not match Kosh declaration."
+                    ),
+                )
+
+    def audit_readiness(self, force_refresh: bool = False) -> Mapping[str, CapabilityReadiness]:
+        """Audit operational readiness of all active capabilities across plugin providers.
+
+        Memoizes readiness audit results in a thread-safe manner. Pass force_refresh=True to re-probe.
+
+        Returns:
+            Immutable mapping proxy of capability_id -> CapabilityReadiness.
+        """
+        with self._readiness_lock:
+            if self._readiness_cache is not None and not force_refresh:
+                return MappingProxyType(self._readiness_cache)
+
+            services = PluginServices(
+                yantra=self._yantra,
+                darpana=self._darpana,
+                kavacha=self._kavacha,
+                settings=self._settings,
+                data_root=get_canonical_data_root(),
+            )
+
+            results: dict[str, CapabilityReadiness] = {}
+            for prov in self._active_providers:
+                try:
+                    prov_readiness = prov.readiness(services)
+                    results.update(prov_readiness)
+                except Exception as exc:
+                    for decl in prov.declarations:
+                        results[decl.capability_id] = CapabilityReadiness(
+                            ready=False,
+                            status=ReadinessStatus.DEPENDENCY_UNAVAILABLE,
+                            reason=f"Readiness probe error: {type(exc).__name__}",
+                        )
+
+            for cap_k in self._capabilities:
+                if cap_k not in results:
+                    results[cap_k] = CapabilityReadiness(
+                        ready=True,
+                        status=ReadinessStatus.READY,
+                        reason="Capability ready",
+                    )
+
+            self._readiness_cache = results
+            return MappingProxyType(self._readiness_cache)
 
     def register_component(self, component_id: str, component: Any) -> None:
         """Register a runtime component with Prana for lifecycle coordination."""
