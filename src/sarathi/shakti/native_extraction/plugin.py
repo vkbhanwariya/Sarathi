@@ -23,7 +23,9 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     capability_id="read_native",
     plugin_id="shakti.native_extraction",
     version="1.0.0",
+    display_name="Native Document Extraction",
     supported_profiles=(
+
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
         ExecutionProfile.LAYOUT_PRESERVING,

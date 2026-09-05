@@ -25,7 +25,9 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     capability_id="font_conversion",
     plugin_id=PLUGIN_INFO.plugin_id,
     version="1.0.0",
+    display_name="Legacy Font Conversion",
     description="Converts legacy Hindi/Devanagari encodings to standard Unicode with span protection.",
+
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,

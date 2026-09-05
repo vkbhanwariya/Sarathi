@@ -23,7 +23,9 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     capability_id="ocr",
     plugin_id="shakti.ocr",
     version="1.0.0",
+    display_name="Optical Character Recognition (OCR)",
     supported_profiles=(
+
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
         ExecutionProfile.CUSTOM,

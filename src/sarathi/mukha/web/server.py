@@ -576,14 +576,12 @@ class MukhaWebServer:
             status = "RUNNING" if is_alive else (term_status or "SUCCESS")
             maruti_recs, pramana_recs = self._get_run_telemetry(active_run_id)
 
-            stage_names = {
-                "ocr": "Optical Character Recognition (OCR)",
-                "read_native": "Native Document Extraction",
-                "bank_statements": "Bank Statement Normalization",
-                "font_conversion": "Legacy Font Conversion",
-                "translation": "Machine Translation",
-            }
-            active_stage = stage_names.get(active_req.requirement, active_req.requirement) if active_req else "Processing"
+            if active_req:
+                req_decl = self._agni.kosh.get_capability(active_req.requirement)
+                active_stage = req_decl.display_name if req_decl is not None else active_req.requirement
+            else:
+                active_stage = "Processing"
+
 
             with self._lock:
                 live_prog = dict(self._live_progress)
@@ -669,16 +667,13 @@ class MukhaWebServer:
         caps_status = MukhaPresenter.audit_capability_status()
         registered_caps = set(self.registered_capabilities)
 
-        action_specs = [
-            ("read_native", "Native Extraction"),
-            ("bank_statements", "Bank Statements"),
-            ("ocr", "Optical Character Recognition (OCR)"),
-            ("font_conversion", "Font Conversion (Kruti Dev)"),
-            ("translation", "Language Translation"),
-        ]
-
         available_actions = []
-        for act_id, act_label in action_specs:
+        for decl in self._agni.kosh.capabilities():
+            act_id = decl.capability_id
+            if act_id == "identify":
+                continue  # internal classification stage, not an operator-triggered requirement
+            act_label = decl.display_name
+
             is_avail, reason = caps_status.get(act_id, (False, "Unavailable"))
             enabled = is_avail and (act_id in registered_caps)
             disabled_reason = None if enabled else reason

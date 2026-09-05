@@ -23,7 +23,9 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     capability_id="identify",
     plugin_id="shakti.darshana",
     version="1.0.0",
+    display_name="Document Identification",
     supported_profiles=(
+
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
         ExecutionProfile.LAYOUT_PRESERVING,

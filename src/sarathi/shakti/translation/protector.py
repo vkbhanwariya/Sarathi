@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Mapping, Sequence
 
-from sarathi.shakti.font_conversion.protector import (
+from sarathi.shakti.text.span_protection import (
     _DATE_RE,
     _EMAIL_RE,
     _ID_RE,
@@ -18,6 +18,7 @@ from sarathi.shakti.font_conversion.protector import (
     _URL_RE,
     BaseSpanProtector,
 )
+
 from sarathi.shakti.translation.models import TranslationSpan
 
 

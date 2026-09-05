@@ -9,8 +9,8 @@ Exposes:
 
 from __future__ import annotations
 
-from sarathi.shakti.ocr.capability import OCRCapability
-from sarathi.shakti.ocr.engine import RapidOCREngine, check_ocr_readiness
+from typing import Any
+
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION, PLUGIN_INFO
 
 __all__ = [
@@ -20,3 +20,19 @@ __all__ = [
     "RapidOCREngine",
     "check_ocr_readiness",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "OCRCapability":
+        from sarathi.shakti.ocr.capability import OCRCapability
+
+        return OCRCapability
+    if name == "RapidOCREngine":
+        from sarathi.shakti.ocr.engine import RapidOCREngine
+
+        return RapidOCREngine
+    if name == "check_ocr_readiness":
+        from sarathi.shakti.ocr.engine import check_ocr_readiness
+
+        return check_ocr_readiness
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
