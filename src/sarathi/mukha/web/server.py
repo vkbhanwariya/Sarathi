@@ -15,9 +15,11 @@ import sys
 import threading
 import time
 import urllib.parse
+from enum import Enum
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING, Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
@@ -46,11 +48,31 @@ if TYPE_CHECKING:
     from sarathi.darpana import MarutiRecord, PramanaRecord
 
 
+_SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_PATH_PATTERN = re.compile(r"([A-Za-z]:\\[^\s'\"]+|/[^\s'\"]+)")
+
+
+def _sanitize_message(msg: str) -> str:
+    """Sanitize error messages to eliminate raw filesystem paths and tracebacks."""
+    if not msg:
+        return ""
+    cleaned = _PATH_PATTERN.sub("[path]", msg)
+    return " ".join(cleaned.split())
+
+
+def _format_public_error(dosh_err: DoshError) -> str:
+    """Format public DoshError for web presentation without leaking paths or secrets."""
+    sanitized = _sanitize_message(dosh_err.message)
+    if sanitized:
+        return f"{dosh_err.code.name}: {sanitized}"
+    return dosh_err.code.name
+
+
 def _serialize_dataclass(obj: Any) -> Any:
     """Recursively convert dataclasses and enums into JSON-serializable primitives."""
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
-    if hasattr(obj, "value"):
+    if isinstance(obj, Enum):
         return obj.value
     if hasattr(obj, "__dataclass_fields__"):
         res = {}
@@ -196,6 +218,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self._apply_security_headers(cache_control="no-store")
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
 
     def _read_json_body(self) -> dict[str, Any] | None:
         """Read and parse JSON request body with strict size checks."""
@@ -262,6 +285,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             if len(parts) == 5 and parts[1] == "runs" and parts[3] == "artifacts":
                 run_id = parts[2]
                 artifact_id = urllib.parse.unquote(parts[4])
+                if not _SAFE_ID_PATTERN.match(run_id) or ".." in artifact_id or "/" in artifact_id or "\\" in artifact_id:
+                    self.send_error(HTTPStatus.BAD_REQUEST, "Invalid run or artifact identifier.")
+                    return
                 self._serve_confirmed_artifact(run_id, artifact_id)
                 return
 
@@ -325,7 +351,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             except DoshError as dosh_err:
                 self._send_json(
                     403 if dosh_err.code is FailureCode.SECURITY_DENIED else 400,
-                    {"ok": False, "error": f"{dosh_err.code.name}: {dosh_err.message}"},
+                    {"ok": False, "error": _format_public_error(dosh_err)},
                 )
             return
 
@@ -379,7 +405,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             except DoshError as dosh_err:
                 self._send_json(
                     403 if dosh_err.code is FailureCode.SECURITY_DENIED else 400,
-                    {"ok": False, "error": f"{dosh_err.code.name}: {dosh_err.message}"},
+                    {"ok": False, "error": _format_public_error(dosh_err)},
                 )
             return
 
@@ -388,6 +414,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             parts = path.strip("/").split("/")
             if len(parts) == 4:
                 run_id = parts[2]
+                if not _SAFE_ID_PATTERN.match(run_id):
+                    self._send_json(400, {"ok": False, "error": "Invalid run identifier."})
+                    return
                 cancelled = self.mukha_app.cancel_run(run_id)
                 self._send_json(200, {"ok": True, "cancelled": cancelled})
                 return
@@ -397,6 +426,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             parts = path.strip("/").split("/")
             if len(parts) == 4:
                 run_id = parts[2]
+                if not _SAFE_ID_PATTERN.match(run_id):
+                    self._send_json(400, {"ok": False, "error": "Invalid run identifier."})
+                    return
                 revealed = self.mukha_app.reveal_output_directory(run_id)
                 self._send_json(200, {"ok": True, "revealed": revealed})
                 return
@@ -449,7 +481,12 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", mime_type)
         self.send_header("Content-Length", str(file_size))
-        self.send_header("Content-Disposition", f'attachment; filename="{target_file.name}"')
+        safe_ascii_name = target_file.name.replace('"', '').replace('\r', '').replace('\n', '')
+        encoded_name = urllib.parse.quote(target_file.name)
+        self.send_header(
+            "Content-Disposition",
+            f'attachment; filename="{safe_ascii_name}"; filename*=UTF-8\'\'{encoded_name}',
+        )
         self._apply_security_headers(cache_control="no-store")
         self.end_headers()
 
@@ -694,13 +731,13 @@ class MukhaWebServer:
         if active_req:
             input_sel = InputSelectionView(
                 total_files=len(active_req.inputs),
-                total_size_bytes=sum(inp.size_bytes for inp in active_req.inputs),
+                total_size_bytes=sum(getattr(inp, "size_bytes", 0) or 0 for inp in active_req.inputs),
                 is_grouped=False,
                 items=tuple(
                     InputItemView(
                         input_id=inp.input_id,
                         display_name=inp.display_name,
-                        size_bytes=inp.size_bytes,
+                        size_bytes=getattr(inp, "size_bytes", 0) or 0,
                         media_type=inp.media_type,
                         source_path=str(inp.source_path) if inp.source_path else None,
                     )
@@ -835,7 +872,7 @@ class MukhaWebServer:
                     failures = (
                         ("Execution cancelled by user.",)
                         if is_cancelled
-                        else (f"{dosh_err.code.name}: {dosh_err.message}",)
+                        else (_format_public_error(dosh_err),)
                     )
                     maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
@@ -861,7 +898,7 @@ class MukhaWebServer:
                             status="FAILED",
                             wall_time_ns=wall_time_ns,
                             total_inputs=len(request.inputs),
-                            failures=(f"EXECUTION_FAILED: {err.__class__.__name__}: {err}",),
+                            failures=("EXECUTION_FAILED: An internal error occurred during processing.",),
                             stage_timings=(),
                             device_summaries=(),
                             artifacts=(),

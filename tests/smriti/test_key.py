@@ -178,3 +178,31 @@ def test_set_deterministic_serialization() -> None:
 
     assert res1 == ["apple", "banana", "cherry", "date"]
     assert res2 == ["apple", "banana", "cherry", "date"]
+
+
+def test_callable_and_progress_callback_filtered_from_cache_key(tmp_path: Path) -> None:
+    """Callables and transient progress_callback in options must not destabilize cache keys."""
+    inp = InputRef(
+        input_id="inp-cb",
+        source_path=tmp_path / "file.txt",
+        display_name="file.txt",
+        size_bytes=100,
+    )
+    req1 = Request(
+        request_id="r1",
+        requirement="ocr",
+        inputs=(inp,),
+        profile=ExecutionProfile.ACCURATE,
+        custom_options={"progress_callback": lambda x: x, "lang": "eng"},
+    )
+    req2 = Request(
+        request_id="r2",
+        requirement="ocr",
+        inputs=(inp,),
+        profile=ExecutionProfile.ACCURATE,
+        custom_options={"lang": "eng"},
+    )
+
+    k1 = compute_cache_key(req1, "ocr", "1.0.0")
+    k2 = compute_cache_key(req2, "ocr", "1.0.0")
+    assert k1.key_hash == k2.key_hash

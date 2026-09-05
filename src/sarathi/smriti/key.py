@@ -156,8 +156,18 @@ def compute_cache_key(
     """Compute canonical deterministic cache key for a capability execution attempt."""
     fingerprint = compute_input_fingerprint(request.inputs)
     options = custom_options if custom_options is not None else request.custom_options
-    options_str = json.dumps(dict(options), sort_keys=True, default=str) if options else ""
-    metadata_str = json.dumps(dict(request.metadata), sort_keys=True, default=str) if request.metadata else ""
+    clean_options = (
+        {k: v for k, v in options.items() if not callable(v) and k != "progress_callback"}
+        if options
+        else {}
+    )
+    options_str = json.dumps(clean_options, sort_keys=True, default=str) if clean_options else ""
+    metadata_clean = (
+        {k: v for k, v in request.metadata.items() if not callable(v)}
+        if request.metadata
+        else {}
+    )
+    metadata_str = json.dumps(metadata_clean, sort_keys=True, default=str) if metadata_clean else ""
     prior_digest = compute_prior_result_digest(prior_result)
 
     content = (

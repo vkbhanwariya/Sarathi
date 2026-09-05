@@ -668,7 +668,11 @@ class Pravaha:
                             created_at_utc=datetime.now(timezone.utc).isoformat(),
                             updated_at_utc=datetime.now(timezone.utc).isoformat(),
                         )
-                        assert self._quarantine_store is not None  # Enforced by __init__ when max_retries > 0
+                        if self._quarantine_store is None:
+                            raise DoshError(
+                                code=FailureCode.CONFIGURATION_INVALID,
+                                message="Quarantine store is unconfigured during quarantine transition.",
+                            )
                         with self._quarantine_transition_scope(
                             context=current_ctx,
                             capability_id=init_rec.capability_id,
@@ -732,8 +736,11 @@ class Pravaha:
                     break
                 else:
                     completed_capability_ids.add(cap.declaration.capability_id)
-
-            assert prior_result is not None  # plan.capability_ids is guaranteed non-empty by CapabilityPlan contract
+            if prior_result is None:
+                raise DoshError(
+                    code=FailureCode.INTERNAL_ERROR,
+                    message="Capability execution yielded no result from plan.",
+                )
 
             # Normal final result
             if prior_result.next_requirement is None:

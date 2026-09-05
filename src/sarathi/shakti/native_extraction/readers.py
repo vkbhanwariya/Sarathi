@@ -232,8 +232,14 @@ def read_xlsx(
                     )
         finally:
             wb_filter_check.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        warnings.append(
+            WarningRecord(
+                code="EXCEL_FILTER_CHECK_SKIPPED",
+                message=f"Worksheet filter inspection could not be completed: {type(exc).__name__}.",
+                stage=_STAGE_NAME,
+            )
+        )
 
     # Build composite text from table headers and cells for downstream processing
     composite_lines: list[str] = []
@@ -272,6 +278,7 @@ def read_xls_legacy(
     tables: list[TableData] = []
     provenances: list[ProvenanceRecord] = []
     warnings: list[WarningRecord] = []
+    composite_lines: list[str] = []
 
     rb = xlrd.open_workbook(file_contents=data)
     for sheet_idx in range(rb.nsheets):
@@ -300,10 +307,15 @@ def read_xls_legacy(
                 evidence={"reader": "xlrd", "sheet": sheet.name, "row_count": len(rows_list)},
             )
         )
+        composite_lines.append(f"--- Sheet: {sheet.name} ---")
+        composite_lines.append(" | ".join(headers))
+        for row in data_rows:
+            composite_lines.append(" | ".join(str(c) for c in row))
 
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",
         source_input_id=input_id,
+        text="\n".join(composite_lines),
         tables=tuple(tables),
         detected_type="xls_legacy",
     )
@@ -398,7 +410,18 @@ def read_spreadsheet_ml(
     provenances: list[ProvenanceRecord] = []
     warnings: list[WarningRecord] = []
 
-    root = ET.fromstring(data)
+    try:
+        root = ET.fromstring(data)
+    except (ET.ParseError, UnicodeDecodeError):
+        match = charset_normalizer.from_bytes(data).best()
+        enc = match.encoding if match and match.encoding else "utf-8"
+        text_content = data.decode(enc, errors="replace")
+        if text_content.startswith("<?xml"):
+            end_decl = text_content.find("?>")
+            if end_decl != -1:
+                text_content = text_content[end_decl + 2 :].lstrip()
+        root = ET.fromstring(text_content.encode("utf-8"))
+
     # Strip namespace for robust tag matching
     ns = ""
     if root.tag.startswith("{"):
@@ -441,9 +464,17 @@ def read_spreadsheet_ml(
             )
         )
 
+    composite_lines: list[str] = []
+    for t in tables:
+        composite_lines.append(" ".join(t.headers))
+        for row in t.rows:
+            composite_lines.append(" ".join(str(cell) for cell in row if cell is not None and str(cell).strip()))
+    composite_text = "\n".join(composite_lines)
+
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",
         source_input_id=input_id,
+        text=composite_text,
         tables=tuple(tables),
         detected_type="spreadsheet_ml",
     )

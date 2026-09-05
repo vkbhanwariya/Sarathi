@@ -456,3 +456,66 @@ def test_negative_content_length_rejected(web_server: MukhaWebServer) -> None:
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         urllib.request.urlopen(req)
     assert exc_info.value.code == 400
+
+
+def test_serialize_dataclass_with_value_field() -> None:
+    """Dataclasses with a field named 'value' must not be mistaken for Enums (F-01)."""
+    from dataclasses import dataclass
+    from enum import Enum
+    from sarathi.mukha.web.server import _serialize_dataclass
+
+    class StatusEnum(Enum):
+        ACTIVE = "active"
+
+    @dataclass
+    class CustomMetric:
+        name: str
+        value: float
+        status: StatusEnum
+
+    metric = CustomMetric(name="speed", value=99.5, status=StatusEnum.ACTIVE)
+    serialized = _serialize_dataclass(metric)
+
+    assert isinstance(serialized, dict)
+    assert serialized["name"] == "speed"
+    assert serialized["value"] == 99.5
+    assert serialized["status"] == "active"
+
+
+def test_format_public_error_strips_paths() -> None:
+    """DoshError messages containing filesystem paths must have paths redacted (F-02, F-04)."""
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.mukha.web.server import _format_public_error
+
+    err_win = DoshError(
+        code=FailureCode.EXECUTION_FAILED,
+        message="Cannot open file C:\\Users\\Administrator\\Secret\\doc.pdf for processing.",
+    )
+    formatted_win = _format_public_error(err_win)
+    assert "C:\\Users" not in formatted_win
+    assert "[path]" in formatted_win
+    assert "EXECUTION_FAILED" in formatted_win
+
+    err_posix = DoshError(
+        code=FailureCode.SECURITY_DENIED,
+        message="Access denied to /var/secrets/key.pem from client.",
+    )
+    formatted_posix = _format_public_error(err_posix)
+    assert "/var/secrets" not in formatted_posix
+    assert "[path]" in formatted_posix
+    assert "SECURITY_DENIED" in formatted_posix
+
+
+def test_artifact_endpoint_rejects_path_traversal(web_server: MukhaWebServer) -> None:
+    """Artifact download endpoint must reject traversal and malformed IDs (F-16)."""
+    # 1. Path traversal in artifact_id -> 400
+    status, _, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run123/artifacts/..%2F..%2Fsecret.txt"
+    )
+    assert status == 400
+
+    # 2. Invalid characters in run_id -> 400
+    status, _, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/bad!id/artifacts/art123"
+    )
+    assert status == 400

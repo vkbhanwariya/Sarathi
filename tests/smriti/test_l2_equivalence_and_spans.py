@@ -191,3 +191,36 @@ def test_ocr_empty_input_warning(tmp_path: Path) -> None:
     assert isinstance(res.data, CanonicalDocument)
     assert len(res.warnings) == 1
     assert res.warnings[0].code == "OCR_EMPTY_INPUT"
+
+
+def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> None:
+    """SQLiteCacheStore bounds entries to max_entries_l2 even when over capacity."""
+    from sarathi.smriti.policy import CachePolicy
+    from sarathi.smriti.store import SQLiteCacheStore
+
+    policy = CachePolicy(max_entries_l2=10)
+    store = SQLiteCacheStore(db_path=tmp_path / "cache.db", policy=policy)
+
+    conn1 = store._get_connection()
+    conn2 = store._get_connection()
+    assert conn1 is conn2  # Connection is reused
+
+    doc = CanonicalDocument(document_id="d1", source_input_id="i1", text="test")
+    res = Result(data=doc)
+
+    # Insert 15 entries (exceeding limit of 10)
+    for idx in range(15):
+        k = CacheKey(
+            capability_id="test",
+            fingerprint=f"fp_{idx}",
+            profile="fast",
+            key_hash=f"hash_{idx:04d}",
+        )
+        store.put(k, res)
+
+    # Verify count is strictly <= max_entries_l2
+    with store._lock, store._get_connection() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
+        assert count <= 10
+
+    store.close()

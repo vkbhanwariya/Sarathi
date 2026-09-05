@@ -27,13 +27,15 @@ class SQLiteCacheStore:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._policy = policy or CachePolicy()
         self._lock = threading.RLock()
+        self._conn: sqlite3.Connection | None = None
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path), timeout=30.0)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        return conn
+        if self._conn is None:
+            self._conn = sqlite3.connect(str(self._db_path), timeout=30.0, check_same_thread=False)
+            self._conn.execute("PRAGMA journal_mode = WAL;")
+            self._conn.execute("PRAGMA synchronous = NORMAL;")
+        return self._conn
 
     def _init_db(self) -> None:
         with self._lock, self._get_connection() as conn:
@@ -95,11 +97,16 @@ class SQLiteCacheStore:
         with self._lock, self._get_connection() as conn:
             count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
             if count >= self._policy.max_entries_l2:
-                conn.execute("""
+                excess = count - self._policy.max_entries_l2 + 1
+                evict_count = max(50, excess)
+                conn.execute(
+                    """
                     DELETE FROM smriti_entries WHERE key_hash IN (
-                        SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC LIMIT 50
+                        SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC LIMIT ?
                     )
-                """)
+                """,
+                    (evict_count,),
+                )
 
             conn.execute(
                 """
@@ -121,6 +128,16 @@ class SQLiteCacheStore:
                 return cur.rowcount
             cur = conn.execute("DELETE FROM smriti_entries")
             return cur.rowcount
+
+    def close(self) -> None:
+        """Close persistent SQLite connection."""
+        with self._lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
 
 
 class SmritiCache:
@@ -172,3 +189,8 @@ class SmritiCache:
         l1_count = self._l1.invalidate(key=key, capability_id=capability_id)
         l2_count = self._l2.invalidate(key=key, capability_id=capability_id) if self._l2 else 0
         return l2_count if self._l2 is not None else l1_count
+
+    def close(self) -> None:
+        """Close L2 SQLite connection if initialized."""
+        if self._l2 is not None:
+            self._l2.close()

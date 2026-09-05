@@ -399,7 +399,7 @@ class Settings:
 
     @property
     def plugins_disabled(self) -> tuple[str, ...]:
-        """Return validated tuple of operator-disabled plugin IDs, defaulting to ()." """
+        """Return validated tuple of operator-disabled plugin IDs, defaulting to ()."""
         sec = self.get_section("plugins")
         raw = sec.get("disabled", ()) if sec is not None else ()
         if isinstance(raw, str):

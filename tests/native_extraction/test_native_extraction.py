@@ -532,6 +532,47 @@ class TestNativeExtraction:
         assert table.name == "TaxReport"
         assert table.headers == ("Category", "Amount")
         assert table.rows == (("GST", "1800"),)
+        assert "Category Amount" in doc.text
+        assert "GST 1800" in doc.text
+
+    def test_spreadsheet_ml_non_utf8_fallback(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        xml_path = tmp_path / "spreadsheet_latin1.xml"
+        # Non-UTF8 content with explicit latin1 encoding declaration
+        xml_content = """<?xml version="1.0" encoding="iso-8859-1"?>
+        <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet">
+         <Worksheet ss:Name="Crédit" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+          <Table>
+           <Row>
+            <Cell><Data ss:Type="String">Dépôt</Data></Cell>
+           </Row>
+          </Table>
+         </Worksheet>
+        </Workbook>"""
+        xml_path.write_bytes(xml_content.encode("iso-8859-1"))
+
+        req = Request(
+            request_id="req-latin1",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-latin1",
+                    source_path=xml_path,
+                    display_name="spreadsheet_latin1.xml",
+                    size_bytes=xml_path.stat().st_size,
+                ),
+            ),
+        )
+
+        res = capability.execute(req, context)
+        assert res.next_requirement is None
+        doc = res.data
+        assert isinstance(doc, CanonicalDocument)
+        assert doc.detected_type == "spreadsheet_ml"
+        assert len(doc.tables) == 1
+        assert "Dépôt" in doc.text
+
 
     def test_empty_native_output_requests_ocr(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path

@@ -88,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_root=Path(args.runtime_root) if args.runtime_root else None,
                 output_root=Path(args.output_root) if args.output_root else None,
             ) as agni:
+                import threading
                 import time
                 import webbrowser
 
@@ -103,9 +104,10 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception:
                     pass
 
+                stop_event = threading.Event()
                 try:
-                    while True:
-                        time.sleep(0.5)
+                    while not stop_event.is_set():
+                        stop_event.wait(timeout=1.0)
                 except KeyboardInterrupt:
                     pass
                 finally:
