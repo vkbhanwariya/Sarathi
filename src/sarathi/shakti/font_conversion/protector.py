@@ -11,31 +11,19 @@ from typing import Any, Sequence
 
 from sarathi.shakti.font_conversion.models import ProtectedSpan
 
-_PROT_START = "\ue000"
-_PROT_END = "\ue001"
+from sarathi.shakti.text.span_protection import (
+    _DATE_RE,
+    _EMAIL_RE,
+    _ID_RE,
+    _NUM_RE,
+    _PERCENT_RE,
+    _PROT_END,
+    _PROT_START,
+    _UNICODE_DEVANAGARI_RE,
+    _URL_RE,
+    BaseSpanProtector,
+)
 
-_URL_RE = re.compile(r"https?://\S+|www\.\S+")
-_EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}")
-_UNICODE_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]+(?:[\s\u0900-\u097F]*[\u0900-\u097F])?")
-_DATE_RE = re.compile(r"\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b")
-_NUM_RE = re.compile(r"(?:Rs\.?|₹|\$|€|£)?\s*\b\d{1,3}(?:,\d{2,3})*(?:\.\d+)?\s*%?\b")
-_PERCENT_RE = re.compile(r"\b\d+%\b|\(\d+%\)")
-_ID_RE = re.compile(r"\b[A-Z0-9_-]{4,}\b")
-
-
-class BaseSpanProtector:
-    """Base engine for protecting and restoring non-translatable or non-convertible spans."""
-
-    @staticmethod
-    def format_placeholder(index: int) -> str:
-        """Format unique Private-Use-Area placeholder for protected span index."""
-        return f"{_PROT_START}{chr(0xE100 + index)}{_PROT_END}"
-
-    def restore(self, text: str, spans: Sequence[Any]) -> str:
-        """Restore all protected spans from placeholders byte-for-byte."""
-        for s in spans:
-            text = text.replace(s.placeholder, s.original_text)
-        return text
 
 _KRUTI_CHARS = set("~+ñòóôõö÷øùúûü")
 _KRUTI_DIGRAPHS = (

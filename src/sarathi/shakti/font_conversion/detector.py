@@ -17,30 +17,15 @@ from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
 
-_KRUTI_SIGNATURES: tuple[str, ...] = (
-    "[k", "vk", "vks", "vkS", "Fk", "/k", "Hk", "'k", ";Z", "jZ",
-    ";k", "D;", "x~", "LVs", "cSa", ".k", "ñ", "ò", "ó", "ô",
-    "õ", "ö", "÷", "ø", "ù", "ú", "û", "ü", "fdr", "fd",
-    "fr", "fn", "fc", "f[", "fH", "fF", "fD", "fnY", "mRr",
+from sarathi.shakti.text.legacy_detection import (
+    _CHANAKYA_SIGNATURES,
+    _KNOWN_MODERN_FONTS,
+    _KRUTI_SIGNATURES,
+    _SHUSHA_SIGNATURES,
+    LegacyFontDetector as BaseLegacyFontDetector,
+    is_legacy_text,
 )
 
-_CHANAKYA_SIGNATURES: tuple[str, ...] = (
-    "¥æ", "§Z", "§ü", "°ð", "ƒæ", "Ûæ", "ÿæ", "˜æ", "™æ", "æò",
-    "æñ", "¥æò", "¥æð", "¥æñ", "¥ô", "¥õ",
-)
-
-_SHUSHA_SIGNATURES: tuple[str, ...] = (
-    "aA", "bA", "cA", "dA", "uA", "vA", "wA", "pA", "sA", "tA",
-    "rA", "yA",
-)
-
-_KNOWN_MODERN_FONTS: frozenset[str] = frozenset({
-    "arial", "calibri", "timesnewroman", "times", "cambria", "georgia",
-    "verdana", "tahoma", "couriernew", "courier", "segoeui", "segoe",
-    "helvetica", "trebuchetms", "trebuchet", "bookmanoldstyle", "bookman",
-    "garamond", "centurygothic", "mangal", "nirmalaui", "nirmala",
-    "aparajita", "kokila", "utsaah", "gautami", "latha", "shruti",
-})
 
 
 def extract_ttf_font_family(ttf_bytes: bytes) -> str | None:
@@ -477,25 +462,13 @@ def decide_run_profile(
     )
 
 
-class LegacyFontDetector:
+class LegacyFontDetector(BaseLegacyFontDetector):
     """Detects legacy font encoding from text statistical properties and profile clues."""
 
     def __init__(self, fonts_dir: Path | None = None) -> None:
+        super().__init__(fonts_dir=fonts_dir)
         self._profiles = load_font_profiles(fonts_dir)
 
-    @classmethod
-    def is_legacy_text(cls, text: str) -> bool:
-        """Public evidence-based check whether text contains legacy Devanagari font signatures."""
-        if not text or not text.strip():
-            return False
-        k_count = sum(1 for s in _KRUTI_SIGNATURES if s in text)
-        c_count = sum(1 for s in _CHANAKYA_SIGNATURES if s in text)
-        s_count = sum(1 for s in _SHUSHA_SIGNATURES if s in text)
-        return (k_count >= 2) or (c_count >= 2) or (s_count >= 2)
-
-    def is_legacy_font(self, text: str) -> bool:
-        """Instance check whether text contains sufficient legacy font evidence."""
-        return self.is_legacy_text(text)
 
     def detect(self, text: str, font_hint: str | None = None) -> tuple[str | None, float]:
         """Detect legacy font profile from font hint or actual text evidence."""

@@ -148,6 +148,7 @@ class CapabilityDeclaration:
     plugin_id: str
     version: str
     supported_profiles: tuple[ExecutionProfile, ...]
+    display_name: str = ""
     description: str = ""
     device_requirement: DeviceRequirement = field(default_factory=DeviceRequirement)
     supported_input_types: tuple[str, ...] = ()
@@ -162,8 +163,13 @@ class CapabilityDeclaration:
             raise ValueError("plugin_id must be a non-empty string.")
         if not self.version or not self.version.strip():
             raise ValueError("version must be a non-empty string.")
+        if not isinstance(self.display_name, str) or not self.display_name.strip():
+            object.__setattr__(self, "display_name", self.capability_id.replace("_", " ").title())
+        else:
+            object.__setattr__(self, "display_name", self.display_name.strip())
         if not isinstance(self.device_requirement, DeviceRequirement):
             raise TypeError(f"device_requirement must be a DeviceRequirement, got {type(self.device_requirement)}.")
+
 
         if isinstance(self.supported_profiles, set):
             raise TypeError("supported_profiles must be an ordered sequence (list or tuple), not a set.")

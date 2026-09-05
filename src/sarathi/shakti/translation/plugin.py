@@ -25,7 +25,9 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     capability_id="translation",
     plugin_id=PLUGIN_INFO.plugin_id,
     version="1.0.0",
+    display_name="Machine Translation",
     description="Bilingual Hindi-English translation preserving protected facts and domain terminology.",
+
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,

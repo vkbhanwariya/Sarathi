@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from sarathi.shakti.bank_statements.capability import BankStatementCapability
+from typing import Any
+
 from sarathi.shakti.bank_statements.models import (
     AccountIdentity,
     BankStatement,
@@ -28,3 +29,11 @@ __all__ = [
     "CAPABILITY_DECLARATION",
     "PLUGIN_INFO",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "BankStatementCapability":
+        from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+        return BankStatementCapability
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

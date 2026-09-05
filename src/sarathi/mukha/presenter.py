@@ -111,15 +111,18 @@ class MukhaPresenter:
         """
         from sarathi.sutra import get_canonical_data_root
 
-        if kosh is not None and hasattr(kosh, "has_capability"):
+        if kosh is not None and hasattr(kosh, "capabilities"):
             statuses: dict[str, tuple[bool, str]] = {}
+            for decl in kosh.capabilities():
+                if decl.capability_id == "identify":
+                    continue
+                statuses[decl.capability_id] = (True, f"Ready ({decl.plugin_id})")
             for cap_id in ("read_native", "ocr", "bank_statements", "font_conversion", "translation"):
-                decl = kosh.get_capability(cap_id)
-                if decl is not None:
-                    statuses[cap_id] = (True, f"Ready ({decl.plugin_id})")
-                else:
+                if cap_id not in statuses:
                     statuses[cap_id] = (False, "Not registered in Kosh")
             return statuses
+
+
 
         import importlib.util
 
