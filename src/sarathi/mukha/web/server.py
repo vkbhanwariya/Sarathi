@@ -350,7 +350,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                 return
 
             # Validate requirement availability before dispatching
-            caps_status = MukhaPresenter.audit_capability_status()
+            caps_status = MukhaPresenter.audit_capability_status(agni=self.mukha_app.agni)
             registered_caps = set(self.mukha_app.registered_capabilities)
             is_avail, reason = caps_status.get(requirement, (False, "Capability unavailable."))
             if not is_avail or requirement not in registered_caps:
@@ -492,6 +492,11 @@ class MukhaWebServer:
         self._live_progress: dict[str, Any] = {}
         self._live_workers: dict[str, dict[str, Any]] = {}
 
+
+    @property
+    def agni(self) -> Any:
+        """Resolve current Agni runtime composition root."""
+        return self._agni
 
     @property
     def output_root(self) -> Path:
@@ -664,7 +669,7 @@ class MukhaWebServer:
             )
 
         # Capability availability facts
-        caps_status = MukhaPresenter.audit_capability_status()
+        caps_status = MukhaPresenter.audit_capability_status(agni=self._agni)
         registered_caps = set(self.registered_capabilities)
 
         available_actions = []

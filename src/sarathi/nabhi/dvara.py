@@ -8,46 +8,15 @@ Contains no import magic, filesystem scanning, external download, or second regi
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
-from sarathi.sankalpa import CapabilityDeclaration, ExecutionContext, PluginInfo
-from sarathi.shakti.bank_statements.plugin import (
-    CAPABILITY_DECLARATION as BANK_STATEMENTS_CAPABILITY,
-)
-from sarathi.shakti.bank_statements.plugin import (
-    PLUGIN_INFO as BANK_STATEMENTS_PLUGIN,
-)
-from sarathi.shakti.darshana.plugin import (
-    CAPABILITY_DECLARATION as DARSHANA_CAPABILITY,
-)
-from sarathi.shakti.darshana.plugin import (
-    PLUGIN_INFO as DARSHANA_PLUGIN,
-)
-from sarathi.shakti.font_conversion.plugin import (
-    CAPABILITY_DECLARATION as FONT_CONVERSION_CAPABILITY,
-)
-from sarathi.shakti.font_conversion.plugin import (
-    PLUGIN_INFO as FONT_CONVERSION_PLUGIN,
-)
-from sarathi.shakti.native_extraction.plugin import (
-    CAPABILITY_DECLARATION as NATIVE_CAPABILITY,
-)
-from sarathi.shakti.native_extraction.plugin import (
-    PLUGIN_INFO as NATIVE_PLUGIN,
-)
-from sarathi.shakti.ocr.plugin import (
-    CAPABILITY_DECLARATION as OCR_CAPABILITY,
-)
-from sarathi.shakti.ocr.plugin import (
-    PLUGIN_INFO as OCR_PLUGIN,
-)
-from sarathi.shakti.translation.plugin import (
-    CAPABILITY_DECLARATION as TRANSLATION_CAPABILITY,
-)
-from sarathi.shakti.translation.plugin import (
-    PLUGIN_INFO as TRANSLATION_PLUGIN,
+from sarathi.sankalpa import (
+    CapabilityDeclaration,
+    ExecutionContext,
+    PluginInfo,
+    PluginProvider,
 )
 
 if TYPE_CHECKING:
@@ -57,12 +26,18 @@ if TYPE_CHECKING:
 class Dvara:
     """Canonical built-in plugin discovery and registration manager."""
 
-    def __init__(self, registry: Kosh, darpana: Darpana | None = None) -> None:
+    def __init__(
+        self,
+        registry: Kosh,
+        darpana: Darpana | None = None,
+        providers: Sequence[PluginProvider] | None = None,
+    ) -> None:
         """Initialize Dvara with an injected Kosh registry instance and optional Darpana telemetry service.
 
         Args:
             registry: The single canonical Kosh registry.
             darpana: Optional injected Darpana telemetry service.
+            providers: Optional sequence of PluginProvider instances (defaults to BUILTIN_PLUGIN_PROVIDERS).
 
         Raises:
             TypeError: If registry is not a Kosh instance, or darpana is not a Darpana instance.
@@ -77,6 +52,12 @@ class Dvara:
 
         self._registry: Kosh = registry
         self._darpana: Darpana | None = darpana
+        if providers is not None:
+            self._providers: tuple[PluginProvider, ...] = tuple(providers)
+        else:
+            from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
+            self._providers = BUILTIN_PLUGIN_PROVIDERS
 
     @property
     def registry(self) -> Kosh:
@@ -123,13 +104,9 @@ class Dvara:
 
     def _register_builtins_internal(self) -> tuple[str, ...]:
         builtins: list[tuple[PluginInfo, tuple[CapabilityDeclaration, ...]]] = [
-            (DARSHANA_PLUGIN, (DARSHANA_CAPABILITY,)),
-            (NATIVE_PLUGIN, (NATIVE_CAPABILITY,)),
-            (OCR_PLUGIN, (OCR_CAPABILITY,)),
-            (BANK_STATEMENTS_PLUGIN, (BANK_STATEMENTS_CAPABILITY,)),
-            (FONT_CONVERSION_PLUGIN, (FONT_CONVERSION_CAPABILITY,)),
-            (TRANSLATION_PLUGIN, (TRANSLATION_CAPABILITY,)),
+            (provider.plugin_info, provider.declarations) for provider in self._providers
         ]
+
 
         # 1. Preflight all built-ins against existing Kosh state
         for plugin, caps in builtins:
