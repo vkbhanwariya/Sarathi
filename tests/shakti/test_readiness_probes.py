@@ -142,3 +142,25 @@ def test_mukha_presenter_audit_capability_status_delegation(tmp_path: Path) -> N
         assert status_via_providers["bank_statements"][0] is True
     finally:
         agni.close()
+
+
+def test_agni_audit_readiness_reports_disabled_status(tmp_path: Path) -> None:
+    """Verify Agni.audit_readiness reports ReadinessStatus.DISABLED for operator-disabled plugins."""
+    from sarathi.sutra import Settings
+
+    settings = Settings({"plugins": {"disabled": ["shakti.translation"]}})
+    agni = Agni(settings=settings, runtime_root=tmp_path / "rt", output_root=tmp_path / "out")
+    try:
+        readiness = agni.audit_readiness()
+        assert "translation" in readiness
+        trans_r = readiness["translation"]
+        assert trans_r.ready is False
+        assert trans_r.status == ReadinessStatus.DISABLED
+        assert "Disabled by operator configuration" in trans_r.reason
+
+        # Active plugins still report their normal readiness
+        assert "read_native" in readiness
+        assert readiness["read_native"].ready is True
+        assert readiness["read_native"].status == ReadinessStatus.READY
+    finally:
+        agni.close()

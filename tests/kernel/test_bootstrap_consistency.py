@@ -264,3 +264,46 @@ def test_replacement_composition_passes_validation_cleanly(tmp_path: Path) -> No
         assert len(agni.capabilities) == 1
     finally:
         agni.close()
+
+
+def test_operator_disabled_plugin_is_excluded_from_runtime(tmp_path: Path) -> None:
+    """Verify that an operator-disabled plugin is cleanly excluded from Kosh and executables."""
+    from sarathi.sankalpa import InputRef
+    from sarathi.sutra import Settings
+
+    settings = Settings({"plugins": {"disabled": ["shakti.translation"]}})
+
+    agni = Agni(
+        settings=settings,
+        runtime_root=tmp_path / "rt",
+        output_root=tmp_path / "out",
+        input_root=tmp_path / "inp",
+    )
+    try:
+        assert "shakti.translation" in agni.disabled_plugins
+        # Excluded from Kosh and executables
+        assert not agni.kosh.has_plugin("shakti.translation")
+        assert not agni.kosh.has_capability("translation")
+        assert "translation" not in agni.capabilities
+
+        # Other builtins remain active and consistent
+        assert agni.kosh.has_capability("ocr")
+        assert "ocr" in agni.capabilities
+        assert agni.kosh.has_capability("bank_statements")
+        assert "bank_statements" in agni.capabilities
+
+        # Executing a request for the disabled capability fails at Manthan resolution
+        input_file = tmp_path / "inp" / "doc.txt"
+        input_file.parent.mkdir(parents=True, exist_ok=True)
+        input_file.write_text("Hello World", encoding="utf-8")
+        req = Request(
+            request_id="req-trans",
+            requirement="translation",
+            inputs=(InputRef("inp-1", input_file, "doc.txt", input_file.stat().st_size),),
+        )
+
+        with pytest.raises(DoshError) as exc_info:
+            agni.execute(req)
+        assert exc_info.value.code in (FailureCode.UNSUPPORTED, FailureCode.VALIDATION_FAILED)
+    finally:
+        agni.close()
