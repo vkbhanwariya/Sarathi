@@ -306,6 +306,10 @@ class FontConversionCapability:
                                 code=FailureCode.VALIDATION_FAILED,
                                 message=f"Converted text has structural Devanagari defect(s): {', '.join(defects)}",
                             )
+                        if is_explicit_legacy:
+                            is_clean, _ = self._validator.validate_residual_legacy(restored, is_explicit_legacy=True)
+                            if not is_clean:
+                                metrics.residual_legacy_runs += 1
                     return restored
 
                 stitched_pages = []
@@ -365,6 +369,15 @@ class FontConversionCapability:
                 converted_docs.append(converted_doc)
                 final_text = converted_doc.text
 
+                if metrics.residual_legacy_runs > 0:
+                    all_warnings.append(
+                        WarningRecord(
+                            code="RESIDUAL_LEGACY_TEXT_DETECTED",
+                            message=f"Detected {metrics.residual_legacy_runs} run(s) with residual legacy font signatures after conversion.",
+                            stage="font_conversion",
+                        )
+                    )
+
                 prov = ProvenanceRecord(
                     source_input_id=doc.source_input_id,
                     capability_id="font_conversion",
@@ -378,6 +391,7 @@ class FontConversionCapability:
                         "runs_converted": metrics.runs_converted,
                         "runs_preserved": metrics.runs_preserved,
                         "runs_ambiguous": metrics.runs_ambiguous,
+                        "residual_legacy_runs": metrics.residual_legacy_runs,
                     },
                 )
                 all_provs.append(prov)
@@ -387,10 +401,20 @@ class FontConversionCapability:
                     if len(docs) == 1
                     else f"Converted_{doc.source_input_id or doc.document_id}.txt"
                 )
+                txt_content: str
+                if converted_doc.pages and len(converted_doc.pages) > 1:
+                    page_texts = [
+                        f"--- Page {p.page_number} ---\n{p.text}"
+                        for p in converted_doc.pages
+                    ]
+                    txt_content = "\n\n".join(page_texts)
+                else:
+                    txt_content = final_text
+
                 payloads.append(
                     ArtifactPayload(
                         intent=ArtifactIntent(name=txt_artifact_name, role="converted_text", media_type="text/plain"),
-                        content=final_text.encode("utf-8"),
+                        content=txt_content.encode("utf-8"),
                     )
                 )
 

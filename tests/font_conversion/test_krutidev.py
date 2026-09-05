@@ -80,3 +80,34 @@ def test_krutidev_extended_ligatures_and_purna_viram() -> None:
 
     # } -> द्व (e.g. }kjk -> द्वारा)
     assert converter.convert("}kjk", "krutidev010") == "द्वारा"
+
+
+def test_krutidev_verified_glyph_coverage() -> None:
+    """Verify newly mapped Kruti Dev characters and multichar sequences from verified fixture evidence."""
+    converter = FontConverter()
+    protector = TextProtector()
+
+    vectors = [
+        ("eq>s", "मुझे"),
+        ("eq>", "मुझ"),
+        ("le>uk", "समझना"),
+        ("le>rs", "समझते"),
+        ("la[;k", "संख्या"),
+        ("[kq’kcw", "खुशबू"),
+        ("'kq#vkr", "शुरुआत"),
+        ("#i;s", "रुपये"),
+        (":Ik", "रूप"),
+        (":Ik;s", "रुपये"),
+        (":I;s", "रुपये"),
+        ("t:jr", "जरूरत"),
+        ("fo:)", "विरुद्ध"),
+        ("Vh fo’kqf)", "टी विशुद्धि"),
+        ("c['kh’kukek", "बख्शीशनामा"),
+        ("[ksrh", "खेती"),
+    ]
+
+    for raw, expected in vectors:
+        prot, spans = protector.protect(raw, protect_devanagari=True, is_explicit_legacy=True)
+        conv = converter.convert(prot, "krutidev010")
+        restored = protector.restore(conv, spans)
+        assert expected in restored, f"Failed converting '{raw}': got '{restored}', expected '{expected}'"
