@@ -114,7 +114,13 @@ class DeviceInventory:
         return iter(self.devices)
 
     @classmethod
-    def default_inventory(cls, detect_accelerators: bool = False) -> DeviceInventory:
+    def default_inventory(
+        cls,
+        detect_accelerators: bool = False,
+        *,
+        gpu_capacity_per_device: int = 2,
+        npu_capacity_per_device: int = 2,
+    ) -> DeviceInventory:
         """Create a factual default inventory using system CPU capacity, optionally including hardware accelerators.
 
         When detect_accelerators is True, factual hardware discovery queries runtime backends
@@ -174,7 +180,7 @@ class DeviceInventory:
                     DeviceInfo(
                         device_id=dev_id,
                         device_type=DeviceType.GPU,
-                        capacity=2,
+                        capacity=gpu_capacity_per_device,
                         supported_backends=tuple(backends),
                         backend_locators=locators,
                     )
@@ -188,7 +194,7 @@ class DeviceInventory:
                         DeviceInfo(
                             device_id=dev_id,
                             device_type=DeviceType.GPU,
-                            capacity=2,
+                            capacity=gpu_capacity_per_device,
                             supported_backends=("cuda",),
                             backend_locators={"cuda": str(idx)},
                         )
@@ -201,7 +207,7 @@ class DeviceInventory:
                     DeviceInfo(
                         device_id=dev_id,
                         device_type=DeviceType.NPU,
-                        capacity=2,
+                        capacity=npu_capacity_per_device,
                         supported_backends=("openvino",),
                         backend_locators={"openvino": ov_name},
                     )

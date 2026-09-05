@@ -194,9 +194,15 @@ class Agni:
             active_inventory = inventory
         else:
             active_inventory = Yantra.default_inventory(
-                detect_accelerators=active_settings.hardware_detect_accelerators
+                detect_accelerators=active_settings.hardware_detect_accelerators,
+                gpu_capacity_per_device=active_settings.hardware_gpu_capacity_per_device,
+                npu_capacity_per_device=active_settings.hardware_npu_capacity_per_device,
             )
-        active_yantra: Yantra = Yantra(active_inventory, darpana=active_darpana)
+        active_yantra: Yantra = Yantra(
+            active_inventory,
+            darpana=active_darpana,
+            max_queue_depth=active_settings.hardware_max_queue_depth,
+        )
 
         # 5b. Validate Plugin Providers & Compose Active Providers
         active_providers: tuple[PluginProvider, ...]

@@ -14,6 +14,8 @@ Tests all requirements from the hardening specification:
 from __future__ import annotations
 
 import io
+import threading
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -31,6 +33,8 @@ from sarathi.sankalpa import (
     ExecutionContext,
     ExecutionProfile,
     InputRef,
+    PageData,
+    ProvenanceRecord,
     Request,
     Result,
 )
@@ -328,3 +332,60 @@ def test_check_ocr_readiness_validates_truthfully() -> None:
     assert is_ready_fake is False
     assert "Unavailable" in msg_fake
     assert "non_existent_data_dir" not in msg_fake
+
+
+def test_ocr_cross_input_concurrency_with_bounded_subtasks(tmp_path: Path) -> None:
+    """Verify that multiple single-page input files run concurrently through Yantra with bounded concurrency."""
+    from PIL import Image
+    from unittest.mock import MagicMock
+
+    inv = DeviceInventory([DeviceInfo("cpu-0", DeviceType.CPU, capacity=8)])
+    yantra = Yantra(inventory=inv)
+
+    active_count = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def mock_ocr_page(img, page_idx, input_id, profile=None, custom_options=None, execution_binding=None):
+        nonlocal active_count, max_active
+        with lock:
+            active_count += 1
+            if active_count > max_active:
+                max_active = active_count
+
+        time.sleep(0.02)
+
+        with lock:
+            active_count -= 1
+
+        p_data = PageData(page_number=page_idx, text=f"Text for {input_id}")
+        p_prov = ProvenanceRecord(source_input_id=input_id, capability_id="ocr", stage="ocr")
+        return p_data, p_prov, 0.95, []
+
+    mock_engine = MagicMock()
+    mock_engine.ocr_page.side_effect = mock_ocr_page
+
+    cap = OCRCapability(engine=mock_engine, yantra=yantra)
+
+    inputs = []
+    for idx in range(4):
+        p = tmp_path / f"img_{idx + 1}.png"
+        img = Image.new("RGB", (30, 30), color="white")
+        img.save(p)
+        inputs.append(InputRef(input_id=f"i-{idx + 1}", source_path=p, display_name=f"img_{idx + 1}.png", size_bytes=p.stat().st_size))
+
+    binding = ExecutionBinding("cpu-0", DeviceType.CPU, "cpu", "CPU", approved_concurrency=2)
+    ctx = ExecutionContext("run-c", "req-c", "t-c", "s-c", execution_binding=binding)
+    req = Request("req-c", "ocr", inputs=tuple(inputs))
+
+    res = cap.execute(req, ctx)
+
+    assert isinstance(res.data, tuple)
+    assert len(res.data) == 4
+    for idx, doc in enumerate(res.data):
+        assert doc.source_input_id == f"i-{idx + 1}"
+        assert f"Text for i-{idx + 1}" in doc.text
+
+    # Cross-input parallelism must have been active (> 1) and bounded by approved_concurrency (<= 2)
+    assert max_active > 1, f"Expected concurrency > 1, got {max_active}"
+    assert max_active <= 2, f"Expected concurrency <= 2, got {max_active}"

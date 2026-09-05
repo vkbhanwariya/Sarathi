@@ -271,6 +271,42 @@ class Settings:
         return raw
 
     @property
+    def hardware_gpu_capacity_per_device(self) -> int:
+        """Return validated hardware.gpu_capacity_per_device, defaulting to 2."""
+        sec = self.get_section("hardware")
+        raw = sec.get("gpu_capacity_per_device", 2) if sec is not None else 2
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"hardware.gpu_capacity_per_device must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
+    def hardware_npu_capacity_per_device(self) -> int:
+        """Return validated hardware.npu_capacity_per_device, defaulting to 2."""
+        sec = self.get_section("hardware")
+        raw = sec.get("npu_capacity_per_device", 2) if sec is not None else 2
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"hardware.npu_capacity_per_device must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
+    def hardware_max_queue_depth(self) -> int:
+        """Return validated hardware.max_queue_depth, defaulting to 64."""
+        sec = self.get_section("hardware")
+        raw = sec.get("max_queue_depth", 64) if sec is not None else 64
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"hardware.max_queue_depth must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
     def cache_enabled(self) -> bool:
         """Return validated cache.enabled boolean, defaulting to True."""
         sec = self.get_section("cache")

@@ -33,9 +33,19 @@ class Yantra:
     """Resource and execution manager for hardware allocation and capability execution."""
 
     @classmethod
-    def default_inventory(cls, detect_accelerators: bool = False) -> DeviceInventory:
+    def default_inventory(
+        cls,
+        detect_accelerators: bool = False,
+        *,
+        gpu_capacity_per_device: int = 2,
+        npu_capacity_per_device: int = 2,
+    ) -> DeviceInventory:
         """Return the factual default hardware inventory."""
-        return DeviceInventory.default_inventory(detect_accelerators=detect_accelerators)
+        return DeviceInventory.default_inventory(
+            detect_accelerators=detect_accelerators,
+            gpu_capacity_per_device=gpu_capacity_per_device,
+            npu_capacity_per_device=npu_capacity_per_device,
+        )
 
     def __init__(
         self,

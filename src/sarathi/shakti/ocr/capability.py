@@ -155,13 +155,15 @@ class OCRCapability:
         all_provenance: list[ProvenanceRecord] = list(prior_result.provenance) if prior_result else []
         all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result else []
 
+        # 1. Preflight inputs: separate already-usable native documents, empty inputs, and OCR candidates
+        ocr_inputs: list[tuple[InputRef, list[Any]]] = []
+        empty_or_usable_docs: dict[str, CanonicalDocument] = {}
+
         for inp in request.inputs:
-            # Check if this input was already extracted natively and is usable
             if (usable_doc := prior_docs.get(inp.input_id)) and _is_usable_document(usable_doc):
-                final_docs.append(usable_doc)
+                empty_or_usable_docs[inp.input_id] = usable_doc
                 continue
 
-            # Input requires OCR
             try:
                 data = inp.source_path.read_bytes()
             except OSError as exc:
@@ -170,12 +172,9 @@ class OCRCapability:
                     message="Failed to read source input file.",
                 ) from exc
 
-            # Extract page images from PDF or image formats
             images = extract_images_from_bytes(data)
-
             if not images:
                 if len(data) == 0:
-                    # Empty file
                     all_warnings.append(
                         WarningRecord(
                             code="OCR_EMPTY_INPUT",
@@ -188,29 +187,49 @@ class OCRCapability:
                         source_input_id=inp.input_id,
                         detected_type="ocr_document",
                     )
-                    final_docs.append(empty_doc)
+                    empty_or_usable_docs[inp.input_id] = empty_doc
                     continue
 
-                # Unrecognized binary format
                 raise DoshError(
                     code=FailureCode.UNSUPPORTED,
                     message="Unsupported content format for OCR.",
                 )
 
-            # Check for progress callback
-            progress_cb = None
-            if request.custom_options and callable(request.custom_options.get("progress_callback")):
-                progress_cb = request.custom_options["progress_callback"]
+            ocr_inputs.append((inp, images))
 
-            # Perform OCR on each page image
-            # If multiple pages and Yantra is available, execute concurrently via Yantra's bounded executor
-            pages = []
-            is_parallelizable = self.declaration.device_requirement.parallelizable
-            if len(images) > 1 and self._yantra is not None and is_parallelizable:
-                import threading
+        # Check for progress callback
+        progress_cb = None
+        if request.custom_options and callable(request.custom_options.get("progress_callback")):
+            progress_cb = request.custom_options["progress_callback"]
+
+        # 2. Perform OCR: execute in bounded chunks across input boundaries if parallelizable
+        total_pages_all = sum(len(imgs) for _, imgs in ocr_inputs)
+        is_parallelizable = self.declaration.device_requirement.parallelizable
+        max_concurrency = (
+            context.execution_binding.approved_concurrency if context.execution_binding else None
+        )
+        default_cap = getattr(self._yantra, "_max_workers", 2) if self._yantra is not None else 1
+        approved_concurrency = max_concurrency if (max_concurrency and max_concurrency > 0) else default_cap
+        can_parallelize = (
+            total_pages_all > 1
+            and self._yantra is not None
+            and is_parallelizable
+            and (max_concurrency is None or max_concurrency > 1)
+        )
+
+        doc_page_results: dict[str, list[tuple[int, PageData, ProvenanceRecord, list[WarningRecord]]]] = {
+            inp.input_id: [] for inp, _ in ocr_inputs
+        }
+
+        if can_parallelize:
+            import threading
+
+            def _flush_chunk(chunk_items: list[tuple[InputRef, int, int, Any]]) -> None:
+                if not chunk_items:
+                    return
 
                 def _make_page_task(
-                    p_idx: int, p_img: Any
+                    inp_ref: InputRef, p_idx: int, tot_pages: int, p_img: Any
                 ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
                     def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
                         if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
@@ -219,9 +238,9 @@ class OCRCapability:
                         w_id = str(threading.get_ident() % 1000)
                         if progress_cb is not None:
                             progress_cb(
-                                file_display_name=inp.display_name,
+                                file_display_name=inp_ref.display_name,
                                 page_number=p_idx,
-                                total_pages=len(images),
+                                total_pages=tot_pages,
                                 worker_id=w_id,
                                 stage="Optical Character Recognition (OCR)",
                             )
@@ -229,7 +248,7 @@ class OCRCapability:
                         p_data, p_prov, _, p_warns = self._engine.ocr_page(
                             p_img,
                             p_idx,
-                            inp.input_id,
+                            inp_ref.input_id,
                             profile=request.profile,
                             custom_options=request.custom_options,
                             execution_binding=context.execution_binding,
@@ -238,18 +257,30 @@ class OCRCapability:
 
                     return _task
 
-                subtasks = [_make_page_task(p_idx, p_img) for p_idx, p_img in enumerate(images, 1)]
-                max_concurrency = (
-                    context.execution_binding.approved_concurrency if context.execution_binding else None
-                )
+                subtasks = [_make_page_task(item[0], item[1], item[2], item[3]) for item in chunk_items]
                 page_results = self._yantra.execute_subtasks(
                     subtasks, context=context, max_concurrency=max_concurrency
                 )
-                for page_data, prov, page_warnings in page_results:
-                    pages.append(page_data)
-                    all_provenance.append(prov)
-                    all_warnings.extend(page_warnings)
-            else:
+                for (inp_ref, p_idx, _, _), (p_data, p_prov, p_warns) in zip(chunk_items, page_results):
+                    doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
+
+            chunk_size = max(2, approved_concurrency)
+            current_chunk: list[tuple[InputRef, int, int, Any]] = []
+
+            for inp, images in ocr_inputs:
+                tot = len(images)
+                for p_idx, img in enumerate(images, 1):
+                    current_chunk.append((inp, p_idx, tot, img))
+                    if len(current_chunk) >= chunk_size:
+                        _flush_chunk(current_chunk)
+                        current_chunk.clear()
+
+            if current_chunk:
+                _flush_chunk(current_chunk)
+                current_chunk.clear()
+        else:
+            for inp, images in ocr_inputs:
+                tot = len(images)
                 for page_idx, img in enumerate(images, 1):
                     if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                         context.cancellation_token.check_cancelled()
@@ -258,7 +289,7 @@ class OCRCapability:
                         progress_cb(
                             file_display_name=inp.display_name,
                             page_number=page_idx,
-                            total_pages=len(images),
+                            total_pages=tot,
                             worker_id="1",
                             stage="Optical Character Recognition (OCR)",
                         )
@@ -271,9 +302,22 @@ class OCRCapability:
                         custom_options=request.custom_options,
                         execution_binding=context.execution_binding,
                     )
-                    pages.append(page_data)
-                    all_provenance.append(prov)
-                    all_warnings.extend(page_warnings)
+                    doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
+
+        # 3. Assemble CanonicalDocuments preserving exact request input order
+        for inp in request.inputs:
+            if inp.input_id in empty_or_usable_docs:
+                final_docs.append(empty_or_usable_docs[inp.input_id])
+                continue
+
+            raw_results = doc_page_results.get(inp.input_id, [])
+            raw_results.sort(key=lambda r: r[0])
+
+            pages = []
+            for _, page_data, prov, page_warnings in raw_results:
+                pages.append(page_data)
+                all_provenance.append(prov)
+                all_warnings.extend(page_warnings)
 
             if len(pages) > 1:
                 page_sections = []
@@ -286,6 +330,7 @@ class OCRCapability:
                 full_text = "\n\n".join(page_sections)
             else:
                 full_text = "\n\n".join(p.text for p in pages if p.text)
+
             all_tables = tuple(t for p in pages for t in p.tables)
             ocr_doc = CanonicalDocument(
                 document_id=f"doc-{inp.input_id}",

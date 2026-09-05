@@ -134,3 +134,26 @@ class TestMultiDeviceBinding:
                 assert binding.backend_device_id in ("1", "GPU.1")
         finally:
             yantra.close()
+
+    def test_default_inventory_custom_accelerator_capacities(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        from unittest.mock import MagicMock
+
+        mock_ov = MagicMock()
+        mock_core = MagicMock()
+        mock_core.available_devices = ["GPU.0", "NPU.0"]
+        mock_ov.Core.return_value = mock_core
+        monkeypatch.setitem(sys.modules, "openvino", mock_ov)
+
+        inv = DeviceInventory.default_inventory(
+            detect_accelerators=True,
+            gpu_capacity_per_device=4,
+            npu_capacity_per_device=3,
+        )
+        gpu = inv.get_device("gpu-0")
+        assert gpu is not None
+        assert gpu.capacity == 4
+
+        npu = inv.get_device("npu-0")
+        assert npu is not None
+        assert npu.capacity == 3

@@ -189,6 +189,45 @@ output_root = "Output"
         assert "super_secret_token_12345" not in err_msg
         assert "super_secret_token_12345" not in err_context_str
 
+    def test_hardware_settings_defaults(self) -> None:
+        s = Settings()
+        assert s.hardware_detect_accelerators is False
+        assert s.hardware_gpu_capacity_per_device == 2
+        assert s.hardware_npu_capacity_per_device == 2
+        assert s.hardware_max_queue_depth == 64
+
+    def test_hardware_settings_custom_valid(self) -> None:
+        raw = {
+            "hardware": {
+                "detect_accelerators": True,
+                "gpu_capacity_per_device": 4,
+                "npu_capacity_per_device": 3,
+                "max_queue_depth": 128,
+            }
+        }
+        s = Settings(raw)
+        assert s.hardware_detect_accelerators is True
+        assert s.hardware_gpu_capacity_per_device == 4
+        assert s.hardware_npu_capacity_per_device == 3
+        assert s.hardware_max_queue_depth == 128
+
+    def test_hardware_settings_invalid_values(self) -> None:
+        with pytest.raises(DoshError) as exc:
+            Settings({"hardware": {"detect_accelerators": "yes"}}).hardware_detect_accelerators
+        assert exc.value.code is FailureCode.INVALID_CONFIGURATION
+
+        with pytest.raises(DoshError) as exc:
+            Settings({"hardware": {"gpu_capacity_per_device": 0}}).hardware_gpu_capacity_per_device
+        assert exc.value.code is FailureCode.INVALID_CONFIGURATION
+
+        with pytest.raises(DoshError) as exc:
+            Settings({"hardware": {"npu_capacity_per_device": -1}}).hardware_npu_capacity_per_device
+        assert exc.value.code is FailureCode.INVALID_CONFIGURATION
+
+        with pytest.raises(DoshError) as exc:
+            Settings({"hardware": {"max_queue_depth": "64"}}).hardware_max_queue_depth
+        assert exc.value.code is FailureCode.INVALID_CONFIGURATION
+
     def test_sutra_exports(self) -> None:
         expected = {"Settings", "load_settings", "get_canonical_data_root"}
         assert set(sutra_module.__all__) == expected
