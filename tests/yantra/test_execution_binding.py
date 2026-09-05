@@ -294,3 +294,49 @@ class TestYantraExecutionBindingPropagation:
             assert spill_binding.is_spillover is True
         finally:
             yantra.release(alloc_gpu)
+
+    def test_yantra_execute_non_parallelizable_capability_bounds_approved_concurrency_to_one(self) -> None:
+        inventory = DeviceInventory([
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=12),
+        ])
+        yantra = Yantra(inventory)
+
+        non_parallel_cap = MockRecordingCapability(
+            capability_id="native_extraction",
+            device_requirement=DeviceRequirement(
+                preferred_devices=(DeviceType.CPU,),
+                supported_devices=(DeviceType.CPU,),
+                parallelizable=False,
+            ),
+        )
+        ctx = ExecutionContext(run_id="r1", request_id="req1", trace_id="t1", span_id="s1")
+        req = Request(request_id="req1", requirement="native_extraction", inputs=[InputRef(input_id="i1", source_path=Path("p.pdf"), display_name="p.pdf", size_bytes=1)])
+
+        yantra.execute(capability=non_parallel_cap, request=req, context=ctx)
+        assert non_parallel_cap.captured_context is not None
+        binding = non_parallel_cap.captured_context.execution_binding
+        assert binding is not None
+        assert binding.approved_concurrency == 1
+
+    def test_yantra_execute_parallelizable_capability_receives_full_device_capacity(self) -> None:
+        inventory = DeviceInventory([
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=12),
+        ])
+        yantra = Yantra(inventory)
+
+        parallel_cap = MockRecordingCapability(
+            capability_id="ocr",
+            device_requirement=DeviceRequirement(
+                preferred_devices=(DeviceType.CPU,),
+                supported_devices=(DeviceType.CPU,),
+                parallelizable=True,
+            ),
+        )
+        ctx = ExecutionContext(run_id="r2", request_id="req2", trace_id="t2", span_id="s2")
+        req = Request(request_id="req2", requirement="ocr", inputs=[InputRef(input_id="i2", source_path=Path("p.pdf"), display_name="p.pdf", size_bytes=1)])
+
+        yantra.execute(capability=parallel_cap, request=req, context=ctx)
+        assert parallel_cap.captured_context is not None
+        binding = parallel_cap.captured_context.execution_binding
+        assert binding is not None
+        assert binding.approved_concurrency == 12

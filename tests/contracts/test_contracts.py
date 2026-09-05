@@ -340,6 +340,16 @@ class TestCapabilityContracts:
                 supported_devices=(DeviceType.CPU,),
             )
 
+    def test_device_requirement_parallelizable_defaults_to_false(self) -> None:
+        req_default = DeviceRequirement()
+        assert req_default.parallelizable is False
+
+        req_parallel = DeviceRequirement(parallelizable=True)
+        assert req_parallel.parallelizable is True
+
+        req_explicit_false = DeviceRequirement(parallelizable=False)
+        assert req_explicit_false.parallelizable is False
+
     def test_capability_declaration_profiles_must_be_explicit(self) -> None:
         decl = CapabilityDeclaration(
             capability_id="ocr",

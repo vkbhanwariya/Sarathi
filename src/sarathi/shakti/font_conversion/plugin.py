@@ -38,7 +38,7 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.CPU,),
         supported_devices=(DeviceType.CPU,),
-        parallelizable=True,
+        parallelizable=False,
     ),
     produces_artifacts=True,
     metadata=MappingProxyType({"category": "shakti", "family": "font_conversion"}),

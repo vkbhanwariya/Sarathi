@@ -388,10 +388,19 @@ Conceptually:
 ``` text
 preferred_devices
 supported_devices
-parallelizable
+parallelizable (defaults to False; explicitly claimed only for tested thread-safe workloads)
 memory_requirement
 priority
 ```
+
+#### Parallelism Semantics and Runtime Enforcement
+
+1. **Explicit Claim**: `DeviceRequirement.parallelizable` defaults to `False`. Parallelism is an explicitly claimed capability, not an assumed default. Only workloads with verified thread-safe, GIL-releasing native runtimes (e.g. CTranslate2 or RapidOCR) declare `parallelizable=True`. Single-threaded C libraries (e.g. PyMuPDF) and pure Python CPU loops declare `parallelizable=False`.
+2. **Yantra Enforcement**: During allocation, Yantra sets:
+   ```text
+   approved_concurrency = dev.capacity if parallelizable else 1
+   ```
+   Non-parallel capabilities receive an `ExecutionBinding` with `approved_concurrency = 1` regardless of physical device capacity, natively bounding subtask execution to single-concurrency.
 
 Yantra then performs:
 

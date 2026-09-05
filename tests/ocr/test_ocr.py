@@ -114,6 +114,7 @@ class TestOCRPhase1Instant:
         assert "ocr" in OCR_PLUGIN.capabilities
         assert OCR_DECLARATION.capability_id == "ocr"
         assert OCR_DECLARATION.plugin_id == "shakti.ocr"
+        assert OCR_DECLARATION.device_requirement.parallelizable is True
         assert OCR_DECLARATION.supported_profiles == (
             ExecutionProfile.INSTANT,
             ExecutionProfile.ACCURATE,

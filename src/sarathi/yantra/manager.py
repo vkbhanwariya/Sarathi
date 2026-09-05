@@ -354,7 +354,8 @@ class Yantra:
 
             # Construct factual ExecutionBinding directly from allocator reservation
             dev = self.inventory.get(allocation.device_id)
-            approved_concurrency = dev.capacity if dev is not None else 1
+            is_parallelizable = capability.declaration.device_requirement.parallelizable
+            approved_concurrency = (dev.capacity if dev is not None else 1) if is_parallelizable else 1
             binding = ExecutionBinding(
                 device_id=allocation.device_id,
                 device_type=allocation.device_type,

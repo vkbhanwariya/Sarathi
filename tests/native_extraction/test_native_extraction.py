@@ -888,6 +888,7 @@ class TestNativeExtraction:
         assert "read_native" in PLUGIN_INFO.capabilities
         assert CAPABILITY_DECLARATION.capability_id == "read_native"
         assert CAPABILITY_DECLARATION.plugin_id == "shakti.native_extraction"
+        assert CAPABILITY_DECLARATION.device_requirement.parallelizable is False
 
     def test_native_extraction_emits_docx_artifact(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
