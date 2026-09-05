@@ -12,6 +12,7 @@ from sarathi.sankalpa import (
     ArtifactPayload,
     CanonicalDocument,
     ExecutionContext,
+    PageData,
     ProvenanceRecord,
     Request,
     Result,
@@ -36,6 +37,36 @@ from sarathi.shakti.font_conversion.validator import FontConversionValidator
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
+
+
+def _stitch_compatible_page_spans(spans: tuple[TextSpan, ...] | list[TextSpan]) -> tuple[TextSpan, ...]:
+    """Merge adjacent compatible runs within each paragraph to resolve cross-run split Aksharas."""
+    if not spans:
+        return ()
+    stitched: list[TextSpan] = []
+    for s in spans:
+        if not isinstance(s, TextSpan) or not s.text:
+            continue
+        s_font = s.metadata.get("font_name") if s.metadata else None
+        s_p_idx = s.metadata.get("paragraph_index") if s.metadata else None
+        if stitched:
+            prev = stitched[-1]
+            prev_font = prev.metadata.get("font_name") if prev.metadata else None
+            prev_p_idx = prev.metadata.get("paragraph_index") if prev.metadata else None
+            if s_font == prev_font and (s_p_idx is None or s_p_idx == prev_p_idx):
+                merged_text = prev.text + s.text
+                merged_meta = dict(prev.metadata) if prev.metadata else {}
+                stitched[-1] = TextSpan(
+                    text=merged_text,
+                    confidence=min(prev.confidence or 1.0, s.confidence or 1.0),
+                    bounding_box=prev.bounding_box,
+                    language=prev.language,
+                    script=prev.script,
+                    metadata=merged_meta,
+                )
+                continue
+        stitched.append(s)
+    return tuple(stitched)
 
 
 class FontConversionCapability:
@@ -206,6 +237,10 @@ class FontConversionCapability:
                     if not raw or not raw.strip():
                         return raw
 
+                    # If multiple paragraphs/lines exist in raw unlabelled text, convert line by line
+                    if font_name is None and "\n" in raw:
+                        return "\n".join(_conv_text(line, font_name=None) for line in raw.split("\n"))
+
                     if is_to_legacy:
                         active_profile = target_profile
                         metrics.runs_scanned += 1
@@ -240,7 +275,7 @@ class FontConversionCapability:
                     metrics.runs_converted += 1
                     profiles_used.add(active_profile)
 
-                    is_explicit_legacy = (decision.reason == "exact_source_font_alias")
+                    is_explicit_legacy = bool(font_name and decision.reason == "exact_source_font_alias")
                     prot, c_spans = self._protector.protect(
                         raw,
                         protect_devanagari=not is_to_legacy,
@@ -273,7 +308,35 @@ class FontConversionCapability:
                             )
                     return restored
 
-                final_text = _conv_text(full_text)
+                stitched_pages = []
+                has_any_spans = any(bool(p.spans) for p in doc.pages)
+                for p in doc.pages:
+                    if p.spans:
+                        stitched_spans = _stitch_compatible_page_spans(p.spans)
+                        stitched_pages.append(
+                            PageData(
+                                page_number=p.page_number,
+                                text=p.text,
+                                spans=stitched_spans,
+                                tables=p.tables,
+                                metadata=p.metadata,
+                            )
+                        )
+                    else:
+                        stitched_pages.append(p)
+                doc_to_transform = (
+                    CanonicalDocument(
+                        document_id=doc.document_id,
+                        source_input_id=doc.source_input_id,
+                        text=doc.text,
+                        pages=tuple(stitched_pages),
+                        tables=doc.tables,
+                        detected_type=doc.detected_type,
+                        metadata=doc.metadata,
+                    )
+                    if has_any_spans
+                    else doc
+                )
 
                 def _span_transform(span: TextSpan | str) -> TextSpan | str:
                     if isinstance(span, TextSpan):
@@ -291,14 +354,16 @@ class FontConversionCapability:
 
                 target_doc_type = "legacy_font_document" if is_to_legacy else "unicode_document"
                 converted_doc = transform_canonical_document(
-                    doc,
+                    doc_to_transform,
                     _conv_text,
                     detected_type=target_doc_type,
                     target_lang="hi" if not is_to_legacy else doc.metadata.get("language"),
                     target_script="Deva" if not is_to_legacy else "Latn",
                     span_transform_fn=_span_transform,
+                    reconstruct_text_from_spans=has_any_spans,
                 )
                 converted_docs.append(converted_doc)
+                final_text = converted_doc.text
 
                 prov = ProvenanceRecord(
                     source_input_id=doc.source_input_id,
