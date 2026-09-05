@@ -23,8 +23,8 @@ _CANONICAL_ANUBHAVA_PATH = get_canonical_data_root() / "font_conversion" / "anub
 # Captures optional half-consonants (D, P, R, F, Y, O, L, C, H, E, U, I, x~, etc.) + base consonant + optional sub-ra ('z')
 # In Remington: uppercase letters D, P, R, F, Y, O, L, C, H, E, U, I are half-consonants (क्, च्, त्, थ्, ल्, व्, स्, ब्, भ्, म्, न्, प्)
 # Lowercase letters d, x, p, t, T, V, B, M, r, n, u, c, ;, j, y, o, ?, g, h, K, s, e are base consonants (क, ग, च, ज, झ, ट, ठ, ड, त, द, न, ब, य, र, ल, व, ?, घ, ह, ज्ञ, स, म)
-_KRUTI_HALF_CONSONANTS = r"(?:[DPRFYOCLHUI]|E(?!$)|x~|\{|\&|J~)"
-_KRUTI_BASE_CONSONANTS = r"(?:\[k|\?k|Fk|/k|Hk|'k|\"k|\.k|\{k|[dixptTVBMrnuc;jyo\?ghKs]|e|J|K|ç|ä|ñ|ò|ó|ô|õ|ö|÷|ø|ù|ú|û|ü|ý|þ|=)"
+_KRUTI_HALF_CONSONANTS = r"(?:[DPRFYOCLHUI\xb6\xd9]|E(?!$)|x~|\{|\&|J~)"
+_KRUTI_BASE_CONSONANTS = r"(?:\[k|\?k|Fk|/k|Hk|'k|\"k|\.k|\{k|\u2019k|\xd9k|[ldixptTVBMrnuc;jyo\?ghKsQeJK\xe7\xe4\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe=\}\xd8])"
 _KRUTI_CONSONANT_CLUSTER = rf"(?:{_KRUTI_HALF_CONSONANTS})*{_KRUTI_BASE_CONSONANTS}z?"
 
 
@@ -76,13 +76,14 @@ class FontConverter:
         # 2. Profile-specific pre-base matra reordering (e.g. 'f' in KrutiDev/DevLys)
         # ONLY execute if the active profile defines this prefix!
         if profile.family in ("krutidev", "devlys"):
-            if "f" in profile.prefixes:
-                text = reorder_pre_base_matra_legacy(
-                    text,
-                    prefix_char="f",
-                    matra_unicode="ि",
-                    consonant_chars_pattern=_KRUTI_CONSONANT_CLUSTER,
-                )
+            for pfx, matra_uni in profile.prefixes.items():
+                if pfx in text:
+                    text = reorder_pre_base_matra_legacy(
+                        text,
+                        prefix_char=pfx,
+                        matra_unicode=matra_uni,
+                        consonant_chars_pattern=_KRUTI_CONSONANT_CLUSTER,
+                    )
         elif profile.family == "chanakya":
             for pfx in profile.prefixes.keys():
                 if pfx in text:

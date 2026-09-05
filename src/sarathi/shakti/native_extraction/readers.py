@@ -570,6 +570,30 @@ def read_docx(
         doc_xml = zf.read("word/document.xml")
         tree = ET.fromstring(doc_xml)
 
+        def _extract_docx_cell_text(tc_elem: ET.Element) -> str:
+            parts: list[str] = []
+            for child in tc_elem:
+                if child.tag == _P_TAG:
+                    p_text = "".join(t.text for t in child.findall(f".//{_T_TAG}") if t.text)
+                    if p_text:
+                        parts.append(p_text)
+                elif child.tag == _TBL_TAG:
+                    for sub_tr in child.findall(_TR_TAG):
+                        row_parts: list[str] = []
+                        for sub_tc in sub_tr.findall(_TC_TAG):
+                            sub_text = _extract_docx_cell_text(sub_tc)
+                            if sub_text:
+                                row_parts.append(sub_text)
+                        if row_parts:
+                            parts.append(" ".join(row_parts))
+                elif child.tag == f"{_W_NAMESPACE}sdt":
+                    sdt_text = "".join(t.text for t in child.findall(f".//{_T_TAG}") if t.text)
+                    if sdt_text:
+                        parts.append(sdt_text)
+            if not parts:
+                return "".join(t.text for t in tc_elem.findall(f".//{_T_TAG}") if t.text).strip()
+            return "\n".join(parts).strip()
+
         body = tree.find(f"{_W_NAMESPACE}body")
         if body is not None:
             tbl_count = 0
@@ -584,8 +608,10 @@ def read_docx(
                         if r_text:
                             run_count += 1
                             p_runs_text.append(r_text)
-                            is_ascii = all(ord(c) < 128 for c in r_text)
-                            effective_font = style_resolver.resolve_run_font(r, elem, is_ascii_text=is_ascii)
+                            has_complex_script = any("\u0900" <= c <= "\u0d7f" for c in r_text)
+                            effective_font = style_resolver.resolve_run_font(
+                                r, elem, is_ascii_text=not has_complex_script
+                            )
 
                             # Determine font source
                             font_source = "doc_defaults"
@@ -621,13 +647,16 @@ def read_docx(
                         row_cells: list[str] = []
                         row_font_list: list[str] = []
                         for tc in tr.findall(_TC_TAG):
-                            tc_text = "".join(t.text for t in tc.iter(_T_TAG) if t.text).strip()
+                            tc_text = _extract_docx_cell_text(tc)
                             row_cells.append(tc_text)
                             first_r = tc.find(f".//{_R_TAG}")
                             first_p = tc.find(f".//{_P_TAG}")
                             c_font = ""
                             if first_r is not None:
-                                c_font = style_resolver.resolve_run_font(first_r, first_p) or ""
+                                has_cs = any("\u0900" <= c <= "\u0d7f" for c in tc_text)
+                                c_font = style_resolver.resolve_run_font(
+                                    first_r, first_p, is_ascii_text=not has_cs
+                                ) or ""
                             row_font_list.append(c_font)
                         if any(row_cells):
                             raw_table_rows.append(tuple(row_cells))

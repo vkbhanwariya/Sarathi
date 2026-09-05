@@ -125,5 +125,15 @@ def synthesize_akshara_unicode(text: str) -> str:
     text = text.replace("\u093e\u0947", "\u094b")
     text = text.replace("\u093e\u0948", "\u094c")
 
+    # Resolve conflicting consecutive e/ai matras (e.g. \u0947\u0948 -> \u0948)
+    text = re.sub(r"[\u0947\u0948]{2,}", "\u0948", text)
+
+    # Normalize Remington typewriter artifacts for 'हूँ' (candra-e \u0945 + badi-oo \u0942 combinations)
+    text = re.sub(r"[\u0945\u0942]{2,}", "\u0942\u0901", text)
+    text = re.sub(r"\u0945\u0942|\u0942\u0945", "\u0942\u0901", text)
+
+    # Clean up orphan chhoti-i matra preceded by another dependent vowel matra
+    text = re.sub(rf"({DEVA_MATRAS})\u093f", r"\1", text)
+
     # Standard NFC normalization
     return unicodedata.normalize("NFC", text)

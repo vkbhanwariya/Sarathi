@@ -50,3 +50,33 @@ def test_krutidev_word_conversion() -> None:
     prot_y, spans_y = protector.protect(raw_karya)
     conv_y = protector.restore(converter.convert(prot_y, "krutidev010"), spans_y)
     assert conv_y == "कार्य"
+
+
+def test_krutidev_extended_ligatures_and_purna_viram() -> None:
+    """Verify extended KrutiDev ligatures (त्त, क्र, फ्, ई, िं, रु, द्व) and purna viram (।) convert accurately."""
+    converter = FontConverter()
+    protector = TextProtector()
+
+    # Purna viram A -> ।
+    assert converter.convert("A", "krutidev010") == "।"
+
+    # \u00d9k -> त्त (e.g. mÙk -> उत्त)
+    assert converter.convert("mÙk", "krutidev010") == "उत्त"
+
+    # \u00d8 -> क्र (e.g. Øe -> क्रम)
+    assert converter.convert("Øe", "krutidev010") == "क्रम"
+
+    # \xb6 -> फ् (e.g. ¶ySV -> फ्लैट)
+    assert converter.convert("¶ySV", "krutidev010") == "फ्लैट"
+
+    # \xc3 -> ई (e.g. Ã -> ई)
+    assert converter.convert("Ã", "krutidev010") == "ई"
+
+    # \xc7 -> िं (e.g. Çd -> कि)
+    assert converter.convert("Çd", "krutidev010") == "किं"
+
+    # \u2014 -> रु (e.g. —i;s -> रुपये)
+    assert converter.convert("—i;s", "krutidev010") == "रुपये"
+
+    # } -> द्व (e.g. }kjk -> द्वारा)
+    assert converter.convert("}kjk", "krutidev010") == "द्वारा"

@@ -96,3 +96,72 @@ def test_krutidev_statement_vocabulary_does_not_falsely_mask_as_latin() -> None:
     assert "8003178518" in final_text
 
     assert validator.validate_protection_integrity(final_text, spans) is True
+
+
+def test_protect_unparenthesized_english_address_and_titlecase_firms() -> None:
+    """Verify unparenthesized English addresses and M/s company names are protected and Devanagari structure is valid."""
+    protector = TextProtector()
+    converter = FontConverter()
+    validator = FontConversionValidator()
+
+    sample = (
+        "esjs firkth dh daiuh M/s Tulip Global Pvt. Ltd. vkSj M/s Digi Mudra Connect "
+        "Private Limited dk irk Flat No.-1411, Al Kawthar Tower, Al-Nahda, Sharjah, "
+        "United Arab Emirates fLFkr edku esa gSA"
+    )
+
+    protected, spans = protector.protect(sample, is_explicit_legacy=False)
+    converted = converter.convert(protected, "krutidev010")
+    final_text = protector.restore(converted, spans)
+
+    # English phrases and addresses preserved intact
+    assert "M/s Tulip Global Pvt. Ltd." in final_text
+    assert "M/s Digi Mudra Connect Private Limited" in final_text
+    assert "Flat No.-1411, Al Kawthar Tower, Al-Nahda, Sharjah, United Arab Emirates" in final_text
+
+    # KrutiDev converted to Devanagari
+    assert "मेरे पिताजी" in final_text
+    assert "कंपनी" in final_text or "कम्पनी" in final_text
+    assert "स्थित" in final_text
+
+    assert validator.validate_protection_integrity(final_text, spans) is True
+    is_valid, defects = validator.validate_devanagari_structure(final_text)
+    assert is_valid is True
+    assert defects == []
+
+
+def test_unlabelled_table_cell_with_multiline_mixed_content() -> None:
+    """Verify multiline table cell with mixed English headers/rows and KrutiDev text converts cleanly."""
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+    from sarathi.sankalpa import CanonicalDocument, TableData, Request, ExecutionContext, InputRef, Result
+
+    cap = FontConversionCapability()
+    req = Request(
+        request_id="req-test-tbl",
+        requirement="font_conversion",
+        inputs=(InputRef("inp-1", "dummy.docx", "dummy.docx", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-1", "t-1", "s-1")
+
+    cell_content = (
+        "eSa c;ku djrk gw\xa1 fd esjs vkSj esjs ifjokj ds lnL;\n"
+        "S.No. Name of Firm Key Holder Relationship with me\n"
+        "1 M/s Digi Mudra Connect Pvt. Ltd. Prakash Chand Jain\n"
+        "esjh lEiw.kZ tkudkjh ds fglkc ls mijksDr ds vykok"
+    )
+    table = TableData(name="test_table", headers=(), rows=((cell_content,),))
+    doc = CanonicalDocument(
+        document_id="doc-tbl",
+        source_input_id="inp-1",
+        text=cell_content,
+        tables=(table,),
+        detected_type="native_document",
+    )
+
+    res = cap.execute(req, ctx, prior_result=Result(data=(doc,)))
+
+    conv_doc = res.data[0] if isinstance(res.data, (list, tuple)) else res.data
+    conv_cell = conv_doc.tables[0].rows[0][0]
+    assert "बयान करता हूँ" in conv_cell
+    assert "S.No. Name of Firm Key Holder Relationship with me" in conv_cell
+    assert "M/s Digi Mudra Connect Pvt. Ltd." in conv_cell

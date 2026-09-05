@@ -151,12 +151,14 @@ def transform_canonical_document(
     target_lang: str | None = None,
     target_script: str | None = None,
     span_transform_fn: Callable[[TextSpan], TextSpan | str] | Callable[[str], str] | None = None,
+    reconstruct_text_from_spans: bool = False,
 ) -> CanonicalDocument:
     """Transform text, pages, spans, and tables of a CanonicalDocument with semantic fidelity.
 
     - Transforms doc.text and all table headers/cells.
     - Transforms page.text and each TextSpan text, updating language and script while preserving geometry.
     - Aggregates tables across ALL pages when document-level tables were originally empty.
+    - When reconstruct_text_from_spans is True, page.text and doc.text are composed directly from transformed spans.
     """
     converted_tables: list[TableData] = []
     for t in doc.tables:
@@ -166,7 +168,6 @@ def transform_canonical_document(
 
     converted_pages: list[PageData] = []
     for p in doc.pages:
-        p_text = text_transform_fn(p.text) if p.text else ""
         p_page_tables: list[TableData] = []
         for t in p.tables:
             t_rows = [tuple(text_transform_fn(str(c)) for c in r) for r in t.rows]
@@ -198,6 +199,19 @@ def transform_canonical_document(
                 )
             )
 
+        if reconstruct_text_from_spans and p_spans:
+            has_p_idx = any(s.metadata and "paragraph_index" in s.metadata for s in p_spans)
+            if has_p_idx:
+                p_groups: dict[int, list[str]] = {}
+                for s in p_spans:
+                    idx = s.metadata.get("paragraph_index", 0) if s.metadata else 0
+                    p_groups.setdefault(idx, []).append(s.text)
+                p_text = "\n".join("".join(parts).strip() for parts in p_groups.values() if "".join(parts).strip())
+            else:
+                p_text = "".join(s.text for s in p_spans)
+        else:
+            p_text = text_transform_fn(p.text) if p.text else ""
+
         converted_pages.append(
             PageData(
                 page_number=p.page_number,
@@ -208,7 +222,9 @@ def transform_canonical_document(
             )
         )
 
-    if doc.text and doc.text.strip():
+    if reconstruct_text_from_spans and any(p.spans for p in converted_pages):
+        new_text = "\n".join(p.text for p in converted_pages if p.text)
+    elif doc.text and doc.text.strip():
         new_text = text_transform_fn(doc.text)
     elif converted_tables:
         table_lines = []
