@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sarathi Architecture Manifest Schema",
+  "description": "Schema defining architectural boundary contracts, ownership, and dependency rules for Sarathi.",
+  "type": "object",
+  "required": [
+    "manifest_version",
+    "system",
+    "source_root",
+    "root_package",
+    "dependency_policy",
+    "modules",
+    "groups",
+    "exceptions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "manifest_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "system": {
+      "type": "string",
+      "enum": ["sarathi"]
+    },
+    "source_root": {
+      "type": "string"
+    },
+    "root_package": {
+      "type": "string"
+    },
+    "dependency_policy": {
+      "type": "object",
+      "required": ["default_internal_policy"],
+      "additionalProperties": false,
+      "properties": {
+        "default_internal_policy": {
+          "type": "string",
+          "enum": ["deny", "allow"]
+        }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["package", "role", "may_import"],
+        "additionalProperties": false,
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "composition_root": {
+            "type": "boolean"
+          },
+          "may_import": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "groups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["members", "mutually_independent"],
+        "additionalProperties": false,
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "mutually_independent": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "uniqueItems": true
+    }
+  }
+}

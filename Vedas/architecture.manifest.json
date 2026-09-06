@@ -1,0 +1,141 @@
+{
+  "manifest_version": "1.0.0",
+  "system": "sarathi",
+  "source_root": "src",
+  "root_package": "sarathi",
+  "dependency_policy": {
+    "default_internal_policy": "deny"
+  },
+  "modules": {
+    "dosh": {
+      "package": "sarathi.dosh",
+      "role": "failure-taxonomy-and-error-definitions",
+      "may_import": []
+    },
+    "sankalpa": {
+      "package": "sarathi.sankalpa",
+      "role": "contracts-protocols-and-domain-neutral-types",
+      "may_import": [
+        "sarathi.dosh"
+      ]
+    },
+    "kavacha": {
+      "package": "sarathi.kavacha",
+      "role": "security-quarantine-and-isolation",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa"
+      ]
+    },
+    "darpana": {
+      "package": "sarathi.darpana",
+      "role": "telemetry-audit-history-and-metrics",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa"
+      ]
+    },
+    "smriti": {
+      "package": "sarathi.smriti",
+      "role": "cache-state-persistence-and-idempotency",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa"
+      ]
+    },
+    "yantra": {
+      "package": "sarathi.yantra",
+      "role": "compute-resource-management-and-device-allocation",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa",
+        "sarathi.darpana"
+      ]
+    },
+    "sutra": {
+      "package": "sarathi.sutra",
+      "role": "configuration-settings-and-defaults",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa",
+        "sarathi.darpana",
+        "sarathi.kavacha",
+        "sarathi.smriti"
+      ]
+    },
+    "nabhi": {
+      "package": "sarathi.nabhi",
+      "role": "generic-execution-kernel-and-pipeline-orchestration",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa",
+        "sarathi.darpana",
+        "sarathi.kavacha",
+        "sarathi.smriti",
+        "sarathi.yantra",
+        "sarathi.sutra"
+      ]
+    },
+    "shakti": {
+      "package": "sarathi.shakti",
+      "role": "capability-plugins-and-neutral-primitives",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa"
+      ]
+    },
+    "mukha": {
+      "package": "sarathi.mukha",
+      "role": "presentation-layer-cli-web-tui",
+      "may_import": [
+        "sarathi.dosh",
+        "sarathi.sankalpa",
+        "sarathi.sutra",
+        "sarathi.darpana",
+        "sarathi.yantra",
+        "sarathi.smriti",
+        "sarathi.kavacha",
+        "sarathi.nabhi",
+        "sarathi.agni"
+      ]
+    },
+    "agni": {
+      "package": "sarathi.agni",
+      "role": "composition-root-and-application-bootstrap",
+      "composition_root": true,
+      "may_import": [
+        "*"
+      ]
+    }
+  },
+  "groups": {
+    "shakti_plugins": {
+      "members": [
+        "sarathi.shakti.bank_statements",
+        "sarathi.shakti.darshana",
+        "sarathi.shakti.font_conversion",
+        "sarathi.shakti.native_extraction",
+        "sarathi.shakti.ocr",
+        "sarathi.shakti.translation"
+      ],
+      "mutually_independent": true
+    }
+  },
+  "exceptions": [
+    {
+      "from": "sarathi.nabhi.dvara",
+      "to": "sarathi.shakti.providers",
+      "reason": "Canonical built-in provider discovery bridge"
+    },
+    {
+      "from": "sarathi.shakti.docx_exporter",
+      "to": "sarathi.shakti.font_conversion.detector",
+      "reason": "Shared DOCX openxml font detector bridge"
+    },
+    {
+      "from": "sarathi.shakti.docx_exporter",
+      "to": "sarathi.shakti.font_conversion.font_size_normalizer",
+      "reason": "Shared DOCX visual font-size normalization bridge"
+    }
+  ]
+}

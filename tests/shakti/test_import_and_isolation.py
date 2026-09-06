@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
+import pytest
 
 from sarathi.sankalpa import CapabilityDeclaration, ExecutionProfile
 from sarathi.shakti.bank_statements.plugin import (
@@ -31,28 +30,8 @@ from sarathi.shakti.translation.plugin import (
 )
 
 
-class TestCrossPluginIsolation:
-    """Verify Shakti plugins do not import implementation internals of sibling plugins."""
-
-    def test_translation_has_no_font_conversion_imports(self) -> None:
-        """Translation capability must not import from sarathi.shakti.font_conversion."""
-        translation_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "shakti" / "translation"
-        assert translation_dir.exists(), f"Translation directory {translation_dir} not found."
-
-        violations: list[str] = []
-        for py_file in translation_dir.rglob("*.py"):
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if "font_conversion" in alias.name:
-                            violations.append(f"{py_file.name}:{node.lineno} imports '{alias.name}'")
-                elif isinstance(node, ast.ImportFrom):
-                    module = node.module or ""
-                    if "font_conversion" in module:
-                        violations.append(f"{py_file.name}:{node.lineno} imports from '{module}'")
-
-        assert not violations, "Cross-plugin import violations found in translation:\n" + "\n".join(violations)
+class TestShaktiTextPrimitives:
+    """Verify neutral shakti.text primitives operate as expected."""
 
     def test_shakti_text_primitives_work_correctly(self) -> None:
         """Verify neutral shakti.text primitives operate as expected."""
@@ -100,6 +79,7 @@ class TestCapabilityDeclarationDisplayName:
         assert TRANSLATION_DECL.display_name == "Machine Translation"
 
 
+@pytest.mark.architecture
 class TestShaktiImportHygiene:
     """Verify lazy re-exports in package roots prevent unnecessary eager loading."""
 
@@ -128,105 +108,8 @@ class TestShaktiImportHygiene:
         assert cap_cls.__name__ == "FontConversionCapability"
 
 
-class TestArchitecturalBoundaries:
-    """Verify architectural layering invariants across subsystem boundaries using AST inspection."""
-
-    def test_sankalpa_does_not_import_higher_layers(self) -> None:
-        """sankalpa (contracts) must not import runtime or capabilities."""
-        sankalpa_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "sankalpa"
-        forbidden = ("sarathi.nabhi", "sarathi.shakti", "sarathi.agni", "sarathi.mukha")
-        violations: list[str] = []
-        for py_file in sankalpa_dir.rglob("*.py"):
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if any(alias.name.startswith(f) for f in forbidden):
-                            violations.append(f"{py_file.name}:{node.lineno} imports '{alias.name}'")
-                elif isinstance(node, ast.ImportFrom):
-                    mod = node.module or ""
-                    if any(mod.startswith(f) for f in forbidden):
-                        violations.append(f"{py_file.name}:{node.lineno} imports from '{mod}'")
-        assert not violations, "sankalpa layer violations:\n" + "\n".join(violations)
-
-    def test_mukha_does_not_import_concrete_shakti_internals(self) -> None:
-        """mukha presentation must not import concrete shakti capabilities or provider catalog."""
-        mukha_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "mukha"
-        forbidden = (
-            "sarathi.shakti.providers",
-            "sarathi.shakti.ocr",
-            "sarathi.shakti.font_conversion",
-            "sarathi.shakti.bank_statements",
-            "sarathi.shakti.translation",
-            "sarathi.shakti.native_extraction",
-        )
-        violations: list[str] = []
-        for py_file in mukha_dir.rglob("*.py"):
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if any(alias.name.startswith(f) for f in forbidden):
-                            violations.append(f"{py_file.name}:{node.lineno} imports '{alias.name}'")
-                elif isinstance(node, ast.ImportFrom):
-                    mod = node.module or ""
-                    if any(mod.startswith(f) for f in forbidden):
-                        violations.append(f"{py_file.name}:{node.lineno} imports from '{mod}'")
-        assert not violations, "mukha layer violations:\n" + "\n".join(violations)
-
-    def test_nabhi_generic_does_not_import_concrete_capabilities(self) -> None:
-        """Generic nabhi modules must not import concrete capabilities (except dvara -> shakti.providers)."""
-        nabhi_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "nabhi"
-        forbidden = (
-            "sarathi.shakti.ocr",
-            "sarathi.shakti.font_conversion",
-            "sarathi.shakti.bank_statements",
-            "sarathi.shakti.translation",
-            "sarathi.shakti.native_extraction",
-        )
-        violations: list[str] = []
-        for py_file in nabhi_dir.rglob("*.py"):
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if any(alias.name.startswith(f) for f in forbidden):
-                            violations.append(f"{py_file.name}:{node.lineno} imports '{alias.name}'")
-                elif isinstance(node, ast.ImportFrom):
-                    mod = node.module or ""
-                    if any(mod.startswith(f) for f in forbidden):
-                        violations.append(f"{py_file.name}:{node.lineno} imports from '{mod}'")
-        assert not violations, "nabhi generic violations:\n" + "\n".join(violations)
-
-    def test_cross_shakti_plugin_isolation(self) -> None:
-        """Plugins under shakti must not import internals of sibling plugins (shared primitives like shakti.text are permitted)."""
-        shakti_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "shakti"
-        plugins = [
-            "bank_statements",
-            "darshana",
-            "font_conversion",
-            "native_extraction",
-            "ocr",
-            "translation",
-        ]
-        violations: list[str] = []
-        for plugin in plugins:
-            plugin_path = shakti_dir / plugin
-            other_plugins = [p for p in plugins if p != plugin]
-            for py_file in plugin_path.rglob("*.py"):
-                tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Import):
-                        for alias in node.names:
-                            for other in other_plugins:
-                                if f"sarathi.shakti.{other}" in alias.name:
-                                    violations.append(f"{plugin}/{py_file.name}:{node.lineno} imports '{alias.name}'")
-                    elif isinstance(node, ast.ImportFrom):
-                        mod = node.module or ""
-                        for other in other_plugins:
-                            if f"sarathi.shakti.{other}" in mod:
-                                violations.append(f"{plugin}/{py_file.name}:{node.lineno} imports from '{mod}'")
-        assert not violations, "Cross-plugin violations:\n" + "\n".join(violations)
+class TestCapabilityTypographyAutonomy:
+    """Verify each capability owns its typography locally without cross-capability coupling."""
 
     def test_capability_local_typography_autonomy(self) -> None:
         """Verify each capability owns its typography locally without cross-capability coupling."""
