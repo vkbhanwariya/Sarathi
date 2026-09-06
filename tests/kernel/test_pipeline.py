@@ -861,6 +861,41 @@ class TestPravahaFailureLifecycleAndQuarantine:
         # Different ordered input material produces different hashes
         assert hash_ab1 != hash_ba
 
+    def test_input_hash_varies_with_custom_options(
+        self,
+        manthan: Manthan,
+        yantra: Yantra,
+        cap_decls: tuple[CapabilityDeclaration, ...],
+        sample_context: ExecutionContext,
+    ) -> None:
+        c1_decl, _, _, _, _ = cap_decls
+        cap = MockExecutableCapability(c1_decl)
+        pravaha = Pravaha(manthan=manthan, yantra=yantra, capabilities={"extract": cap})
+
+        inp = InputRef(
+            input_id="inp-1",
+            source_path=Path("doc.pdf"),
+            display_name="doc.pdf",
+            size_bytes=500,
+        )
+
+        req1 = Request(
+            request_id="req-1",
+            requirement="extract",
+            inputs=(inp,),
+            custom_options={"engine": "engine_a", "lang": "hi"},
+        )
+        req2 = Request(
+            request_id="req-1",
+            requirement="extract",
+            inputs=(inp,),
+            custom_options={"engine": "engine_b", "lang": "mr"},
+        )
+
+        h1 = pravaha._compute_input_hash(req1, cap, sample_context)
+        h2 = pravaha._compute_input_hash(req2, cap, sample_context)
+        assert h1 != h2
+
     def test_classified_failure_enters_failure_lifecycle(
         self,
         kosh: Kosh,
@@ -1384,9 +1419,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
         manifest_path = workspace.finalize(success=False)
         assert manifest_path.exists()
 
-        # Ordinary committed artifacts are cleaned up on run failure
-        assert len(workspace.committed_artifacts) == 0
-        assert not (workspace.output_dir / "stage1_report.txt").exists()
+        # Ordinary committed artifacts remain valid on run failure per Core Runtime Veda
+        assert len(workspace.committed_artifacts) == 1
+        assert (workspace.output_dir / "stage1_report.txt").exists()
 
     def test_quarantine_is_not_smriti_or_cache(self) -> None:
         """Prove architecturally that quarantine does not import, reference, or use Smriti caching."""

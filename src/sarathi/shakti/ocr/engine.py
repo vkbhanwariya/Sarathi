@@ -162,14 +162,16 @@ def extract_images_from_bytes(data: bytes) -> list[Any]:
             doc.close()
         return images
 
-    # 2. Check if standard Image format
+    # 2. Check if standard Image format (including multipage TIFF)
     try:
-        from PIL import ImageOps
+        from PIL import ImageOps, ImageSequence
 
-        img = Image.open(io.BytesIO(data))
-        img = ImageOps.exif_transpose(img)
-        img = img.convert("RGB")
-        return [img]
+        with Image.open(io.BytesIO(data)) as img:
+            images = []
+            for frame in ImageSequence.Iterator(img):
+                transposed = ImageOps.exif_transpose(frame)
+                images.append(transposed.convert("RGB"))
+            return images if images else [img.convert("RGB")]
     except (UnidentifiedImageError, OSError, ValueError):
         return []
 
@@ -1275,8 +1277,11 @@ class RapidOCREngine:
             page_confidence = None
 
         # Determine deterministic validation outcome
+        val_enabled = custom_options.get("validation_enabled", True) if custom_options else True
         validation_outcome: str
-        if not final_page_text.strip():
+        if not val_enabled:
+            validation_outcome = "skipped"
+        elif not final_page_text.strip():
             validation_outcome = "empty"
         elif has_invalid_confidence:
             validation_outcome = "invalid_confidence"

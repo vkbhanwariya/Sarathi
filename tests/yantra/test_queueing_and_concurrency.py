@@ -12,6 +12,7 @@ from sarathi.sankalpa import (
     CancellationToken,
     DeviceRequirement,
     DeviceType,
+    ExecutionBinding,
     ExecutionContext,
 )
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
@@ -221,6 +222,44 @@ class TestYantraExecuteSubtasks:
             yantra.execute_subtasks([lambda: 1, lambda: 2], context=ctx)
         assert exc_info.value.code == FailureCode.OPERATION_CANCELLED
         assert exc_info.value.context.get("cancelled") is True
+
+    def test_subtasks_concurrency_capped_by_approved_concurrency(self) -> None:
+        inventory = DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=8)])
+        yantra = Yantra(inventory)
+
+        binding = ExecutionBinding(
+            device_id="cpu-0",
+            device_type=DeviceType.CPU,
+            backend="cpu",
+            backend_device_id="cpu",
+            approved_concurrency=2,
+        )
+        ctx = ExecutionContext(
+            run_id="r1",
+            request_id="req1",
+            trace_id="t1",
+            span_id="s1",
+            execution_binding=binding,
+        )
+
+        lock = threading.Lock()
+        active = 0
+        max_active = 0
+
+        def task() -> int:
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                if active > max_active:
+                    max_active = active
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            return 1
+
+        results = yantra.execute_subtasks([task for _ in range(8)], context=ctx, max_concurrency=6)
+        assert results == [1] * 8
+        assert max_active <= 2
 
 
 class TestYantraLifecycle:

@@ -69,6 +69,20 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
             desc_matches = (ex_desc == tx_desc)
             contradiction = False
 
+            if (
+                existing.transaction_time is not None
+                and tx.transaction_time is not None
+                and existing.transaction_time != tx.transaction_time
+            ):
+                contradiction = True
+
+            if (
+                existing.currency is not None
+                and tx.currency is not None
+                and existing.currency.strip().upper() != tx.currency.strip().upper()
+            ):
+                contradiction = True
+
             if ex_ref and tx_ref and ex_ref != tx_ref:
                 contradiction = True
 

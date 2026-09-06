@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from sarathi.sankalpa import Result
 from sarathi.smriti.key import CacheKey
 from sarathi.smriti.policy import CachePolicy
 from sarathi.smriti.serialization import is_cacheable_result
+
+# Allow copy.deepcopy to safely clone MappingProxyType objects found in Result metadata
+copy._deepcopy_dispatch[MappingProxyType] = lambda x, memo: MappingProxyType(copy.deepcopy(dict(x), memo))
 
 
 @dataclass(slots=True)
@@ -44,21 +49,23 @@ class MemoryCache:
             # Move to end for LRU
             entry.accessed_at = now
             self._cache.move_to_end(key.key_hash)
-            return entry.result
+            return copy.deepcopy(entry.result)
 
-    def put(self, key: CacheKey, result: Result) -> None:
+    def put(self, key: CacheKey, result: Result, created_at: float | None = None) -> None:
         """Store result in memory, evicting LRU items if at capacity."""
         if not is_cacheable_result(result):
             return
 
         with self._lock:
             now = time.time()
+            entry_created_at = created_at if created_at is not None else now
+            result_copy = copy.deepcopy(result)
             if key.key_hash in self._cache:
                 self._cache.move_to_end(key.key_hash)
                 self._cache[key.key_hash] = MemoryCacheEntry(
                     key=key,
-                    result=result,
-                    created_at=now,
+                    result=result_copy,
+                    created_at=entry_created_at,
                     accessed_at=now,
                 )
                 return
@@ -69,8 +76,8 @@ class MemoryCache:
 
             self._cache[key.key_hash] = MemoryCacheEntry(
                 key=key,
-                result=result,
-                created_at=now,
+                result=result_copy,
+                created_at=entry_created_at,
                 accessed_at=now,
             )
 

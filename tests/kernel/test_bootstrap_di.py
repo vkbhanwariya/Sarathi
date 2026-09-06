@@ -139,3 +139,26 @@ class TestBootstrapDependencyInjection:
             assert cap2._yantra is None
         finally:
             agni.close()
+
+    def test_smriti_cache_auto_managed_by_agni(self, tmp_path: Path) -> None:
+        """Verify Agni constructs and manages SmritiCache lifecycle when cache_enabled is True."""
+        from sarathi.smriti import SmritiCache
+
+        settings = Settings({
+            "storage": {
+                "input_root": str(tmp_path / "in"),
+                "output_root": str(tmp_path / "out"),
+                "runtime_root": str(tmp_path / "rt"),
+            },
+            "cache": {
+                "enabled": True,
+            },
+        })
+        agni = Agni(settings=settings)
+        try:
+            assert agni.smriti is not None
+            assert isinstance(agni.smriti, SmritiCache)
+            # SmritiCache must be registered with Prana
+            assert "smriti" in agni._prana._components
+        finally:
+            agni.close()

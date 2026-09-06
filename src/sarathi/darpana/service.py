@@ -43,6 +43,7 @@ class Darpana:
         self._maruti_history: deque[MarutiRecord] = deque(maxlen=capacity)
         self._pramana_history: deque[PramanaRecord] = deque(maxlen=capacity)
         self._run_summaries: deque[TerminalRunSummary] = deque(maxlen=capacity)
+        self._active_spans: dict[str, dict[str, Any]] = {}
         self._history_persistence_failed: bool = False
         self._history_store: TerminalRunHistoryStore | None = (
             TerminalRunHistoryStore(history_path, format=history_format, max_records=history_max_records)
@@ -150,6 +151,19 @@ class Darpana:
 
         start_time_utc = datetime.now(timezone.utc).isoformat()
         start_ns = time.perf_counter_ns()
+        span_entry = {
+            "run_id": context.run_id,
+            "request_id": context.request_id,
+            "trace_id": context.trace_id,
+            "span_id": context.span_id,
+            "phase_name": phase_name.strip(),
+            "component": component.strip(),
+            "start_time_utc": start_time_utc,
+            "attributes": safe_attributes,
+        }
+        with self._lock:
+            self._active_spans[context.span_id] = span_entry
+
         try:
             yield
             duration_ns = max(0, time.perf_counter_ns() - start_ns)
@@ -196,6 +210,14 @@ class Darpana:
             )
             self.record_maruti(record)
             raise
+        finally:
+            with self._lock:
+                self._active_spans.pop(context.span_id, None)
+
+    def active_spans(self) -> tuple[dict[str, Any], ...]:
+        """Return an immutable snapshot of currently active in-flight execution spans."""
+        with self._lock:
+            return tuple(dict(s) for s in self._active_spans.values())
 
     def maruti_records(self) -> tuple[MarutiRecord, ...]:
         """Return an immutable snapshot of recent Maruti runtime records."""

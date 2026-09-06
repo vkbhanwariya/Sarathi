@@ -846,21 +846,17 @@ class RunWorkspace:
             "status": effective_status,
             "created_at_utc": self._start_time_utc.isoformat(),
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
-            "artifacts": (
-                []
-                if is_failure_or_cancelled
-                else [
-                    {
-                        "artifact_id": art.artifact_id,
-                        "role": art.role,
-                        "media_type": art.media_type,
-                        "relative_path": str(art.path.relative_to(self._output_dir)).replace("\\", "/"),
-                        "size_bytes": art.size_bytes,
-                        "checksum_sha256": art.checksum_sha256,
-                    }
-                    for art in self._committed_artifacts
-                ]
-            ),
+            "artifacts": [
+                {
+                    "artifact_id": art.artifact_id,
+                    "role": art.role,
+                    "media_type": art.media_type,
+                    "relative_path": str(art.path.relative_to(self._output_dir)).replace("\\", "/"),
+                    "size_bytes": art.size_bytes,
+                    "checksum_sha256": art.checksum_sha256,
+                }
+                for art in self._committed_artifacts
+            ],
             "partial_artifacts": partial_manifest_entries,
         }
 
@@ -964,13 +960,6 @@ class RunWorkspace:
         # Only after all validation and serialization succeed do we perform final filesystem cleanup
         try:
             if not success or effective_status in ("failed", "cancelled"):
-                # Clean up ordinary committed artifacts from disk on failure or cancellation
-                for art in self._committed_artifacts:
-                    if art.path.exists():
-                        art.path.unlink(missing_ok=True)
-                self._committed_artifacts.clear()
-                self._committed_relative_paths.clear()
-
                 # Clean up partial artifacts if not preserving partials
                 if not self._preserve_partial:
                     partial_dir = self._output_dir / "partial"

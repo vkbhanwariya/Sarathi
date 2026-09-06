@@ -383,13 +383,18 @@ class Agni:
             root=self._runtime_root / "Quarantine",
         )
 
-        # 8b. Validate Smriti Cache
+        # 8b. Validate and Lifecycle-Manage Smriti Cache
         active_smriti: SmritiCache | None = None
         if smriti is not None:
             if not isinstance(smriti, SmritiCache):
                 raise TypeError(f"smriti must be a SmritiCache instance or None, got {type(smriti).__name__}.")
             active_smriti = smriti
+        elif self._settings.cache_enabled:
+            cache_dir = self._settings.cache_dir or (self._runtime_root / "Cache")
+            active_smriti = SmritiCache(cache_dir=cache_dir)
         self._smriti: SmritiCache | None = active_smriti
+        if self._smriti is not None:
+            self._prana.register("smriti", self._smriti)
 
         # Pravaha Dynamic Pipeline Engine
         self._pravaha: Pravaha = Pravaha(

@@ -958,3 +958,109 @@ class TestNativeExtraction:
         docx_payload = next(p for p in res.artifact_payloads if p.intent.name == "sample_doc_extracted.docx")
         assert len(docx_payload.content) > 0
         assert docx_payload.intent.media_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    def test_csv_ingestion_preserves_leading_zeros_and_decimal_precision(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        """F02: CSV ingestion must preserve lexical strings like '001234' and high-precision floats."""
+        csv_file = tmp_path / "financial.csv"
+        csv_file.write_text("ref_no,amount\n001234,1234567890123456.78\n", encoding="utf-8")
+
+        req = Request(
+            request_id="req-csv-prec",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-csv-prec",
+                    source_path=csv_file,
+                    display_name="financial.csv",
+                    size_bytes=csv_file.stat().st_size,
+                ),
+            ),
+        )
+        res = capability.execute(req, context)
+        doc = res.data
+        table = doc.tables[0]
+        assert table.rows[0][0] == "001234"
+        assert table.rows[0][1] == "1234567890123456.78"
+
+    def test_spreadsheetml_sparse_cell_index_alignment(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        """F03: SpreadsheetML with ss:Index must preserve empty cell positions without column shifting."""
+        xml_content = (
+            '<?xml version="1.0"?>'
+            '<?mso-application progid="Excel.Sheet"?>'
+            '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"'
+            ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
+            '<Worksheet ss:Name="Sheet1">'
+            '<Table>'
+            '<Row>'
+            '<Cell><Data ss:Type="String">Date</Data></Cell>'
+            '<Cell><Data ss:Type="String">Debit</Data></Cell>'
+            '<Cell><Data ss:Type="String">Credit</Data></Cell>'
+            '</Row>'
+            '<Row>'
+            '<Cell><Data ss:Type="String">01/01/2026</Data></Cell>'
+            '<Cell ss:Index="3"><Data ss:Type="Number">100</Data></Cell>'
+            '</Row>'
+            '</Table>'
+            '</Worksheet>'
+            '</Workbook>'
+        )
+        xml_file = tmp_path / "statement.xml"
+        xml_file.write_text(xml_content, encoding="utf-8")
+
+        req = Request(
+            request_id="req-xml-sparse",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-xml-sparse",
+                    source_path=xml_file,
+                    display_name="statement.xml",
+                    size_bytes=xml_file.stat().st_size,
+                ),
+            ),
+        )
+        res = capability.execute(req, context)
+        doc = res.data
+        table = doc.tables[0]
+        # Row must have Date, empty string for Debit, and 100 for Credit
+        assert table.headers == ("Date", "Debit", "Credit")
+        assert len(table.rows[0]) == 3
+        assert table.rows[0][0] == "01/01/2026"
+        assert table.rows[0][1] == ""
+        assert table.rows[0][2] == "100"
+
+    def test_hybrid_pdf_with_empty_second_page_escalates_to_ocr(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        import pymupdf
+
+        pdf_path = tmp_path / "hybrid.pdf"
+        doc = pymupdf.open()
+        # Page 1 has text
+        page1 = doc.new_page()
+        page1.insert_text((50, 50), "Native Text Page 1")
+        # Page 2 is empty / scanned page simulation
+        _ = doc.new_page()
+        doc.save(str(pdf_path))
+        doc.close()
+
+        req = Request(
+            request_id="req-hybrid",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-hybrid",
+                    source_path=pdf_path,
+                    display_name="hybrid.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+        )
+        res = capability.execute(req, context)
+        # Incomplete native extraction must escalate to OCR
+        assert res.next_requirement == "ocr"
+        assert any(w.code == "NATIVE_EXTRACTION_EMPTY" for w in res.warnings)

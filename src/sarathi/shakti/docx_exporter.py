@@ -726,6 +726,7 @@ def transform_docx_artifact(
     preserve_modern_fonts: bool | None = None,
     preserve_typography: bool = False,
     legacy_target_font: str | None = None,
+    profiles: Mapping[str, Any] | None = None,
 ) -> ArtifactPayload:
     """Transform an existing DOCX file in-place, preserving OpenXML layout and document structure."""
     try:
@@ -760,6 +761,7 @@ def transform_docx_artifact(
                             preserve_typography=preserve_typography,
                             style_resolver=style_resolver,
                             legacy_target_font=legacy_target_font,
+                            profiles=profiles,
                         )
                         updated_entry = _serialize_xml_preserving_namespaces(tree, raw_entry)
                         out_zf.writestr(item, updated_entry)
@@ -858,6 +860,7 @@ def _transform_xml_tree(
     preserve_typography: bool = False,
     style_resolver: DocxStyleResolver | None = None,
     legacy_target_font: str | None = None,
+    profiles: Mapping[str, Any] | None = None,
 ) -> None:
     """Transform paragraphs and runs within an ElementTree OpenXML element."""
     from sarathi.shakti.font_conversion.detector import load_font_profiles, resolve_profile_from_font_name
@@ -871,7 +874,7 @@ def _transform_xml_tree(
     sz_tag = f"{{{_W_NS}}}sz"
     szcs_tag = f"{{{_W_NS}}}szCs"
 
-    profiles = load_font_profiles()
+    profiles = profiles if profiles is not None else load_font_profiles()
 
     import inspect
     converter_takes_font = False

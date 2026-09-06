@@ -462,3 +462,41 @@ def test_ocr_engine_initialization_failure_raises_dosh_error(tmp_path: Path) -> 
             engine._get_engine(lang="en", execution_binding=npu_b)
         assert exc_info.value.code is FailureCode.EXECUTION_FAILED
         assert "Failed to initialize OCR engine on device 'NPU'" in exc_info.value.message
+
+
+def test_extract_images_multipage_tiff() -> None:
+    """Verify extract_images_from_bytes reads all frames of a multipage TIFF."""
+    import io
+    from PIL import Image
+    from sarathi.shakti.ocr.engine import extract_images_from_bytes
+
+    frames = [
+        Image.new("RGB", (20, 20), color="red"),
+        Image.new("RGB", (20, 20), color="green"),
+        Image.new("RGB", (20, 20), color="blue"),
+    ]
+    buf = io.BytesIO()
+    frames[0].save(buf, format="TIFF", save_all=True, append_images=frames[1:])
+    tiff_bytes = buf.getvalue()
+
+    images = extract_images_from_bytes(tiff_bytes)
+    assert len(images) == 3
+
+
+def test_ocr_page_validation_enabled_option() -> None:
+    """Verify validation_enabled=False sets validation_outcome to 'skipped'."""
+    from PIL import Image
+
+    engine = RapidOCREngine()
+    mock_rapidocr = MagicMock()
+    mock_rapidocr.return_value = (None, None)
+
+    with patch.object(engine, "_get_engine", return_value=mock_rapidocr):
+        img = Image.new("RGB", (30, 30), color="white")
+        p_def, prov_def, _, _ = engine.ocr_page(img, 1, "in-1")
+        assert p_def.metadata.get("validation_outcome") == "empty"
+        assert prov_def.evidence.get("validation_outcome") == "empty"
+
+        p_skip, prov_skip, _, _ = engine.ocr_page(img, 1, "in-1", custom_options={"validation_enabled": False})
+        assert p_skip.metadata.get("validation_outcome") == "skipped"
+        assert prov_skip.evidence.get("validation_outcome") == "skipped"

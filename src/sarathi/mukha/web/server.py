@@ -128,6 +128,31 @@ class MukhaWebServer:
         with self._lock:
             return self._confirmed_artifacts.get(run_id, {}).get(artifact_id)
 
+    def get_run_history(self, limit: int = 50) -> tuple[Any, ...]:
+        """Retrieve recent terminal run summaries from Darpana telemetry history."""
+        if hasattr(self._agni, "darpana") and self._agni.darpana is not None:
+            return self._agni.darpana.query_run_history(limit=limit)
+        return ()
+
+    def get_review_items(self, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
+        """Retrieve pending review/exception items from run result warnings."""
+        with self._lock:
+            res = self._last_result
+        if res is None or not res.warnings:
+            return ()
+        items = []
+        for idx, w in enumerate(res.warnings, start=1):
+            items.append(
+                {
+                    "item_id": f"rev-{idx}",
+                    "code": w.code,
+                    "message": w.message,
+                    "stage": w.stage,
+                    "context": dict(w.context) if w.context else {},
+                }
+            )
+        return tuple(items)
+
     def get_inspector_view(self, run_id: str) -> InspectorViewState | None:
         """Build InspectorViewState for the requested run ID from recorded facts."""
         with self._lock:
@@ -553,10 +578,25 @@ class MukhaWebServer:
                             w_count = input_warn_counts.get(inp.input_id, 0)
 
                             # Determine factual per-input status
-                            has_doc = inp.input_id in doc_map or (len(request.inputs) == 1 and result.data is not None)
-                            has_artifact = bool(result.artifacts)
+                            if len(request.inputs) > 1:
+                                has_input_doc = inp.input_id in doc_map
+                                has_input_artifact = (
+                                    any(
+                                        any(p.source_input_id == inp.input_id for p in art.provenance)
+                                        for art in result.artifacts
+                                    )
+                                    if result.artifacts
+                                    else False
+                                )
+                                has_output = has_input_doc or has_input_artifact
+                            else:
+                                has_output = (
+                                    inp.input_id in doc_map
+                                    or result.data is not None
+                                    or bool(result.artifacts)
+                                )
 
-                            if not has_doc and not has_artifact and result.data is None:
+                            if not has_output:
                                 f_stat = "FAILED"
                                 failed_cnt += 1
                             elif w_count > 0:

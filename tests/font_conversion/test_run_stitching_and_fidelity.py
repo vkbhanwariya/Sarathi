@@ -116,3 +116,23 @@ def test_non_deletable_run_children_preserved() -> None:
     # Run 2 text cleared, but tab element remains intact
     assert runs[1].find(f"{{{_W_NS}}}t").text == ""
     assert runs[1].find(f"{{{_W_NS}}}tab") is not None
+
+
+def test_stitch_cross_run_aksharas_truthful_confidence() -> None:
+    """Verify _stitch_compatible_page_spans does not invent 1.0 confidence for None or 0.0."""
+    from sarathi.sankalpa import TextSpan
+    from sarathi.shakti.font_conversion.capability import _stitch_compatible_page_spans
+
+    # 1. Zero confidence must remain 0.0, not default to 1.0
+    span1 = TextSpan(text="a", confidence=0.0, metadata={"font_name": "Kruti Dev 010", "paragraph_index": 0})
+    span2 = TextSpan(text="b", confidence=0.8, metadata={"font_name": "Kruti Dev 010", "paragraph_index": 0})
+    res = _stitch_compatible_page_spans((span1, span2))
+    assert len(res) == 1
+    assert res[0].confidence == 0.0
+
+    # 2. None confidence must remain None, not default to 1.0
+    span3 = TextSpan(text="a", confidence=None, metadata={"font_name": "Kruti Dev 010", "paragraph_index": 0})
+    span4 = TextSpan(text="b", confidence=0.9, metadata={"font_name": "Kruti Dev 010", "paragraph_index": 0})
+    res_none = _stitch_compatible_page_spans((span3, span4))
+    assert len(res_none) == 1
+    assert res_none[0].confidence is None

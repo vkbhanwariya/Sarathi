@@ -196,13 +196,21 @@ class TestMukhaWebServerAPI:
         assert state_data["ok"] is True
         assert state_data["state"]["terminal_summary"] is not None
 
-        # 3. Reveal output directory
-        status, reveal_data = _http_post(
-            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/reveal",
-            data={},
-        )
+        output_dirs = list((tmp_path / "Output" / "read_native").glob("Run-*"))
+        assert len(output_dirs) == 1
+        assert (output_dirs[0] / "run-manifest.json").is_file()
+
+        # 3. Exercise reveal routing without launching a file manager or changing focus.
+        with patch("sarathi.mukha.web.server.subprocess") as mock_subprocess:
+            status, reveal_data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/reveal",
+                data={},
+            )
+            mock_subprocess.Popen.assert_called_once()
+            assert mock_subprocess.Popen.call_args.args[0][1:] == [str(output_dirs[0])]
+
         assert status == 200
-        assert "revealed" in reveal_data
+        assert reveal_data["revealed"] is True
 
     def test_cancel_active_run(self, web_server: MukhaWebServer) -> None:
         """POST /api/runs/<run_id>/cancel cooperatively cancels the active run."""
@@ -545,3 +553,67 @@ def test_artifact_endpoint_rejects_path_traversal(web_server: MukhaWebServer) ->
         f"http://127.0.0.1:{web_server.resolved_port}/api/runs/bad!id/artifacts/art123"
     )
     assert status == 400
+
+
+def test_api_history_endpoint(web_server: MukhaWebServer) -> None:
+    """F37: GET /api/history returns valid history list."""
+    status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/history")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["ok"] is True
+    assert "history" in data
+    assert isinstance(data["history"], list)
+
+
+def test_api_review_endpoints(web_server: MukhaWebServer) -> None:
+    """F37: GET and POST /api/review handle review items and actions cleanly."""
+    # 1. GET /api/review
+    status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["ok"] is True
+    assert isinstance(data["items"], list)
+
+    # 2. POST /api/review with valid action
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {"item_id": "rev-1", "action": "accept"},
+    )
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["action"] == "accept"
+
+    # 3. POST /api/review with invalid action -> 400
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {"item_id": "rev-1", "action": "invalid_action"},
+    )
+    assert status == 400
+    assert resp["ok"] is False
+
+
+def test_api_payload_validation_rejects_malformed(web_server: MukhaWebServer) -> None:
+    """F36: POST /api/runs and /api/intake reject malformed types with 400 Bad Request."""
+    # Non-boolean recursive
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
+        {"paths": ["some_file.pdf"], "recursive": "not_a_bool"},
+    )
+    assert status == 400
+    assert resp["ok"] is False
+
+    # Empty or non-list paths
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+        {"paths": "not_a_list"},
+    )
+    assert status == 400
+    assert resp["ok"] is False
+
+    # Invalid profile
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+        {"paths": ["valid.pdf"], "profile": "non_existent_profile"},
+    )
+    assert status == 400
+    assert resp["ok"] is False

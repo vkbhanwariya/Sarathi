@@ -80,3 +80,15 @@ def test_date_inheritance_resolution_in_capability() -> None:
     assert "Second Tx No Date" in tx2.description
     assert "Narration for second tx" in tx2.description
     assert tx2.debit == Decimal("200.00")
+
+
+def test_classify_row_with_summary_keyword_in_narration() -> None:
+    """Row with valid date and financial amount must not be dropped as SUMMARY merely because narration contains 'total'."""
+    row = ["01/01/2026", "TOTAL petrol payment", "100.00"]
+    assert classify_row(row, date_col_idx=0, amount_col_indices=[2]) == RowType.TRANSACTION
+
+
+def test_classify_row_with_integer_amount() -> None:
+    """Row with integer amount (e.g. '1000') must be recognized as TRANSACTION, not CONTINUATION."""
+    row = ["", "second payment", "1000"]
+    assert classify_row(row, date_col_idx=0, amount_col_indices=[2]) == RowType.TRANSACTION

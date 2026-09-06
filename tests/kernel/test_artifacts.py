@@ -434,10 +434,10 @@ class TestManifestSafetyAndOrdering:
 
 
 class TestCleanupAndPartialPreservation:
-    def test_failed_run_cleans_committed_artifacts_and_preserves_partial_only_when_requested(
+    def test_failed_run_preserves_committed_artifacts_and_preserves_partial_only_when_requested(
         self, boundary: ArtifactBoundary
     ) -> None:
-        # Case 1: preserve_partial is False -> ordinary committed artifacts removed, staging cleaned, partial not preserved
+        # Case 1: preserve_partial is False -> ordinary committed artifacts preserved, staging cleaned, partial not preserved
         ws1 = boundary.begin_run(run_id="run-fail-clean", requirement="ocr", preserve_partial=False)
         intent = ArtifactIntent(name="committed.txt", role="data", media_type="text/plain")
         ref1 = ws1.commit_artifact(intent, b"committed content")
@@ -445,15 +445,17 @@ class TestCleanupAndPartialPreservation:
 
         manifest_path1 = ws1.finalize(success=False)
         assert manifest_path1.exists()
-        # Ordinary committed artifact is removed on failure
-        assert not ref1.path.exists()
+        # Ordinary committed artifact is preserved on failure
+        assert ref1.path.exists()
+        assert ref1.path.read_bytes() == b"committed content"
         manifest_dict1 = json.loads(manifest_path1.read_text(encoding="utf-8"))
         assert manifest_dict1["status"] == "failed"
-        assert len(manifest_dict1["artifacts"]) == 0
+        assert len(manifest_dict1["artifacts"]) == 1
+        assert manifest_dict1["artifacts"][0]["relative_path"] == "committed.txt"
         assert not (ws1.output_dir / "partial").exists()
         assert not ws1.staging_dir.exists()
 
-        # Case 2: preserve_partial is True -> ordinary committed artifacts removed, but partial/ is preserved
+        # Case 2: preserve_partial is True -> ordinary committed artifacts preserved, and partial/ is preserved
         ws2 = boundary.begin_run(run_id="run-fail-partial", requirement="ocr", preserve_partial=True)
         intent_c = ArtifactIntent(name="doc.txt", role="text", media_type="text/plain")
         ref2 = ws2.commit_artifact(intent_c, b"confirmed doc")
@@ -466,9 +468,11 @@ class TestCleanupAndPartialPreservation:
         assert manifest_path2.exists()
         manifest_dict2 = json.loads(manifest_path2.read_text(encoding="utf-8"))
         assert manifest_dict2["status"] == "failed"
-        assert len(manifest_dict2["artifacts"]) == 0
+        assert len(manifest_dict2["artifacts"]) == 1
+        assert manifest_dict2["artifacts"][0]["relative_path"] == "doc.txt"
         assert len(manifest_dict2["partial_artifacts"]) == 1
-        assert not ref2.path.exists()
+        assert ref2.path.exists()
+        assert ref2.path.read_bytes() == b"confirmed doc"
         assert preserved_path.exists()
         assert not ws2.staging_dir.exists()
 

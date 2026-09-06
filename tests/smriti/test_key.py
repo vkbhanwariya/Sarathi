@@ -206,3 +206,34 @@ def test_callable_and_progress_callback_filtered_from_cache_key(tmp_path: Path) 
     k1 = compute_cache_key(req1, "ocr", "1.0.0")
     k2 = compute_cache_key(req2, "ocr", "1.0.0")
     assert k1.key_hash == k2.key_hash
+
+
+def test_table_delimiter_collision_resistance() -> None:
+    """Verify tables with cells that could collide under simple pipe delimiters produce distinct hashes."""
+    from sarathi.sankalpa import CanonicalDocument, TableData
+    from sarathi.smriti.key import _hash_canonical_document
+
+    doc1 = CanonicalDocument(
+        document_id="doc1",
+        tables=(TableData(name="t1", headers=("col1", "col2"), rows=(("a|b", "c"),)),),
+    )
+    doc2 = CanonicalDocument(
+        document_id="doc1",
+        tables=(TableData(name="t1", headers=("col1", "col2"), rows=(("a", "b|c"),)),),
+    )
+    assert _hash_canonical_document(doc1) != _hash_canonical_document(doc2)
+
+
+def test_asset_version_influences_cache_key(tmp_path: Path) -> None:
+    """Verify that differing asset versions produce distinct cache keys."""
+    inp = InputRef(
+        input_id="inp-1",
+        source_path=tmp_path / "file.txt",
+        display_name="file.txt",
+        size_bytes=10,
+    )
+    req = Request(request_id="r1", requirement="ocr", inputs=(inp,))
+
+    key_v1 = compute_cache_key(req, "ocr", "1.0.0", asset_version="rev-1")
+    key_v2 = compute_cache_key(req, "ocr", "1.0.0", asset_version="rev-2")
+    assert key_v1.key_hash != key_v2.key_hash

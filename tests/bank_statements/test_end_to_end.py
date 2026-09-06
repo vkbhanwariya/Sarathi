@@ -246,3 +246,68 @@ def test_excel_bank_statement_with_metadata_headers(tmp_path: Path) -> None:
     assert isinstance(result, Result)
     consolidation: BankStatementConsolidationResult = result.data
     assert consolidation.total_transactions == 2
+
+
+def test_parquet_preserves_three_decimal_currency() -> None:
+    """Parquet export must preserve exact decimal precision for 3-decimal currencies (e.g. KWD)."""
+    from sarathi.shakti.bank_statements.consolidator import build_parquet_artifact
+
+    ident = create_account_identity("National Bank of Kuwait", "99887766")
+    tx = Transaction(
+        transaction_date=date(2026, 1, 1),
+        description="KWD Payment",
+        bank_name="NBK",
+        account_identity=ident,
+        debit=Decimal("1.239"),
+        currency="KWD",
+    )
+    stmt = BankStatement(
+        bank_name="NBK",
+        bank_profile="generic",
+        account_identity=ident,
+        transactions=(tx,),
+    )
+    cons = BankStatementConsolidationResult(
+        statements=(stmt,),
+        transactions=(tx,),
+        total_debit=Decimal("1.239"),
+        total_credit=Decimal("0.000"),
+        total_transactions=1,
+    )
+    payload = build_parquet_artifact(cons)
+    df = pl.read_parquet(io.BytesIO(payload.content))
+    assert df["debit"][0] == Decimal("1.239")
+
+
+def test_xlsx_formula_injection_prevention() -> None:
+    """Untrusted text starting with '=' must be exported as string cell, not as Excel formula."""
+    from sarathi.shakti.bank_statements.consolidator import build_xlsx_artifact
+
+    ident = create_account_identity("Test Bank", "11223344")
+    tx = Transaction(
+        transaction_date=date(2026, 1, 1),
+        description="=1+1",
+        bank_name="Test Bank",
+        account_identity=ident,
+        debit=Decimal("100.00"),
+    )
+    stmt = BankStatement(
+        bank_name="Test Bank",
+        bank_profile="generic",
+        account_identity=ident,
+        transactions=(tx,),
+    )
+    cons = BankStatementConsolidationResult(
+        statements=(stmt,),
+        transactions=(tx,),
+        total_debit=Decimal("100.00"),
+        total_credit=Decimal("0.00"),
+        total_transactions=1,
+    )
+    payload = build_xlsx_artifact(cons)
+    wb = openpyxl.load_workbook(io.BytesIO(payload.content))
+    ws = wb.active
+    # Description is in column C (3)
+    desc_cell = ws.cell(row=2, column=3)
+    assert desc_cell.value == "=1+1"
+    assert desc_cell.data_type == "s"

@@ -92,6 +92,31 @@ def test_translation_provider_readiness_probe(tmp_path: Path) -> None:
     assert res_empty["translation"].ready is False
     assert "Unavailable" in res_empty["translation"].reason
 
+    # Directory exists but model weights/vocabularies are missing
+    data_dir = tmp_path / "translation" / "models"
+    (data_dir / "hi-en").mkdir(parents=True)
+    (data_dir / "en-hi").mkdir(parents=True)
+    services = PluginServices(data_root=tmp_path)
+    res_incomplete = trans_p.readiness(services)
+    assert res_incomplete["translation"].ready is False
+    assert "model assets" in res_incomplete["translation"].reason
+
+    # All required assets present for both directions
+    for lang in ("hi-en", "en-hi"):
+        (data_dir / lang / "model.bin").write_bytes(b"dummy")
+        (data_dir / lang / "spm.model").write_bytes(b"dummy")
+        (data_dir / lang / "shared_vocabulary.json").write_text("{}", encoding="utf-8")
+
+    res_ready = trans_p.readiness(services)
+    # Ready if ctranslate2 is installed
+    import importlib.util
+
+    if importlib.util.find_spec("ctranslate2") is not None:
+        assert res_ready["translation"].ready is True
+    else:
+        assert res_ready["translation"].ready is False
+        assert "ctranslate2 extra" in res_ready["translation"].reason
+
 
 def test_agni_audit_readiness_memoization(tmp_path: Path) -> None:
     """Verify Agni.audit_readiness memoizes results and invalidates on force_refresh."""

@@ -123,12 +123,14 @@ class BankStatementCapability:
                     message="Document is not identified as a supported bank statement.",
                 )
 
+            doc_metadata: dict[str, Any] = {}
             raw_txns, open_bal, close_bal, doc_issues = self._extract_table_data(
                 doc,
                 request,
                 detection.matched_profile,
                 detection.bank_name or "Unknown Bank",
                 detection.account_identity,
+                metadata=doc_metadata,
             )
 
             dedup_res = deduplicate_transactions(raw_txns)
@@ -150,6 +152,7 @@ class BankStatementCapability:
                     transactions=dedup_res.unique_transactions,
                     issues=tuple(doc_issues),
                     provenance=doc_prov,
+                    metadata=doc_metadata,
                 )
             )
             statements.append(statement)
@@ -173,6 +176,7 @@ class BankStatementCapability:
         profile_id: str | None,
         bank_name: str,
         account_identity: AccountIdentity | None,
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[list[Transaction], Decimal | None, Decimal | None, list[ValidationIssue]]:
         all_tables: list[tuple[int, TableData]] = [
             (p_idx + 1, t) for p_idx, p in enumerate(doc.pages) for t in p.tables
@@ -209,6 +213,8 @@ class BankStatementCapability:
         open_bal: Decimal | None = None
         close_bal: Decimal | None = None
         current_sequence_id = 0
+        eod_balances: list[dict[str, Any]] = []
+        summary_rows: list[dict[str, Any]] = []
 
         active_profile = self._profiles.get(profile_id or "", {})
         has_signed_semantics = bool(active_profile.get("signed_amounts", False))
@@ -253,6 +259,27 @@ class BankStatementCapability:
                         parsed_close = parse_decimal_amount(_get_cell(row_cells, b_col))
                         if parsed_close is not None:
                             close_bal = parsed_close
+                    case RowType.EOD_BALANCE:
+                        eod_date = parse_date(_get_cell(row_cells, d_col))
+                        eod_bal = parse_decimal_amount(_get_cell(row_cells, b_col))
+                        if eod_bal is None:
+                            eod_bal = parse_decimal_amount(_get_cell(row_cells, amt_col))
+                        eod_entry = {
+                            "date": eod_date.isoformat() if eod_date else None,
+                            "balance": str(eod_bal) if eod_bal is not None else None,
+                            "raw": " ".join(c.strip() for c in row_cells if c.strip()),
+                            "page": page_num,
+                            "row": row_idx,
+                        }
+                        eod_balances.append(eod_entry)
+                    case RowType.SUMMARY:
+                        summary_entry = {
+                            "raw": " ".join(c.strip() for c in row_cells if c.strip()),
+                            "page": page_num,
+                            "row": row_idx,
+                            "cells": tuple(c.strip() for c in row_cells),
+                        }
+                        summary_rows.append(summary_entry)
                     case RowType.CONTINUATION:
                         if table_txns:
                             cont_text = _get_cell(row_cells, desc_col) or " ".join(
@@ -360,6 +387,12 @@ class BankStatementCapability:
                         )
                         raw_txns.append(new_tx)
                         table_txns.append(new_tx)
+
+        if metadata is not None:
+            if eod_balances:
+                metadata["eod_balances"] = tuple(eod_balances)
+            if summary_rows:
+                metadata["summary_rows"] = tuple(summary_rows)
 
         return raw_txns, open_bal, close_bal, issues
 

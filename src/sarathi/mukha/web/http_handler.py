@@ -283,6 +283,31 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "state": _serialize_dataclass(app_state)})
             return
 
+        # 2b. GET /api/history
+        elif path == "/api/history":
+            limit = 50
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            if "limit" in query_params:
+                try:
+                    limit = max(1, min(int(query_params["limit"][0]), 200))
+                except ValueError:
+                    self._send_json(400, {"ok": False, "error": "Invalid limit parameter."})
+                    return
+            history = self.mukha_app.get_run_history(limit=limit)
+            self._send_json(200, {"ok": True, "history": [_serialize_dataclass(h) for h in history]})
+            return
+
+        # 2c. GET /api/review or /api/runs/<run_id>/review
+        elif path == "/api/review" or (path.startswith("/api/runs/") and path.endswith("/review")):
+            run_id = None
+            if path.startswith("/api/runs/"):
+                parts = path.strip("/").split("/")
+                if len(parts) == 4:
+                    run_id = parts[2]
+            items = self.mukha_app.get_review_items(run_id)
+            self._send_json(200, {"ok": True, "items": list(items)})
+            return
+
         # 3. GET /api/runs/<run_id>/inspector
         elif path.startswith("/api/runs/") and path.endswith("/inspector"):
             parts = path.strip("/").split("/")
@@ -344,11 +369,14 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
 
         # 3. POST /api/intake
         elif path == "/api/intake":
-            raw_paths = body.get("paths", [])
-            recursive = bool(body.get("recursive", True))
-            if not isinstance(raw_paths, list):
+            raw_paths = body.get("paths")
+            if raw_paths is None or not isinstance(raw_paths, list):
                 self._send_json(400, {"ok": False, "error": "'paths' must be a list."})
                 return
+            if not isinstance(body.get("recursive", True), bool):
+                self._send_json(400, {"ok": False, "error": "'recursive' must be a boolean."})
+                return
+            recursive = bool(body.get("recursive", True))
 
             paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
             try:
@@ -374,18 +402,44 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        # 3b. POST /api/review
+        elif path == "/api/review":
+            item_id = body.get("item_id")
+            action = body.get("action")
+            if not isinstance(item_id, str) or not item_id.strip():
+                self._send_json(400, {"ok": False, "error": "item_id must be a non-empty string."})
+                return
+            if action not in ("accept", "dismiss", "edit"):
+                self._send_json(400, {"ok": False, "error": f"Invalid review action: '{action}'. Allowed: accept, dismiss, edit."})
+                return
+            self._send_json(200, {"ok": True, "action": action, "item_id": item_id})
+            return
+
         # 4. POST /api/runs
         elif path == "/api/runs":
-            raw_paths = body.get("paths", [])
+            raw_paths = body.get("paths")
             requirement = body.get("requirement", "read_native")
             profile_str = body.get("profile", "instant")
+            if not isinstance(body.get("recursive", True), bool):
+                self._send_json(400, {"ok": False, "error": "'recursive' must be a boolean."})
+                return
             recursive = bool(body.get("recursive", True))
-            custom_options = body.get("custom_options")
-            if not isinstance(custom_options, dict):
-                custom_options = None
 
-            if not isinstance(raw_paths, list) or not raw_paths:
+            if "custom_options" in body and body["custom_options"] is not None and not isinstance(body["custom_options"], dict):
+                self._send_json(400, {"ok": False, "error": "'custom_options' must be an object or null."})
+                return
+            custom_options = body.get("custom_options")
+
+            if not isinstance(raw_paths, list) or not raw_paths or not all(isinstance(p, str) and p.strip() for p in raw_paths):
                 self._send_json(400, {"ok": False, "error": "No input paths provided."})
+                return
+
+            if not isinstance(requirement, str) or not requirement.strip():
+                self._send_json(400, {"ok": False, "error": "requirement must be a non-empty string."})
+                return
+
+            if not isinstance(profile_str, str) or not profile_str.strip():
+                self._send_json(400, {"ok": False, "error": "profile must be a non-empty string."})
                 return
 
             try:

@@ -45,6 +45,8 @@ def _serialize_metadata_value(v: Any) -> Any:
     if isinstance(v, list):
         return [_serialize_metadata_value(x) for x in v]
     if isinstance(v, Mapping):
+        if "__stype__" in v:
+            return {"__stype__": "dict", "val": {str(k): _serialize_metadata_value(val) for k, val in v.items()}}
         return {str(k): _serialize_metadata_value(val) for k, val in v.items()}
     raise ValueError(f"Unsupported metadata value type '{type(v).__name__}'; cannot be cached losslessly.")
 
@@ -55,6 +57,8 @@ def _deserialize_metadata_value(v: Any) -> Any:
         if "__stype__" in v and "val" in v:
             tag = v["__stype__"]
             raw_val = v["val"]
+            if tag == "dict" and isinstance(raw_val, dict):
+                return {k: _deserialize_metadata_value(val) for k, val in raw_val.items()}
             if tag == "Path":
                 return Path(raw_val)
             if tag == "datetime":

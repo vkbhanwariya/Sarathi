@@ -57,8 +57,8 @@ class SQLiteCacheStore:
                 CREATE INDEX IF NOT EXISTS idx_smriti_accessed ON smriti_entries(accessed_at);
             """)
 
-    def get(self, key: CacheKey) -> Result | None:
-        """Retrieve serialized result from SQLite store if valid."""
+    def get_with_created_at(self, key: CacheKey) -> tuple[Result | None, float | None]:
+        """Retrieve serialized result and created_at from SQLite store if valid."""
         with self._lock, self._get_connection() as conn:
             row = conn.execute(
                 "SELECT data_json, created_at FROM smriti_entries WHERE key_hash = ?",
@@ -66,13 +66,13 @@ class SQLiteCacheStore:
             ).fetchone()
 
             if row is None:
-                return None
+                return None, None
 
             data_json, created_at = row
             now = time.time()
             if not self._policy.is_valid(created_at, now):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
-                return None
+                return None, None
 
             # Update accessed timestamp
             conn.execute(
@@ -80,11 +80,17 @@ class SQLiteCacheStore:
                 (now, key.key_hash),
             )
             try:
-                return deserialize_result(data_json)
+                res = deserialize_result(data_json)
+                return res, float(created_at)
             except (json.JSONDecodeError, ValueError, KeyError, TypeError):
                 # Corrupted or unparseable entry: prune safely
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
-                return None
+                return None, None
+
+    def get(self, key: CacheKey) -> Result | None:
+        """Retrieve serialized result from SQLite store if valid."""
+        res, _ = self.get_with_created_at(key)
+        return res
 
     def put(self, key: CacheKey, result: Result) -> None:
         """Store serialized result in SQLite store and enforce L2 capacity limits."""
@@ -158,6 +164,10 @@ class SmritiCache:
         if cache_dir is not None:
             self._l2 = SQLiteCacheStore(db_path=cache_dir / "smriti.db", policy=self._policy)
 
+    def start(self) -> None:
+        """Start cache service lifecycle (no-op for memory/sqlite)."""
+        pass
+
     def get_with_tier(self, key: CacheKey) -> tuple[Result | None, str | None]:
         """Two-tier lookup returning result and source tier ('l1' or 'l2')."""
         res = self._l1.get(key)
@@ -165,9 +175,9 @@ class SmritiCache:
             return res, "l1"
 
         if self._l2 is not None:
-            res_l2 = self._l2.get(key)
+            res_l2, created_at_l2 = self._l2.get_with_created_at(key)
             if res_l2 is not None:
-                self._l1.put(key, res_l2)
+                self._l1.put(key, res_l2, created_at=created_at_l2)
                 return res_l2, "l2"
 
         return None, None

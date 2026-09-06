@@ -86,11 +86,13 @@ def create_account_identity(
 
 
 def _validate_decimal(val: Any, name: str, non_negative: bool = False) -> Decimal | None:
-    """Validate that val is a Decimal or None, and optionally non-negative."""
+    """Validate that val is a Decimal or None, finite, and optionally non-negative."""
     if val is None:
         return None
     if isinstance(val, bool) or not isinstance(val, Decimal):
         raise TypeError(f"{name} must be a Decimal instance or None, got {type(val)}.")
+    if not val.is_finite():
+        raise ValueError(f"{name} must be a finite Decimal, got {val}.")
     if non_negative and val < Decimal("0"):
         raise ValueError(f"{name} magnitude must be non-negative, got {val}.")
     return val

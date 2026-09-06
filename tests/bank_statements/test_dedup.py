@@ -129,3 +129,34 @@ def test_deduplicate_probable_retains_both_transactions() -> None:
     assert res.duplicates[0][2] == DuplicateDecision.PROBABLE_DUPLICATE
     # Second transaction receives warning issue
     assert any(iss.code == "PROBABLE_DUPLICATE_TRANSACTION" for iss in res.unique_transactions[1].issues)
+
+
+def test_deduplicate_contradictory_time_retains_both_transactions() -> None:
+    """Transactions with matching date/account/amount/ref but contradictory explicit times must NOT be merged."""
+    from datetime import time
+
+    ident = create_account_identity("HDFC Bank", "5010099999")
+    tx1 = Transaction(
+        transaction_date=date(2026, 1, 1),
+        transaction_time=time(9, 0, 0),
+        description="Payment",
+        bank_name="HDFC Bank",
+        account_identity=ident,
+        reference_number="REF123",
+        debit=Decimal("100.00"),
+        running_balance=Decimal("900.00"),
+    )
+    tx2 = Transaction(
+        transaction_date=date(2026, 1, 1),
+        transaction_time=time(11, 0, 0),
+        description="Payment",
+        bank_name="HDFC Bank",
+        account_identity=ident,
+        reference_number="REF123",
+        debit=Decimal("100.00"),
+        running_balance=Decimal("900.00"),
+    )
+
+    res = deduplicate_transactions([tx1, tx2])
+    assert len(res.unique_transactions) == 2
+    assert len(res.duplicates) == 0

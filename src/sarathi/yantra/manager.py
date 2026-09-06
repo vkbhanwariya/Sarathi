@@ -219,14 +219,14 @@ class Yantra:
             executor = self._executor
 
         effective_concurrency = self._max_workers
-        if max_concurrency is not None and max_concurrency > 0:
-            effective_concurrency = min(effective_concurrency, max_concurrency)
-        elif (
+        if (
             context is not None
             and context.execution_binding is not None
             and context.execution_binding.approved_concurrency > 0
         ):
             effective_concurrency = min(effective_concurrency, context.execution_binding.approved_concurrency)
+        if max_concurrency is not None and max_concurrency > 0:
+            effective_concurrency = min(effective_concurrency, max_concurrency)
 
         # Bounded sliding window: at most effective_concurrency in flight
         window_size = max(1, min(len(subtasks), effective_concurrency))
@@ -333,6 +333,7 @@ class Yantra:
         request: Request,
         context: ExecutionContext,
         prior_result: Result | None = None,
+        timeout: float | None = None,
     ) -> Result:
         """Execute a capability after allocating compatible hardware, releasing slot in finally.
 
@@ -341,6 +342,7 @@ class Yantra:
             request: Canonical processing request.
             context: Runtime execution context.
             prior_result: Optional result from preceding pipeline stage.
+            timeout: Optional allocation timeout in seconds (defaults to 30.0s).
 
         Returns:
             Canonical Result from capability execution.
@@ -361,7 +363,12 @@ class Yantra:
         if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
             context.cancellation_token.check_cancelled()
 
-        allocation = self.allocate(capability.declaration.device_requirement, context=context)
+        alloc_timeout = timeout if timeout is not None else 30.0
+        allocation = self.allocate(
+            capability.declaration.device_requirement,
+            context=context,
+            timeout=alloc_timeout,
+        )
         exec_exc: BaseException | None = None
         try:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:

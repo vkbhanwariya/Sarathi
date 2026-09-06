@@ -98,16 +98,20 @@ def _hash_canonical_document(doc: CanonicalDocument) -> str:
         for tbl in page.tables:
             t_name = tbl.name or ""
             tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
-            doc_hasher.update(f":th{t_name}:{'|'.join(tbl.headers)}{tm}:".encode("utf-8"))
+            h_json = json.dumps([str(h) for h in tbl.headers], ensure_ascii=False)
+            doc_hasher.update(f":th{t_name}:{h_json}{tm}:".encode("utf-8"))
             for row in tbl.rows:
-                doc_hasher.update(f":tr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
+                r_json = json.dumps([str(c) for c in row], ensure_ascii=False)
+                doc_hasher.update(f":tr{r_json}:".encode("utf-8"))
 
     for tbl in doc.tables:
         t_name = tbl.name or ""
         tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
-        doc_hasher.update(f":dth{t_name}:{'|'.join(tbl.headers)}{tm}:".encode("utf-8"))
+        h_json = json.dumps([str(h) for h in tbl.headers], ensure_ascii=False)
+        doc_hasher.update(f":dth{t_name}:{h_json}{tm}:".encode("utf-8"))
         for row in tbl.rows:
-            doc_hasher.update(f":dtr{'|'.join(str(c) for c in row)}:".encode("utf-8"))
+            r_json = json.dumps([str(c) for c in row], ensure_ascii=False)
+            doc_hasher.update(f":dtr{r_json}:".encode("utf-8"))
 
     if doc.metadata:
         doc_hasher.update(f":dm{json.dumps(dict(doc.metadata), sort_keys=True, default=str)}:".encode("utf-8"))
@@ -152,6 +156,7 @@ def compute_cache_key(
     plugin_version: str = "1.0.0",
     prior_result: Result | None = None,
     custom_options: Mapping[str, object] | None = None,
+    asset_version: str = "",
 ) -> CacheKey:
     """Compute canonical deterministic cache key for a capability execution attempt."""
     fingerprint = compute_input_fingerprint(request.inputs)
@@ -169,9 +174,10 @@ def compute_cache_key(
     )
     metadata_str = json.dumps(metadata_clean, sort_keys=True, default=str) if metadata_clean else ""
     prior_digest = compute_prior_result_digest(prior_result)
+    effective_asset_version = asset_version or str(request.metadata.get("asset_version", ""))
 
     content = (
-        f"{capability_id}:{plugin_version}:{request.profile.value}:"
+        f"{capability_id}:{plugin_version}:{request.profile.value}:{effective_asset_version}:"
         f"{fingerprint}:{options_str}:{metadata_str}:{prior_digest}"
     )
     key_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()

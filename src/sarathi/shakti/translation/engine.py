@@ -196,22 +196,14 @@ class CTranslate2TranslationEngine:
                                     inter_threads=inter_threads,
                                     intra_threads=intra_threads,
                                 )
-                            except Exception:
-                                if device != "cpu":
-                                    device = "cpu"
-                                    inter_threads = approved
-                                    intra_threads = 1
-                                    trans_key = f"{dir_key}:cpu:0:{inter_threads}:{intra_threads}"
-                                    if trans_key not in self._translators:
-                                        self._translators[trans_key] = ctranslate2.Translator(
-                                            str(model_path),
-                                            device="cpu",
-                                            device_index=0,
-                                            inter_threads=inter_threads,
-                                            intra_threads=intra_threads,
-                                        )
-                                else:
-                                    raise
+                            except Exception as exc:
+                                raise DoshError(
+                                    code=FailureCode.EXECUTION_FAILED,
+                                    message=(
+                                        f"Failed to initialize translation model for direction '{dir_key}' "
+                                        f"on device '{device}:{device_index}': {exc}"
+                                    ),
+                                ) from exc
 
                         if dir_key not in self._spms:
                             sp = sentencepiece.SentencePieceProcessor()

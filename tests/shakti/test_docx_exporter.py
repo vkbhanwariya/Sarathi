@@ -464,3 +464,28 @@ def test_markdown_heading_formatting_in_build_docx_payload() -> None:
     assert t2 is not None and t2.text == "साधारण विवरण यहाँ है।"
     sz2 = paragraphs[2].find(f".//{{{w_ns}}}sz")
     assert sz2 is not None and sz2.attrib[f"{{{w_ns}}}val"] == "24"
+
+
+def test_transform_docx_artifact_uses_caller_profiles() -> None:
+    """Verify transform_docx_artifact uses caller-supplied profiles without reloading from disk."""
+    from typing import Any
+    from unittest.mock import patch
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "word/document.xml",
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>',
+        )
+    raw_docx = buf.getvalue()
+
+    custom_profiles: dict[str, Any] = {}
+    with patch("sarathi.shakti.font_conversion.detector.load_font_profiles") as mock_load:
+        payload = transform_docx_artifact(
+            input_bytes=raw_docx,
+            converter_fn=lambda s, **kw: s,
+            filename="out.docx",
+            profiles=custom_profiles,
+        )
+        assert payload is not None
+        mock_load.assert_not_called()

@@ -233,6 +233,19 @@ class TestMarutiTelemetry:
         assert executed is False
         assert len(darpana.maruti_records()) == 0
 
+    def test_time_scope_tracks_active_spans_in_flight(self, execution_context: ExecutionContext) -> None:
+        darpana = Darpana(capacity=10)
+        assert len(darpana.active_spans()) == 0
+
+        with darpana.time_scope(execution_context, phase_name="ocr_inference", component="shakti.ocr"):
+            spans = darpana.active_spans()
+            assert len(spans) == 1
+            assert spans[0]["span_id"] == execution_context.span_id
+            assert spans[0]["phase_name"] == "ocr_inference"
+            assert spans[0]["component"] == "shakti.ocr"
+
+        assert len(darpana.active_spans()) == 0
+
 
 class TestPramanaTelemetry:
     def test_accuracy_value_ratio_and_evidence(self) -> None:

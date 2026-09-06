@@ -9,6 +9,7 @@ import pytest
 pytest.importorskip("ctranslate2")
 pytest.importorskip("sentencepiece")
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
     DeviceType,
@@ -104,6 +105,35 @@ class TestTranslationDeviceBinding:
             mock_trans_cls.assert_called_once_with(
                 str(models_dir), device="cpu", device_index=0, inter_threads=1, intra_threads=1
             )
+
+    def test_translation_engine_raises_on_gpu_init_failure_without_cpu_fallback(self, tmp_path) -> None:
+        models_dir = tmp_path / "models" / "hi-en"
+        models_dir.mkdir(parents=True)
+        (models_dir / "spm.model").write_bytes(b"dummy")
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text('{"models": {"hi-en": {"version": "1.0"}}}', encoding="utf-8")
+
+        mock_spm = MagicMock()
+        mock_spm.encode_as_pieces.return_value = ["encoded"]
+        mock_spm.decode_pieces.return_value = "Hello"
+
+        binding_cuda = ExecutionBinding(
+            device_id="gpu-0",
+            device_type=DeviceType.GPU,
+            backend="ctranslate2",
+            backend_device_id="cuda",
+        )
+
+        with (
+            patch("ctranslate2.Translator", side_effect=RuntimeError("CUDA initialization failed")),
+            patch("ctranslate2.get_cuda_device_count", return_value=1),
+            patch("sentencepiece.SentencePieceProcessor", return_value=mock_spm),
+        ):
+            engine = CTranslate2TranslationEngine(data_root=tmp_path)
+            with pytest.raises(DoshError) as exc_info:
+                engine.translate("नमस्ते", direction=TranslationDirection.HI_TO_EN, execution_binding=binding_cuda)
+            assert exc_info.value.code == FailureCode.EXECUTION_FAILED
+            assert "Failed to initialize translation model" in exc_info.value.message
 
     def test_translation_capability_records_device_in_provenance(self) -> None:
         mock_engine = MagicMock(spec=CTranslate2TranslationEngine)

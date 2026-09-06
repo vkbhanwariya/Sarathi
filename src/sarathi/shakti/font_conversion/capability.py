@@ -63,9 +63,12 @@ def _stitch_compatible_page_spans(spans: tuple[TextSpan, ...] | list[TextSpan]) 
             if s_font == prev_font and (s_p_idx is None or s_p_idx == prev_p_idx):
                 merged_text = prev.text + s.text
                 merged_meta = dict(prev.metadata) if prev.metadata else {}
+                c_prev = prev.confidence
+                c_s = s.confidence
+                merged_conf = None if (c_prev is None or c_s is None) else min(c_prev, c_s)
                 stitched[-1] = TextSpan(
                     text=merged_text,
-                    confidence=min(prev.confidence or 1.0, s.confidence or 1.0),
+                    confidence=merged_conf,
                     bounding_box=prev.bounding_box,
                     language=prev.language,
                     script=prev.script,
@@ -528,6 +531,7 @@ class FontConversionCapability:
                             warnings=all_warnings,
                             preserve_typography=True,
                             legacy_target_font=legacy_target_font,
+                            profiles=self._profiles,
                         )
                     else:
                         docx_payload = build_docx_payload(

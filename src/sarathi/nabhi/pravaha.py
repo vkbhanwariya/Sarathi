@@ -11,6 +11,7 @@ device allocation, UI rendering, telemetry persistence, caching, or security pol
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from contextlib import nullcontext
@@ -135,9 +136,15 @@ class Pravaha:
         Reuses the canonical input fingerprint from Smriti combined with execution scope.
         """
         fingerprint = compute_input_fingerprint(request.inputs)
+        clean_options = (
+            {k: v for k, v in request.custom_options.items() if not callable(v) and k != "progress_callback"}
+            if request.custom_options
+            else {}
+        )
+        options_str = json.dumps(clean_options, sort_keys=True, default=str) if clean_options else ""
         content = (
             f"{context.run_id}:{request.request_id}:{capability.declaration.capability_id}:"
-            f"{context.profile.value}:{fingerprint}"
+            f"{context.profile.value}:{options_str}:{fingerprint}"
         )
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -675,7 +682,7 @@ class Pravaha:
                         )
                         if self._quarantine_store is None:
                             raise DoshError(
-                                code=FailureCode.CONFIGURATION_INVALID,
+                                code=FailureCode.INVALID_CONFIGURATION,
                                 message="Quarantine store is unconfigured during quarantine transition.",
                             )
                         with self._quarantine_transition_scope(
@@ -743,13 +750,16 @@ class Pravaha:
                     completed_capability_ids.add(cap.declaration.capability_id)
             if prior_result is None:
                 raise DoshError(
-                    code=FailureCode.INTERNAL_ERROR,
+                    code=FailureCode.EXECUTION_FAILED,
                     message="Capability execution yielded no result from plan.",
                 )
 
             # Normal final result
             if prior_result.next_requirement is None:
                 return _sync_warnings(prior_result)
+
+            if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                context.cancellation_token.check_cancelled()
 
             next_req_id = prior_result.next_requirement
             if next_req_id in seen_requirements:

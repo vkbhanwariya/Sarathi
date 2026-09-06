@@ -37,7 +37,13 @@ class TranslationProvider(PluginProvider):
             TranslationCapability,
         )
 
-        return {"translation": TranslationCapability(darpana=services.darpana, yantra=services.yantra)}
+        return {
+            "translation": TranslationCapability(
+                darpana=services.darpana,
+                yantra=services.yantra,
+                data_root=services.data_root,
+            )
+        }
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:
         base_data = (services.data_root if services and services.data_root else get_canonical_data_root()) / "translation"
@@ -46,7 +52,17 @@ class TranslationProvider(PluginProvider):
             trans_models = base_data / "models"
             hi_en_model = trans_models / "hi-en"
             en_hi_model = trans_models / "en-hi"
-            if trans_installed and trans_models.exists() and hi_en_model.exists() and en_hi_model.exists():
+
+            def _is_complete_model(p: Path) -> bool:
+                return (
+                    p.is_dir()
+                    and (p / "model.bin").is_file()
+                    and (p / "spm.model").is_file()
+                    and (p / "shared_vocabulary.json").is_file()
+                )
+
+            models_ready = trans_models.is_dir() and _is_complete_model(hi_en_model) and _is_complete_model(en_hi_model)
+            if trans_installed and models_ready:
                 return {
                     "translation": CapabilityReadiness(
                         ready=True,
@@ -58,7 +74,7 @@ class TranslationProvider(PluginProvider):
             missing_parts = []
             if not trans_installed:
                 missing_parts.append("ctranslate2 extra")
-            if not (trans_models.exists() and hi_en_model.exists() and en_hi_model.exists()):
+            if not models_ready:
                 missing_parts.append("model assets")
             return {
                 "translation": CapabilityReadiness(

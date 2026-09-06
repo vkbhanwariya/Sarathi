@@ -558,8 +558,8 @@ Rules:
   verified accuracy when reference truth exists. Mukha joins their typed
   presentation projections without creating an OCR telemetry store.
 - A Mukha presenter reduces those events into screen snapshots.
-- Textual custom messages/reactive state update widgets on the UI thread.
-- Runtime work remains outside the UI event loop. Textual workers are used only for UI-owned asynchronous work; threaded work must return to the main thread before changing widgets, consistent with Textual's [worker guidance](https://textual.textualize.io/guide/workers/).
+- Mukha Local Web UI state updates dynamically via reactive JSON polling and typed events on loopback.
+- Runtime work remains strictly outside the web server request thread. Background worker threads execute pipeline runs while the HTTP server streams updates and handles user input without blocking.
 - Presentation refresh may be coalesced to remain responsive, but telemetry recording is never dropped merely because a screen is not visible.
 - Navigation away from the Live Run screen does not stop or detach the run.
 - Before a run, profile evidence is labelled `Historical`; during execution it
@@ -574,7 +574,7 @@ Rules:
 | 80–119 columns | stacked panels; essential columns remain visible |
 | below 80 columns | compact table, abbreviated safe filename, drawers for secondary detail |
 
-Long values truncate in tables but remain available in the detail drawer. Vertical overflow scrolls; information is not silently removed. Textual supports screen/container layouts and scrolling, while Rich renderables can be embedded inside Textual content: [Textual layout](https://textual.textualize.io/guide/layout/), [Rich renderables in Textual](https://textual.textualize.io/guide/content/).
+Long values truncate in tables but remain available in the detail drawer. Vertical overflow scrolls; information is not silently removed. The web interface supports responsive desktop and compact viewports with CSS Grid/Flexbox scrolling.
 
 ## 16. Visual Language
 
@@ -641,7 +641,7 @@ Long values truncate in tables but remain available in the detail drawer. Vertic
 - snapshot tests cover startup >5s, active multi-file run, indeterminate stage, partial summary, review item, failure and narrow terminal layout;
 - tests use typed fixtures explicitly marked as test data—never production fallback values.
 
-Textual officially supports headless `run_test`/Pilot testing and SVG snapshot testing, making both interaction and layout regressions testable: [Textual testing guide](https://textual.textualize.io/guide/testing/).
+Automated interaction and API tests cover loopback HTTP endpoints, native picker boundaries, security headers, and presentation state transformations.
 
 ## 18. Minimal Physical Ownership
 
@@ -649,12 +649,15 @@ This is a responsibility map, not an instruction to create every file immediatel
 
 ``` text
 mukha/
-├── app.py            # one Textual application and navigation
-├── state.py          # typed presentation projections
 ├── presenter.py      # canonical event → presentation state
-├── screens.py        # five screens; split only when this file becomes crowded
-├── components.py     # shared progress, file table, timeline and summary widgets
-└── theme.tcss        # visual styling and adaptive layout
+├── state.py          # typed presentation projections
+└── web/
+    ├── server.py         # loopback-only ThreadingHTTPServer and run supervisor
+    ├── http_handler.py   # HTTP request routing, security, and artifact streaming
+    ├── native_picker.py  # native OS file/folder selection bridge
+    ├── app.html          # single-page web application markup
+    ├── app.css           # modern visual styling and adaptive layout
+    └── app.js            # vanilla JavaScript UI controller and reactive polling
 ```
 
 Screen TOML is not initially required. Add it only if static labels/default visibility/theme configuration demonstrates value. No YAML/TOML behavior language is introduced.

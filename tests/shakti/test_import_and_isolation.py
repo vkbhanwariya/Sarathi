@@ -40,7 +40,7 @@ class TestCrossPluginIsolation:
         assert translation_dir.exists(), f"Translation directory {translation_dir} not found."
 
         violations: list[str] = []
-        for py_file in translation_dir.glob("*.py"):
+        for py_file in translation_dir.rglob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -136,7 +136,7 @@ class TestArchitecturalBoundaries:
         sankalpa_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "sankalpa"
         forbidden = ("sarathi.nabhi", "sarathi.shakti", "sarathi.agni", "sarathi.mukha")
         violations: list[str] = []
-        for py_file in sankalpa_dir.glob("*.py"):
+        for py_file in sankalpa_dir.rglob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -161,7 +161,7 @@ class TestArchitecturalBoundaries:
             "sarathi.shakti.native_extraction",
         )
         violations: list[str] = []
-        for py_file in mukha_dir.glob("*.py"):
+        for py_file in mukha_dir.rglob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -185,7 +185,7 @@ class TestArchitecturalBoundaries:
             "sarathi.shakti.native_extraction",
         )
         violations: list[str] = []
-        for py_file in nabhi_dir.glob("*.py"):
+        for py_file in nabhi_dir.rglob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -213,7 +213,7 @@ class TestArchitecturalBoundaries:
         for plugin in plugins:
             plugin_path = shakti_dir / plugin
             other_plugins = [p for p in plugins if p != plugin]
-            for py_file in plugin_path.glob("*.py"):
+            for py_file in plugin_path.rglob("*.py"):
                 tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Import):
