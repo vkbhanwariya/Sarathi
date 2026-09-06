@@ -1,7 +1,7 @@
 /**
  * Sarathi V2 — Mukha Web Application Controller (Vanilla JS)
- * Drives 5-screen navigation, native Windows picker triggers, typed presentation state polling,
- * run lifecycle dispatch, cancellation, and confirmed artifact downloads.
+ * Drives 5-screen navigation, native Windows picker triggers, typed presentation state,
+ * real-time SSE stream processing, document preview, and interactive run inspection.
  */
 
 (function () {
@@ -24,14 +24,26 @@
         pollTimer: null,
         checkedInputPaths: new Set(),
         intakeItems: [],
+        sseSource: null,
+        sseActive: false,
+        activeInspectorTab: "activity",
+        logFilterLevel: "ALL",
+        logSearchQuery: "",
+        allActivityLogs: [],
+        selectedReviewItem: null,
+        imageZoomLevel: 1.0,
     };
 
-    // DOM Elements
+    // DOM Elements Mapping
     const elements = {
         navTabs: document.querySelectorAll(".nav-tab"),
         screens: document.querySelectorAll(".screen-view"),
         systemStatusDot: document.getElementById("system-status-dot"),
         systemStatusText: document.getElementById("system-status-text"),
+        sseStatusBadge: document.getElementById("sse-status-badge"),
+        sseStatusLabel: document.getElementById("sse-status-label"),
+        btnOpenHistory: document.getElementById("btn-open-history"),
+        btnCommandPalette: document.getElementById("btn-command-palette"),
         
         // Home Elements
         btnBrowseFiles: document.getElementById("btn-browse-files"),
@@ -85,6 +97,15 @@
         reviewBadge: document.getElementById("review-badge"),
         reviewQueueCount: document.getElementById("review-queue-count"),
         reviewQueueTbody: document.getElementById("review-queue-tbody"),
+        reviewDetailCard: document.getElementById("review-detail-card"),
+        reviewActiveItemTitle: document.getElementById("review-active-item-title"),
+        reviewSourceText: document.getElementById("review-source-text"),
+        reviewOutputText: document.getElementById("review-output-text"),
+        reviewConfidenceFill: document.getElementById("review-confidence-fill"),
+        reviewConfidenceText: document.getElementById("review-confidence-text"),
+        btnReviewAccept: document.getElementById("btn-review-accept"),
+        btnReviewEdit: document.getElementById("btn-review-edit"),
+        btnReviewDismiss: document.getElementById("btn-review-dismiss"),
 
         // Summary Elements
         summaryHero: document.getElementById("summary-hero"),
@@ -102,8 +123,30 @@
         summaryStagesTbody: document.getElementById("summary-stages-tbody"),
 
         // Inspector Elements
-        inspectorDeviceTbody: document.getElementById("inspector-device-tbody"),
+        inspectorTabs: document.querySelectorAll(".inspector-tab"),
+        inspectorTabContents: document.querySelectorAll(".inspector-tab-content"),
+        inputLogSearch: document.getElementById("input-log-search"),
+        logPills: document.querySelectorAll(".log-pill"),
+        btnCopyLogs: document.getElementById("btn-copy-logs"),
         inspectorLogs: document.getElementById("inspector-logs"),
+        inspectorDeviceTbody: document.getElementById("inspector-device-tbody"),
+        inspectorStagesTbody: document.getElementById("inspector-stages-tbody"),
+        statConfHigh: document.getElementById("stat-conf-high"),
+        statConfMid: document.getElementById("stat-conf-mid"),
+        statConfLow: document.getElementById("stat-conf-low"),
+        statConfCrit: document.getElementById("stat-conf-crit"),
+        systemFactsTbody: document.getElementById("system-facts-tbody"),
+
+        // Document Preview Dialog
+        docPreviewDialog: document.getElementById("doc-preview-dialog"),
+        previewModalTitle: document.getElementById("preview-modal-title"),
+        previewModalContent: document.getElementById("preview-modal-content"),
+        btnClosePreview: document.getElementById("btn-close-preview"),
+
+        // History Drawer
+        historyDrawer: document.getElementById("history-drawer"),
+        historyListContainer: document.getElementById("history-list-container"),
+        btnCloseHistory: document.getElementById("btn-close-history"),
 
         // Overlay
         aarambhaOverlay: document.getElementById("aarambha-overlay"),
@@ -140,51 +183,19 @@
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
     }
 
-    // Helper: Format Duration (nanoseconds to human string)
+    // Helper: Format Nanosecond Durations
     function formatDuration(ns) {
-        if (ns == null) return "—";
-        if (ns === 0) return "0s";
-        const ms = ns / 1_000_000;
-        if (ms < 1000) return `${Math.round(ms)}ms`;
-        const sec = ms / 1000;
-        if (sec < 60) return `${sec.toFixed(1)}s`;
-        const min = Math.floor(sec / 60);
-        const remSec = (sec % 60).toFixed(0);
-        return `${min}m ${remSec}s`;
+        if (ns === null || ns === undefined || isNaN(ns)) return "—";
+        const sec = ns / 1_000_000_000;
+        if (sec < 0.001) return "<1ms";
+        if (sec < 1.0) return `${(sec * 1000).toFixed(0)}ms`;
+        if (sec < 60.0) return `${sec.toFixed(1)}s`;
+        const m = Math.floor(sec / 60);
+        const s = (sec % 60).toFixed(1);
+        return `${m}m ${s}s`;
     }
 
-    // Navigation Switcher
-    function switchScreen(screenName) {
-        state.currentScreen = screenName;
-        elements.navTabs.forEach((tab) => {
-            tab.classList.toggle("active", tab.dataset.screen === screenName);
-        });
-        elements.screens.forEach((view) => {
-            view.classList.toggle("active", view.id === `screen-${screenName}`);
-        });
-        if (screenName === "home" && state.selectedPaths.length > 0 && state.activeRunStatus !== "RUNNING") {
-            elements.btnStartRun.disabled = false;
-        }
-    }
-
-    // Setup Global Keyboard Shortcuts (F1 - F5)
-    function setupKeyboardShortcuts() {
-        window.addEventListener("keydown", (e) => {
-            const keyMap = {
-                F1: "home",
-                F2: "monitor",
-                F3: "review",
-                F4: "summary",
-                F5: "inspector",
-            };
-            if (keyMap[e.key]) {
-                e.preventDefault();
-                switchScreen(keyMap[e.key]);
-            }
-        });
-    }
-
-    // API Calls
+    // API Helpers
     async function apiPost(url, data = {}) {
         try {
             const res = await fetch(url, {
@@ -252,7 +263,6 @@
         await refreshIntake();
     }
 
-    // Helper: update clear selected button label and disabled status
     function updateClearSelectedButton() {
         if (!elements.btnClearSelected) return;
         const count = state.checkedInputPaths.size;
@@ -260,7 +270,6 @@
         elements.btnClearSelected.textContent = count > 0 ? `Clear Selected (${count})` : "Clear Selected";
     }
 
-    // Remove specific paths from input set without destroying folder roots
     function removePaths(pathsToRemove) {
         const toRemoveSet = new Set(pathsToRemove);
         state.selectedRoots = state.selectedRoots.filter((p) => !toRemoveSet.has(p));
@@ -272,13 +281,11 @@
         refreshIntake();
     }
 
-    // Action: Clear Selected Inputs
     async function handleClearSelected() {
         if (state.checkedInputPaths.size === 0) return;
         removePaths(Array.from(state.checkedInputPaths));
     }
 
-    // Action: Clear All Selected Inputs
     async function handleClearInputs() {
         state.selectedRoots = [];
         state.selectedPaths = [];
@@ -323,16 +330,15 @@
         }
     }
 
-    // Render Inputs Table in Griha
+    // Render Inputs Table with Quick Preview Triggers
     function renderInputsTable(items, inputSelection) {
         state.intakeItems = items || [];
 
-        // Render format group summary if available
         if (elements.inputGroupsContainer) {
             if (inputSelection && inputSelection.groups && inputSelection.groups.length > 0) {
                 elements.inputGroupsContainer.classList.remove("hidden");
                 elements.inputGroupsContainer.innerHTML = inputSelection.groups
-                    .map((g) => `<div class="group-pill" style="padding: 4px 10px; background: var(--bg-hover, #334155); border-radius: 4px; font-size: 0.82em; display: inline-flex; align-items: center; gap: 6px;"><strong>${escapeHtml(g.format_name)}</strong>: ${g.file_count} files (${formatBytes(g.total_size_bytes)})</div>`)
+                    .map((g) => `<div class="badge badge-indigo" style="padding: 4px 10px;"><strong>${escapeHtml(g.format_name)}</strong>: ${g.file_count} files (${formatBytes(g.total_size_bytes)})</div>`)
                     .join(" ");
             } else {
                 elements.inputGroupsContainer.classList.add("hidden");
@@ -366,7 +372,8 @@
                     <td>${formatBytes(item.size_bytes)}</td>
                     <td>${badge}</td>
                     <td style="text-align: center;">
-                        <button class="btn-icon btn-remove-row" data-path="${escapeHtml(pathVal)}" title="Remove this file" style="cursor: pointer; background: transparent; border: none; font-size: 1.1em; color: var(--text-muted, #94a3b8);">🗑</button>
+                        <button class="btn btn-outline btn-sm btn-preview-file" data-path="${escapeHtml(pathVal)}" title="Preview Document">👁️</button>
+                        <button class="btn btn-outline btn-sm btn-remove-row" data-path="${escapeHtml(pathVal)}" title="Remove" style="color: var(--accent-crimson); margin-left: 4px;">✕</button>
                     </td>
                 </tr>`;
             })
@@ -377,15 +384,12 @@
         }
 
         elements.selectedInputsTbody.innerHTML = rowsHtml;
-
         updateClearSelectedButton();
         if (elements.chkSelectAllInputs) {
-            const allChecked = items.length > 0 && items.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
-            elements.chkSelectAllInputs.checked = allChecked;
+            elements.chkSelectAllInputs.checked = items.length > 0 && items.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
         }
     }
 
-    // Render Preflight Summary in Griha
     function renderPreflight(preflight) {
         elements.preflightSummary.textContent = `${preflight.eligible_count} eligible, ${preflight.issue_count} issues`;
         if (preflight.issues && preflight.issues.length > 0) {
@@ -414,9 +418,7 @@
         };
         if (state.currentRequirement === "ocr") {
             const customOpts = {};
-            if (elements.selectOcrLang) {
-                customOpts.lang = elements.selectOcrLang.value;
-            }
+            if (elements.selectOcrLang) customOpts.lang = elements.selectOcrLang.value;
             if (state.currentProfile === "custom") {
                 customOpts.engine = "rapidocr";
                 if (elements.chkOcrPreprocess) customOpts.preprocess = elements.chkOcrPreprocess.checked;
@@ -445,58 +447,152 @@
         }
     }
 
-    // Action: Trigger Cancel Run Modal
     function handleCancelRun() {
         if (!state.activeRunId || state.activeRunStatus !== "RUNNING") return;
         if (elements.cancelRunDialog && typeof elements.cancelRunDialog.showModal === "function") {
             elements.cancelRunDialog.showModal();
         } else {
-            if (window.confirm("Are you sure you want to cancel the active run?")) {
+            if (confirm("Are you sure you want to cancel the active document processing run?")) {
                 dispatchCancelRun();
             }
         }
     }
 
-    // Action: Dispatch Cancel Run to Backend
     async function dispatchCancelRun() {
         if (!state.activeRunId) return;
-        if (elements.btnCancelRun) {
-            elements.btnCancelRun.disabled = true;
-            elements.btnCancelRun.textContent = "Cancelling...";
-        }
-        if (elements.systemStatusText) {
-            elements.systemStatusText.textContent = "Cancelling...";
-        }
-        if (elements.systemStatusDot) {
-            elements.systemStatusDot.className = "status-dot warning";
-        }
+        elements.btnCancelRun.disabled = true;
         const res = await apiPost(`/api/runs/${state.activeRunId}/cancel`);
-        if (res && res.error) {
-            showError(res.error);
+        if (!res.ok) {
+            showError(res.error || "Failed to cancel run.");
+            elements.btnCancelRun.disabled = false;
         }
-        await pollState();
     }
 
-    // Action: Open Output Folder
     async function handleOpenOutputFolder() {
         if (!state.activeRunId) return;
-        await apiPost(`/api/runs/${state.activeRunId}/reveal`);
-    }
-
-    // Helper: Determine polling frequency based on tab visibility and run activity
-    function getPollInterval() {
-        if (document.visibilityState === "hidden") {
-            return 3000;
+        const res = await apiPost(`/api/runs/${state.activeRunId}/reveal`);
+        if (!res.ok) {
+            showError(res.error || "Failed to reveal output folder.");
         }
-        return state.activeRunStatus === "RUNNING" ? 400 : 1500;
     }
 
-    let lastStateJson = "";
+    // Screen Switching
+    function switchScreen(screenId) {
+        state.currentScreen = screenId;
+        elements.navTabs.forEach((tab) => {
+            tab.classList.toggle("active", tab.dataset.screen === screenId);
+        });
+        elements.screens.forEach((view) => {
+            view.classList.toggle("active", view.id === `screen-${screenId}`);
+        });
 
-    // State Polling Loop
+        if (screenId === "review") loadReviewQueue();
+        if (screenId === "inspector") loadInspector();
+    }
+
+    // Keyboard Shortcuts (F1-F5, Escape, Ctrl+H, Ctrl+P)
+    function setupKeyboardShortcuts() {
+        window.addEventListener("keydown", (e) => {
+            if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") {
+                return;
+            }
+            if (e.key === "F1") { e.preventDefault(); switchScreen("home"); }
+            else if (e.key === "F2") { e.preventDefault(); switchScreen("monitor"); }
+            else if (e.key === "F3") { e.preventDefault(); switchScreen("review"); }
+            else if (e.key === "F4") { e.preventDefault(); switchScreen("summary"); }
+            else if (e.key === "F5") { e.preventDefault(); switchScreen("inspector"); }
+            else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "h") {
+                e.preventDefault();
+                toggleHistoryDrawer();
+            } else if (e.key === "Escape") {
+                if (elements.docPreviewDialog && elements.docPreviewDialog.open) {
+                    elements.docPreviewDialog.close();
+                }
+                if (elements.historyDrawer && elements.historyDrawer.classList.contains("open")) {
+                    toggleHistoryDrawer(false);
+                }
+            }
+        });
+    }
+
+    // ==========================================
+    // Real-Time Server-Sent Events (SSE) Engine
+    // ==========================================
+    function initSSE() {
+        if (typeof EventSource === "undefined") {
+            setSSEBadge(false);
+            pollState();
+            return;
+        }
+
+        try {
+            if (state.sseSource) {
+                state.sseSource.close();
+            }
+
+            const es = new EventSource("/api/events");
+            state.sseSource = es;
+
+            es.onopen = () => {
+                state.sseActive = true;
+                setSSEBadge(true);
+            };
+
+            es.addEventListener("state", (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data && data.ok && data.state) {
+                        updatePresentation(data.state);
+                    }
+                } catch (err) {
+                    console.error("Malformed SSE state payload:", err);
+                }
+            });
+
+            es.addEventListener("ping", () => {
+                // Heartbeat acknowledged
+            });
+
+            es.onerror = () => {
+                state.sseActive = false;
+                setSSEBadge(false);
+                es.close();
+                state.sseSource = null;
+                // Fall back to adaptive polling and retry SSE reconnect after 5s
+                pollState();
+                setTimeout(initSSE, 5000);
+            };
+        } catch (err) {
+            console.warn("Failed to initialize SSE, using polling:", err);
+            setSSEBadge(false);
+            pollState();
+        }
+    }
+
+    function setSSEBadge(isLive) {
+        if (!elements.sseStatusBadge || !elements.sseStatusLabel) return;
+        if (isLive) {
+            elements.sseStatusBadge.className = "sse-badge";
+            elements.sseStatusLabel.textContent = "SSE LIVE";
+        } else {
+            elements.sseStatusBadge.className = "sse-badge polling";
+            elements.sseStatusLabel.textContent = "POLLING";
+        }
+    }
+
+    // Adaptive Polling Fallback
+    let lastStateJson = null;
+    function getPollInterval() {
+        if (document.visibilityState === "hidden") return 3000;
+        if (state.activeRunStatus === "RUNNING") return 500;
+        return 1500;
+    }
+
     async function pollState() {
+        if (state.sseActive) return; // SSE handles active state updates
+
         const res = await apiGet("/api/state");
-        if (res.ok && res.state) {
+        if (res && res.ok && res.state) {
             const currentJson = JSON.stringify(res.state);
             if (currentJson !== lastStateJson) {
                 lastStateJson = currentJson;
@@ -505,12 +601,13 @@
             }
         }
 
-        // Adjust polling frequency: adaptive based on visibility and activity
         clearTimeout(state.pollTimer);
         state.pollTimer = setTimeout(pollState, getPollInterval());
     }
 
-    // Update Presentation from View State Projection
+    // ==========================================
+    // Presentation View State Projection
+    // ==========================================
     function updatePresentation(appState) {
         if (!appState) return;
 
@@ -532,7 +629,7 @@
             }
         }
 
-        // 0. Update Processing Requirements from Available Actions Facts
+        // Available Actions Synchronization
         if (appState.available_actions && appState.available_actions.length > 0) {
             appState.available_actions.forEach((act) => {
                 const card = document.querySelector(`.req-card[data-req="${act.action_id}"]`);
@@ -555,7 +652,7 @@
             });
         }
 
-        // 1. Aarambha Startup Overlay
+        // Aarambha Startup Overlay
         if (elements.aarambhaOverlay) {
             if (appState.startup && appState.startup.is_initializing && appState.startup.elapsed_ns > 5_000_000_000) {
                 elements.aarambhaOverlay.classList.remove("hidden");
@@ -565,7 +662,7 @@
             }
         }
 
-        // 2. Pravritti Monitor Updates
+        // Pravritti Monitor Updates
         const activeRun = appState.active_run;
         if (activeRun) {
             state.activeRunId = activeRun.run_id;
@@ -627,7 +724,7 @@
                     .join("");
             }
 
-            // Active Parallel Workers Table
+            // Active Parallel Workers
             if (activeRun.active_workers && activeRun.active_workers.length > 0) {
                 elements.activeWorkersCount.textContent = `${activeRun.active_workers.length} Active`;
                 elements.activeWorkersTbody.innerHTML = activeRun.active_workers
@@ -651,161 +748,379 @@
                 elements.activeWorkersTbody.innerHTML = '<tr class="empty-row"><td colspan="6">No active workers.</td></tr>';
             }
 
-            // Document Pipeline Table
+            // Document Execution Pipeline Table
             if (activeRun.files && activeRun.files.length > 0) {
-                elements.pipelineCounts.textContent = `${activeRun.terminal_files} / ${activeRun.total_files} completed`;
-                const MAX_RENDER_FILES = 100;
-                const filesToRender = activeRun.files.length > MAX_RENDER_FILES
-                    ? activeRun.files.slice(0, MAX_RENDER_FILES)
-                    : activeRun.files;
-                let rowsHtml = filesToRender
+                elements.pipelineCounts.textContent = `${activeRun.terminal_files || 0} / ${activeRun.total_files || activeRun.files.length} completed`;
+                elements.filePipelineTbody.innerHTML = activeRun.files
                     .map((f) => {
-                        const sUpper = (f.status || "").toUpperCase();
-                        const statusBadge = (sUpper === "COMPLETED" || sUpper === "SUCCESS")
-                            ? '<span class="badge badge-emerald">Done</span>'
-                            : sUpper === "RUNNING"
-                            ? '<span class="badge badge-indigo">Running</span>'
-                            : (sUpper === "CANCELLED" ? '<span class="badge badge-amber">Cancelled</span>'
-                            : (sUpper === "FAILED" ? '<span class="badge badge-crimson">Failed</span>'
-                            : '<span class="badge">Pending</span>'));
+                        let stBadge = `<span class="badge">${escapeHtml(f.status)}</span>`;
+                        if (f.status === "SUCCESS") stBadge = '<span class="badge badge-emerald">SUCCESS</span>';
+                        else if (f.status === "RUNNING") stBadge = '<span class="badge badge-indigo">RUNNING</span>';
+                        else if (f.status === "FAILED") stBadge = '<span class="badge badge-crimson">FAILED</span>';
+
+                        const warns = f.warning_count > 0 ? `<span class="badge badge-amber">${f.warning_count} warns</span>` : "—";
                         return `<tr>
                             <td>${f.ordinal}</td>
                             <td><strong>${escapeHtml(f.display_name)}</strong></td>
                             <td>${escapeHtml(f.current_stage || "—")}</td>
-                            <td>${statusBadge}</td>
+                            <td>${stBadge}</td>
                             <td>${formatDuration(f.elapsed_ns)}</td>
-                            <td>${f.warning_count > 0 ? `<span class="badge badge-amber">${f.warning_count}</span>` : "—"}</td>
+                            <td>${warns}</td>
                         </tr>`;
                     })
                     .join("");
-                if (activeRun.files.length > MAX_RENDER_FILES) {
-                    rowsHtml += `<tr class="empty-row"><td colspan="6">Showing first ${MAX_RENDER_FILES} of ${activeRun.files.length} documents.</td></tr>`;
-                }
-                elements.filePipelineTbody.innerHTML = rowsHtml;
             }
+        }
 
-            if (activeRun.status !== "RUNNING") {
-                state.activeRunStatus = activeRun.status;
-                if (state.selectedPaths.length > 0) {
-                    elements.btnStartRun.disabled = false;
-                }
-            }
-
-            // Auto-transition to summary once upon completion
-            if (
-                activeRun.status !== "RUNNING" &&
-                state.currentScreen === "monitor" &&
-                appState.terminal_summary &&
-                state.lastAutoNavigatedRunId !== activeRun.run_id
-            ) {
-                state.lastAutoNavigatedRunId = activeRun.run_id;
+        // Auto Navigation to Samapti Summary upon Run Completion
+        const summary = appState.terminal_summary;
+        if (summary) {
+            renderSummary(summary);
+            if (state.lastAutoNavigatedRunId !== summary.run_id && state.currentScreen === "monitor") {
+                state.lastAutoNavigatedRunId = summary.run_id;
                 switchScreen("summary");
             }
         }
+    }
 
-        // 3. Pariksha Review Queue
-        const reviewItems = appState.review_queue || [];
-        if (reviewItems.length > 0) {
-            elements.reviewBadge.classList.remove("hidden");
-            elements.reviewBadge.textContent = reviewItems.length;
-            elements.reviewQueueCount.textContent = `${reviewItems.length} items`;
-            elements.reviewQueueTbody.innerHTML = reviewItems
-                .map((it) => `<tr>
-                    <td><code>${escapeHtml(it.item_id)}</code></td>
-                    <td>${escapeHtml(it.file_display_name)}</td>
-                    <td>${escapeHtml(it.stage)}</td>
-                    <td>${it.confidence ? (it.confidence * 100).toFixed(1) + "%" : "—"}</td>
-                    <td><span class="text-amber">${escapeHtml(it.issue_reason)}</span></td>
-                    <td><span class="badge badge-indigo" title="Diagnostic review record; decisions validated in pipeline">Recorded</span></td>
-                </tr>`)
+    // Render Terminal Summary in Samapti
+    function renderSummary(summary) {
+        if (!summary) return;
+        state.activeRunId = summary.run_id;
+
+        elements.summaryStatusBadge.textContent = summary.status;
+        elements.summaryStatusBadge.className = `badge badge-hero ${
+            summary.status === "SUCCESS"
+                ? "badge-emerald"
+                : summary.status === "PARTIAL"
+                ? "badge-amber"
+                : "badge-crimson"
+        }`;
+        elements.summaryHero.className = `summary-hero status-${summary.status.toLowerCase()}`;
+        elements.summaryTitle.textContent =
+            summary.status === "SUCCESS"
+                ? "Run Completed Successfully"
+                : summary.status === "PARTIAL"
+                ? "Run Completed with Warnings / Partial Extraction"
+                : `Run Failed (${summary.status})`;
+
+        elements.summaryRunMeta.textContent = `Run ID: ${summary.run_id} | Total Wall Time: ${formatDuration(summary.wall_time_ns)}`;
+
+        elements.statTotalFiles.textContent = summary.total_inputs || 0;
+        elements.statSuccessFiles.textContent = summary.successful_files ?? "—";
+        elements.statWarningFiles.textContent = summary.warning_files ?? "—";
+        elements.statFailedFiles.textContent = summary.failed_files ?? "—";
+
+        // Output Artifacts Grid with Preview & Download Actions
+        if (summary.artifacts && summary.artifacts.length > 0) {
+            elements.artifactsGrid.innerHTML = summary.artifacts
+                .map((art) => `
+                    <div class="artifact-card">
+                        <div class="artifact-title">${escapeHtml(art.display_name)}</div>
+                        <div class="artifact-meta">
+                            <span>Role: <strong>${escapeHtml(art.role)}</strong></span>
+                            <span>${formatBytes(art.size_bytes)}</span>
+                        </div>
+                        <div class="artifact-actions">
+                            <button class="btn btn-primary btn-sm btn-preview-artifact" data-run-id="${escapeHtml(summary.run_id)}" data-art-id="${escapeHtml(art.artifact_id)}" data-name="${escapeHtml(art.display_name)}">👁️ Preview</button>
+                            <a class="btn btn-outline btn-sm" href="/api/runs/${encodeURIComponent(summary.run_id)}/artifacts/${encodeURIComponent(art.artifact_id)}" download="${escapeHtml(art.display_name)}">⬇ Download</a>
+                        </div>
+                    </div>
+                `)
                 .join("");
         } else {
-            elements.reviewBadge.classList.add("hidden");
-            elements.reviewQueueCount.textContent = "0 items";
+            elements.artifactsGrid.innerHTML = '<div class="empty-card" style="grid-column: 1/-1; text-align: center; padding: 24px; color: var(--text-muted);">No output artifacts generated.</div>';
+        }
+
+        // Stage Breakdown Table
+        if (summary.stage_timings && summary.stage_timings.length > 0) {
+            elements.summaryStagesTbody.innerHTML = summary.stage_timings
+                .map((st) => `<tr>
+                    <td><strong>${escapeHtml(st.stage_name)}</strong></td>
+                    <td>${st.call_count} calls</td>
+                    <td>${formatDuration(st.duration_ns)}</td>
+                    <td>${formatDuration(st.call_count > 0 ? Math.round(st.duration_ns / st.call_count) : 0)}</td>
+                </tr>`)
+                .join("");
+        }
+    }
+
+    // ==========================================
+    // Document Preview Controller
+    // ==========================================
+    async function openDocumentPreview(pathOrUrl, displayName) {
+        if (!elements.docPreviewDialog || !elements.previewModalContent) return;
+        elements.previewModalTitle.textContent = displayName || "Document Preview";
+        elements.previewModalContent.innerHTML = '<div class="spinner"></div>';
+        state.imageZoomLevel = 1.0;
+
+        if (typeof elements.docPreviewDialog.showModal === "function") {
+            elements.docPreviewDialog.showModal();
+        }
+
+        const res = await apiGet(`/api/preview?path=${encodeURIComponent(pathOrUrl)}`);
+        if (!res.ok) {
+            elements.previewModalContent.innerHTML = `<div class="alert-box alert-amber">${escapeHtml(res.error || "Failed to load document preview.")}</div>`;
+            return;
+        }
+
+        if (res.type === "tabular") {
+            const thead = (res.headers || []).map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+            const tbody = (res.rows || [])
+                .map((row) => `<tr>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+                .join("");
+            elements.previewModalContent.innerHTML = `
+                <div style="margin-bottom: 10px; font-size: 12px; color: var(--text-secondary);">
+                    Showing ${res.rows ? res.rows.length : 0} rows (${formatBytes(res.size)})
+                </div>
+                <div class="table-container" style="max-height: 500px;">
+                    <table class="data-table">
+                        <thead><tr>${thead}</tr></thead>
+                        <tbody>${tbody}</tbody>
+                    </table>
+                </div>
+            `;
+        } else if (res.type === "image") {
+            elements.previewModalContent.innerHTML = `
+                <div class="preview-canvas-container">
+                    <img id="preview-img" src="${res.data_url}" alt="Preview" style="transform: scale(1.0);">
+                    <div class="preview-zoom-bar">
+                        <button id="btn-zoom-in" class="btn btn-secondary btn-sm">➕</button>
+                        <button id="btn-zoom-out" class="btn btn-secondary btn-sm">➖</button>
+                        <button id="btn-zoom-reset" class="btn btn-secondary btn-sm">Reset</button>
+                    </div>
+                </div>
+            `;
+            const img = document.getElementById("preview-img");
+            document.getElementById("btn-zoom-in").addEventListener("click", () => {
+                state.imageZoomLevel = Math.min(3.0, state.imageZoomLevel + 0.25);
+                img.style.transform = `scale(${state.imageZoomLevel})`;
+            });
+            document.getElementById("btn-zoom-out").addEventListener("click", () => {
+                state.imageZoomLevel = Math.max(0.5, state.imageZoomLevel - 0.25);
+                img.style.transform = `scale(${state.imageZoomLevel})`;
+            });
+            document.getElementById("btn-zoom-reset").addEventListener("click", () => {
+                state.imageZoomLevel = 1.0;
+                img.style.transform = "scale(1.0)";
+            });
+        } else if (res.type === "text") {
+            const lineCount = (res.content || "").split("\n").length;
+            elements.previewModalContent.innerHTML = `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary);">
+                    <span>${lineCount} lines (${formatBytes(res.size)}) ${res.truncated ? "• Preview truncated to 256KB" : ""}</span>
+                    <button id="btn-copy-preview-text" class="btn btn-outline btn-sm">📋 Copy Content</button>
+                </div>
+                <pre style="font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap; word-break: break-all; background: #04070d; padding: 14px; border-radius: var(--radius-sm); max-height: 500px; overflow-y: auto;"><code>${escapeHtml(res.content)}</code></pre>
+            `;
+            document.getElementById("btn-copy-preview-text").addEventListener("click", () => {
+                navigator.clipboard.writeText(res.content);
+            });
+        } else if (res.type === "pdf") {
+            elements.previewModalContent.innerHTML = `
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 12px;">📄</div>
+                    <h3>${escapeHtml(res.name)}</h3>
+                    <p class="text-muted" style="margin-top: 6px;">Portable Document Format (${formatBytes(res.size)})</p>
+                </div>
+            `;
+        } else {
+            elements.previewModalContent.innerHTML = `
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 12px;">📦</div>
+                    <h3>${escapeHtml(res.name)}</h3>
+                    <p class="text-muted" style="margin-top: 6px;">Binary file (${formatBytes(res.size)})</p>
+                </div>
+            `;
+        }
+    }
+
+    // ==========================================
+    // Pariksha (Review & Exceptions) Controller
+    // ==========================================
+    async function loadReviewQueue() {
+        const res = await apiGet("/api/review");
+        if (!res.ok) return;
+
+        const items = res.items || [];
+        elements.reviewQueueCount.textContent = `${items.length} items`;
+        if (elements.reviewBadge) {
+            elements.reviewBadge.textContent = items.length;
+            elements.reviewBadge.classList.toggle("hidden", items.length === 0);
+        }
+
+        if (items.length === 0) {
             elements.reviewQueueTbody.innerHTML = '<tr class="empty-row"><td colspan="6">No items currently require human review.</td></tr>';
+            if (elements.reviewDetailCard) elements.reviewDetailCard.classList.add("hidden");
+            return;
         }
 
-        // 4. Samapti Terminal Summary
-        const summary = appState.terminal_summary;
-        if (summary) {
-            elements.summaryStatusBadge.textContent = summary.status;
-            elements.summaryTitle.textContent = `Run Completed (${summary.status})`;
-            elements.summaryRunMeta.textContent = `Run ID: ${summary.run_id} | Total Time: ${formatDuration(summary.wall_time_ns)}`;
+        elements.reviewQueueTbody.innerHTML = items
+            .map((it, idx) => `
+                <tr class="review-row" data-idx="${idx}" style="cursor: pointer;">
+                    <td><strong class="code-text">${escapeHtml(it.item_id || `rev-${idx+1}`)}</strong></td>
+                    <td>${escapeHtml(it.context && it.context.file ? it.context.file : "—")}</td>
+                    <td><span class="badge badge-indigo">${escapeHtml(it.stage || "—")}</span></td>
+                    <td>${it.context && it.context.confidence ? `${(it.context.confidence * 100).toFixed(1)}%` : "—"}</td>
+                    <td>${escapeHtml(it.message || it.code || "Review needed")}</td>
+                    <td style="text-align: center;">
+                        <button class="btn btn-primary btn-sm btn-inspect-review" data-idx="${idx}">Inspect</button>
+                    </td>
+                </tr>
+            `)
+            .join("");
 
-            if (elements.summaryFailureReason) {
-                if (summary.failures && summary.failures.length > 0) {
-                    elements.summaryFailureReason.classList.remove("hidden");
-                    elements.summaryFailureReason.textContent = summary.failures.join(" | ");
-                } else {
-                    elements.summaryFailureReason.classList.add("hidden");
-                    elements.summaryFailureReason.textContent = "";
-                }
-            }
+        // Select first item by default
+        selectReviewItem(items[0]);
+    }
 
-            elements.summaryHero.className = `summary-hero status-${summary.status.toLowerCase()}`;
-            elements.statTotalFiles.textContent = summary.total_inputs;
-            elements.statSuccessFiles.textContent = summary.successful_files != null ? summary.successful_files : "—";
-            elements.statWarningFiles.textContent = summary.warning_files != null ? summary.warning_files : "—";
-            elements.statFailedFiles.textContent = summary.failed_files != null ? summary.failed_files : (summary.status === "FAILED" ? summary.total_inputs : "—");
+    function selectReviewItem(item) {
+        if (!item || !elements.reviewDetailCard) return;
+        state.selectedReviewItem = item;
+        elements.reviewDetailCard.classList.remove("hidden");
+        elements.reviewActiveItemTitle.textContent = item.item_id || "Review Item";
 
-            // Confirmed Artifacts Cards
-            if (summary.artifacts && summary.artifacts.length > 0) {
-                elements.artifactsGrid.innerHTML = summary.artifacts
-                    .map((art) => `
-                        <div class="artifact-card">
-                            <span class="badge badge-emerald">${escapeHtml(art.role)}</span>
-                            <div class="artifact-title">${escapeHtml(art.display_name)}</div>
-                            <div class="artifact-meta">
-                                <span>${formatBytes(art.size_bytes)}</span>
-                                <a href="/api/runs/${summary.run_id}/artifacts/${encodeURIComponent(art.artifact_id)}" class="btn btn-primary btn-sm" download>📥 Download</a>
+        elements.reviewSourceText.textContent = item.context && item.context.source ? item.context.source : "(Source snippet unavailable)";
+        elements.reviewOutputText.textContent = item.context && item.context.output ? item.context.output : (item.message || "—");
+
+        const conf = item.context && item.context.confidence !== undefined ? item.context.confidence : 0.75;
+        const pct = Math.round(conf * 100);
+        elements.reviewConfidenceText.textContent = `${pct}%`;
+        elements.reviewConfidenceFill.style.width = `${pct}%`;
+        elements.reviewConfidenceFill.style.background = pct >= 90 ? "var(--accent-emerald)" : (pct >= 75 ? "var(--accent-amber)" : "var(--accent-crimson)");
+    }
+
+    async function handleReviewAction(action) {
+        if (!state.selectedReviewItem) return;
+        const itemId = state.selectedReviewItem.item_id;
+        const res = await apiPost("/api/review", { item_id: itemId, action: action });
+        if (res.ok) {
+            loadReviewQueue();
+        } else {
+            showError(res.error || `Failed to apply review action ${action}`);
+        }
+    }
+
+    // ==========================================
+    // Nirikshana (Inspector) Controller
+    // ==========================================
+    async function loadInspector() {
+        if (!state.activeRunId) {
+            elements.inspectorLogs.innerHTML = '<div class="log-entry text-muted">[Ready] No active or recent run to inspect.</div>';
+            return;
+        }
+
+        const res = await apiGet(`/api/runs/${encodeURIComponent(state.activeRunId)}/inspector`);
+        if (!res.ok || !res.inspector) return;
+
+        const insp = res.inspector;
+
+        // Activity Logs
+        if (insp.activity_logs && insp.activity_logs.length > 0) {
+            state.allActivityLogs = insp.activity_logs;
+            renderFilteredLogs();
+        }
+
+        // Hardware Device Summary Table
+        if (insp.device_summaries && insp.device_summaries.length > 0) {
+            elements.inspectorDeviceTbody.innerHTML = insp.device_summaries
+                .map((ds) => `<tr>
+                    <td><strong>${escapeHtml(ds.device_type)}</strong></td>
+                    <td>${ds.execution_count}</td>
+                    <td>${formatDuration(ds.avg_duration_ns)}</td>
+                    <td>${formatDuration(ds.p95_duration_ns)}</td>
+                </tr>`)
+                .join("");
+        }
+
+        // Stage Timings
+        if (insp.stage_timings && insp.stage_timings.length > 0 && elements.inspectorStagesTbody) {
+            elements.inspectorStagesTbody.innerHTML = insp.stage_timings
+                .map((st) => `<tr>
+                    <td><strong>${escapeHtml(st.stage_name)}</strong></td>
+                    <td>${st.call_count}</td>
+                    <td>${formatDuration(st.duration_ns)}</td>
+                </tr>`)
+                .join("");
+        }
+
+        // System Facts
+        if (insp.system_facts && insp.system_facts.length > 0 && elements.systemFactsTbody) {
+            elements.systemFactsTbody.innerHTML = insp.system_facts
+                .map(([prop, val]) => `<tr>
+                    <td><strong>${escapeHtml(prop)}</strong></td>
+                    <td>${escapeHtml(val)}</td>
+                </tr>`)
+                .join("");
+        }
+    }
+
+    function renderFilteredLogs() {
+        if (!elements.inspectorLogs) return;
+        const query = (state.logSearchQuery || "").toLowerCase();
+        const level = state.logFilterLevel || "ALL";
+
+        const filtered = (state.allActivityLogs || []).filter((entry) => {
+            const [ts, comp, sev, msg] = entry;
+            if (level !== "ALL" && sev.toUpperCase() !== level) return false;
+            if (query && !`${ts} ${comp} ${msg}`.toLowerCase().includes(query)) return false;
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            elements.inspectorLogs.innerHTML = '<div class="log-entry text-muted">No logs match the current filter.</div>';
+            return;
+        }
+
+        elements.inspectorLogs.innerHTML = filtered
+            .map((entry) => {
+                const [ts, comp, sev, msg] = entry;
+                const sevUpper = (sev || "INFO").toUpperCase();
+                const sevClass = (sevUpper === "ERROR" || sevUpper === "FAILED")
+                    ? "badge-crimson"
+                    : (sevUpper === "WARN" ? "badge-amber" : "badge-indigo");
+                return `<div class="log-entry">
+                    <span class="text-muted">[${escapeHtml(ts)}]</span>
+                    <span class="badge ${sevClass}">${escapeHtml(sevUpper)}</span>
+                    <strong>${escapeHtml(comp)}</strong>: ${escapeHtml(msg)}
+                </div>`;
+            })
+            .join("");
+    }
+
+    // ==========================================
+    // Run History Drawer Controller
+    // ==========================================
+    async function toggleHistoryDrawer(forceState) {
+        if (!elements.historyDrawer) return;
+        const isOpen = forceState !== undefined ? forceState : !elements.historyDrawer.classList.contains("open");
+        elements.historyDrawer.classList.toggle("open", isOpen);
+        if (isOpen) {
+            elements.historyListContainer.innerHTML = '<div class="spinner"></div>';
+            const res = await apiGet("/api/history?limit=30");
+            if (res.ok && res.history && res.history.length > 0) {
+                elements.historyListContainer.innerHTML = res.history
+                    .map((h) => {
+                        let stBadge = '<span class="badge badge-emerald">SUCCESS</span>';
+                        if (h.status === "PARTIAL") stBadge = '<span class="badge badge-amber">PARTIAL</span>';
+                        else if (h.status === "FAILED") stBadge = '<span class="badge badge-crimson">FAILED</span>';
+
+                        return `
+                            <div class="history-card" data-run-id="${escapeHtml(h.run_id)}">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <strong class="code-text">${escapeHtml(h.run_id)}</strong>
+                                    ${stBadge}
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between;">
+                                    <span>${h.total_inputs || 0} files</span>
+                                    <span>${formatDuration(h.wall_time_ns)}</span>
+                                </div>
                             </div>
-                        </div>
-                    `)
-                    .join("");
-            } else {
-                elements.artifactsGrid.innerHTML = '<div class="empty-card">No output artifacts generated.</div>';
-            }
-
-            // Summary Stages Table
-            if (summary.stage_timings && summary.stage_timings.length > 0) {
-                elements.summaryStagesTbody.innerHTML = summary.stage_timings
-                    .map((st) => `<tr>
-                        <td><strong>${escapeHtml(st.stage_name)}</strong></td>
-                        <td>${st.call_count}</td>
-                        <td>${formatDuration(st.duration_ns)}</td>
-                        <td>${formatDuration(st.call_count > 0 ? Math.round(st.duration_ns / st.call_count) : 0)}</td>
-                    </tr>`)
-                    .join("");
-            }
-        }
-
-        // 5. Nirikshana Inspector
-        const inspector = appState.inspector;
-        if (inspector) {
-            if (elements.inspectorDeviceTbody && inspector.device_summaries && inspector.device_summaries.length > 0) {
-                elements.inspectorDeviceTbody.innerHTML = inspector.device_summaries
-                    .map((ds) => `<tr>
-                        <td><strong>${escapeHtml(ds.device_type)}</strong></td>
-                        <td>${ds.execution_count}</td>
-                        <td>${formatDuration(ds.avg_duration_ns)}</td>
-                        <td>${formatDuration(ds.p95_duration_ns)}</td>
-                    </tr>`)
-                    .join("");
-            }
-            if (elements.inspectorLogs && inspector.activity_logs && inspector.activity_logs.length > 0) {
-                elements.inspectorLogs.innerHTML = inspector.activity_logs
-                    .map(([ts, severity, comp, msg]) => {
-                        const sevUpper = (severity || "").toUpperCase();
-                        const sevClass = (sevUpper === "ERROR" || sevUpper === "FAILED")
-                            ? "badge-crimson"
-                            : (sevUpper === "WARN" ? "badge-amber" : "badge-indigo");
-                        return `<div class="log-entry">
-                            <span class="text-muted">[${escapeHtml(ts)}]</span>
-                            <span class="badge ${sevClass}" style="font-size: 10px; padding: 1px 5px; margin: 0 4px;">${escapeHtml(sevUpper)}</span>
-                            <strong>${escapeHtml(comp)}</strong>: ${escapeHtml(msg)}
-                        </div>`;
+                        `;
                     })
                     .join("");
+            } else {
+                elements.historyListContainer.innerHTML = '<div class="text-muted" style="text-align: center; padding: 20px;">No previous terminal runs found.</div>';
             }
         }
     }
@@ -821,7 +1136,9 @@
             .replace(/'/g, "&#039;");
     }
 
-    // Initialize Event Listeners
+    // ==========================================
+    // Initialization & Event Binding
+    // ==========================================
     function init() {
         setupKeyboardShortcuts();
 
@@ -829,6 +1146,14 @@
         elements.navTabs.forEach((tab) => {
             tab.addEventListener("click", () => switchScreen(tab.dataset.screen));
         });
+
+        // Header Actions
+        if (elements.btnOpenHistory) {
+            elements.btnOpenHistory.addEventListener("click", () => toggleHistoryDrawer());
+        }
+        if (elements.btnCloseHistory) {
+            elements.btnCloseHistory.addEventListener("click", () => toggleHistoryDrawer(false));
+        }
 
         // File Selection Buttons
         elements.btnBrowseFiles.addEventListener("click", handleBrowseFiles);
@@ -857,17 +1182,17 @@
                 if (e.target.checked) state.checkedInputPaths.add(p);
                 else state.checkedInputPaths.delete(p);
                 updateClearSelectedButton();
-                if (elements.chkSelectAllInputs && state.intakeItems) {
-                    elements.chkSelectAllInputs.checked =
-                        state.intakeItems.length > 0 &&
-                        state.intakeItems.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
-                }
             }
         });
         elements.selectedInputsTbody.addEventListener("click", (e) => {
-            const btn = e.target.closest(".btn-remove-row");
-            if (btn && btn.dataset.path) {
-                removePaths([btn.dataset.path]);
+            const removeBtn = e.target.closest(".btn-remove-row");
+            if (removeBtn && removeBtn.dataset.path) {
+                removePaths([removeBtn.dataset.path]);
+                return;
+            }
+            const prevBtn = e.target.closest(".btn-preview-file");
+            if (prevBtn && prevBtn.dataset.path) {
+                openDocumentPreview(prevBtn.dataset.path, prevBtn.dataset.path.split(/[\\/]/).pop());
             }
         });
         elements.btnAddManualPath.addEventListener("click", handleAddManualPath);
@@ -904,6 +1229,74 @@
         elements.btnOpenOutputFolder.addEventListener("click", handleOpenOutputFolder);
         elements.btnReturnHome.addEventListener("click", () => switchScreen("home"));
 
+        // Artifact Preview click delegation in Samapti
+        if (elements.artifactsGrid) {
+            elements.artifactsGrid.addEventListener("click", (e) => {
+                const prevBtn = e.target.closest(".btn-preview-artifact");
+                if (prevBtn && prevBtn.dataset.runId && prevBtn.dataset.artId) {
+                    const artUrl = `/api/runs/${encodeURIComponent(prevBtn.dataset.runId)}/artifacts/${encodeURIComponent(prevBtn.dataset.artId)}`;
+                    openDocumentPreview(artUrl, prevBtn.dataset.name);
+                }
+            });
+        }
+
+        // Preview Modal Close
+        if (elements.btnClosePreview && elements.docPreviewDialog) {
+            elements.btnClosePreview.addEventListener("click", () => elements.docPreviewDialog.close());
+        }
+
+        // Pariksha Review Actions
+        if (elements.btnReviewAccept) {
+            elements.btnReviewAccept.addEventListener("click", () => handleReviewAction("accept"));
+        }
+        if (elements.btnReviewDismiss) {
+            elements.btnReviewDismiss.addEventListener("click", () => handleReviewAction("dismiss"));
+        }
+        if (elements.btnReviewEdit) {
+            elements.btnReviewEdit.addEventListener("click", () => {
+                const current = elements.reviewOutputText ? elements.reviewOutputText.textContent : "";
+                const val = prompt("Edit correction proposal:", current);
+                if (val !== null) handleReviewAction("edit");
+            });
+        }
+
+        // Inspector Sub-Tabs & Log Filtering
+        if (elements.inspectorTabs) {
+            elements.inspectorTabs.forEach((tab) => {
+                tab.addEventListener("click", () => {
+                    elements.inspectorTabs.forEach((t) => t.classList.remove("active"));
+                    tab.classList.add("active");
+                    const targetTab = tab.dataset.tab;
+                    elements.inspectorTabContents.forEach((content) => {
+                        content.classList.toggle("hidden", content.id !== `tab-inspector-${targetTab}`);
+                    });
+                });
+            });
+        }
+        if (elements.logPills) {
+            elements.logPills.forEach((pill) => {
+                pill.addEventListener("click", () => {
+                    elements.logPills.forEach((p) => p.classList.remove("active"));
+                    pill.classList.add("active");
+                    state.logFilterLevel = pill.dataset.level;
+                    renderFilteredLogs();
+                });
+            });
+        }
+        if (elements.inputLogSearch) {
+            elements.inputLogSearch.addEventListener("input", (e) => {
+                state.logSearchQuery = e.target.value;
+                renderFilteredLogs();
+            });
+        }
+        if (elements.btnCopyLogs) {
+            elements.btnCopyLogs.addEventListener("click", () => {
+                if (elements.inspectorLogs) {
+                    navigator.clipboard.writeText(elements.inspectorLogs.innerText);
+                }
+            });
+        }
+
         // Error Banner Dismiss
         if (elements.btnDismissError) {
             elements.btnDismissError.addEventListener("click", hideError);
@@ -926,52 +1319,24 @@
             });
         }
 
-        // Page Visibility Polling Optimization
-        document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible") {
-                clearTimeout(state.pollTimer);
-                pollState();
-            }
-        });
-
         updateRequirementOptionsVisibility();
 
-        // Begin Initial State Polling
-        pollState();
+        // Connect Real-Time SSE Stream (with Polling Fallback)
+        initSSE();
     }
 
     function updateRequirementOptionsVisibility() {
-        // Profile row: visible strictly for OCR
         if (elements.profileRow) {
-            if (state.currentRequirement === "ocr") {
-                elements.profileRow.classList.remove("hidden");
-            } else {
-                elements.profileRow.classList.add("hidden");
-            }
+            elements.profileRow.classList.toggle("hidden", state.currentRequirement !== "ocr");
         }
-        // OCR model/lang row: visible strictly for OCR
         if (elements.ocrLangRow) {
-            if (state.currentRequirement === "ocr") {
-                elements.ocrLangRow.classList.remove("hidden");
-            } else {
-                elements.ocrLangRow.classList.add("hidden");
-            }
+            elements.ocrLangRow.classList.toggle("hidden", state.currentRequirement !== "ocr");
         }
-        // OCR custom profile controls: visible strictly for OCR Custom profile
         if (elements.ocrCustomControls) {
-            if (state.currentRequirement === "ocr" && state.currentProfile === "custom") {
-                elements.ocrCustomControls.classList.remove("hidden");
-            } else {
-                elements.ocrCustomControls.classList.add("hidden");
-            }
+            elements.ocrCustomControls.classList.toggle("hidden", !(state.currentRequirement === "ocr" && state.currentProfile === "custom"));
         }
-        // Font conversion mode row: visible strictly for Font Conversion
         if (elements.fontModeRow) {
-            if (state.currentRequirement === "font_conversion") {
-                elements.fontModeRow.classList.remove("hidden");
-            } else {
-                elements.fontModeRow.classList.add("hidden");
-            }
+            elements.fontModeRow.classList.toggle("hidden", state.currentRequirement !== "font_conversion");
         }
     }
 

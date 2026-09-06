@@ -10,6 +10,8 @@ import importlib.resources
 import json
 import mimetypes
 import re
+import socket
+import time
 import urllib.parse
 from dataclasses import dataclass
 from enum import Enum, StrEnum
@@ -21,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.web.native_picker import NativePicker
+from sarathi.mukha.web.preview import build_document_preview
 from sarathi.sankalpa import ExecutionProfile
 
 if TYPE_CHECKING:
@@ -276,11 +279,24 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         elif path == "/app.js":
             self._serve_static_resource("app.js", "application/javascript; charset=utf-8")
             return
+        elif path.startswith("/assets/"):
+            asset_filename = path.removeprefix("/assets/")
+            if ".." in asset_filename or "/" in asset_filename or "\\" in asset_filename:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid asset identifier.")
+                return
+            mime = mimetypes.guess_type(asset_filename)[0] or "application/octet-stream"
+            self._serve_asset_resource(asset_filename, mime)
+            return
 
         # 2. GET /api/state
         elif path == "/api/state":
             app_state = self.mukha_app.get_application_view_state()
             self._send_json(200, {"ok": True, "state": _serialize_dataclass(app_state)})
+            return
+
+        # 2a. GET /api/events (Server-Sent Events)
+        elif path == "/api/events":
+            self._serve_sse_stream()
             return
 
         # 2b. GET /api/history
@@ -306,6 +322,15 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                     run_id = parts[2]
             items = self.mukha_app.get_review_items(run_id)
             self._send_json(200, {"ok": True, "items": list(items)})
+            return
+
+        # 2d. GET /api/preview?path=...
+        elif path == "/api/preview":
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            if "path" not in query_params or not query_params["path"][0].strip():
+                self._send_json(400, {"ok": False, "error": "Missing 'path' query parameter."})
+                return
+            self._serve_document_preview(query_params["path"][0].strip())
             return
 
         # 3. GET /api/runs/<run_id>/inspector
@@ -532,6 +557,68 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self._apply_security_headers(cache_control="no-cache")
         self.end_headers()
         self.wfile.write(content)
+
+    def _serve_asset_resource(self, filename: str, content_type: str) -> None:
+        """Serve packaged asset resource from sarathi.mukha.web.assets or disk."""
+        try:
+            pkg = importlib.resources.files("sarathi.mukha.web.assets")
+            resource = pkg.joinpath(filename)
+            content = resource.read_bytes()
+        except Exception:
+            local_path = Path(__file__).parent / "assets" / filename
+            if not local_path.is_file():
+                self.send_error(HTTPStatus.NOT_FOUND, f"Asset {filename} not found.")
+                return
+            content = local_path.read_bytes()
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content)))
+        self._apply_security_headers(cache_control="public, max-age=3600")
+        self.end_headers()
+        self.wfile.write(content)
+
+    def _serve_sse_stream(self) -> None:
+        """Stream real-time presentation state and progress events over Server-Sent Events (SSE)."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self._apply_security_headers(cache_control="no-cache")
+        self.end_headers()
+
+        last_serialized: str | None = None
+        last_ping = time.time()
+
+        try:
+            while not getattr(self.server, "_shutting_down", False):
+                now = time.time()
+                app_state = self.mukha_app.get_application_view_state()
+                serialized = json.dumps({"ok": True, "state": _serialize_dataclass(app_state)}, ensure_ascii=False)
+                is_running = bool(app_state.active_run and app_state.active_run.status == "RUNNING")
+
+                if serialized != last_serialized or is_running:
+                    last_serialized = serialized
+                    payload = f"event: state\ndata: {serialized}\n\n".encode("utf-8")
+                    self.wfile.write(payload)
+                    self.wfile.flush()
+
+                if now - last_ping >= 15.0:
+                    last_ping = now
+                    self.wfile.write(b"event: ping\ndata: {}\n\n")
+                    self.wfile.flush()
+
+                time.sleep(0.5 if is_running else 1.5)
+        except (ConnectionResetError, BrokenPipeError, socket.error, OSError):
+            return
+        except Exception:
+            return
+
+    def _serve_document_preview(self, path_str: str) -> None:
+        """Serve safe structured preview data for a candidate input document or output file."""
+        status_code, payload = build_document_preview(path_str)
+        self._send_json(status_code, payload)
 
     def _serve_confirmed_artifact(self, run_id: str, artifact_id: str) -> None:
         """Stream confirmed artifact file safely by resolving run_id and artifact_id."""

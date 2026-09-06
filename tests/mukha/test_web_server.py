@@ -617,3 +617,59 @@ def test_api_payload_validation_rejects_malformed(web_server: MukhaWebServer) ->
     )
     assert status == 400
     assert resp["ok"] is False
+
+
+def test_static_assets_serving(web_server: MukhaWebServer) -> None:
+    """GET /assets/icons.svg serves SVG icon sprites from assets package."""
+    status, body, headers = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/assets/icons.svg")
+    assert status == 200
+    assert b"<svg" in body
+    assert b"icon-file" in body
+
+
+def test_api_events_sse(web_server: MukhaWebServer) -> None:
+    """GET /api/events establishes text/event-stream with initial state event."""
+    req = urllib.request.Request(f"http://127.0.0.1:{web_server.resolved_port}/api/events")
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
+        assert resp.status == 200
+        content_type = resp.headers.get("Content-Type", "")
+        assert "text/event-stream" in content_type
+        line1 = resp.readline().decode("utf-8")
+        line2 = resp.readline().decode("utf-8")
+        assert "event: state" in line1 or "event: ping" in line1 or "data:" in line1 or "data:" in line2
+
+
+def test_api_preview_text_and_tabular(web_server: MukhaWebServer, tmp_path: Path) -> None:
+    """GET /api/preview serves structured text and tabular CSV previews."""
+    # Text file
+    txt_file = tmp_path / "sample.txt"
+    txt_file.write_text("Hello Sarathi Modern Web!", encoding="utf-8")
+    status, data, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path={urllib.parse.quote(str(txt_file))}"
+    )
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    assert res["type"] == "text"
+    assert "Hello Sarathi" in res["content"]
+
+    # Tabular CSV file
+    csv_file = tmp_path / "data.csv"
+    csv_file.write_text("col1,col2\nval1,val2\nval3,val4\n", encoding="utf-8")
+    status_csv, data_csv, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path={urllib.parse.quote(str(csv_file))}"
+    )
+    assert status_csv == 200
+    res_csv = json.loads(data_csv.decode("utf-8"))
+    assert res_csv["ok"] is True
+    assert res_csv["type"] == "tabular"
+    assert res_csv["headers"] == ["col1", "col2"]
+    assert len(res_csv["rows"]) == 2
+
+
+def test_api_preview_traversal_rejected(web_server: MukhaWebServer) -> None:
+    """GET /api/preview rejects directory traversal attempts."""
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path=../../etc/passwd")
+    assert status == 400
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is False

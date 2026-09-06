@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sarathi V2 — Document Intelligence</title>
+    <title>Sarathi V2 — Document Intelligence Console</title>
     <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -29,6 +29,8 @@
                     <span class="brand-subtitle">Local Document Intelligence</span>
                 </div>
             </div>
+
+            <!-- Primary 5-Screen Navigation -->
             <nav class="screen-nav">
                 <button class="nav-tab active" data-screen="home"><span class="shortcut">F1</span> Griha</button>
                 <button class="nav-tab" data-screen="monitor"><span class="shortcut">F2</span> Pravritti</button>
@@ -36,9 +38,19 @@
                 <button class="nav-tab" data-screen="summary"><span class="shortcut">F4</span> Samapti</button>
                 <button class="nav-tab" data-screen="inspector"><span class="shortcut">F5</span> Nirikshana</button>
             </nav>
-            <div class="header-status">
-                <span id="system-status-dot" class="status-dot online"></span>
-                <span id="system-status-text">Ready</span>
+
+            <!-- Header Right Controls -->
+            <div class="header-actions">
+                <div id="sse-status-badge" class="sse-badge" title="Server-Sent Events Real-Time Channel">
+                    <span class="status-dot online"></span>
+                    <span id="sse-status-label">SSE LIVE</span>
+                </div>
+                <div class="header-status">
+                    <span id="system-status-dot" class="status-dot online"></span>
+                    <span id="system-status-text">Ready</span>
+                </div>
+                <button id="btn-open-history" class="btn-header-icon" title="Terminal Run History (Ctrl+H)">🕒</button>
+                <button id="btn-command-palette" class="btn-header-icon" title="Command Palette (Ctrl+P)">⌘</button>
             </div>
         </header>
 
@@ -69,7 +81,7 @@
                             </div>
 
                             <div class="path-entry-row">
-                                <input type="text" id="input-manual-path" placeholder="Or paste absolute file or folder path...">
+                                <input type="text" id="input-manual-path" placeholder="Paste absolute file or folder path...">
                                 <button id="btn-add-manual-path" class="btn btn-secondary">Add</button>
                             </div>
 
@@ -81,9 +93,9 @@
                             </div>
 
                             <!-- Grouped Summary Pills for Batches -->
-                            <div id="input-groups-container" class="input-groups-box hidden" style="margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
+                            <div id="input-groups-container" class="input-groups-box hidden" style="margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
 
-                            <!-- Selected Inputs Table -->
+                            <!-- Selected Inputs Table with Preview Actions -->
                             <div class="table-container input-table-container">
                                 <table class="data-table">
                                     <thead>
@@ -92,7 +104,7 @@
                                             <th>Document Name</th>
                                             <th>Size</th>
                                             <th>Status</th>
-                                            <th style="width: 48px; text-align: center;">Action</th>
+                                            <th style="width: 90px; text-align: center;">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="selected-inputs-tbody">
@@ -160,8 +172,8 @@
                             </div>
 
                             <!-- OCR Custom Configuration Controls -->
-                            <div id="ocr-custom-controls" class="form-row hidden" style="border: 1px solid var(--border-subtle); padding: 10px; border-radius: 6px; margin-top: 8px;">
-                                <label class="form-label" style="font-weight: 600; margin-bottom: 6px;">Custom OCR Settings</label>
+                            <div id="ocr-custom-controls" class="form-row hidden" style="border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); margin-top: 8px; background: rgba(8, 12, 20, 0.5);">
+                                <label class="form-label" style="font-weight: 600; margin-bottom: 8px;">Custom OCR Settings</label>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">
                                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                                         <input type="checkbox" id="chk-ocr-preprocess" checked> Preprocessing
@@ -188,9 +200,9 @@
                             <div id="font-mode-row" class="form-row hidden">
                                 <label class="form-label" for="select-font-mode">Conversion Target</label>
                                 <select id="select-font-mode" class="form-select">
-                                    <option value="auto_unicode" selected>Auto-Detect & Convert to Unicode (Detects mixed legacy fonts and converts them to Unicode)</option>
-                                    <option value="to_krutidev">Convert to KrutiDev (Converts mixed-font content into KrutiDev encoding)</option>
-                                    <option value="to_devlys">Convert to DevLys (Converts mixed-font content into DevLys encoding)</option>
+                                    <option value="auto_unicode" selected>Auto-Detect & Convert to Unicode</option>
+                                    <option value="to_krutidev">Convert to KrutiDev</option>
+                                    <option value="to_devlys">Convert to DevLys</option>
                                 </select>
                             </div>
 
@@ -200,11 +212,11 @@
                                     <strong>Preflight Status:</strong>
                                     <span id="preflight-summary">Ready to run</span>
                                 </div>
-                                <div id="preflight-issues" class="preflight-issues hidden"></div>
+                                <div id="preflight-issues" class="preflight-issues hidden" style="margin-top: 8px; font-size: 12px; color: var(--accent-amber);"></div>
                             </div>
 
                             <!-- Run Action -->
-                            <div class="run-action-row">
+                            <div class="run-action-row" style="margin-top: 8px;">
                                 <button id="btn-start-run" class="btn btn-start" disabled>▶ Start Document Processing</button>
                             </div>
                         </div>
@@ -228,7 +240,7 @@
                         <button id="btn-cancel-run" class="btn btn-danger" disabled>⏹ Cancel Run</button>
                     </div>
 
-                    <!-- Progress Bar -->
+                    <!-- Determinate / Shimmer Progress Bar -->
                     <div class="progress-bar-container" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
                         <div id="monitor-progress-bar" class="progress-bar" style="width: 0%;"></div>
                     </div>
@@ -350,10 +362,11 @@
             <section id="screen-review" class="screen-view">
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>🔍 Pariksha — Review Queue</h2>
+                        <h2>🔍 Pariksha — Review & Exception Auditing</h2>
                         <span id="review-queue-count" class="badge badge-amber">0 items</span>
                     </div>
                     <div class="panel-body">
+                        <!-- Review Queue Table -->
                         <div class="table-container">
                             <table class="data-table">
                                 <thead>
@@ -363,13 +376,45 @@
                                         <th>Stage</th>
                                         <th>Confidence</th>
                                         <th>Issue Reason</th>
-                                        <th>Actions</th>
+                                        <th style="width: 120px; text-align: center;">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="review-queue-tbody">
                                     <tr class="empty-row"><td colspan="6">No items currently require human review.</td></tr>
                                 </tbody>
                             </table>
+                        </div>
+
+                        <!-- Interactive Side-by-Side Review Inspector -->
+                        <div id="review-detail-card" class="panel hidden" style="margin-top: 16px; background: rgba(8, 12, 20, 0.7);">
+                            <div class="panel-header">
+                                <h3>Comparative Exception Inspector: <span id="review-active-item-title" class="code-text">—</span></h3>
+                                <div class="button-group">
+                                    <button id="btn-review-accept" class="btn btn-primary btn-sm">✓ Accept</button>
+                                    <button id="btn-review-edit" class="btn btn-secondary btn-sm">✎ Edit Correction</button>
+                                    <button id="btn-review-dismiss" class="btn btn-outline btn-sm">✕ Dismiss</button>
+                                </div>
+                            </div>
+                            <div class="panel-body">
+                                <div class="review-diff-container">
+                                    <div class="review-diff-box">
+                                        <span class="diff-title">Original Source Context</span>
+                                        <div id="review-source-text" class="diff-content">Loading source snippet...</div>
+                                    </div>
+                                    <div class="review-diff-box">
+                                        <span class="diff-title">Extracted / Converted Output</span>
+                                        <div id="review-output-text" class="diff-content">Loading output snippet...</div>
+                                    </div>
+                                </div>
+
+                                <div class="confidence-meter">
+                                    <span class="form-label" style="margin: 0;">Measured Confidence:</span>
+                                    <div class="confidence-meter-track">
+                                        <div id="review-confidence-fill" class="confidence-meter-fill" style="width: 0%; background: var(--accent-amber);"></div>
+                                    </div>
+                                    <strong id="review-confidence-text" class="code-text">—%</strong>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -385,7 +430,7 @@
                             <p id="summary-run-meta" class="text-muted">Run ID: — | Total Time: —</p>
                             <p id="summary-failure-reason" class="text-crimson failure-reason-msg hidden"></p>
                         </div>
-                        <div class="hero-right">
+                        <div class="hero-right" style="display: flex; gap: 10px;">
                             <button id="btn-open-output-folder" class="btn btn-primary btn-lg">📂 Open Output Folder</button>
                             <button id="btn-return-home" class="btn btn-outline btn-lg">➕ New Run</button>
                         </div>
@@ -411,14 +456,14 @@
                         </div>
                     </div>
 
-                    <!-- Confirmed Artifacts Cards -->
+                    <!-- Confirmed Artifacts Cards with Preview & Download -->
                     <div class="panel">
                         <div class="panel-header">
                             <h3>📦 Confirmed Output Artifacts</h3>
                         </div>
                         <div class="panel-body">
                             <div id="artifacts-grid" class="artifacts-grid">
-                                <div class="empty-card">No output artifacts generated.</div>
+                                <div class="empty-card" style="grid-column: 1/-1; text-align: center; padding: 24px; color: var(--text-muted);">No output artifacts generated.</div>
                             </div>
                         </div>
                     </div>
@@ -454,36 +499,139 @@
                         <h2>🔬 Nirikshana — Execution Inspector & Telemetry</h2>
                     </div>
                     <div class="panel-body">
-                        <div class="inspector-grid">
-                            <div class="inspector-section">
-                                <h3>Hardware & Execution Spans</h3>
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Device</th>
-                                            <th>Executions</th>
-                                            <th>Avg Duration</th>
-                                            <th>P95 Duration</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="inspector-device-tbody">
-                                        <tr class="empty-row"><td colspan="4">No hardware spans recorded.</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                        <!-- Inspector Sub-Tabs -->
+                        <div class="inspector-sub-nav">
+                            <button class="inspector-tab active" data-tab="activity">Activity (Logs)</button>
+                            <button class="inspector-tab" data-tab="performance">Performance & Spans</button>
+                            <button class="inspector-tab" data-tab="quality">Quality & Accuracy</button>
+                            <button class="inspector-tab" data-tab="system">System & Health</button>
+                        </div>
 
-                            <div class="inspector-section">
-                                <h3>Activity Logs</h3>
-                                <div id="inspector-logs" class="log-stream-box">
-                                    <div class="log-entry text-muted">[Ready] Mukha Inspector initialized.</div>
+                        <!-- Tab 1: Activity Logs -->
+                        <div id="tab-inspector-activity" class="inspector-tab-content">
+                            <div class="log-filter-bar">
+                                <input type="text" id="input-log-search" placeholder="Search log entries...">
+                                <div class="log-pills">
+                                    <button class="log-pill active" data-level="ALL">ALL</button>
+                                    <button class="log-pill" data-level="INFO">INFO</button>
+                                    <button class="log-pill" data-level="WARN">WARN</button>
+                                    <button class="log-pill" data-level="ERROR">ERROR</button>
+                                </div>
+                                <button id="btn-copy-logs" class="btn btn-outline btn-sm">📋 Copy</button>
+                            </div>
+                            <div id="inspector-logs" class="log-stream-box">
+                                <div class="log-entry text-muted">[Ready] Mukha Inspector initialized.</div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Performance Spans -->
+                        <div id="tab-inspector-performance" class="inspector-tab-content hidden">
+                            <div class="inspector-grid">
+                                <div class="inspector-section">
+                                    <h3>Hardware Device Summary</h3>
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Device</th>
+                                                <th>Executions</th>
+                                                <th>Avg Duration</th>
+                                                <th>P95 Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="inspector-device-tbody">
+                                            <tr class="empty-row"><td colspan="4">No hardware spans recorded.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="inspector-section">
+                                    <h3>Stage Timing Distribution</h3>
+                                    <div id="inspector-waterfall" class="table-container" style="max-height: 250px;">
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Stage</th>
+                                                    <th>Calls</th>
+                                                    <th>Total Duration</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="inspector-stages-tbody">
+                                                <tr class="empty-row"><td colspan="3">No stage records.</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Tab 3: Quality Telemetry -->
+                        <div id="tab-inspector-quality" class="inspector-tab-content hidden">
+                            <div class="panel" style="background: rgba(8, 12, 20, 0.6);">
+                                <div class="panel-header"><h3>Confidence Distribution</h3></div>
+                                <div class="panel-body">
+                                    <div id="quality-distribution-box" style="display: flex; gap: 16px; flex-wrap: wrap;">
+                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
+                                            <span class="stat-label">90% - 100% (High)</span>
+                                            <span id="stat-conf-high" class="stat-value text-emerald">—</span>
+                                        </div>
+                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
+                                            <span class="stat-label">80% - 89% (Normal)</span>
+                                            <span id="stat-conf-mid" class="stat-value text-cyan">—</span>
+                                        </div>
+                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
+                                            <span class="stat-label">70% - 79% (Review)</span>
+                                            <span id="stat-conf-low" class="stat-value text-amber">—</span>
+                                        </div>
+                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
+                                            <span class="stat-label">&lt; 70% (Critical)</span>
+                                            <span id="stat-conf-crit" class="stat-value text-crimson">—</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 4: System Health & Security -->
+                        <div id="tab-inspector-system" class="inspector-tab-content hidden">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Property</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="system-facts-tbody">
+                                    <tr><td>Binding Host</td><td>127.0.0.1 (Strict Loopback)</td></tr>
+                                    <tr><td>Security Policy</td><td>Kavacha Local Isolation</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
             </section>
         </main>
     </div>
+
+    <!-- Document Preview Modal Dialog -->
+    <dialog id="doc-preview-dialog" class="preview-modal-dialog">
+        <div class="preview-header">
+            <h3 id="preview-modal-title">Document Preview</h3>
+            <button id="btn-close-preview" class="btn btn-outline btn-sm">✕ Close</button>
+        </div>
+        <div id="preview-modal-content" class="preview-content-box">
+            <div class="spinner"></div>
+        </div>
+    </dialog>
+
+    <!-- Run History Drawer -->
+    <aside id="history-drawer" class="history-drawer">
+        <div class="drawer-header">
+            <h3>Terminal Run History</h3>
+            <button id="btn-close-history" class="btn btn-outline btn-sm">✕</button>
+        </div>
+        <div id="history-list-container" class="drawer-body">
+            <div class="text-muted" style="text-align: center; padding: 20px;">Loading history...</div>
+        </div>
+    </aside>
 
     <!-- Cancel Run Confirmation Dialog -->
     <dialog id="cancel-run-dialog" class="modal-dialog">
