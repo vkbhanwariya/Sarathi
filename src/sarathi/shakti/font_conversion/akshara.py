@@ -138,5 +138,8 @@ def synthesize_akshara_unicode(text: str) -> str:
     # Clean up orphan chhoti-i matra preceded by another dependent vowel matra
     text = re.sub(rf"({DEVA_MATRAS})\u093f", r"\1", text)
 
+    # Repair inadvertent typist spacing between consonant/cluster and dependent vowel matra or virama (e.g. 'क  ा' -> 'का', 'क  ्' -> 'क्')
+    text = re.sub(rf"({DEVA_CONSONANTS}{DEVA_NUKTA}?)\s+({DEVA_MATRAS}|{DEVA_VIRAMA})", r"\1\2", text)
+
     # Standard NFC normalization
     return unicodedata.normalize("NFC", text)

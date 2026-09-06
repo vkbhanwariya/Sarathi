@@ -83,7 +83,7 @@ Font detection is deterministic, multi-tiered, and strictly evidence-driven:
    - If a batch contains mixed empty and non-empty documents, empty documents are preserved with a classified warning (`EMPTY_DOCUMENT_SKIPPED`), while non-empty documents are converted cleanly.
 4. **Strict Source Input Association**:
    - DOCX artifacts are bound strictly by matching `doc.source_input_id == inp.input_id`. Positional array indexing fallback is forbidden.
-5. **Devanagari Structural Validation**:
-   - Converted text must pass `validate_devanagari_structure()`. Any structural collapse, orphan matra/halant at boundaries, doubled virama, or consecutive conflicting matras raises classified `DoshError(FailureCode.VALIDATION_FAILED)`. No fake success is permitted.
+5. **Devanagari Structural Validation & Defect Auditing**:
+   - Converted Devanagari text is audited with `validate_devanagari_structure()` at the document level. Any structural anomalies, orphan matra/halant at boundaries, doubled virama, or consecutive conflicting matras increment `metrics.structural_failures` and record a classified warning (`DEVANAGARI_STRUCTURAL_DEFECT`), allowing document conversion to complete, generate artifacts, and report actionable warnings on the result screen without aborting operator work over single typographical matra errors.
 6. **Pramana Telemetry**:
    - Emits structured `ConversionMetrics` in `ProvenanceRecord.evidence` detailing runs scanned, converted, preserved, ambiguous, and mapping coverage.
