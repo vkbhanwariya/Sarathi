@@ -1,12 +1,22 @@
-"""Architectural boundary tests asserting AST isolation and import-linter contract adherence."""
+"""Architectural boundary tests asserting AST isolation and import-linter contract adherence.
+
+All boundary rules and group memberships are derived directly from Vedas/architecture.manifest.json,
+ensuring the manifest remains the single dependency authority.
+"""
 
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
 from importlinter.cli import lint_imports
+
+
+def _load_manifest() -> dict:
+    manifest_path = Path(__file__).resolve().parents[2] / "Vedas" / "architecture.manifest.json"
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.architecture
@@ -20,18 +30,12 @@ class TestArchitecturalBoundaries:
 
     def test_sankalpa_does_not_import_higher_layers(self) -> None:
         """sankalpa (contracts) must not import runtime or capabilities."""
+        manifest = _load_manifest()
         sankalpa_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "sankalpa"
-        forbidden = (
-            "sarathi.nabhi",
-            "sarathi.shakti",
-            "sarathi.agni",
-            "sarathi.mukha",
-            "sarathi.smriti",
-            "sarathi.yantra",
-            "sarathi.sutra",
-            "sarathi.darpana",
-            "sarathi.kavacha",
-        )
+        all_packages = {m["package"] for m in manifest["modules"].values()}
+        allowed = set(manifest["modules"]["sankalpa"].get("may_import", [])) | {"sarathi.sankalpa"}
+        forbidden = tuple(sorted(p for p in all_packages if p not in allowed))
+
         violations: list[str] = []
         for py_file in sankalpa_dir.rglob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
@@ -48,16 +52,10 @@ class TestArchitecturalBoundaries:
 
     def test_mukha_does_not_import_concrete_shakti_internals(self) -> None:
         """mukha presentation must not import concrete shakti capabilities or provider catalog."""
+        manifest = _load_manifest()
         mukha_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "mukha"
-        forbidden = (
-            "sarathi.shakti.providers",
-            "sarathi.shakti.ocr",
-            "sarathi.shakti.font_conversion",
-            "sarathi.shakti.bank_statements",
-            "sarathi.shakti.translation",
-            "sarathi.shakti.native_extraction",
-            "sarathi.shakti.darshana",
-        )
+        forbidden = tuple(sorted(manifest["groups"]["shakti_plugins"]["members"] + ["sarathi.shakti.providers"]))
+
         violations: list[str] = []
         for py_file in mukha_dir.rglob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
@@ -74,15 +72,10 @@ class TestArchitecturalBoundaries:
 
     def test_nabhi_generic_does_not_import_concrete_capabilities(self) -> None:
         """Generic nabhi modules must not import concrete capabilities (except dvara -> shakti.providers)."""
+        manifest = _load_manifest()
         nabhi_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "nabhi"
-        forbidden = (
-            "sarathi.shakti.ocr",
-            "sarathi.shakti.font_conversion",
-            "sarathi.shakti.bank_statements",
-            "sarathi.shakti.translation",
-            "sarathi.shakti.native_extraction",
-            "sarathi.shakti.darshana",
-        )
+        forbidden = tuple(sorted(manifest["groups"]["shakti_plugins"]["members"]))
+
         violations: list[str] = []
         for py_file in nabhi_dir.rglob("*.py"):
             tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
@@ -118,15 +111,11 @@ class TestArchitecturalBoundaries:
 
     def test_cross_shakti_plugin_isolation(self) -> None:
         """Plugins under shakti must not import internals of sibling plugins directly."""
+        manifest = _load_manifest()
         shakti_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "shakti"
-        plugins = [
-            "bank_statements",
-            "darshana",
-            "font_conversion",
-            "native_extraction",
-            "ocr",
-            "translation",
-        ]
+        plugin_members = manifest["groups"]["shakti_plugins"]["members"]
+        plugins = [p.split(".")[-1] for p in plugin_members]
+
         violations: list[str] = []
         for plugin in plugins:
             plugin_path = shakti_dir / plugin

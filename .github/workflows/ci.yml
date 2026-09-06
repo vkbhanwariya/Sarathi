@@ -27,10 +27,19 @@ jobs:
         run: uv sync --all-extras --group dev
 
       - name: Bytecode compilation check
-        run: uv run python -m compileall -q src tests
+        run: uv run python -m compileall -q src tests tools
 
       - name: Ruff lint check
-        run: uv run ruff check src tests
+        run: uv run ruff check .
 
-      - name: Run test suite
+      - name: Architecture manifest validation
+        run: uv run python -m tools.architecture.validate_manifest
+
+      - name: Import Linter check
+        run: uv run lint-imports
+
+      - name: Architecture tests (fast fail)
+        run: uv run --group dev pytest -q -m architecture
+
+      - name: Run full test suite
         run: uv run --group dev --all-extras pytest -q
