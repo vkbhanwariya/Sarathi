@@ -289,3 +289,47 @@ def test_duplicate_decision_no_stale_aliases() -> None:
     assert hasattr(DuplicateDecision, "DISTINCT")
     assert not hasattr(DuplicateDecision, "PROVEN")
     assert not hasattr(DuplicateDecision, "PROBABLE")
+
+
+def test_invalid_date_does_not_inherit_previous_date() -> None:
+    """R03 Fix: Invalid non-blank date must emit INVALID_TRANSACTION_DATE and not inherit predecessor date."""
+    cap = BankStatementCapability()
+
+    table = TableData(
+        name="txns",
+        headers=("Date", "Narration", "Withdrawal", "Deposit", "Balance"),
+        rows=(
+            ("01/01/2026", "Valid Txn 1", "100.00", "", "1000.00"),
+            ("31/02/2026", "Invalid Date Txn", "50.00", "", "950.00"),
+            ("", "Continuation Txn with Blank Date", "25.00", "", "925.00"),
+        ),
+    )
+
+    doc = CanonicalDocument(
+        document_id="doc-bad-date",
+        source_input_id="inp-bad-date",
+        text="State Bank of India Statement Account Number: 12345678901",
+        tables=(table,),
+    )
+
+    req = Request(
+        request_id="req-test-bad-date",
+        requirement="bank_statements",
+        inputs=(InputRef("i1", Path("test.csv"), "test.csv", 100),),
+    )
+    ctx = ExecutionContext("run-bad-date", "req-test-bad-date", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+
+    # Verify INVALID_TRANSACTION_DATE is recorded in statement issues
+    invalid_date_issues = [iss for iss in stmt.issues if iss.code == "INVALID_TRANSACTION_DATE"]
+    assert len(invalid_date_issues) == 1
+    assert "31/02/2026" in invalid_date_issues[0].message
+
+    # Verify transactions: Valid Txn 1 and Continuation Txn (which inherited 01/01/2026) are present,
+    # but Invalid Date Txn is NOT present with an inherited date
+    assert len(stmt.transactions) == 2
+    assert stmt.transactions[0].description == "Valid Txn 1"
+    assert stmt.transactions[0].transaction_date == date(2026, 1, 1)
+    assert stmt.transactions[1].description == "Continuation Txn with Blank Date"
+    assert stmt.transactions[1].transaction_date == date(2026, 1, 1)

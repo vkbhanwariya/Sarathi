@@ -54,6 +54,7 @@ _CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 
 _EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "w/d", "out", "paid out"})
 _EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "dep", "in", "paid in"})
+_BLANK_DATE_MARKERS = frozenset({"", "-", "--", "''", '"', "do", "ditto", "same"})
 
 
 class BankStatementCapability:
@@ -300,16 +301,28 @@ class BankStatementCapability:
                             )
                             issues.append(iss)
                     case RowType.TRANSACTION:
-                        tx_date = parse_date(_get_cell(row_cells, d_col))
-                        # Inherit date from previous transaction ONLY within the same table
-                        if tx_date is None and table_txns:
+                        raw_date_cell = _get_cell(row_cells, d_col)
+                        tx_date = parse_date(raw_date_cell)
+                        is_blank_date = (
+                            raw_date_cell is None
+                            or not raw_date_cell.strip()
+                            or raw_date_cell.strip().lower() in _BLANK_DATE_MARKERS
+                        )
+                        # Inherit date from previous transaction ONLY if date cell is blank/continuation and within the same table
+                        if tx_date is None and is_blank_date and table_txns:
                             tx_date = table_txns[-1].transaction_date
 
                         if tx_date is None:
-                            # Financial row has no date and cannot inherit: record explicit issue
+                            # If date cell was not blank, it was an invalid date format; otherwise missing date
+                            err_code = "MISSING_TRANSACTION_DATE" if is_blank_date else "INVALID_TRANSACTION_DATE"
+                            err_msg = (
+                                f"Row {row_idx}: Transaction row lacks a valid date and has no predecessor in table to inherit from."
+                                if is_blank_date
+                                else f"Row {row_idx}: Transaction row contains invalid date '{raw_date_cell}' and cannot be parsed."
+                            )
                             iss = ValidationIssue(
-                                code="MISSING_TRANSACTION_DATE",
-                                message=f"Row {row_idx}: Transaction row lacks a valid date and has no predecessor in table to inherit from.",
+                                code=err_code,
+                                message=err_msg,
                                 severity="error",
                                 context={"row_index": row_idx, "page_number": page_num},
                             )

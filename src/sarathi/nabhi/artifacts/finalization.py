@@ -25,29 +25,32 @@ def cleanup_workspace_on_failure(
     preserve_partial: bool,
     partial_artifacts: list[Path] | None = None,
 ) -> None:
-    """Clean up uncommitted staging data, committed artifacts, and non-preserved partial data upon failure."""
+    """Clean up uncommitted staging data and non-preserved partial data upon failure.
+
+    Committed artifacts are ALWAYS retained for recovery per Core Runtime requirements.
+    """
     try:
         # 1. Clean staging directory
         if staging_dir.exists():
             shutil.rmtree(staging_dir)
 
-        # 2. Clean ordinary committed artifacts
-        for art in committed_artifacts:
-            if art.path.exists():
-                art.path.unlink(missing_ok=True)
-
-        # 3. Clean partial directory if not preserving partials
+        # 2. Clean partial directory if not preserving partials
         if not preserve_partial:
             partial_dir = output_dir / "partial"
             if partial_dir.exists():
                 shutil.rmtree(partial_dir)
 
-        # 4. If output directory is empty (no preserved partials), remove it
+        # 3. If output directory has no committed artifacts and no preserved partials, remove it
         if output_dir.exists():
             partial_dir = output_dir / "partial"
             has_partials = preserve_partial and partial_dir.exists() and any(partial_dir.iterdir())
-            if not has_partials:
-                shutil.rmtree(output_dir)
+            has_committed = any(art.path.exists() for art in committed_artifacts)
+            if not has_partials and not has_committed:
+                try:
+                    if not any(output_dir.iterdir()):
+                        shutil.rmtree(output_dir)
+                except OSError:
+                    pass
     except OSError as exc:
         raise DoshError(
             code=FailureCode.EXECUTION_FAILED,

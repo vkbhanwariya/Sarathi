@@ -102,20 +102,27 @@ def test_translation_provider_readiness_probe(tmp_path: Path) -> None:
     assert "model assets" in res_incomplete["translation"].reason
 
     # All required assets present for both directions
+    (tmp_path / "translation" / "manifest.json").write_text('{"version": "1.0"}', encoding="utf-8")
     for lang in ("hi-en", "en-hi"):
         (data_dir / lang / "model.bin").write_bytes(b"dummy")
         (data_dir / lang / "spm.model").write_bytes(b"dummy")
         (data_dir / lang / "shared_vocabulary.json").write_text("{}", encoding="utf-8")
 
     res_ready = trans_p.readiness(services)
-    # Ready if ctranslate2 is installed
+    # Ready if ctranslate2 and sentencepiece are installed
     import importlib.util
 
-    if importlib.util.find_spec("ctranslate2") is not None:
+    if (
+        importlib.util.find_spec("ctranslate2") is not None
+        and importlib.util.find_spec("sentencepiece") is not None
+    ):
         assert res_ready["translation"].ready is True
     else:
         assert res_ready["translation"].ready is False
-        assert "ctranslate2 extra" in res_ready["translation"].reason
+        assert (
+            "ctranslate2" in res_ready["translation"].reason
+            or "sentencepiece" in res_ready["translation"].reason
+        )
 
 
 def test_agni_audit_readiness_memoization(tmp_path: Path) -> None:

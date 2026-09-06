@@ -38,18 +38,40 @@ class TranslationProvider(PluginProvider):
             TranslationCapability,
         )
 
+        trans_data_root = (
+            services.data_root
+            if services.data_root and services.data_root.name == "translation"
+            else (
+                (services.data_root / "translation")
+                if services.data_root
+                else get_canonical_data_root() / "translation"
+            )
+        )
+
         return {
             "translation": TranslationCapability(
                 darpana=services.darpana,
                 yantra=services.yantra,
-                data_root=services.data_root,
+                data_root=trans_data_root,
             )
         }
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:
-        base_data = (services.data_root if services and services.data_root else get_canonical_data_root()) / "translation"
+        base_data = (
+            services.data_root
+            if services and services.data_root and services.data_root.name == "translation"
+            else (
+                (services.data_root / "translation")
+                if services and services.data_root
+                else get_canonical_data_root() / "translation"
+            )
+        )
         try:
-            trans_installed = importlib.util.find_spec("ctranslate2") is not None
+            ctranslate2_spec = importlib.util.find_spec("ctranslate2")
+            sentencepiece_spec = importlib.util.find_spec("sentencepiece")
+            manifest_file = base_data / "manifest.json"
+            manifest_exists = manifest_file.is_file()
+
             trans_models = base_data / "models"
             hi_en_model = trans_models / "hi-en"
             en_hi_model = trans_models / "en-hi"
@@ -63,7 +85,9 @@ class TranslationProvider(PluginProvider):
                 )
 
             models_ready = trans_models.is_dir() and _is_complete_model(hi_en_model) and _is_complete_model(en_hi_model)
-            if trans_installed and models_ready:
+            trans_installed = ctranslate2_spec is not None and sentencepiece_spec is not None
+
+            if trans_installed and manifest_exists and models_ready:
                 return {
                     "translation": CapabilityReadiness(
                         ready=True,
@@ -73,8 +97,12 @@ class TranslationProvider(PluginProvider):
                 }
 
             missing_parts = []
-            if not trans_installed:
-                missing_parts.append("ctranslate2 extra")
+            if ctranslate2_spec is None:
+                missing_parts.append("ctranslate2")
+            if sentencepiece_spec is None:
+                missing_parts.append("sentencepiece")
+            if not manifest_exists:
+                missing_parts.append("manifest.json")
             if not models_ready:
                 missing_parts.append("model assets")
             return {

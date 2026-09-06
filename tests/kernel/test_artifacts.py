@@ -491,9 +491,9 @@ class TestCleanupAndPartialPreservation:
                 ws.finalize(success=True)
 
         assert exc_info.value.code is FailureCode.EXECUTION_FAILED
-        # Staging directory and committed files are cleaned up on failure
+        # Staging directory is cleaned up on failure, but committed artifacts are retained per Core Runtime Spec
         committed_file = ws.output_dir / "test.txt"
-        assert not committed_file.exists()
+        assert committed_file.exists()
         assert not ws.staging_dir.exists()
 
     def test_cleanup_failure_during_manifest_serialization_is_observable_and_safe(
@@ -559,9 +559,9 @@ class TestCleanupAndPartialPreservation:
             assert staging_dir.exists()
             assert (output_dir / "out.txt").exists()
 
-        # Unfinalized exit: staging and ordinary committed artifacts are removed
+        # Unfinalized exit: staging is removed, but confirmed committed artifacts are retained
         assert staging_dir is not None and not staging_dir.exists()
-        assert not (output_dir / "out.txt").exists()
+        assert (output_dir / "out.txt").exists()
 
     def test_normal_context_exit_without_finalize_with_preserve_partial_retains_partial(
         self, boundary: ArtifactBoundary
@@ -588,10 +588,10 @@ class TestCleanupAndPartialPreservation:
             assert (output_dir / "out.txt").exists()
             assert partial_file is not None and partial_file.exists()
 
-        # Staging is removed, committed artifact removed, partial/ preserved
+        # Staging is removed, committed artifact and partial/ preserved
         assert staging_dir is not None and not staging_dir.exists()
         assert output_dir is not None and output_dir.exists()
-        assert not (output_dir / "out.txt").exists()
+        assert (output_dir / "out.txt").exists()
         assert partial_file is not None and partial_file.exists()
         assert (output_dir / "partial" / "part.json").exists()
 
@@ -614,7 +614,7 @@ class TestCleanupAndPartialPreservation:
         assert err.__cause__ is not None
         assert isinstance(err.__cause__, PermissionError)
 
-    def test_context_manager_cleans_staging_and_committed_output_on_exception(self, boundary: ArtifactBoundary) -> None:
+    def test_context_manager_cleans_staging_and_retains_committed_output_on_exception(self, boundary: ArtifactBoundary) -> None:
         staging_dir = None
         output_dir = None
         try:
@@ -635,11 +635,11 @@ class TestCleanupAndPartialPreservation:
         except RuntimeError:
             pass
 
-        # Staging and committed output are removed
+        # Staging is removed, committed output is retained
         assert staging_dir is not None and not staging_dir.exists()
-        assert not (output_dir / "out.txt").exists()
+        assert (output_dir / "out.txt").exists()
 
-    def test_preserve_partial_true_retains_partial_artifacts_only_on_exception(
+    def test_preserve_partial_true_retains_partial_and_committed_artifacts_on_exception(
         self, boundary: ArtifactBoundary
     ) -> None:
         staging_dir = None
@@ -663,8 +663,8 @@ class TestCleanupAndPartialPreservation:
 
         assert staging_dir is not None and not staging_dir.exists()
         assert output_dir is not None and output_dir.exists()
-        # Normal committed artifact is removed
-        assert not (output_dir / "normal.txt").exists()
+        # Normal committed artifact is retained
+        assert (output_dir / "normal.txt").exists()
         # Explicit partial artifact is preserved under partial/
         assert partial_file is not None and partial_file.exists()
         assert (output_dir / "partial" / "part.json").exists()

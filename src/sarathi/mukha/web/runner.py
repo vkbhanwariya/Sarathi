@@ -281,8 +281,8 @@ class RunCoordinator:
                                 self._file_progress.get(inp.input_id)
                                 or self._file_progress.get(inp.display_name, {})
                             )
-                            start_t = existing.get("started_ns", self._active_start_ns)
-                            duration = existing.get("duration_ns", max(0, time.perf_counter_ns() - start_t))
+                            start_t = existing.get("started_ns")
+                            duration = existing.get("duration_ns")
                             w_count = input_warn_counts.get(inp.input_id, 0)
 
                             # Determine factual per-input status
@@ -290,7 +290,12 @@ class RunCoordinator:
                                 has_input_doc = inp.input_id in doc_map
                                 has_input_artifact = (
                                     any(
-                                        any(p.source_input_id == inp.input_id for p in art.provenance)
+                                        str(art.metadata.get("source_input_id", "")) == inp.input_id
+                                        or str(art.metadata.get("input_id", "")) == inp.input_id
+                                        or (
+                                            inp.source_path is not None
+                                            and inp.source_path.stem in art.path.name
+                                        )
                                         for art in result.artifacts
                                     )
                                     if result.artifacts
