@@ -136,7 +136,7 @@ created only when an existing owner cannot hold the concern cleanly.
 ## 6. Current Direction
 
 -   Windows 11 x64 and Python 3.13.15 remain the target baseline.
--   Phase 1 remains local-first, plugin-first, and dependency-disciplined.
+-   Sarathi operates local-first, plugin-first, and dependency-disciplined.
 -   Modern, actively maintained dependencies are preferred after compatibility
     and benchmark verification.
 -   Optional fallbacks remain disabled unless the primary path fails or an
@@ -144,8 +144,8 @@ created only when an existing owner cannot hold the concern cleanly.
 -   Canonical DOCX typography standardizes on a 12 pt baseline across scripts:
     English in `Times New Roman`, Hindi and mixed Devanagari in `Nirmala UI`,
     with capability-local typography helpers and script-segmented legacy export.
--   Phase 1 implementation proceeds under the locked architecture and
-    linked capability specifications.
+-   Implementation strictly adheres to the locked architecture and linked
+    capability specifications.
 
 ------------------------------------------------------------------------
 

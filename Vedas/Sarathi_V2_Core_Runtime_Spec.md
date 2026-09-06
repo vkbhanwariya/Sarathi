@@ -125,7 +125,7 @@ file facts. **Darshana --- Identify** validates actual content after selection.
 An `ArtifactRef` identifies each artifact that actually exists, including its
 role, media type, source/run lineage, completeness, size, checksum when
 required, and committed path. A result carries zero or more artifact
-references; the V1-style single `output_path` is not the canonical V2 model.
+references; a single global output path is not the canonical model.
 
 Inputs are read-only by default. Capabilities return data and typed ArtifactPayloads, where each ArtifactPayload contains an ArtifactIntent plus exact serialized bytes;
 they do not hard-code output roots, create private output stores, or choose
@@ -150,10 +150,10 @@ as duplicated functions such as `ocr_fast()` and `ocr_accurate()`.
 
 A canonical contract has one active definition. When its shape changes, the
 existing contract and all producers, consumers, tests, fixtures, and
-documentation are migrated in the same change; an internal `V2`/`New` parallel
-contract is not kept as a compatibility path. Explicit schema versioning is
-introduced only when a real external persistence or compatibility boundary
-requires simultaneous schemas.
+documentation are migrated in the same change; internal parallel or legacy
+versioned contracts are not kept as compatibility paths. Explicit schema
+versioning is introduced only when a real external persistence or
+compatibility boundary requires simultaneous schemas.
 
 ------------------------------------------------------------------------
 

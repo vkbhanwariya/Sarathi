@@ -90,32 +90,26 @@ Mukha Local Web communicates over a loopback HTTP/1.1 service bound strictly to 
 | `/api/review` | `GET`, `POST` | Retrieves or applies corrections to pending exception review items |
 | `/api/artifact` | `GET` | Securely streams committed output artifact with traversal and MIME verification |
 
-## 3. V1 Screen Audit and V2 Disposition
+## 3. Presentation Architecture & Screen Model
 
-V1 contains two parallel presentation generations: Textual screens and a large Rich console renderer. The useful behavior is consolidated below rather than migrated class-for-class.
+Mukha provides a cohesive, unified presentation surface with five dedicated screens, completely decoupling interactive presentation from runtime execution and telemetry storage:
 
-| V1 surface | Useful behavior | V2 destination |
+| Screen | Core Responsibility | Presentation Elements |
 |---|---|---|
-| Textual Dashboard + Rich Main Menu | run entry, readiness, current job, quick navigation | **Screen 1: Griha — Home & Run Setup** |
-| Textual Workflow + Rich consolidation/font/OCR/translation/batch progress | file list, stage status, duration, live progress | **Screen 2: Pravritti — Live Run Monitor** |
-| Rich live OCR progress | multi-file progress, active file/page and measured throughput | **Screen 2**, capability-neutral form |
-| Textual OCR Review + Rich page-health/review/post-OCR screens | source/output comparison, quality evidence, targeted action | **Screen 3: Pariksha — Review & Exceptions** |
-| Rich run summaries + universal telemetry summary + post-completion menu | terminal result, timings, output files, warnings and next actions | **Screen 4: Samapti — Run Summary** |
-| Textual Performance + Logs + Plugins; Rich Doctor + Compute Monitor | performance, activity logs, quality, runtime and component health | **Screen 5: Nirikshana — Run Inspector** with tabs |
-| V1 command palette | keyboard-first navigation | F1–F5 keyboard shortcut navigation in Local Web |
-| V1 capability-specific menus | capability launch choices | Home requirement/profile selection; capability logic remains outside Mukha |
+| **Screen 1: Griha — Home & Run Setup** | Run configuration and entry | File/folder selection, profile and requirement picker, operational readiness overview |
+| **Screen 2: Pravritti — Live Run Monitor** | Real-time execution tracking | Active file/stage indicator, elapsed times, live throughput, and progress hierarchy |
+| **Screen 3: Pariksha — Review & Exceptions** | Interactive exception auditing | Side-by-side source/output comparison, quality evidence, and targeted correction submission |
+| **Screen 4: Samapti — Run Summary** | Terminal run debrief | Factual status, stage-by-stage elapsed timings, confirmed output artifacts, and warning ledger |
+| **Screen 5: Nirikshana — Run Inspector** | Deep telemetry and runtime inspection | Detailed execution spans, structured log records, confidence telemetry, and hardware health |
 
-The V1 review is based on the repository at commit [`032baf3`](https://github.com/vkbhanwariya/Sarathi/tree/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana), including its [Textual screens](https://github.com/vkbhanwariya/Sarathi/tree/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana/Screens), [Rich console renderer](https://github.com/vkbhanwariya/Sarathi/blob/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana/Rich_Console_Plugin.py), and [typed UI state/events](https://github.com/vkbhanwariya/Sarathi/tree/032baf30305116bc1d613041191a3eefe1d6643c/Chakra/Darshana/Contracts).
+### Presentation Invariants
 
-### V1 behavior explicitly rejected
+To guarantee architectural integrity and prevent presentation-level distortion:
 
-- hard-coded plugin counts, worker counts, cache rates, success rates, latency, memory, confidence or sample logs;
-- fallback values such as assumed OCR accuracy, assumed speed or default successful summaries;
-- UI imports of profiler globals, raw telemetry buffers, plugin managers or execution internals;
-- capability-specific duplicated progress tables and summary renderers;
-- a performance advisor making execution recommendations inside telemetry/presentation;
-- UI buttons directly initiating backend selection, retry, cloud processing or cache policy without the canonical request path;
-- a separate screen merely because a V1 class existed.
+- **No Fabricated Metrics**: No hard-coded plugin counts, worker counts, cache hit rates, success rates, latency, memory, or confidence values; unavailable measurements display as `—`.
+- **Zero Kernel Coupling**: The UI never imports execution internals, profiler globals, raw telemetry buffers, or plugin managers. It consumes only typed `PresentationState` snapshots and SSE event streams.
+- **Unified Rendering**: No capability-specific duplicate progress tables or bespoke summary renderers. All capabilities present through the common progress hierarchy.
+- **Canonical Dispatch**: UI actions (re-run, cancel, submit review) emit typed intents over loopback HTTP endpoints revalidated by Agni; buttons never directly mutate runtime state.
 
 ## 4. Global Screen Shell
 
@@ -699,4 +693,4 @@ Screen TOML is not initially required. Add it only if static labels/default visi
 
 Temporary surfaces: **Aarambha — Startup Progress**, command palette, detail drawers, cancellation/failure modal and contextual help.
 
-This five-screen structure preserves V1's useful visibility while eliminating its parallel console generations, capability-specific presentation duplication, fake data and direct telemetry coupling.
+This five-screen structure provides complete operational visibility across the document lifecycle while eliminating presentation duplication, fake data, and direct telemetry coupling.

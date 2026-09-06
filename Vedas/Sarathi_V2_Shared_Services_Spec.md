@@ -169,7 +169,7 @@ Each applicable capability may keep its own approved reusable knowledge at:
 data/<capability>/anubhava.toml
 ```
 
-Phase 1 locations, created only when needed, are:
+Standard capability locations, created only when needed, are:
 
 ``` text
 data/ocr/anubhava.toml

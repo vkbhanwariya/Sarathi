@@ -7,7 +7,7 @@ The main [Sarathi V2 README](../README.md) retains only stable architecture, own
 
 ## Bank Statement Consolidation
 
-Bank Statement Consolidation is a Phase 1 business capability. It consumes reusable document capabilities and produces a canonical financial dataset; it does not recreate file readers, OCR, security, telemetry, scheduling, or generic pipeline infrastructure.
+Bank Statement Consolidation is a core business capability. It consumes reusable document capabilities and produces a canonical financial dataset; it does not recreate file readers, OCR, security, telemetry, scheduling, or generic pipeline infrastructure.
 
 ### Definitive pipeline
 
@@ -396,6 +396,6 @@ tests/bank_statements/
 
 Representative corpus must include true `.xls`, HTML-disguised `.xls`, `.xlsx`, CSV, dirty amounts, combined Amount+Dr/Cr layouts, reverse chronology, multiline narration, missing balance, negative balance, overlapping statements, and multiple sheets/tables.
 
-Not Phase 1: ML bank classifiers, scoring frameworks, rule engines, OLAP dashboards, mapping-learning systems, automatic profile generation, generic financial ontology, or a database-backed transaction store.
+Out of Scope / Non-Goals: ML bank classifiers, scoring frameworks, rule engines, OLAP dashboards, mapping-learning systems, automatic profile generation, generic financial ontology, or a database-backed transaction store.
 
 ------------------------------------------------------------------------

@@ -29,9 +29,9 @@ Primary development hardware:
 
 Sarathi is editor-agnostic. No runtime behavior depends on a specific IDE.
 
-## Phase 1 and Implementation Order
+## Core Capabilities and Implementation Order
 
-Phase 1 delivers the user-facing requirement set:
+Sarathi delivers the canonical user-facing requirement set:
 
 1.  Different-bank / different-format Bank Statement Consolidation
 2.  **Shruti --- Read / Native Extraction**
@@ -62,7 +62,7 @@ Sankalpa — Canonical Contracts
 → Nabhi — Core Kernel, including Pravaha
 → Agni — Runtime Bootstrap
 → Mukha — Console & Presentation
-→ Shakti — Phase 1 capabilities
+→ Shakti — Core capabilities
 ```
 
 **Anubhava --- Validated Experience Data** has no runtime implementation
@@ -513,7 +513,7 @@ Capability `plugin.py` and `provider.py` files are thin boundaries: declaration,
 
 ------------------------------------------------------------------------
 
-## End-to-End Phase 1 Wiring
+## End-to-End Runtime Wiring
 
 ``` text
 User selects document(s)/folder + requirement + processing mode + output root
@@ -665,7 +665,7 @@ cases. Hardware/runtime choices are benchmarked on the same representative
 workload rather than assumed from device labels.
 
 ------------------------------------------------------------------------
-## Dependency Ownership and Locked Phase 1 Direction
+## Dependency Ownership and Technical Direction
 
 Core dependencies remain light. Heavy dependencies belong to the capability that actually requires them; plugin-specific OCR/AI packages do not become mandatory for unrelated functionality.
 
@@ -681,7 +681,7 @@ Before a new dependency is locked, verify target Python/Windows compatibility, b
 ------------------------------------------------------------------------
 ## Architecture Status
 
-**Status:** Phase 1 architecture and behavior baseline is locked by this README. Detailed decisions live in their owning sections; this section intentionally does not restate them.
+**Status:** The canonical architecture and behavior baseline is locked by this specification. Detailed decisions live in their owning sections; this section intentionally does not restate them.
 
 **Anubhava — Validated Experience Data** is locked as a capability-owned TOML convention. It has no Python module, runtime service, plugin, or database. A capability creates its file only after validated/approved reusable knowledge exists; autonomous learning and automatic promotion are not active paths.
 
