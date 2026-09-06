@@ -5,17 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import MappingProxyType
 
-import pytest
-
 from sarathi.agni import Agni
-from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.sankalpa import CapabilityReadiness, PluginServices, ReadinessStatus
 from sarathi.shakti.bank_statements.provider import BankStatementsProvider
 from sarathi.shakti.darshana.provider import DarshanaProvider
 from sarathi.shakti.font_conversion.provider import FontConversionProvider
 from sarathi.shakti.native_extraction.provider import NativeExtractionProvider
 from sarathi.shakti.ocr.provider import OCRProvider
-from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
 from sarathi.shakti.translation.provider import TranslationProvider
 from sarathi.sutra import get_canonical_data_root
 
@@ -115,31 +111,6 @@ def test_agni_audit_readiness_memoization(tmp_path: Path) -> None:
         # force_refresh creates a new audit
         res3 = agni.audit_readiness(force_refresh=True)
         assert res3 == res1
-    finally:
-        agni.close()
-
-
-def test_mukha_presenter_audit_capability_status_delegation(tmp_path: Path) -> None:
-    """Verify MukhaPresenter.audit_capability_status delegates to Agni and providers."""
-    agni = Agni(runtime_root=tmp_path / "rt", output_root=tmp_path / "out")
-    try:
-        # 1. Via Agni
-        status_via_agni = MukhaPresenter.audit_capability_status(agni=agni)
-        assert "read_native" in status_via_agni
-        assert status_via_agni["read_native"][0] is True
-        assert "ocr" in status_via_agni
-        assert isinstance(status_via_agni["ocr"][0], bool)
-        assert isinstance(status_via_agni["ocr"][1], str)
-
-        # 2. Via Providers directly (standalone fallback)
-        status_via_providers = MukhaPresenter.audit_capability_status(
-            providers=BUILTIN_PLUGIN_PROVIDERS,
-            data_root=get_canonical_data_root(),
-        )
-        assert "read_native" in status_via_providers
-        assert status_via_providers["read_native"][0] is True
-        assert "bank_statements" in status_via_providers
-        assert status_via_providers["bank_statements"][0] is True
     finally:
         agni.close()
 

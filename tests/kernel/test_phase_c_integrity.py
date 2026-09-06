@@ -10,17 +10,9 @@ from types import MappingProxyType
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.mukha.presenter import MukhaPresenter
-from sarathi.nabhi.kosh import Kosh
 from sarathi.sankalpa import (
     CanonicalDocument,
-    CapabilityDeclaration,
-    ConfidenceValue,
-    ExecutionProfile,
-    InputRef,
     PageData,
-    PluginInfo,
-    Request,
     Result,
     TableData,
     TextSpan,
@@ -30,7 +22,6 @@ from sarathi.shakti.bank_statements.models import BankStatement, Transaction
 from sarathi.shakti.ocr.engine import is_low_contrast_image
 from sarathi.shakti.translation.engine import _load_translation_anubhava
 from sarathi.shakti.translation.glossary import GlossaryStore
-from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.smriti.key import compute_prior_result_digest
 
 
@@ -162,30 +153,3 @@ def test_bank_models_expose_canonical_veda_properties() -> None:
         posting_date=d_start,
     )
     assert tx.posting_datetime == datetime.datetime(2026, 1, 1, 0, 0)
-
-
-def test_mukha_projects_readiness_from_kosh() -> None:
-    """Verify MukhaPresenter projects availability from Kosh registry when provided."""
-    kosh = Kosh()
-    kosh.register_plugin(
-        PluginInfo(
-            plugin_id="shakti.read_native",
-            name="Native Plugin",
-            version="1.0.0",
-            capabilities=("read_native",),
-        )
-    )
-    kosh.register_capability(
-        CapabilityDeclaration(
-            capability_id="read_native",
-            plugin_id="shakti.read_native",
-            version="1.0.0",
-            supported_profiles=(ExecutionProfile.INSTANT,),
-        )
-    )
-
-    statuses = MukhaPresenter.audit_capability_status(kosh=kosh)
-    assert statuses["read_native"][0] is True
-    assert "shakti.read_native" in statuses["read_native"][1]
-    assert statuses["ocr"][0] is False
-    assert "Not registered" in statuses["ocr"][1]

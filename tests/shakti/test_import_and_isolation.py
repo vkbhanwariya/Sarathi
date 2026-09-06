@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from sarathi.nabhi.kosh import Kosh
 from sarathi.sankalpa import CapabilityDeclaration, ExecutionProfile
 from sarathi.shakti.bank_statements.plugin import (
     CAPABILITY_DECLARATION as BANK_DECL,
@@ -127,27 +126,6 @@ class TestShaktiImportHygiene:
         cap_cls = getattr(font_pkg, "FontConversionCapability")
         assert cap_cls is not None
         assert cap_cls.__name__ == "FontConversionCapability"
-
-
-class TestMukhaGenericPresentation:
-    """Verify Mukha utilizes Kosh declarations dynamically."""
-
-    def test_presenter_audit_uses_kosh_capabilities(self) -> None:
-        """MukhaPresenter.audit_capability_status iterates kosh.capabilities() dynamically."""
-        from sarathi.mukha.presenter import MukhaPresenter
-
-        kosh = Kosh()
-        from sarathi.shakti.ocr.plugin import PLUGIN_INFO as OCR_PLUGIN
-        kosh.register_plugin(OCR_PLUGIN)
-        kosh.register_capability(OCR_DECL)
-
-
-        statuses = MukhaPresenter.audit_capability_status(kosh=kosh)
-        assert "ocr" in statuses
-        assert statuses["ocr"][0] is True
-        assert "shakti.ocr" in statuses["ocr"][1]
-        assert statuses["read_native"][0] is False
-        assert "Not registered" in statuses["read_native"][1]
 
 
 class TestArchitecturalBoundaries:

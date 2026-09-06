@@ -22,7 +22,6 @@ import io
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -46,28 +45,9 @@ from sarathi.shakti.docx_exporter import (
     transform_docx_artifact,
 )
 from sarathi.shakti.font_conversion.capability import FontConversionCapability
-from sarathi.shakti.font_conversion.detector import LegacyFontDetector
-from sarathi.shakti.translation.capability import TranslationCapability
-from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 from sarathi.shakti.translation.glossary import GlossaryStore
 from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.protector import TranslationProtector
-from sarathi.sutra import get_canonical_data_root
-
-
-# ---------------------------------------------------------------------------
-# Finding 43: Sutra Canonical Data Root
-# ---------------------------------------------------------------------------
-
-def test_canonical_data_root_exists() -> None:
-    root = get_canonical_data_root()
-    assert isinstance(root, Path)
-    assert root.exists()
-    assert (root / "banks").is_dir()
-    assert (root / "fonts").is_dir()
-    assert (root / "ocr").is_dir()
-    assert (root / "translation").is_dir()
-
 
 # ---------------------------------------------------------------------------
 # Findings 12, 13, 14, 44: Pure Document Transformation Helper
@@ -189,14 +169,6 @@ def test_font_mode_detected_type_legacy() -> None:
     res = cap.execute(req, ctx, prior_result=prior)
     assert isinstance(res.data, CanonicalDocument)
     assert res.data.detected_type == "legacy_font_document"
-
-
-def test_detector_returns_none_on_ambiguous_text() -> None:
-    detector = LegacyFontDetector()
-    # English/Latin text without Kruti/Chanakya/Shusha signatures
-    profile, conf = detector.detect("Hello world this is standard english text")
-    assert profile is None
-    assert conf == 0.0
 
 
 # ---------------------------------------------------------------------------

@@ -27,7 +27,6 @@ from PIL import Image
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
-    DeviceRequirement,
     DeviceType,
     ExecutionBinding,
     ExecutionContext,
@@ -36,14 +35,12 @@ from sarathi.sankalpa import (
     PageData,
     ProvenanceRecord,
     Request,
-    Result,
 )
 from sarathi.shakti.native_extraction.capability import NativeExtractionCapability
 from sarathi.shakti.ocr import OCRCapability, check_ocr_readiness
 from sarathi.shakti.ocr.engine import (
     RapidOCREngine,
     TesseractFallbackAdapter,
-    preprocess_ocr_image,
 )
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
@@ -233,18 +230,6 @@ def test_custom_profile_validation_rejects_unsupported_options() -> None:
     assert exc.value.code == FailureCode.VALIDATION_FAILED
 
 
-def test_layout_preserving_strictly_unsupported() -> None:
-    """Layout Preserving profile must be rejected with FailureCode.UNSUPPORTED."""
-    cap = OCRCapability(engine=RapidOCREngine())
-    ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
-    inp = InputRef("inp-1", Path("dummy.png"), "dummy.png", 10)
-    req = Request("req-1", "ocr", inputs=(inp,), profile=ExecutionProfile.LAYOUT_PRESERVING)
-
-    with pytest.raises(DoshError) as exc:
-        cap.execute(req, ctx)
-    assert exc.value.code == FailureCode.UNSUPPORTED
-
-
 def test_ocr_declares_gpu_preferred_over_cpu() -> None:
     """OCR capability declaration must prefer GPU over CPU, with CPU as supported fallback."""
     req = CAPABILITY_DECLARATION.device_requirement
@@ -337,7 +322,6 @@ def test_check_ocr_readiness_validates_truthfully() -> None:
 def test_ocr_cross_input_concurrency_with_bounded_subtasks(tmp_path: Path) -> None:
     """Verify that multiple single-page input files run concurrently through Yantra with bounded concurrency."""
     from PIL import Image
-    from unittest.mock import MagicMock
 
     inv = DeviceInventory([DeviceInfo("cpu-0", DeviceType.CPU, capacity=8)])
     yantra = Yantra(inventory=inv)

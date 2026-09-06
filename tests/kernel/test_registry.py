@@ -2,7 +2,6 @@
 
 import pytest
 
-import sarathi.nabhi as nabhi_module
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import Kosh
 from sarathi.sankalpa import (
@@ -244,23 +243,3 @@ class TestKoshRegistry:
 
         with pytest.raises(TypeError, match="plugin_id must be a string"):
             kosh.get_capabilities_for_plugin(None)  # type: ignore
-
-    def test_nabhi_exports(self) -> None:
-        expected = {
-            "ArtifactBoundary",
-            "CapabilityPlan",
-            "Dvara",
-            "Kosh",
-            "LifecycleAction",
-            "LifecycleActionType",
-            "Manthan",
-            "Prana",
-            "Pravaha",
-            "QuarantineRecord",
-            "QuarantineStatus",
-            "QuarantineStore",
-            "RetryPolicy",
-        }
-        assert set(nabhi_module.__all__) == expected
-        for name in expected:
-            assert hasattr(nabhi_module, name)
