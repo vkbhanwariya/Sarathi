@@ -107,7 +107,23 @@ class BankStatementCapability:
         all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
         all_provs: list[ProvenanceRecord] = list(prior_result.provenance)
 
+        progress_cb = None
+        if request.custom_options and callable(request.custom_options.get("progress_callback")):
+            progress_cb = request.custom_options["progress_callback"]
+
         for doc in docs:
+            if progress_cb is not None:
+                tot_pages = len(doc.pages) if doc.pages else 1
+                progress_cb(
+                    file_display_name=doc.document_id,
+                    page_number=1,
+                    total_pages=tot_pages,
+                    worker_id="1",
+                    stage="Bank Statement Normalization",
+                    device_type="CPU",
+                    input_id=doc.document_id,
+                )
+
             det_scope = (
                 self._darpana.time_scope(
                     context=context, phase_name="bank_detection", component="shakti.bank_statements"

@@ -79,6 +79,16 @@ def _stitch_compatible_page_spans(spans: tuple[TextSpan, ...] | list[TextSpan]) 
     return tuple(stitched)
 
 
+def _extract_doc_text(d: CanonicalDocument) -> str:
+    if d.text.strip():
+        return d.text
+    if d.tables:
+        lines = [" ".join(str(c) for c in t.headers) for t in d.tables if t.headers]
+        lines.extend(" ".join(str(c) for c in r) for t in d.tables for r in t.rows)
+        return "\n".join(lines)
+    return "\n".join(p.text for p in d.pages if p.text) if d.pages else ""
+
+
 class FontConversionCapability:
     """Executable capability for legacy font to Unicode conversion."""
 
@@ -104,32 +114,22 @@ class FontConversionCapability:
         prior_result: Result | None = None,
     ) -> Result:
         """Execute font conversion on the request inputs or prior CanonicalDocument(s)."""
+        msg_req = "FontConversionCapability requires a prior Result containing a CanonicalDocument or tuple of documents."
         if prior_result is None or prior_result.data is None:
-            raise DoshError(
-                code=FailureCode.VALIDATION_FAILED,
-                message="FontConversionCapability requires a prior Result containing a CanonicalDocument or tuple of documents.",
-            )
+            raise DoshError(code=FailureCode.VALIDATION_FAILED, message=msg_req)
 
         docs: list[CanonicalDocument]
         is_batch = False
         if isinstance(prior_result.data, CanonicalDocument):
             docs = [prior_result.data]
-        elif isinstance(prior_result.data, (tuple, list)) and all(
-            isinstance(d, CanonicalDocument) for d in prior_result.data
-        ):
+        elif isinstance(prior_result.data, (tuple, list)) and all(isinstance(d, CanonicalDocument) for d in prior_result.data):
             docs = list(prior_result.data)
             is_batch = True
         else:
-            raise DoshError(
-                code=FailureCode.VALIDATION_FAILED,
-                message="FontConversionCapability requires a prior Result containing a CanonicalDocument or tuple of documents.",
-            )
+            raise DoshError(code=FailureCode.VALIDATION_FAILED, message=msg_req)
 
         if not docs:
-            raise DoshError(
-                code=FailureCode.VALIDATION_FAILED,
-                message="No CanonicalDocument provided to FontConversionCapability.",
-            )
+            raise DoshError(code=FailureCode.VALIDATION_FAILED, message="No CanonicalDocument provided to FontConversionCapability.")
 
         def _is_doc_empty(d: CanonicalDocument) -> bool:
             return (
@@ -147,9 +147,12 @@ class FontConversionCapability:
         all_provs: list[ProvenanceRecord] = list(prior_result.provenance)
         all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
 
+        progress_cb = None
+        if request.custom_options and callable(request.custom_options.get("progress_callback")):
+            progress_cb = request.custom_options["progress_callback"]
+
         for idx, doc in enumerate(docs):
             if _is_doc_empty(doc):
-                # Preserve empty document and record classified warning without failing entire batch
                 converted_docs.append(doc)
                 all_warnings.append(
                     WarningRecord(
@@ -160,18 +163,21 @@ class FontConversionCapability:
                 )
                 continue
 
+            if progress_cb is not None:
+                dev_str = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
+                tot_pages = len(doc.pages) if doc.pages else 1
+                progress_cb(
+                    file_display_name=doc.document_id,
+                    page_number=1,
+                    total_pages=tot_pages,
+                    worker_id="1",
+                    stage="Legacy Font Conversion",
+                    device_type=dev_str,
+                    input_id=doc.document_id,
+                )
+
             try:
-                full_text = doc.text
-                if not full_text.strip() and doc.tables:
-                    table_lines = []
-                    for t in doc.tables:
-                        if t.headers:
-                            table_lines.append(" ".join(str(c) for c in t.headers))
-                        for r in t.rows:
-                            table_lines.append(" ".join(str(c) for c in r))
-                    full_text = "\n".join(table_lines)
-                if not full_text.strip() and doc.pages:
-                    full_text = "\n".join(p.text for p in doc.pages if p.text)
+                full_text = _extract_doc_text(doc)
 
                 scope = (
                     self._darpana.time_scope(
@@ -396,17 +402,7 @@ class FontConversionCapability:
                         reconstruct_text_from_spans=has_any_spans,
                     )
 
-                    final_text = converted_doc.text
-                    if not final_text.strip() and converted_doc.tables:
-                        table_lines = []
-                        for t in converted_doc.tables:
-                            if t.headers:
-                                table_lines.append(" ".join(str(c) for c in t.headers))
-                            for r in t.rows:
-                                table_lines.append(" ".join(str(c) for c in r))
-                        final_text = "\n".join(table_lines)
-                    if not final_text.strip() and converted_doc.pages:
-                        final_text = "\n".join(p.text for p in converted_doc.pages if p.text)
+                    final_text = _extract_doc_text(converted_doc)
 
                     # Document-level structural Devanagari validation
                     if not is_to_legacy and metrics.runs_converted > 0 and final_text and final_text.strip():

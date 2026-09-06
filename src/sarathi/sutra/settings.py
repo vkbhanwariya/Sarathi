@@ -307,6 +307,18 @@ class Settings:
         return raw
 
     @property
+    def hardware_ocr_hybrid_page_threshold(self) -> int:
+        """Return validated hardware.ocr_hybrid_page_threshold, defaulting to 8."""
+        sec = self.get_section("hardware")
+        raw = sec.get("ocr_hybrid_page_threshold", 8) if sec is not None else 8
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"hardware.ocr_hybrid_page_threshold must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
     def cache_enabled(self) -> bool:
         """Return validated cache.enabled boolean, defaulting to True."""
         sec = self.get_section("cache")

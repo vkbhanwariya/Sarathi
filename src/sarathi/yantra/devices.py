@@ -10,11 +10,50 @@ OS queries, or dynamic detection.
 
 from __future__ import annotations
 
+import queue
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping, Sequence
 
-from sarathi.sankalpa import DeviceType
+from sarathi.sankalpa import DeviceType, ExecutionBinding
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceSlotPool:
+    """Thread-safe slot pool for distributing subtasks across multiple hardware execution bindings."""
+
+    _queue: queue.Queue[ExecutionBinding]
+    _total_capacity: int
+
+    def __init__(self, bindings: Sequence[ExecutionBinding]) -> None:
+        if not bindings:
+            raise ValueError("DeviceSlotPool requires at least one ExecutionBinding.")
+        q: queue.Queue[ExecutionBinding] = queue.Queue()
+        cap = 0
+        for b in bindings:
+            if not isinstance(b, ExecutionBinding):
+                raise TypeError(f"Expected ExecutionBinding, got {type(b).__name__}")
+            slots = max(1, b.approved_concurrency)
+            for _ in range(slots):
+                q.put(b)
+                cap += 1
+        object.__setattr__(self, "_queue", q)
+        object.__setattr__(self, "_total_capacity", cap)
+
+    @property
+    def total_capacity(self) -> int:
+        """Total concurrent slots across all bindings in this pool."""
+        return self._total_capacity
+
+    @contextmanager
+    def acquire(self, timeout: float | None = None) -> Generator[ExecutionBinding, None, None]:
+        """Acquire an execution binding slot from the pool, returning it upon context exit."""
+        binding = self._queue.get(timeout=timeout)
+        try:
+            yield binding
+        finally:
+            self._queue.put(binding)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +145,17 @@ class DeviceInventory:
     def get(self, device_id: str) -> DeviceInfo | None:
         """Return device by device_id or None if not found."""
         return self.get_device(device_id)
+
+    def find_by_type(self, device_type: DeviceType) -> DeviceInfo | None:
+        """Return the first device matching device_type, or None."""
+        for dev in self.devices:
+            if dev.device_type == device_type:
+                return dev
+        return None
+
+    def find_all_by_type(self, device_type: DeviceType) -> tuple[DeviceInfo, ...]:
+        """Return all devices matching device_type."""
+        return tuple(dev for dev in self.devices if dev.device_type == device_type)
 
     def __len__(self) -> int:
         return len(self.devices)

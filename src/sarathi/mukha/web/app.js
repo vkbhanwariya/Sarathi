@@ -444,6 +444,10 @@
             state.activeRunId = res.run_id;
             state.activeRunStatus = "RUNNING";
             state.lastAutoNavigatedRunId = null;
+            if (elements.focusStageName) elements.focusStageName.textContent = "—";
+            if (elements.focusFileName) elements.focusFileName.textContent = "—";
+            if (elements.focusDeviceType) elements.focusDeviceType.textContent = "—";
+            if (elements.focusDuration) elements.focusDuration.textContent = "0.0s";
             switchScreen("monitor");
             pollState();
         } else {
@@ -705,6 +709,11 @@
                 elements.focusFileName.textContent = activeRun.current_focus.operation_name || "—";
                 elements.focusDeviceType.textContent = activeRun.current_focus.device_type || "CPU";
                 elements.focusDuration.textContent = formatDuration(activeRun.current_focus.elapsed_ns);
+            } else {
+                elements.focusStageName.textContent = "—";
+                elements.focusFileName.textContent = "—";
+                elements.focusDeviceType.textContent = "—";
+                elements.focusDuration.textContent = "0.0s";
             }
 
             // Long-running Alert (>5s)

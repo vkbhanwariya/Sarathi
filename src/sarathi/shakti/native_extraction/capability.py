@@ -126,7 +126,22 @@ class NativeExtractionCapability:
         all_warnings: list[WarningRecord] = []
         needs_ocr = False
 
+        progress_cb = None
+        if request.custom_options and callable(request.custom_options.get("progress_callback")):
+            progress_cb = request.custom_options["progress_callback"]
+
         for inp in request.inputs:
+            if progress_cb is not None:
+                progress_cb(
+                    file_display_name=inp.display_name or inp.input_id,
+                    page_number=1,
+                    total_pages=1,
+                    worker_id="1",
+                    stage="Native Document Extraction",
+                    device_type="CPU",
+                    input_id=inp.input_id,
+                )
+
             # Read input file bytes
             try:
                 data = inp.source_path.read_bytes()

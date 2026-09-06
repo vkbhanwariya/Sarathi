@@ -23,3 +23,4 @@ history_path = "history.jsonl"
 [hardware]
 detect_accelerators = true
 gpu_capacity_per_device = 4
+ocr_hybrid_page_threshold = 8

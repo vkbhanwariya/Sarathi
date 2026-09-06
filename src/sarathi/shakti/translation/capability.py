@@ -127,12 +127,29 @@ class TranslationCapability:
         provs: list[ProvenanceRecord] = list(prior_result.provenance)
         all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
 
+        progress_cb = None
+        if request.custom_options and callable(request.custom_options.get("progress_callback")):
+            progress_cb = request.custom_options["progress_callback"]
+
         def _process_single_doc(
             idx: int,
             doc: CanonicalDocument,
         ) -> tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload]]:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
+
+            if progress_cb is not None:
+                dev_str = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
+                tot_pages = len(doc.pages) if doc.pages else 1
+                progress_cb(
+                    file_display_name=doc.document_id,
+                    page_number=1,
+                    total_pages=tot_pages,
+                    worker_id=str(idx + 1),
+                    stage="Machine Translation",
+                    device_type=dev_str,
+                    input_id=doc.document_id,
+                )
 
             full_text = doc.text
             if not full_text.strip() and doc.tables:
