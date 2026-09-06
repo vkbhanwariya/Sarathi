@@ -313,6 +313,7 @@ def test_parquet_artifact_schema_completeness() -> None:
 def test_eod_and_summary_rows_captured_in_metadata() -> None:
     """F12: EOD_BALANCE and SUMMARY rows are captured in statement.metadata."""
     from pathlib import Path
+
     from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
     from sarathi.shakti.bank_statements.capability import BankStatementCapability
 

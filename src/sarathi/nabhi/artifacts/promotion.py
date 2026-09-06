@@ -12,7 +12,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.artifacts.atomic_io import _write_bytes_atomically

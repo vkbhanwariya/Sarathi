@@ -7,7 +7,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode

@@ -1,6 +1,6 @@
 # Sarathi V2 — OCR — Optical Character Recognition Specification
 
-**Specification Updated:** 31-08-2026, 07:32 PM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 10:30 PM IST (Asia/Kolkata)
 
 Scope: OCR engines, processing profiles, preprocessing, fallback, page-level
 output evidence, dependencies, capability data, and acceptance behavior.
@@ -103,6 +103,24 @@ auto-promotes candidates into that file.
 - Target font family: `Times New Roman` for English-only recognized output; `Nirmala UI` for Hindi or mixed Devanagari output.
 - Font size: Dynamic estimation from bounding box heights (`infer_line_font_size`) preserves heading and title hierarchy (15–18 pt bold) while maintaining standard 12 pt baseline for body text (`normalize_size`).
 - Preserves pure Unicode boundary: does not own legacy font conversions, calibration tables, or OpenXML serialization.
+
+## Canonical Ownership and Subpackage Placement
+
+The canonical implementation lives under `src/sarathi/shakti/ocr/`:
+- `capability.py`: Executable `OCRCapability` implementing the `Capability` contract with multi-document input parsing and pipeline continuation.
+- `provider.py`: `OCRProvider` constructing executable capability and auditing engine/model readiness.
+- `typography.py`: Capability-local line-height font size inference and Devanagari/English font standardization.
+- `plugin.py`: Plugin metadata declaration.
+- `engine/`: Decomposed single-responsibility execution engine subpackage:
+  - `coordinator.py`: RapidOCR multi-engine inference coordinator, page lifecycle, and fallback execution.
+  - `factory.py`: Engine lifecycle management, model SHA-256 verification, and OpenVINO parameter binding.
+  - `parser.py`: Output bounding box parsing, text normalization, and confidence aggregation.
+  - `readiness.py`: OpenVINO backend verification and Tesseract executable detection probes.
+  - `openvino.py`: OpenVINO device resolution and execution provider validation.
+  - `preprocessing.py`: Adaptive binarization, CLAHE, and image contrast evaluation.
+  - `rasterize.py`: PDF-to-image rasterization and frame extraction via PyMuPDF.
+  - `tesseract.py`: Tesseract fallback adapter and executable detection.
+  - `common.py`: Shared dataclasses, constants, and supported language sets.
 
 ## Acceptance
 

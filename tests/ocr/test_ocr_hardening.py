@@ -467,7 +467,9 @@ def test_ocr_engine_initialization_failure_raises_dosh_error(tmp_path: Path) -> 
 def test_extract_images_multipage_tiff() -> None:
     """Verify extract_images_from_bytes reads all frames of a multipage TIFF."""
     import io
+
     from PIL import Image
+
     from sarathi.shakti.ocr.engine import extract_images_from_bytes
 
     frames = [

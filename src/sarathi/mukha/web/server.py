@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any, Mapping
 from sarathi.mukha.state import (
     ApplicationViewState,
     InspectorViewState,
-    RunSummaryView,
 )
 from sarathi.mukha.web.http_handler import (
     MukhaHTTPHandler,

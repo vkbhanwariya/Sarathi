@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from sarathi.shakti.ocr.engine.common import (
     _ALL_SUPPORTED_LANGS,
-    _DEV_LANGS,
-    _EN_LANGS,
-    _V6_LANGS,
     ALL_SUPPORTED_LANGS,
     DEV_LANGS,
     EN_LANGS,
@@ -18,9 +15,6 @@ from sarathi.shakti.ocr.engine.coordinator import (
     check_ocr_readiness,
 )
 from sarathi.shakti.ocr.engine.openvino import (
-    _disable_openvino_telemetry,
-    _is_safe_filename,
-    _patch_rapidocr_openvino_device,
     _resolve_target_device,
     disable_openvino_telemetry,
     is_safe_filename,
@@ -43,8 +37,15 @@ from sarathi.shakti.ocr.engine.tesseract import (
 )
 
 __all__ = [
+    "ALL_SUPPORTED_LANGS",
+    "DEV_LANGS",
+    "EN_LANGS",
     "RapidOCREngine",
     "TesseractFallbackAdapter",
+    "V6_LANGS",
+    "_ALL_SUPPORTED_LANGS",
+    "_parse_rapidocr_output",
+    "_resolve_target_device",
     "apply_clahe",
     "check_ocr_readiness",
     "configure_pytesseract",

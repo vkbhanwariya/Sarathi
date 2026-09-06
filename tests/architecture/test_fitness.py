@@ -91,6 +91,6 @@ class TestArchitecturalFitness:
                 coexisting_stale.append(str(stale_file.relative_to(repo_root)))
 
         assert not coexisting_stale, (
-            f"Stale monolithic files found coexisting with subpackages:\n"
+            "Stale monolithic files found coexisting with subpackages:\n"
             + "\n".join(coexisting_stale)
         )

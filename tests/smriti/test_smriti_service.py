@@ -93,8 +93,8 @@ def test_invalidation_by_capability(tmp_path: Path) -> None:
 
 def test_memory_cache_defensive_deep_copy() -> None:
     """Verify L1 MemoryCache performs deepcopy on put and get, isolating caller mutations."""
-    from sarathi.smriti.memory import MemoryCache
     from sarathi.sankalpa import WarningRecord
+    from sarathi.smriti.memory import MemoryCache
 
     cache = MemoryCache()
     doc = CanonicalDocument(document_id="d-iso", source_input_id="inp-1", text="original")
@@ -123,6 +123,7 @@ def test_memory_cache_defensive_deep_copy() -> None:
 def test_smriti_l2_to_l1_promotion_preserves_created_at(tmp_path: Path) -> None:
     """Verify promotion from L2 to L1 preserves the original creation timestamp."""
     import time
+
     from sarathi.smriti.store import SmritiCache
 
     cache = SmritiCache(cache_dir=tmp_path)
@@ -152,7 +153,7 @@ def test_smriti_l2_to_l1_promotion_preserves_created_at(tmp_path: Path) -> None:
 
 def test_metadata_stype_dictionary_collision_safe_roundtrip() -> None:
     """Verify user metadata dictionary containing '__stype__' serializes and deserializes safely."""
-    from sarathi.smriti.serialization import serialize_result, deserialize_result
+    from sarathi.smriti.serialization import deserialize_result, serialize_result
 
     user_meta = {"__stype__": "custom_payload", "val": 42, "description": "test"}
     doc = CanonicalDocument(

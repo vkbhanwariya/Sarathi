@@ -1,6 +1,6 @@
 # Sarathi V2 — Shruti — Read & Native Extraction Specification
 
-**Specification Updated:** 31-08-2026, 07:32 PM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 10:30 PM IST (Asia/Kolkata)
 
 Scope: **Shruti — Read / Native Extraction** content detection, native readers,
 quality gate, output provenance, dependencies, and acceptance behavior.
@@ -62,6 +62,21 @@ Native content available?
 Shruti does not implement OCR. For spreadsheets and tabular inputs, it returns
 all relevant sheets/tables with source, sheet/table identity, and location
 provenance; it never silently selects only the first or largest table.
+
+## Canonical Ownership and Subpackage Placement
+
+The canonical implementation lives under `src/sarathi/shakti/native_extraction/`:
+- `capability.py`: Executable `NativeExtractionCapability` implementing the `Capability` contract with multi-format routing, table extraction, and OCR continuation.
+- `provider.py`: `NativeExtractionProvider` constructing executable capability and auditing parser library readiness.
+- `detector.py`: Byte-level file format and MIME-type detection.
+- `plugin.py`: Plugin metadata declaration.
+- `readers/`: Format-specific native extraction reader subpackage:
+  - `pdf.py`: PDF native text and layout extraction via PyMuPDF.
+  - `spreadsheet.py`: Excel (`.xlsx`, `.xlsm`, legacy `.xls`, `.xml`) workbook extraction via Calamine/OpenPyXL/xlrd.
+  - `html.py`: HTML table and structured markup parsing via BeautifulSoup.
+  - `docx.py`: Native Word document paragraph, table, and run extraction.
+  - `delimited.py`: CSV and TSV tabular reader with robust dialect sniffing and encoding detection.
+  - `common.py`: Shared reader abstractions, table conversion helpers, and cell normalization.
 
 ## Acceptance
 

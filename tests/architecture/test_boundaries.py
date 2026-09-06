@@ -114,7 +114,7 @@ class TestArchitecturalBoundaries:
                     mod = node.module or ""
                     if "sarathi.shakti" in mod:
                         violations.append(f"{py_file.name}:{node.lineno} imports from '{mod}'")
-        assert not violations, f"Unauthorized nabhi -> shakti bridges detected:\n" + "\n".join(violations)
+        assert not violations, "Unauthorized nabhi -> shakti bridges detected:\n" + "\n".join(violations)
 
     def test_cross_shakti_plugin_isolation(self) -> None:
         """Plugins under shakti must not import internals of sibling plugins directly."""

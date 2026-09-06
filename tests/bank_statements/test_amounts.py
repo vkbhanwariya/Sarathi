@@ -45,6 +45,7 @@ def test_ambiguous_spacing_rejected() -> None:
 def test_non_finite_decimal_rejected() -> None:
     """Non-finite Decimal values (NaN, Infinity) must be rejected with ValueError."""
     import pytest
+
     from sarathi.shakti.bank_statements.models import _validate_decimal
 
     with pytest.raises(ValueError, match="must be a finite Decimal"):
