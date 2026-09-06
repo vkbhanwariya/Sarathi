@@ -489,3 +489,26 @@ def test_transform_docx_artifact_uses_caller_profiles() -> None:
         )
         assert payload is not None
         mock_load.assert_not_called()
+
+
+def test_docx_exporter_autonomous_no_font_conversion_import() -> None:
+    """Verify docx_exporter exports neutral font primitives and operates without font_conversion."""
+    from sarathi.shakti.docx_exporter import (
+        FontSizeAdjustment,
+        get_font_size_adjustment,
+        normalize_font_name,
+        normalize_font_size,
+        resolve_neutral_ooxml_font,
+    )
+
+    # Verify neutral font resolution rules
+    assert resolve_neutral_ooxml_font(ascii_font="Times New Roman", cs_font="Mangal", run_text="English") == "Times New Roman"
+    assert resolve_neutral_ooxml_font(ascii_font="Times New Roman", cs_font="Mangal", run_text="हिन्दी") == "Mangal"
+    assert resolve_neutral_ooxml_font(ascii_font="Kruti Dev 010", cs_font="Mangal", run_text="LFkkÃ irk") == "Kruti Dev 010"
+
+    # Verify font size adjustment
+    assert isinstance(FontSizeAdjustment(scale=0.75), FontSizeAdjustment)
+    assert normalize_font_name("  Kruti  Dev 010 ") == "kruti dev 010"
+    adj = get_font_size_adjustment(anchor_font="Kruti Dev 010", target_font="Nirmala UI")
+    assert adj.scale == 0.75
+    assert normalize_font_size(16.0, anchor_font="Kruti Dev 010", target_font="Nirmala UI") == 12.0

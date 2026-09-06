@@ -59,3 +59,16 @@ def __getattr__(name: str) -> Any:
 
         return FontConversionValidator
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _register_docx_exporter_bridge() -> None:
+    try:
+        from sarathi.shakti.docx_exporter import register_default_profiles_loader
+        from sarathi.shakti.font_conversion.detector import load_font_profiles
+
+        register_default_profiles_loader(load_font_profiles)
+    except Exception:
+        pass
+
+
+_register_docx_exporter_bridge()

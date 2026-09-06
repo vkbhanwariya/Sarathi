@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
@@ -24,8 +27,10 @@ from sarathi.shakti.docx_exporter.constants import (
     _NON_DELETABLE_RUN_CHILDREN,
     _W_NS,
 )
+from sarathi.shakti.docx_exporter.font_size_normalizer import get_font_size_adjustment
 from sarathi.shakti.docx_exporter.scripts import segment_text_by_script
-from sarathi.shakti.docx_exporter.styles import DocxStyleResolver
+from sarathi.shakti.docx_exporter.styles import DocxStyleResolver, resolve_neutral_ooxml_font
+from sarathi.shakti.text.legacy_detection import _KNOWN_MODERN_FONTS
 
 
 def _serialize_xml_preserving_namespaces(
@@ -90,6 +95,8 @@ def transform_docx_artifact(
     preserve_typography: bool = False,
     legacy_target_font: str | None = None,
     profiles: Mapping[str, Any] | None = None,
+    font_resolver: Callable[..., str | None] | None = None,
+    profile_resolver: Callable[..., tuple[str | None, str | None]] | None = None,
 ) -> ArtifactPayload:
     """Transform an existing DOCX file in-place, preserving OpenXML layout and document structure."""
     try:
@@ -99,7 +106,7 @@ def transform_docx_artifact(
 
         with zipfile.ZipFile(in_buf, "r") as in_zf, zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
             styles_xml = in_zf.read("word/styles.xml") if "word/styles.xml" in in_zf.namelist() else None
-            style_resolver = DocxStyleResolver(styles_xml)
+            style_resolver = DocxStyleResolver(styles_xml, font_resolver=font_resolver)
 
             for item in in_zf.infolist():
                 raw_entry = in_zf.read(item.filename)
@@ -125,6 +132,8 @@ def transform_docx_artifact(
                             style_resolver=style_resolver,
                             legacy_target_font=legacy_target_font,
                             profiles=profiles,
+                            font_resolver=font_resolver,
+                            profile_resolver=profile_resolver,
                         )
                         updated_entry = _serialize_xml_preserving_namespaces(tree, raw_entry)
                         out_zf.writestr(item, updated_entry)
@@ -159,9 +168,14 @@ def transform_docx_artifact(
         ) from exc
 
 
-def _get_run_visual_style(r: ET.Element) -> tuple:
-    from sarathi.shakti.font_conversion.detector import normalize_font_family_name
+def normalize_font_family(font_name: str | None) -> str:
+    """Normalize a font family name for visual style equality comparisons."""
+    if not font_name:
+        return ""
+    return "".join(c for c in font_name.lower() if c.isalnum())
 
+
+def _get_run_visual_style(r: ET.Element) -> tuple:
     rpr = r.find(f"{{{_W_NS}}}rPr")
     if rpr is None:
         return ()
@@ -173,12 +187,12 @@ def _get_run_visual_style(r: ET.Element) -> tuple:
             style_tags.append((tag_name, val))
         elif tag_name == "rFonts":
             fonts = tuple(sorted({
-                normalize_font_family_name(v)
+                normalize_font_family(v)
                 for k, v in child.attrib.items()
-                if k.split("}")[-1] in ("ascii", "cs", "hAnsi", "eastAsia") and v and normalize_font_family_name(v)
+                if k.split("}")[-1] in ("ascii", "cs", "hAnsi", "eastAsia") and v and normalize_font_family(v)
             }))
             if fonts:
-                style_tags.append((tag_name, str(fonts)))
+                style_tags.append(("rFonts", str(fonts)))
     return tuple(sorted(style_tags))
 
 
@@ -216,6 +230,95 @@ def _merge_adjacent_compatible_runs(container: ET.Element) -> None:
         i += 1
 
 
+def _classify_run_font(
+    font_name: str | None,
+    profiles: Mapping[str, Any] | None = None,
+    profile_resolver: Callable[..., tuple[str | None, str | None]] | None = None,
+) -> tuple[str | None, str | None]:
+    """Classify run font as modern, legacy profile, or unknown."""
+    if profile_resolver is not None:
+        return profile_resolver(font_name, profiles)
+    if not font_name or not font_name.strip():
+        return None, None
+    cleaned = "".join(c for c in font_name.lower() if c.isalnum())
+    if not cleaned:
+        return None, None
+    if cleaned in _KNOWN_MODERN_FONTS:
+        return None, "modern"
+    if profiles:
+        cleaned_base = re.sub(r"(normal|regular|bold|italic|oblique|medium)$", "", cleaned)
+        for prof in profiles.values():
+            aliases = getattr(prof, "aliases", ())
+            name = getattr(prof, "name", "")
+            pid = getattr(prof, "profile_id", "")
+            fam = getattr(prof, "family", "legacy")
+            cand_keys = [pid, name] + list(aliases)
+            for cand in cand_keys:
+                cand_cleaned = "".join(c for c in cand.lower() if c.isalnum())
+                if cleaned == cand_cleaned or cleaned_base == cand_cleaned:
+                    return pid, fam
+    return None, "unknown"
+
+
+_DEFAULT_PROFILES_LOADER: Callable[[], Mapping[str, Any]] | None = None
+_CACHED_NEUTRAL_PROFILES: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NeutralFontProfile:
+    """Lightweight metadata for font profile symbols and aliases."""
+
+    profile_id: str
+    family: str
+    name: str
+    aliases: tuple[str, ...] = ()
+    symbols: Mapping[str, str] = field(default_factory=dict)
+
+
+def register_default_profiles_loader(loader: Callable[[], Mapping[str, Any]]) -> None:
+    """Register a provider/loader for default font profiles via Dependency Injection."""
+    global _DEFAULT_PROFILES_LOADER
+    _DEFAULT_PROFILES_LOADER = loader
+
+
+def _load_neutral_font_profiles() -> dict[str, NeutralFontProfile]:
+    global _CACHED_NEUTRAL_PROFILES
+    if _CACHED_NEUTRAL_PROFILES is not None:
+        return _CACHED_NEUTRAL_PROFILES
+
+    fonts_dir = Path(__file__).resolve().parents[4] / "data" / "fonts"
+    profiles: dict[str, NeutralFontProfile] = {}
+    if fonts_dir.exists():
+        for json_file in fonts_dir.glob("*.json"):
+            try:
+                data = json.loads(json_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    pid = str(data.get("profile_id", "")).strip()
+                    if pid:
+                        profiles[pid] = NeutralFontProfile(
+                            profile_id=pid,
+                            family=str(data.get("family", "legacy")),
+                            name=str(data.get("name", pid)),
+                            aliases=tuple(str(a) for a in data.get("aliases", ())),
+                            symbols=dict(data.get("symbols", {})),
+                        )
+            except Exception:
+                continue
+
+    _CACHED_NEUTRAL_PROFILES = profiles
+    return profiles
+
+
+def get_default_profiles() -> Mapping[str, Any]:
+    """Retrieve default font profiles, falling back to neutral data/fonts profiles."""
+    if _DEFAULT_PROFILES_LOADER is not None:
+        try:
+            return _DEFAULT_PROFILES_LOADER()
+        except Exception:
+            pass
+    return _load_neutral_font_profiles()
+
+
 def _transform_xml_tree(
     tree: ET.Element,
     converter_fn: Callable[[str], str],
@@ -224,10 +327,10 @@ def _transform_xml_tree(
     style_resolver: DocxStyleResolver | None = None,
     legacy_target_font: str | None = None,
     profiles: Mapping[str, Any] | None = None,
+    font_resolver: Callable[..., str | None] | None = None,
+    profile_resolver: Callable[..., tuple[str | None, str | None]] | None = None,
 ) -> None:
     """Transform paragraphs and runs within an ElementTree OpenXML element."""
-    from sarathi.shakti.font_conversion.detector import load_font_profiles, resolve_profile_from_font_name
-
     p_tag = f"{{{_W_NS}}}p"
     r_tag = f"{{{_W_NS}}}r"
     t_tag = f"{{{_W_NS}}}t"
@@ -237,7 +340,7 @@ def _transform_xml_tree(
     sz_tag = f"{{{_W_NS}}}sz"
     szcs_tag = f"{{{_W_NS}}}szCs"
 
-    profiles = profiles if profiles is not None else load_font_profiles()
+    profiles = profiles if profiles is not None else get_default_profiles()
 
     import inspect
     converter_takes_font = False
@@ -268,8 +371,8 @@ def _transform_xml_tree(
                     sym_font = sym.attrib.get(f"{{{_W_NS}}}font")
                     sym_char = sym.attrib.get(f"{{{_W_NS}}}char")
                     if sym_font and sym_char:
-                        prof_id, _ = resolve_profile_from_font_name(sym_font, profiles)
-                        if prof_id and prof_id in profiles:
+                        prof_id, _ = _classify_run_font(sym_font, profiles, profile_resolver)
+                        if prof_id and profiles and prof_id in profiles:
                             prof = profiles[prof_id]
                             hex_code = sym_char.upper()
                             if hex_code in prof.symbols:
@@ -293,24 +396,32 @@ def _transform_xml_tree(
                 # Resolve effective font name using StyleResolver
                 effective_font: str | None = None
                 if style_resolver is not None:
-                    effective_font = style_resolver.resolve_run_font(child, p, text=full_run_text)
+                    effective_font = style_resolver.resolve_run_font(
+                        child, p, text=full_run_text, font_resolver=font_resolver
+                    )
                 if not effective_font:
                     rpr = child.find(rpr_tag)
                     if rpr is not None:
                         rf = rpr.find(rfonts_tag)
                         if rf is not None:
-                            from sarathi.shakti.font_conversion.detector import resolve_effective_font
-
-                            effective_font = resolve_effective_font(
-                                ascii_font=rf.attrib.get(f"{{{_W_NS}}}ascii"),
-                                hansi_font=rf.attrib.get(f"{{{_W_NS}}}hAnsi"),
-                                cs_font=rf.attrib.get(f"{{{_W_NS}}}cs"),
-                                run_text=full_run_text,
-                                profiles=profiles,
-                            )
+                            if font_resolver is not None:
+                                effective_font = font_resolver(
+                                    ascii_font=rf.attrib.get(f"{{{_W_NS}}}ascii"),
+                                    hansi_font=rf.attrib.get(f"{{{_W_NS}}}hAnsi"),
+                                    cs_font=rf.attrib.get(f"{{{_W_NS}}}cs"),
+                                    run_text=full_run_text,
+                                    profiles=profiles,
+                                )
+                            else:
+                                effective_font = resolve_neutral_ooxml_font(
+                                    ascii_font=rf.attrib.get(f"{{{_W_NS}}}ascii"),
+                                    hansi_font=rf.attrib.get(f"{{{_W_NS}}}hAnsi"),
+                                    cs_font=rf.attrib.get(f"{{{_W_NS}}}cs"),
+                                    run_text=full_run_text,
+                                )
 
                 # Detect if run font is modern or legacy
-                resolved_prof, fam = resolve_profile_from_font_name(effective_font, profiles)
+                resolved_prof, fam = _classify_run_font(effective_font, profiles, profile_resolver)
                 is_modern_run = (fam == "modern") and preserve_modern_fonts
 
                 if is_modern_run:
@@ -461,8 +572,6 @@ def _apply_font_to_rpr(
         szcs.attrib[f"{{{_W_NS}}}val"] = size_str
     else:
         # Dynamic visual font-size normalization preserving document hierarchy
-        from sarathi.shakti.font_conversion.font_size_normalizer import get_font_size_adjustment
-
         adj = get_font_size_adjustment(
             anchor_font=source_font or "",
             target_font=font,

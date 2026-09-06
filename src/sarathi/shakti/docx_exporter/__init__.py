@@ -24,19 +24,32 @@ from sarathi.shakti.docx_exporter.constants import (
     _R_NS,
     _W_NS,
 )
+from sarathi.shakti.docx_exporter.font_size_normalizer import (
+    FontSizeAdjustment,
+    get_font_size_adjustment,
+    normalize_font_name,
+    normalize_font_size,
+)
 from sarathi.shakti.docx_exporter.scripts import segment_text_by_script
-from sarathi.shakti.docx_exporter.styles import DocxStyleResolver
+from sarathi.shakti.docx_exporter.styles import (
+    DocxStyleResolver,
+    resolve_neutral_ooxml_font,
+)
 from sarathi.shakti.docx_exporter.transformer import (
     _apply_font_to_rpr,
     _get_run_visual_style,
     _merge_adjacent_compatible_runs,
     _serialize_xml_preserving_namespaces,
     _transform_xml_tree,
+    get_default_profiles,
+    normalize_font_family,
+    register_default_profiles_loader,
     transform_docx_artifact,
 )
 
 __all__ = [
     "DocxStyleResolver",
+    "FontSizeAdjustment",
     "_DEFAULT_HALF_PT",
     "_DEVANAGARI_CHAR_RE",
     "_DOCX_MIME_TYPE",
@@ -54,6 +67,13 @@ __all__ = [
     "_serialize_xml_preserving_namespaces",
     "_transform_xml_tree",
     "build_docx_payload",
+    "get_default_profiles",
+    "get_font_size_adjustment",
+    "normalize_font_family",
+    "normalize_font_name",
+    "normalize_font_size",
+    "register_default_profiles_loader",
+    "resolve_neutral_ooxml_font",
     "segment_text_by_script",
     "transform_docx_artifact",
 ]

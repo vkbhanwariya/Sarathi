@@ -126,16 +126,6 @@
       "from": "sarathi.nabhi.dvara",
       "to": "sarathi.shakti.providers",
       "reason": "Canonical built-in provider discovery bridge"
-    },
-    {
-      "from": "sarathi.shakti.docx_exporter",
-      "to": "sarathi.shakti.font_conversion.detector",
-      "reason": "Shared DOCX openxml font detector bridge"
-    },
-    {
-      "from": "sarathi.shakti.docx_exporter",
-      "to": "sarathi.shakti.font_conversion.font_size_normalizer",
-      "reason": "Shared DOCX visual font-size normalization bridge"
     }
   ]
 }

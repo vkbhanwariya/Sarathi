@@ -3,18 +3,41 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from typing import Any
 
 from sarathi.shakti.docx_exporter.constants import _W_NS
 
 
+def resolve_neutral_ooxml_font(
+    *,
+    ascii_font: str | None = None,
+    hansi_font: str | None = None,
+    cs_font: str | None = None,
+    run_text: str = "",
+) -> str | None:
+    """Resolve effective font following ECMA-376 OpenXML character rules.
+
+    If run_text contains complex script characters (e.g. Devanagari Unicode >= 0x0900),
+    the complex script channel (cs) takes precedence. Otherwise, ascii/hAnsi applies.
+    """
+    if run_text and any(ord(c) >= 0x0900 for c in run_text):
+        return cs_font or ascii_font or hansi_font
+    return ascii_font or hansi_font or cs_font
+
+
 class DocxStyleResolver:
     """Resolves effective OpenXML run fonts through styles and docDefaults hierarchy."""
 
-    def __init__(self, styles_xml: bytes | None = None) -> None:
+    def __init__(
+        self,
+        styles_xml: bytes | None = None,
+        font_resolver: Callable[..., str | None] | None = None,
+    ) -> None:
         self.doc_default_fonts: dict[str, str] = {}
         self.doc_default_size_half_pt: float | None = None
         self.styles: dict[str, dict[str, Any]] = {}
+        self._font_resolver = font_resolver
         if styles_xml:
             self._parse_styles(styles_xml)
 
@@ -182,6 +205,7 @@ class DocxStyleResolver:
         p: ET.Element | None = None,
         is_ascii_text: bool = True,
         text: str | None = None,
+        font_resolver: Callable[..., str | None] | None = None,
     ) -> str | None:
         """Resolve effective font name for run r following the OpenXML hierarchy."""
         channels = self.resolve_run_font_channels(r, p)
@@ -189,9 +213,15 @@ class DocxStyleResolver:
             return None
 
         if text is not None:
-            from sarathi.shakti.font_conversion.detector import resolve_effective_font
-
-            return resolve_effective_font(
+            resolver = font_resolver or self._font_resolver
+            if resolver is not None:
+                return resolver(
+                    ascii_font=channels.get("ascii"),
+                    hansi_font=channels.get("hAnsi"),
+                    cs_font=channels.get("cs"),
+                    run_text=text,
+                )
+            return resolve_neutral_ooxml_font(
                 ascii_font=channels.get("ascii"),
                 hansi_font=channels.get("hAnsi"),
                 cs_font=channels.get("cs"),

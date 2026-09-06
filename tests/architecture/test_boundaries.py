@@ -134,3 +134,23 @@ class TestArchitecturalBoundaries:
                             if f"sarathi.shakti.{other}" in mod:
                                 violations.append(f"{plugin}/{py_file.name}:{node.lineno} imports from '{mod}'")
         assert not violations, "Cross-plugin violations:\n" + "\n".join(violations)
+
+    def test_docx_exporter_does_not_import_concrete_shakti_plugins(self) -> None:
+        """Shared docx_exporter must not import from any concrete shakti capability plugin."""
+        manifest = _load_manifest()
+        docx_dir = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "shakti" / "docx_exporter"
+        forbidden = tuple(sorted(manifest["groups"]["shakti_plugins"]["members"]))
+
+        violations: list[str] = []
+        for py_file in docx_dir.rglob("*.py"):
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if any(alias.name.startswith(f) for f in forbidden):
+                            violations.append(f"{py_file.name}:{node.lineno} imports '{alias.name}'")
+                elif isinstance(node, ast.ImportFrom):
+                    mod = node.module or ""
+                    if any(mod.startswith(f) for f in forbidden):
+                        violations.append(f"{py_file.name}:{node.lineno} imports from '{mod}'")
+        assert not violations, "docx_exporter plugin leak violations:\n" + "\n".join(violations)

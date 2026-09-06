@@ -96,10 +96,6 @@ modules = [
     "sarathi.shakti.ocr",
     "sarathi.shakti.translation",
 ]
-ignore_imports = [
-    "sarathi.shakti.docx_exporter.* -> sarathi.shakti.font_conversion.detector",
-    "sarathi.shakti.docx_exporter.* -> sarathi.shakti.font_conversion.font_size_normalizer",
-]
 
 [[tool.importlinter.contracts]]
 name = "Generic Nabhi does not import concrete capabilities"
