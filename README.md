@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
+**README Updated:** 06-09-2026, 07:50 PM IST (Asia/Kolkata)
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and
@@ -165,3 +165,56 @@ uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --prof
 # Non-interactive execution via Python module entry point
 uv run python -m sarathi --input "path/to/document.txt" --requirement "read_native" --output-root "Output"
 ```
+
+------------------------------------------------------------------------
+
+## 8. Contributing & Development Setup
+
+Sarathi strictly enforces architectural authority and deterministic runtime behavior:
+
+- **Single Source of Truth**: [AGENTS.md](AGENTS.md) and locked specifications in [Vedas/](Vedas/) are the binding authority for architecture, contracts, and scoped testing.
+- **Environment Setup**: Python 3.13 (`>=3.13,<3.14`). Sync locked dependencies:
+  ```powershell
+  uv sync --all-extras --group dev
+  ```
+- **Pre-Commit Verification**: Run the canonical verification gate before submitting changes:
+  ```powershell
+  uv run --group dev python -m compileall -q src tests
+  uv run --group dev pytest -q <targeted-test-path>
+  git diff --check
+  ```
+- **Scoped Testing**: Test according to impact (local change $\rightarrow$ targeted test; subsystem change $\rightarrow$ subsystem tests; global milestone $\rightarrow$ full suite).
+- **Protected Baselines**: The Font Conversion architecture (`src/sarathi/shakti/font_conversion/`, `src/sarathi/shakti/docx_exporter.py`, and `tests/font_conversion/`) is a protected baseline. Any cross-cutting change must verify that `tests/font_conversion` remains 100% passing.
+
+------------------------------------------------------------------------
+
+## 9. Security & Privacy Model
+
+Sarathi operates as a local-first, privacy-preserving document intelligence runtime:
+
+1. **Local-First & Offline Default**:
+   - Documents are processed entirely on the local machine without transmitting contents, OCR text, or extracted financial data to external endpoints.
+   - The **Kavacha** subsystem strictly regulates network policies; outbound socket connections are blocked by policy when network access is disallowed.
+2. **Web Interface Security (Mukha)**:
+   - The Mukha HTTP server binds strictly to loopback interfaces (`127.0.0.1` or `::1`).
+   - Standard security headers are enforced on all responses: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and strict referrer policies.
+3. **Telemetry & Cache Privacy (Darpana & Smriti)**:
+   - Darpana records structural metrics, execution durations, and outcome statuses. Document text and sensitive PII are never logged to telemetry buffers or serialized in trace events.
+   - Smriti cache keys derive from privacy-safe content fingerprints and framed length-delimited hashes without leaking local file paths or raw payload text.
+4. **Vulnerability Reporting**:
+   - If you discover a security vulnerability, please report it responsibly directly to the maintainers rather than opening a public issue.
+
+------------------------------------------------------------------------
+
+## 10. Release History (Changelog)
+
+### [2.0.0] - 2026-09-04
+
+- **Security & Kavacha**: Strict loopback host validation in Mukha; mandatory security headers (`CSP`, `nosniff`, `DENY`); outbound network access policy enforcement.
+- **Yantra Execution Binding**: Concrete `backend_locators` on `DeviceInfo` for multi-GPU identification (`GPU.0`, `GPU.1`, `cuda:0`, `cuda:1`); strict execution binding propagation to translation and OCR backends without `TypeError` fallbacks.
+- **Composition Root Dependency Injection**: Topological bootstrap order in `Agni.bootstrap()`; injected dependencies via standard constructors, eliminating post-construction private attribute mutation.
+- **Telemetry & Cancellation (Darpana & Pravaha)**: Added `FailureCode.OPERATION_CANCELLED` and `"cancelled"` outcome recording; immediate bypass of retry loops and quarantine storage on user cancellation; configurable live telemetry buffers in Sutra settings.
+- **Artifact Naming Disambiguation**: Deterministic artifact filename generation avoiding collisions across multi-document batches.
+- **Bank Statement Financial Correctness**: Continuous monotonic sequence ID indexing across multi-page/multi-table parses; strong-signal deduplication with contradiction detection per Bank Statement Veda.
+- **Smriti Two-Tier Cache Integrity**: Framed length-delimited input fingerprinting preventing boundary collisions; deterministic set sorting in digest computations; multi-document envelope serialization/deserialization.
+- **Font Conversion & Mixed-Font DOCX Fidelity**: Consolidated Roopa font-conversion engine preserving document structure, formatting, and run stitching across mixed KrutiDev, DevLys, and Unicode Hindi text.
