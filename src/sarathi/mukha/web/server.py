@@ -7,6 +7,7 @@ modern Web UI without external dependencies, frameworks, or cloud leaks.
 
 from __future__ import annotations
 
+import sys
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +35,19 @@ from sarathi.sankalpa import ArtifactRef, ExecutionProfile
 if TYPE_CHECKING:
     from sarathi.agni import Agni
     from sarathi.darpana import MarutiRecord, PramanaRecord
+
+
+class _MukhaHTTPServer(ThreadingHTTPServer):
+    """Loopback ThreadingHTTPServer that gracefully ignores routine client aborts and resets."""
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        exc_type, _, _ = sys.exc_info()
+        if exc_type is not None and issubclass(
+            exc_type, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+        ):
+            # Client disconnected or closed socket before server finished reading/writing (browser navigation/refresh)
+            return
+        super().handle_error(request, client_address)
 
 
 class MukhaWebServer:
@@ -190,7 +204,7 @@ class MukhaWebServer:
 
     def start(self) -> None:
         """Start the loopback web server on a background thread."""
-        self._httpd = ThreadingHTTPServer((self._host, self._requested_port), MukhaHTTPHandler)
+        self._httpd = _MukhaHTTPServer((self._host, self._requested_port), MukhaHTTPHandler)
         self._httpd.mukha_server = self  # type: ignore[attr-defined]
         self._resolved_port = self._httpd.server_port
 

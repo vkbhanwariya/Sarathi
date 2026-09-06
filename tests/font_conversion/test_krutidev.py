@@ -110,3 +110,47 @@ def test_krutidev_verified_glyph_coverage() -> None:
         conv = converter.convert(prot, "krutidev010")
         restored = protector.restore(conv, spans)
         assert expected in restored, f"Failed converting '{raw}': got '{restored}', expected '{expected}'"
+
+
+def test_capability_converts_krutidev_auto_unicode_without_hint() -> None:
+    """Verify KrutiDev text is converted to Unicode Devanagari by capability even without source font hint."""
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    legacy_text = _FIXTURE_PATH.read_text(encoding="utf-8")
+    doc = CanonicalDocument(document_id="doc-kruti", text=legacy_text)
+    req = Request(
+        request_id="req-kruti",
+        requirement="font_conversion",
+        inputs=(InputRef("i1", Path("kruti.txt"), "kruti.txt", len(legacy_text)),),
+    )
+    ctx = ExecutionContext("run-kruti", "req-kruti", "t1", "s1")
+
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res.data, CanonicalDocument)
+    # Check that Unicode Devanagari characters are present in converted document
+    has_devanagari = any("\u0900" <= c <= "\u097f" for c in res.data.text)
+    assert has_devanagari, f"Expected Devanagari Unicode characters, got: {res.data.text[:200]}"
+
+
+def test_capability_converts_krutidev_with_custom_options_hint() -> None:
+    """Verify KrutiDev text is converted to Unicode Devanagari when hint is provided via custom_options."""
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    legacy_text = _FIXTURE_PATH.read_text(encoding="utf-8")
+    doc = CanonicalDocument(document_id="doc-kruti-opt", text=legacy_text)
+    req = Request(
+        request_id="req-kruti-opt",
+        requirement="font_conversion",
+        inputs=(InputRef("i1", Path("kruti.txt"), "kruti.txt", len(legacy_text)),),
+        custom_options={"source_font": "krutidev010", "font_mode": "auto_unicode"},
+    )
+    ctx = ExecutionContext("run-kruti-opt", "req-kruti-opt", "t1", "s1")
+
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res.data, CanonicalDocument)
+    has_devanagari = any("\u0900" <= c <= "\u097f" for c in res.data.text)
+    assert has_devanagari, f"Expected Devanagari Unicode characters, got: {res.data.text[:200]}"

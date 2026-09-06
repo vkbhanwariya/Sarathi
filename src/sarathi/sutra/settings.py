@@ -272,9 +272,9 @@ class Settings:
 
     @property
     def hardware_gpu_capacity_per_device(self) -> int:
-        """Return validated hardware.gpu_capacity_per_device, defaulting to 2."""
+        """Return validated hardware.gpu_capacity_per_device, defaulting to 4."""
         sec = self.get_section("hardware")
-        raw = sec.get("gpu_capacity_per_device", 2) if sec is not None else 2
+        raw = sec.get("gpu_capacity_per_device", 4) if sec is not None else 4
         if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
             raise DoshError(
                 code=FailureCode.INVALID_CONFIGURATION,

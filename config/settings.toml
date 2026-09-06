@@ -22,3 +22,4 @@ history_path = "history.jsonl"
 
 [hardware]
 detect_accelerators = true
+gpu_capacity_per_device = 4

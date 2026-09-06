@@ -62,7 +62,7 @@ class TestHardwareDiscovery:
             assert DeviceType.GPU in dev_types
             gpu_dev = inv.get_device("gpu-0")
             assert gpu_dev is not None
-            assert gpu_dev.capacity == 2
+            assert gpu_dev.capacity == 4
 
     def test_discovery_openvino_cpu_and_npu(self) -> None:
         mock_core = MagicMock()

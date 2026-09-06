@@ -118,14 +118,14 @@ class DeviceInventory:
         cls,
         detect_accelerators: bool = False,
         *,
-        gpu_capacity_per_device: int = 2,
+        gpu_capacity_per_device: int = 4,
         npu_capacity_per_device: int = 2,
     ) -> DeviceInventory:
         """Create a factual default inventory using system CPU capacity, optionally including hardware accelerators.
 
         When detect_accelerators is True, factual hardware discovery queries runtime backends
         (OpenVINO and CUDA) for physically accessible accelerators. Accelerator capacity is defined
-        as a bounded scheduler concurrency limit (default 2 concurrent streams per physical accelerator),
+        as a bounded scheduler concurrency limit (default 4 concurrent streams per physical accelerator),
         not fabricated physical compute cores.
         """
         import os

@@ -192,7 +192,7 @@ output_root = "Output"
     def test_hardware_settings_defaults(self) -> None:
         s = Settings()
         assert s.hardware_detect_accelerators is False
-        assert s.hardware_gpu_capacity_per_device == 2
+        assert s.hardware_gpu_capacity_per_device == 4
         assert s.hardware_npu_capacity_per_device == 2
         assert s.hardware_max_queue_depth == 64
 
@@ -200,14 +200,14 @@ output_root = "Output"
         raw = {
             "hardware": {
                 "detect_accelerators": True,
-                "gpu_capacity_per_device": 4,
+                "gpu_capacity_per_device": 8,
                 "npu_capacity_per_device": 3,
                 "max_queue_depth": 128,
             }
         }
         s = Settings(raw)
         assert s.hardware_detect_accelerators is True
-        assert s.hardware_gpu_capacity_per_device == 4
+        assert s.hardware_gpu_capacity_per_device == 8
         assert s.hardware_npu_capacity_per_device == 3
         assert s.hardware_max_queue_depth == 128
 

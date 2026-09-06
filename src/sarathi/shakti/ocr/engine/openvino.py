@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import threading
+from pathlib import Path
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -72,7 +74,39 @@ _disable_openvino_telemetry = disable_openvino_telemetry
 _disable_openvino_telemetry()
 
 
-def patch_rapidocr_openvino_device() -> None:
+_SHARED_OPENVINO_CORE: Any = None
+_SHARED_CORE_LOCK = threading.Lock()
+
+
+def get_shared_openvino_core(cache_dir: Path | None = None) -> Any:
+    """Return a thread-safe shared OpenVINO Core instance configured with persistent model caching.
+
+    Caches compiled model binaries on disk (in Runtime/Cache/openvino_model_cache), eliminating
+    the 30-45s OpenCL GPU kernel JIT compilation lag on subsequent worker initializations.
+    """
+    global _SHARED_OPENVINO_CORE
+    if _SHARED_OPENVINO_CORE is not None:
+        return _SHARED_OPENVINO_CORE
+
+    with _SHARED_CORE_LOCK:
+        if _SHARED_OPENVINO_CORE is None:
+            try:
+                from openvino import Core
+            except ImportError:
+                from openvino.runtime import Core
+
+            core = Core()
+            effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()
+            try:
+                effective_cache_dir.mkdir(parents=True, exist_ok=True)
+                core.set_property({"CACHE_DIR": str(effective_cache_dir)})
+            except Exception:
+                pass
+            _SHARED_OPENVINO_CORE = core
+    return _SHARED_OPENVINO_CORE
+
+
+def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
     """Ensure RapidOCR OpenVINOInferSession respects the device configured in the inference params."""
     _disable_openvino_telemetry()
     try:
@@ -84,13 +118,8 @@ def patch_rapidocr_openvino_device() -> None:
         def _custom_init(self: Any, cfg: Any) -> None:
             from pathlib import Path
 
-            try:
-                from openvino import Core
-            except ImportError:
-                from openvino.runtime import Core
-
             device_name = str(cfg.get("device", "CPU")).upper()
-            core = Core()
+            core = get_shared_openvino_core(cache_dir)
             model_path = Path(cfg.get("model_path"))
             self._verify_model(model_path)
 
@@ -114,6 +143,7 @@ def patch_rapidocr_openvino_device() -> None:
 
 
 _patch_rapidocr_openvino_device = patch_rapidocr_openvino_device
+
 
 
 def resolve_target_device(execution_binding: ExecutionBinding | None) -> str:

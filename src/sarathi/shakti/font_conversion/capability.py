@@ -182,7 +182,8 @@ class FontConversionCapability:
                 )
                 with scope:
                     # 1. Detect legacy font profile
-                    font_hint = request.metadata.get("font") if request.metadata else None
+                    opts, meta = request.custom_options or {}, request.metadata or {}
+                    font_hint = opts.get("source_font") or opts.get("font") or meta.get("font")
                     detected_profile, conf = self._detector.detect(
                         full_text, font_hint=str(font_hint) if font_hint else None
                     )
@@ -201,6 +202,13 @@ class FontConversionCapability:
                         )
 
                     is_to_legacy = target_mode in ("to_krutidev", "to_devlys")
+                    if not is_to_legacy and detected_profile is None and self._detector.is_legacy_text(full_text):
+                        cands = rank_profiles_from_text(full_text, self._profiles)
+                        if cands and cands[0].score >= 2.0:
+                            p0 = self._profiles.get(cands[0].profile_id)
+                            if p0 and p0.family in ("krutidev", "devlys"):
+                                detected_profile, conf = "krutidev010", 0.9
+
                     target_profile = (
                         ("krutidev010" if target_mode == "to_krutidev" else "devlys010")
                         if is_to_legacy

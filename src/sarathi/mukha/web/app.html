@@ -196,14 +196,26 @@
                                 </div>
                             </div>
 
-                            <!-- Font Conversion Target Mode Selection -->
-                            <div id="font-mode-row" class="form-row hidden">
-                                <label class="form-label" for="select-font-mode">Conversion Target</label>
-                                <select id="select-font-mode" class="form-select">
-                                    <option value="auto_unicode" selected>Auto-Detect & Convert to Unicode</option>
-                                    <option value="to_krutidev">Convert to KrutiDev</option>
-                                    <option value="to_devlys">Convert to DevLys</option>
-                                </select>
+                            <!-- Font Conversion Settings -->
+                            <div id="font-mode-row" class="form-row hidden" style="display: flex; gap: 12px;">
+                                <div style="flex: 1;">
+                                    <label class="form-label" for="select-font-source">Source Font Hint</label>
+                                    <select id="select-font-source" class="form-select">
+                                        <option value="" selected>Auto-Detect Source Font</option>
+                                        <option value="krutidev010">KrutiDev 010 / DevLys</option>
+                                        <option value="chanakya010">Chanakya</option>
+                                        <option value="shusha010">Shusha</option>
+                                        <option value="shivaji010">Shivaji</option>
+                                    </select>
+                                </div>
+                                <div style="flex: 1;">
+                                    <label class="form-label" for="select-font-mode">Conversion Target</label>
+                                    <select id="select-font-mode" class="form-select">
+                                        <option value="auto_unicode" selected>Auto-Detect & Convert to Unicode</option>
+                                        <option value="to_krutidev">Convert to KrutiDev</option>
+                                        <option value="to_devlys">Convert to DevLys</option>
+                                    </select>
+                                </div>
                             </div>
 
                             <!-- Preflight Validation -->

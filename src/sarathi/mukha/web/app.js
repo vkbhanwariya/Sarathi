@@ -70,6 +70,7 @@
         chkOcrFallback: document.getElementById("chk-ocr-fallback"),
         chkOcrValidation: document.getElementById("chk-ocr-validation"),
         fontModeRow: document.getElementById("font-mode-row"),
+        selectFontSource: document.getElementById("select-font-source"),
         selectFontMode: document.getElementById("select-font-mode"),
         preflightSummary: document.getElementById("preflight-summary"),
         preflightIssues: document.getElementById("preflight-issues"),
@@ -430,7 +431,11 @@
             }
             payload.custom_options = customOpts;
         } else if (state.currentRequirement === "font_conversion" && elements.selectFontMode) {
-            payload.custom_options = { font_mode: elements.selectFontMode.value };
+            const fontOpts = { font_mode: elements.selectFontMode.value };
+            if (elements.selectFontSource && elements.selectFontSource.value) {
+                fontOpts.source_font = elements.selectFontSource.value;
+            }
+            payload.custom_options = fontOpts;
         }
 
         const res = await apiPost("/api/runs", payload);

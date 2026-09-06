@@ -37,7 +37,7 @@ class Yantra:
         cls,
         detect_accelerators: bool = False,
         *,
-        gpu_capacity_per_device: int = 2,
+        gpu_capacity_per_device: int = 4,
         npu_capacity_per_device: int = 2,
     ) -> DeviceInventory:
         """Return the factual default hardware inventory."""
