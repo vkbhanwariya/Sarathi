@@ -246,6 +246,27 @@ class TestMarutiTelemetry:
 
         assert len(darpana.active_spans()) == 0
 
+    def test_nested_time_scopes_preserve_active_spans(self, execution_context: ExecutionContext) -> None:
+        """R17: Verify nested time_scopes sharing a context don't overwrite or prematurely clear outer span."""
+        darpana = Darpana(capacity=10)
+        with darpana.time_scope(execution_context, phase_name="outer", component="comp.outer"):
+            spans_outer = darpana.active_spans()
+            assert len(spans_outer) == 1
+            assert spans_outer[0]["phase_name"] == "outer"
+
+            with darpana.time_scope(execution_context, phase_name="inner", component="comp.inner"):
+                spans_nested = darpana.active_spans()
+                assert len(spans_nested) == 2
+                phases = {s["phase_name"] for s in spans_nested}
+                assert phases == {"outer", "inner"}
+
+            # After inner exits, outer should still be active
+            spans_after_inner = darpana.active_spans()
+            assert len(spans_after_inner) == 1
+            assert spans_after_inner[0]["phase_name"] == "outer"
+
+        assert len(darpana.active_spans()) == 0
+
 
 class TestPramanaTelemetry:
     def test_accuracy_value_ratio_and_evidence(self) -> None:

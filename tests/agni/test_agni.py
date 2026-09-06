@@ -554,3 +554,27 @@ class TestAgniBootstrap:
                 shutil.rmtree(out_p, ignore_errors=True)
             if out_p.parent.exists() and not any(out_p.parent.iterdir()):
                 out_p.parent.rmdir()
+
+    def test_agni_wires_configured_cache_policy(self, tmp_path: Path) -> None:
+        """R13 Fix: Agni applies configured cache policy settings to SmritiCache."""
+        from sarathi.agni import Agni
+        from sarathi.sutra import Settings
+
+        settings = Settings(
+            {
+                "cache": {
+                    "enabled": True,
+                    "ttl_seconds": 42,
+                    "max_entries_l1": 5,
+                }
+            }
+        )
+        agni = Agni(
+            settings=settings,
+            runtime_root=tmp_path / "rt",
+            output_root=tmp_path / "out",
+        )
+        with agni:
+            assert agni.smriti is not None
+            assert agni.smriti._policy.ttl_seconds == 42
+            assert agni.smriti._policy.max_entries_l1 == 5

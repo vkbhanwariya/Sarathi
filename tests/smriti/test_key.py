@@ -237,3 +237,19 @@ def test_asset_version_influences_cache_key(tmp_path: Path) -> None:
     key_v1 = compute_cache_key(req, "ocr", "1.0.0", asset_version="rev-1")
     key_v2 = compute_cache_key(req, "ocr", "1.0.0", asset_version="rev-2")
     assert key_v1.key_hash != key_v2.key_hash
+
+
+def test_table_cell_type_collision_resistance() -> None:
+    """R19: Verify tables with identical string representations but different types produce distinct hashes."""
+    from sarathi.sankalpa import CanonicalDocument, TableData
+    from sarathi.smriti.key import _hash_canonical_document
+
+    doc_int = CanonicalDocument(
+        document_id="doc1",
+        tables=(TableData(name="t1", headers=("col1",), rows=((1,),)),),
+    )
+    doc_str = CanonicalDocument(
+        document_id="doc1",
+        tables=(TableData(name="t1", headers=("col1",), rows=(("1",),)),),
+    )
+    assert _hash_canonical_document(doc_int) != _hash_canonical_document(doc_str)

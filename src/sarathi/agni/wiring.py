@@ -163,7 +163,7 @@ def assemble_platform_services(
         active_smriti = smriti
     elif settings.cache_enabled:
         cache_dir = settings.cache_dir or (runtime_root / "Cache")
-        active_smriti = SmritiCache(cache_dir=cache_dir)
+        active_smriti = SmritiCache(cache_dir=cache_dir, policy=settings.cache_policy())
 
     if active_smriti is not None:
         prana.register("smriti", active_smriti)

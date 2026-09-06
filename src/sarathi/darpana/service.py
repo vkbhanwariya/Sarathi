@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -151,6 +152,7 @@ class Darpana:
 
         start_time_utc = datetime.now(timezone.utc).isoformat()
         start_ns = time.perf_counter_ns()
+        scope_key = f"{context.span_id}-{uuid.uuid4().hex[:8]}"
         span_entry = {
             "run_id": context.run_id,
             "request_id": context.request_id,
@@ -162,7 +164,7 @@ class Darpana:
             "attributes": safe_attributes,
         }
         with self._lock:
-            self._active_spans[context.span_id] = span_entry
+            self._active_spans[scope_key] = span_entry
 
         try:
             yield
@@ -212,7 +214,7 @@ class Darpana:
             raise
         finally:
             with self._lock:
-                self._active_spans.pop(context.span_id, None)
+                self._active_spans.pop(scope_key, None)
 
     def active_spans(self) -> tuple[dict[str, Any], ...]:
         """Return an immutable snapshot of currently active in-flight execution spans."""

@@ -7,8 +7,6 @@ modern Web UI without external dependencies, frameworks, or cloud leaks.
 
 from __future__ import annotations
 
-import subprocess
-import sys
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -188,35 +186,7 @@ class MukhaWebServer:
 
     def reveal_output_directory(self, run_id: str) -> bool:
         """Safely reveal the confirmed run output folder in Windows Explorer / OS file manager in the foreground."""
-        with self._lock:
-            target_dir = self._run_output_roots.get(run_id)
-        if target_dir is None or not target_dir.is_dir():
-            return False
-
-        try:
-            if sys.platform == "win32":
-                subprocess.Popen(["explorer.exe", str(target_dir)])
-                try:
-                    subprocess.run(
-                        [
-                            "powershell",
-                            "-NoProfile",
-                            "-Command",
-                            "(New-Object -ComObject WScript.Shell).AppActivate('Explorer')",
-                        ],
-                        capture_output=True,
-                        timeout=2.0,
-                        check=False,
-                    )
-                except Exception:
-                    pass
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(target_dir)])
-            else:
-                subprocess.Popen(["xdg-open", str(target_dir)])
-            return True
-        except Exception:
-            return False
+        return self._runner.reveal_output_directory(run_id)
 
     def start(self) -> None:
         """Start the loopback web server on a background thread."""

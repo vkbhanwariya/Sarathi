@@ -37,12 +37,19 @@ if TYPE_CHECKING:
     from sarathi.yantra import Yantra
 
 
+def _is_usable_page(page: PageData) -> bool:
+    """Check whether a PageData contains usable text or table data."""
+    p_text = bool(page.text and page.text.strip())
+    p_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in page.tables)
+    return p_text or p_tables
+
+
 def _is_usable_document(doc: CanonicalDocument) -> bool:
-    """Check whether a CanonicalDocument contains usable text or table data."""
-    has_text = bool(doc.text and doc.text.strip()) or any(bool(p.text and p.text.strip()) for p in doc.pages)
-    has_tables = bool(doc.tables and len(doc.tables) > 0) or any(
-        bool(p.tables and len(p.tables) > 0) for p in doc.pages
-    )
+    """Check whether a CanonicalDocument contains usable text or table data across all pages."""
+    if doc.pages:
+        return all(_is_usable_page(p) for p in doc.pages)
+    has_text = bool(doc.text and doc.text.strip())
+    has_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables)
     return has_text or has_tables
 
 
@@ -162,8 +169,9 @@ class OCRCapability:
         all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result else []
 
         # 1. Preflight inputs: separate already-usable native documents, empty inputs, and OCR candidates
-        ocr_inputs: list[tuple[InputRef, list[Any]]] = []
+        ocr_inputs: list[tuple[InputRef, list[Any], list[int]]] = []
         empty_or_usable_docs: dict[str, CanonicalDocument] = {}
+        existing_native_pages_by_input: dict[str, dict[int, PageData]] = {}
 
         for inp in request.inputs:
             if (usable_doc := prior_docs.get(inp.input_id)) and _is_usable_document(usable_doc):
@@ -201,7 +209,19 @@ class OCRCapability:
                     message="Unsupported content format for OCR.",
                 )
 
-            ocr_inputs.append((inp, images))
+            native_pages: dict[int, PageData] = {}
+            if inp.input_id in prior_docs:
+                prior_doc = prior_docs[inp.input_id]
+                for p in prior_doc.pages:
+                    if _is_usable_page(p):
+                        native_pages[p.page_number] = p
+            existing_native_pages_by_input[inp.input_id] = native_pages
+
+            needed_page_indices = [
+                idx for idx in range(1, len(images) + 1)
+                if idx not in native_pages
+            ]
+            ocr_inputs.append((inp, images, needed_page_indices))
 
         # Check for progress callback
         progress_cb = None
@@ -209,7 +229,7 @@ class OCRCapability:
             progress_cb = request.custom_options["progress_callback"]
 
         # 2. Perform OCR: execute in bounded chunks across input boundaries if parallelizable
-        total_pages_all = sum(len(imgs) for _, imgs in ocr_inputs)
+        total_pages_needing_ocr = sum(len(needed) for _, _, needed in ocr_inputs)
         is_parallelizable = self.declaration.device_requirement.parallelizable
         max_concurrency = (
             context.execution_binding.approved_concurrency if context.execution_binding else None
@@ -217,23 +237,27 @@ class OCRCapability:
         default_cap = self._yantra.max_workers if self._yantra is not None else 1
         approved_concurrency = max_concurrency if (max_concurrency and max_concurrency > 0) else default_cap
         can_parallelize = (
-            total_pages_all > 1
+            total_pages_needing_ocr > 1
             and self._yantra is not None
             and is_parallelizable
             and (max_concurrency is None or max_concurrency > 1)
         )
 
-        doc_page_results: dict[str, list[tuple[int, PageData, ProvenanceRecord, list[WarningRecord]]]] = {
-            inp.input_id: [] for inp, _ in ocr_inputs
+        doc_page_results: dict[str, list[tuple[int, PageData, ProvenanceRecord | None, list[WarningRecord]]]] = {
+            inp.input_id: [] for inp, _, _ in ocr_inputs
         }
+        for inp, _, _ in ocr_inputs:
+            for p_num, p_data in existing_native_pages_by_input.get(inp.input_id, {}).items():
+                doc_page_results[inp.input_id].append((p_num, p_data, None, []))
 
         if can_parallelize:
             import threading
 
             all_items: list[tuple[InputRef, int, int, Any]] = []
-            for inp, images in ocr_inputs:
+            for inp, images, needed_indices in ocr_inputs:
                 tot = len(images)
-                for p_idx, img in enumerate(images, 1):
+                for p_idx in needed_indices:
+                    img = images[p_idx - 1]
                     all_items.append((inp, p_idx, tot, img))
 
             def _make_page_task(
@@ -285,9 +309,10 @@ class OCRCapability:
             for (inp_ref, p_idx, _, _), (p_data, p_prov, p_warns) in zip(all_items, page_results):
                 doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
         else:
-            for inp, images in ocr_inputs:
+            for inp, images, needed_indices in ocr_inputs:
                 tot = len(images)
-                for page_idx, img in enumerate(images, 1):
+                for page_idx in needed_indices:
+                    img = images[page_idx - 1]
                     if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                         context.cancellation_token.check_cancelled()
 
@@ -335,7 +360,8 @@ class OCRCapability:
             pages = []
             for _, page_data, prov, page_warnings in raw_results:
                 pages.append(page_data)
-                all_provenance.append(prov)
+                if prov is not None:
+                    all_provenance.append(prov)
                 all_warnings.extend(page_warnings)
 
             if len(pages) > 1:

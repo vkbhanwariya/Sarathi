@@ -201,7 +201,7 @@ class TestMukhaWebServerAPI:
         assert (output_dirs[0] / "run-manifest.json").is_file()
 
         # 3. Exercise reveal routing without launching a file manager or changing focus.
-        with patch("sarathi.mukha.web.server.subprocess") as mock_subprocess:
+        with patch("sarathi.mukha.web.runner.subprocess") as mock_subprocess:
             status, reveal_data = _http_post(
                 f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/reveal",
                 data={},

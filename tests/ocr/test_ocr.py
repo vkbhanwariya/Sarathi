@@ -909,6 +909,80 @@ class TestOCRPhase1Instant:
         assert "inp-native" in prov_inputs
         assert "inp-scan" in prov_inputs
 
+    def test_partial_native_document_preserves_extracted_pages_and_ocrs_remaining(
+        self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        """R04 Fix: Partially extracted native document preserves native pages and runs OCR only on blank pages."""
+        img_path = tmp_path / "p2.png"
+        _create_sample_image("OCR-PAGE-TWO", img_path)
+
+        pdf_path = tmp_path / "mixed_pages.pdf"
+        doc = pymupdf.open()
+        p1 = doc.new_page(width=300, height=200)
+        p1.insert_text((50, 50), "Native Page One")
+
+        img_doc = pymupdf.open(str(img_path))
+        rect = img_doc[0].rect
+        pdf_bytes = img_doc.convert_to_pdf()
+        img_doc.close()
+        img_pdf = pymupdf.open("pdf", pdf_bytes)
+        p2 = doc.new_page(width=rect.width, height=rect.height)
+        p2.show_pdf_page(rect, img_pdf, 0)
+        img_pdf.close()
+        doc.save(str(pdf_path))
+        doc.close()
+        if img_path.exists():
+            img_path.unlink()
+
+        prior_doc = CanonicalDocument(
+            document_id="doc-part",
+            source_input_id="inp-part",
+            detected_type="pdf",
+            pages=(
+                PageData(page_number=1, text="Native Page One"),
+                PageData(page_number=2, text=""),
+            ),
+            text="Native Page One",
+        )
+        prior_prov = ProvenanceRecord(
+            source_input_id="inp-part",
+            stage="native_extraction",
+            plugin_id="shakti.native_extraction",
+            capability_id="read_native",
+        )
+        prior_result = Result(
+            data=prior_doc,
+            provenance=(prior_prov,),
+            warnings=(),
+            next_requirement="ocr",
+        )
+
+        req = Request(
+            request_id="req-part",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-part",
+                    source_path=pdf_path,
+                    display_name="mixed_pages.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        res = ocr_capability.execute(req, context, prior_result=prior_result)
+        assert isinstance(res.data, CanonicalDocument)
+        assert len(res.data.pages) == 2
+
+        # Page 1 preserved native text
+        assert res.data.pages[0].page_number == 1
+        assert res.data.pages[0].text == "Native Page One"
+
+        # Page 2 filled by OCR
+        assert res.data.pages[1].page_number == 2
+        assert "OCR-PAGE-TWO" in res.data.pages[1].text
+
     def test_unsupported_profiles_rejected_at_resolution_and_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:

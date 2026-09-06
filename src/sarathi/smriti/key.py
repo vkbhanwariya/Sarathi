@@ -98,19 +98,19 @@ def _hash_canonical_document(doc: CanonicalDocument) -> str:
         for tbl in page.tables:
             t_name = tbl.name or ""
             tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
-            h_json = json.dumps([str(h) for h in tbl.headers], ensure_ascii=False)
+            h_json = json.dumps([f"{type(h).__name__}:{h}" for h in tbl.headers], ensure_ascii=False)
             doc_hasher.update(f":th{t_name}:{h_json}{tm}:".encode("utf-8"))
             for row in tbl.rows:
-                r_json = json.dumps([str(c) for c in row], ensure_ascii=False)
+                r_json = json.dumps([f"{type(c).__name__}:{c}" for c in row], ensure_ascii=False)
                 doc_hasher.update(f":tr{r_json}:".encode("utf-8"))
 
     for tbl in doc.tables:
         t_name = tbl.name or ""
         tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
-        h_json = json.dumps([str(h) for h in tbl.headers], ensure_ascii=False)
+        h_json = json.dumps([f"{type(h).__name__}:{h}" for h in tbl.headers], ensure_ascii=False)
         doc_hasher.update(f":dth{t_name}:{h_json}{tm}:".encode("utf-8"))
         for row in tbl.rows:
-            r_json = json.dumps([str(c) for c in row], ensure_ascii=False)
+            r_json = json.dumps([f"{type(c).__name__}:{c}" for c in row], ensure_ascii=False)
             doc_hasher.update(f":dtr{r_json}:".encode("utf-8"))
 
     if doc.metadata:
