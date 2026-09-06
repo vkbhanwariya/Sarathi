@@ -1,10 +1,25 @@
 # Sarathi V2 — Translation Specification
 
-**Specification Updated:** 31-08-2026, 07:32 PM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
 
-Scope: Translation input prerequisites, local Hindi-English models, protected
+Scope: Translation canonical ownership, input prerequisites, local Hindi-English models, protected
 content, terminology data, reusable approved corrections, dependencies, and
 acceptance behavior.
+
+## Canonical Ownership and File Placement
+
+The canonical owner of translation in Sarathi V2 is **`src/sarathi/shakti/translation/`**.
+No parallel engines or secondary translation subsystems are permitted.
+
+- `models.py`: Typed translation request, segment, and result dataclasses.
+- `capability.py`: Canonical `TranslationCapability` implementing `Capability` contract with batch execution, sentence translation coordination, and pipeline continuation.
+- `provider.py`: Canonical `TranslationProvider` constructing executable capability, canonical Yantra device binding, and lightweight model readiness probes.
+- `engine.py`: IndicTrans2 distilled 200M + CTranslate2 inference engine with dynamic VRAM batching based on Yantra hardware inventory.
+- `detector.py`: Source language detection and Unicode script validation.
+- `protector.py`: Protected span detection and placeholder restoration for legal terms, citations (CrPC, IPC, BNS), numbers, dates, and amounts.
+- `glossary.py`: Static terminology dictionary loading and glossary replacement.
+- `typography.py`: Capability-local typography helpers mapping translated text to standard 12 pt baseline (`Nirmala UI` for Hindi / `Times New Roman` for English).
+- `plugin.py`: Plugin registration and capability declaration metadata.
 
 ## Input Boundary
 

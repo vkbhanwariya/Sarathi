@@ -1,6 +1,6 @@
 # Sarathi V2 — Shared Services Specification
 
-**Specification Updated:** 31-08-2026, 06:59 PM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Darpana, Smriti, Anubhava, Mukha, Sutra, Kavacha, and Dosh.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -67,10 +67,11 @@ Runtime and capability facts
           ↓
 One typed Darpana record path
           ├── bounded in-memory live buffer for active run consumers (Mukha)
+          ├── real-time active in-flight span registry (active_spans())
           └── TerminalRunSummary history persistence (JSONL or SQLite) under Runtime/Telemetry
 ```
 
-`LiveTelemetryBuffer` stores in-memory ring buffers of `MarutiRecord` and `PramanaRecord` for live presentation (Mukha) and active run inspection. `TerminalRunHistoryStore` persists sanitized, schema-validated `TerminalRunSummary` records across runs upon run finalization (under `Runtime/Telemetry/history.jsonl` or SQLite `history.db`).
+`LiveTelemetryBuffer` stores in-memory ring buffers of `MarutiRecord` and `PramanaRecord` for live presentation (Mukha) and active run inspection. In addition, `DarpanaService` maintains a thread-safe `active_spans()` registry tracking in-flight execution spans in real time during `time_scope` measurement. `TerminalRunHistoryStore` persists sanitized, schema-validated `TerminalRunSummary` records across runs upon run finalization (under `Runtime/Telemetry/history.jsonl` or SQLite `history.db`).
 
 **Mukha --- Console & Presentation** consumes only Darpana's public typed
 state/events. Exporter failure normally degrades observability rather than
@@ -78,19 +79,14 @@ changing the document-processing outcome. Retention, exporters, logging,
 and measurement policy come from **Sutra --- Configuration**; sensitive
 values are filtered under **Kavacha --- Security & Privacy**.
 
-Suggested responsibility-driven structure:
+Canonical file structure:
 
 ``` text
 darpana/
 ├── service.py
-├── records.py
-├── tracer.py
 ├── maruti.py
 ├── pramana.py
-├── recorder.py
-└── exporters/
-    ├── jsonl.py
-    └── sqlite.py
+└── history.py
 ```
 
 A file is created only when its responsibility is implemented. OpenTelemetry
@@ -109,7 +105,8 @@ Smriti
 ├── key.py
 ├── memory.py
 ├── store.py
-└── policy.py
+├── policy.py
+└── serialization.py
 ```
 
 ### Canonical cache flow
@@ -119,25 +116,32 @@ Plugin execution request
         ↓
 Canonical Cache Key
         ↓
-L1 Memory
+L1 Memory (Synchronized LRU)
    ├── hit → result
    └── miss
         ↓
-L2 SQLite
+L2 SQLite (Bounded Runtime/Cache Store)
    ├── hit → promote to L1 → result
    └── miss
         ↓
 Execute capability
         ↓
-Store reusable result
+Store reusable result (Lossless Binary Serialization)
 ```
 
-The cache key must be based on the inputs that can change result
-validity, such as input identity, capability, plugin/model version, and
-relevant configuration.
+The canonical cache key is computed by `smriti.key.compute_cache_key()` as a SHA-256 composite hash factoring in:
+- input document bytes or stable source identifier
+- target capability ID and capability version
+- execution profile ID and profile version
+- canonical configuration options hash
 
-There is one canonical general key algorithm rather than multiple
-unrelated cache-key implementations.
+This strict composite key prevents stale cache hits when pipeline models or capability configurations are upgraded.
+
+There is one canonical general key algorithm rather than multiple unrelated cache-key implementations.
+
+#### Cache Security and Lossless Serialization
+- **Store Safety**: `smriti.store.SQLiteStore` validates all cache keys against directory traversal and root escape attacks, ensuring cached records remain safely bounded within `Runtime/Cache/`.
+- **Lossless Binary Serialization**: `smriti.serialization` provides deterministic binary serialization for `CanonicalDocument` and typed artifact payloads. Every serialized stream includes a magic header check and length validation, raising explicit `DeserializationError` upon detecting corrupted or truncated payloads.
 
 Specialized compiled-model caching, such as an OpenVINO compiled-model
 cache, may remain an internal **Yantra --- Resource & Execution

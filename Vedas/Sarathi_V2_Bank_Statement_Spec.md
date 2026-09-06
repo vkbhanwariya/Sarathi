@@ -1,6 +1,6 @@
 # Sarathi V2 — Bank Statement Consolidation Specification
 
-**Specification Updated:** 31-08-2026, 06:59 PM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Bank Statement Consolidation.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -170,7 +170,7 @@ Missing date + financial values → possible date inheritance → separate trans
 Missing date + narration only   → possible continuation → merge when context proves it
 ```
 
-Opening, closing, EOD, total, and summary rows remain statement evidence; they are never injected as fake transactions.
+Opening, closing, EOD, total, and summary rows remain statement evidence; they are never injected as fake transactions. Instead, `RowType.EOD_BALANCE` and `RowType.SUMMARY` rows are classified and preserved verbatim under statement metadata (`statement.metadata["eod_balances"]` and `statement.metadata["summary_rows"]`) alongside source table/row provenance, ensuring complete audit fidelity without polluting the transaction ledger.
 
 ### Debit, Credit and amount normalization
 
@@ -271,6 +271,13 @@ transaction_date
 
 Time is optional extra information: preserve when present, otherwise `None` with no warning or confidence penalty.
 
+#### Multi-Account Segregation in Cross-Statement Deduplication
+Before deduplication is evaluated, statements are grouped strictly by account identity using a deterministic key:
+```text
+account_fingerprint  →  if absent, masked_account_number  →  if absent, account_holder
+```
+Cross-statement overlap detection and deduplication are executed strictly **within** each segregated account group. Statements originating from distinct accounts, even when sharing common transaction dates, counter-parties, or amounts, are never cross-deduplicated against each other.
+
 Deduplication has only three decisions:
 
 ``` text
@@ -302,6 +309,30 @@ Consolidated_Bank_Statement.parquet
 ```
 
 Parquet is the persistent machine-analysis source because repeated filtering, aggregation, and column selection should not reparse original documents or XLSX. **Viveka --- Analyse** should use Polars lazy scans (`scan_parquet`) and read only required rows/columns where possible.
+
+To guarantee zero field loss between the in-memory canonical `BankStatement` and disk, the canonical Polars DataFrame exports all financial, audit, and provenance fields:
+
+``` text
+Field Name            Polars Type        Description
+----------------------------------------------------------------------------------
+statement_id          pl.String          Unique statement UUID
+bank_name             pl.String          Canonical bank name
+account_number        pl.String          Masked account number or 'UNKNOWN'
+account_holder        pl.String          Account holder name or 'UNKNOWN'
+transaction_date      pl.Date            Mandatory transaction date
+transaction_time      pl.Time            Optional transaction time
+posting_date          pl.Date            Explicit posting date or None
+value_date            pl.Date            Explicit value date or None
+description           pl.String          Full narration / description string
+reference_number      pl.String          UTR / reference identifier or None
+cheque_number         pl.String          Cheque number or None
+debit                 pl.Float64         Positive debit magnitude or None
+credit                pl.Float64         Positive credit magnitude or None
+running_balance       pl.Float64         Running balance or None
+currency              pl.String          Currency ISO code (e.g. 'INR')
+issues                pl.String          JSON-encoded list of ValidationIssue dicts
+metadata              pl.String          JSON-encoded transaction metadata
+```
 
 Human-facing export:
 

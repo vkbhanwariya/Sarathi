@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 01-09-2026, 11:45 PM IST (Asia/Kolkata)
+**README Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and

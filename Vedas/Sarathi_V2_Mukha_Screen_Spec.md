@@ -1,6 +1,6 @@
 # Sarathi V2 — Mukha Screen Specification
 
-**Document Updated:** 31-08-2026, 09:17 PM IST (Asia/Kolkata)  
+**Document Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
 **Status:** Canonical detailed specification referenced by the main
 [Sarathi V2 README](../README.md).
 
@@ -71,6 +71,24 @@ Canonical runtime owner revalidates before execution
 TOML may reorder or relabel a known `action_id`, but cannot create behavior.
 An unknown action ID is a validation error. Revalidation at submission prevents
 a stale screen from executing an option that became unavailable after render.
+
+### 2.2 Local Web HTTP REST & SSE Protocol
+
+Mukha Local Web communicates over a loopback HTTP/1.1 service bound strictly to `127.0.0.1`. The canonical protocol endpoints are:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/` | `GET` | Serves `app.html` single-page application shell |
+| `/app.css`, `/app.js` | `GET` | Static styling and vanilla JS application controller |
+| `/api/state` | `GET` | Returns full typed `PresentationState` JSON snapshot |
+| `/api/events` | `GET` | Server-Sent Events (SSE) text stream for real-time reactive UI updates |
+| `/api/run` | `POST` | Dispatches new execution run with validated input paths, requirement, and profile |
+| `/api/cancel` | `POST` | Requests cooperative cancellation of active run via `CancellationToken` |
+| `/api/action` | `POST` | Submits operator action intent (e.g. re-run, reset, inspect) |
+| `/api/browse` | `POST` | Opens controlled native Windows file/folder picker dialog (`native_picker.py`) |
+| `/api/history` | `GET` | Retrieves terminal run history from Darpana store with optional limit query |
+| `/api/review` | `GET`, `POST` | Retrieves or applies corrections to pending exception review items |
+| `/api/artifact` | `GET` | Securely streams committed output artifact with traversal and MIME verification |
 
 ## 3. V1 Screen Audit and V2 Disposition
 
@@ -159,6 +177,13 @@ The UI always presents the highest reliable progress level and lets the user dri
 - **Queue/wait time:** shown separately from execution time where measured.
 - **Total measured work:** optional sum of spans, explicitly labelled; it may exceed wall-clock run time when work is parallel.
 - Missing measurement renders as `—`, not `0.00s`.
+
+### 5.4 Multi-File Batch Truthfulness
+
+In multi-file batch runs, overall batch status is strictly truthful:
+- An individual input file is marked `SUCCESS` only if a corresponding output document exists in `result.data` or an output artifact has matching input provenance.
+- Input files lacking successful outputs are marked `FAILED` with explicit error classification.
+- An overall run status is marked `SUCCESS` only when 100% of batch files succeed; mixed success/failure truthfully yields `PARTIAL` rather than false `SUCCESS`.
 
 ## 6. Screen 0 Overlay: Aarambha — Startup Progress
 

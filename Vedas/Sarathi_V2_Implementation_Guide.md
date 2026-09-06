@@ -1,6 +1,6 @@
 # Sarathi V2 — Implementation Guide
 
-**Specification Updated:** 02-09-2026, 12:30 AM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for implementation order, physical structure, wiring, testing, dependencies, and architecture status.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -199,6 +199,7 @@ Sarathi/
 │       │       ├── app.css
 │       │       ├── app.html
 │       │       ├── app.js
+│       │       ├── http_handler.py
 │       │       ├── native_picker.py
 │       │       └── server.py
 │       ├── smriti/
@@ -216,13 +217,64 @@ Sarathi/
 │       ├── dosh/
 │       │   └── errors.py
 │       └── shakti/
+│           ├── artifact_naming.py
 │           ├── docx_exporter.py
+│           ├── providers.py
+│           ├── text/
+│           │   ├── legacy_detection.py
+│           │   └── span_protection.py
 │           ├── darshana/
+│           │   ├── capability.py
+│           │   ├── facts.py
+│           │   ├── identifier.py
+│           │   ├── plugin.py
+│           │   └── provider.py
 │           ├── native_extraction/
+│           │   ├── capability.py
+│           │   ├── detector.py
+│           │   ├── plugin.py
+│           │   ├── provider.py
+│           │   └── readers.py
 │           ├── ocr/
+│           │   ├── capability.py
+│           │   ├── engine.py
+│           │   ├── plugin.py
+│           │   ├── provider.py
+│           │   └── typography.py
 │           ├── font_conversion/
+│           │   ├── akshara.py
+│           │   ├── capability.py
+│           │   ├── converter.py
+│           │   ├── detector.py
+│           │   ├── font_size_normalizer.py
+│           │   ├── models.py
+│           │   ├── plugin.py
+│           │   ├── protector.py
+│           │   ├── provider.py
+│           │   └── validator.py
 │           ├── translation/
+│           │   ├── capability.py
+│           │   ├── detector.py
+│           │   ├── engine.py
+│           │   ├── glossary.py
+│           │   ├── models.py
+│           │   ├── plugin.py
+│           │   ├── protector.py
+│           │   ├── provider.py
+│           │   └── typography.py
 │           └── bank_statements/
+│               ├── capability.py
+│               ├── consolidator.py
+│               ├── converter.py
+│               ├── deduplicator.py
+│               ├── detector.py
+│               ├── mapper.py
+│               ├── models.py
+│               ├── plugin.py
+│               ├── provider.py
+│               ├── row_classifier.py
+│               ├── table_locator.py
+│               └── validator.py
 │
 ├── data/
 │   ├── banks/
@@ -344,16 +396,17 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `mukha/presenter.py` — factual projection of canonical runtime/telemetry state into typed presentation views; no execution/lifecycle/security decisions.
 - `mukha/state.py` — typed immutable presentation/view-state contracts.
 - `mukha/intake.py` — input discovery, normalization, validation, and safe path intake.
-- `mukha/web/server.py` — loopback Local Web dashboard HTTP/SSE server emitting typed user intents to Agni composition root.
+- `mukha/web/server.py` — loopback Local Web dashboard HTTP/SSE server orchestrating worker threads and dispatching typed intents to Agni.
+- `mukha/web/http_handler.py` — HTTP/1.1 REST & SSE request handler serving UI assets and endpoints (`/api/state`, `/api/events`, `/api/run`, `/api/cancel`, `/api/action`, `/api/browse`, `/api/history`, `/api/review`, `/api/artifact`).
 - `mukha/web/native_picker.py` — controlled native Windows file and folder picker dialog integration.
 
 ### Smriti — Cache & Runtime State
 
-- `smriti/key.py` — deterministic canonical cache-key computation across requests and capabilities.
-- `smriti/memory.py` — bounded thread-safe in-memory L1 cache tier.
-- `smriti/store.py` — persistent SQLite L2 cache store and unified two-tier `SmritiCache` service.
+- `smriti/key.py` — deterministic canonical cache-key computation across requests, profiles, capabilities, and settings hashes.
+- `smriti/memory.py` — bounded thread-safe in-memory L1 cache tier with synchronized LRU eviction.
+- `smriti/store.py` — persistent SQLite L2 cache store with traversal-safe key names and unified two-tier `SmritiCache` service.
 - `smriti/policy.py` — TTL, capacity, and cache validity policy enforcement.
-- `smriti/serialization.py` — deterministic lossless serialization for `CanonicalDocument` and artifact payloads.
+- `smriti/serialization.py` — deterministic lossless binary serialization for `CanonicalDocument` and artifact payloads with magic header validation.
 
 ### Anubhava — Validated Experience Data
 
@@ -380,48 +433,83 @@ is permitted.
 
 - `dosh/errors.py` — small shared error vocabulary used across core and capabilities. Classification/representation lives here; pipeline recovery decisions remain with Pravaha.
 
-### Shakti — Phase 1 Capability Files
+### Shakti — Capability & Shared Ecosystem Files
 
-Capability `plugin.py` files are thin capability boundaries: declaration, supported modes/inputs, dependency hand-off, and canonical request/result integration. They do not become local service containers.
+Capability `plugin.py` and `provider.py` files are thin boundaries: declaration, supported modes/inputs, dependency hand-off, readiness auditing, and canonical request/result integration. They do not become local service containers.
+
+#### Shared Shakti Infrastructure
+
+- `shakti/providers.py` — canonical catalog of built-in `PluginProvider` instances (`BUILTIN_PLUGIN_PROVIDERS`).
+- `shakti/artifact_naming.py` — deterministic canonical naming generator for Shakti artifact outputs.
+- `shakti/docx_exporter.py` — shared multi-capability Word document exporter preserving style hierarchy, cell borders, dynamic visual scaling, and script segmentation.
+- `shakti/text/legacy_detection.py` — shared heuristics for legacy font and script detection.
+- `shakti/text/span_protection.py` — shared tokenization and placeholder restoration for protected spans.
+
+#### Darshana — Identify
+
+- `shakti/darshana/plugin.py` — plugin registration and capability declaration metadata.
+- `shakti/darshana/provider.py` — `DarshanaProvider` constructing executable capability and auditing readiness.
+- `shakti/darshana/capability.py` — executable document identification capability implementing `Capability`.
+- `shakti/darshana/identifier.py` — multi-signal document family, media type, and content identification engine.
+- `shakti/darshana/facts.py` — measured physical file and stream facts extractor.
+
+#### Shruti — Read / Native Extraction
+
+- `shakti/native_extraction/plugin.py` — plugin registration and capability declaration metadata.
+- `shakti/native_extraction/provider.py` — `NativeExtractionProvider` constructing executable capability and auditing readiness.
+- `shakti/native_extraction/capability.py` — executable native extraction capability implementing `Capability`.
+- `shakti/native_extraction/detector.py` — byte-signature and content format detection.
+- `shakti/native_extraction/readers.py` — format-specific native readers for PDF, XLSX/XLSM, legacy XLS, HTML tables, SpreadsheetML, and CSV/text.
+- `shakti/native_extraction/__init__.py` — public package exports.
 
 #### OCR
 
 - `shakti/ocr/plugin.py` — plugin registration and capability declaration metadata.
+- `shakti/ocr/provider.py` — `OCRProvider` constructing executable capability and auditing dependency readiness.
 - `shakti/ocr/capability.py` — executable OCR capability and input/prior-result integration.
-- `shakti/ocr/engine.py` — RapidOCR + OpenVINO primary engine adapter and page/image extraction.
+- `shakti/ocr/engine.py` — RapidOCR + OpenVINO primary engine adapter, Tesseract fallback, and page/image extraction.
+- `shakti/ocr/typography.py` — line-height font size inference and Devanagari/English font standardization.
 - `shakti/ocr/__init__.py` — public package exports.
 
 #### Roopa — Convert / Font Conversion
 
 - `shakti/font_conversion/plugin.py` — font-conversion capability boundary.
-- `shakti/font_conversion/detector.py` — identifies supported legacy font/encoding profiles from evidence.
-- `shakti/font_conversion/protector.py` — protects Latin/English, numbers, dates, IDs, punctuation, and other spans that conversion must not corrupt.
-- `shakti/font_conversion/converter.py` — applies validated mapping conversion and akshara-aware transformation behavior.
-- `shakti/font_conversion/normalizer.py` — Unicode reordering/corrections and NFC normalization.
-- `shakti/font_conversion/validator.py` — validates converted output and protection/restoration integrity.
-- `shakti/font_conversion/recovery.py` — optional recovery path, created only when the Font Conversion specification's evidence gate is satisfied.
+- `shakti/font_conversion/provider.py` — `FontConversionProvider` constructing executable capability and auditing readiness.
+- `shakti/font_conversion/capability.py` — executable font conversion capability with batch escalation and item-scoped telemetry.
+- `shakti/font_conversion/models.py` — canonical dataclasses (`LegacyFontProfile`, `FontEvidence`, `LogicalRun`, `ConversionPlan`, `ConversionMetrics`).
+- `shakti/font_conversion/akshara.py` — universal Unicode Devanagari cluster synthesis, prefix matra reordering, and reph positioning invariants.
+- `shakti/font_conversion/detector.py` — font alias resolution, digraph candidate scoring, and run-level profile decision.
+- `shakti/font_conversion/converter.py` — precompiled transducer execution, reverse mapping, and two-tier Anubhava corrections.
+- `shakti/font_conversion/protector.py` — protected span detection and byte-for-byte PUA restoration (URLs, dates, Latin terms).
+- `shakti/font_conversion/font_size_normalizer.py` — dynamic visual font-size compensation utility scaling legacy 16 pt body text to 12 pt baseline.
+- `shakti/font_conversion/validator.py` — mapping coverage calculation and structural Devanagari integrity validation.
+
+#### Translation
+
+- `shakti/translation/plugin.py` — translation plugin registration and capability declaration metadata.
+- `shakti/translation/provider.py` — `TranslationProvider` constructing executable capability, Yantra device binding, and model readiness probes.
+- `shakti/translation/capability.py` — executable translation capability coordinating sentence processing and escalation.
+- `shakti/translation/models.py` — typed translation request, segment, and result dataclasses.
+- `shakti/translation/detector.py` — source language identification and Unicode script verification.
+- `shakti/translation/protector.py` — legal term, citation, number, date, and reference span protection.
+- `shakti/translation/engine.py` — IndicTrans2 distilled 200M + CTranslate2 inference engine with dynamic VRAM batching.
+- `shakti/translation/glossary.py` — static terminology dictionary and glossary lookup.
+- `shakti/translation/typography.py` — script-aware typography mapping (`Nirmala UI` / `Times New Roman`).
 
 #### Bank Statement Consolidation
 
-- `shakti/bank_statements/plugin.py` — bank-statement capability boundary and orchestration hand-off to the canonical pipeline.
-- `shakti/bank_statements/detector.py` — bank/profile identification plus account/statement clues using deterministic multi-signal evidence.
+- `shakti/bank_statements/plugin.py` — bank-statement capability boundary and orchestration hand-off to canonical pipeline.
+- `shakti/bank_statements/provider.py` — `BankStatementsProvider` constructing executable capability and auditing readiness.
+- `shakti/bank_statements/capability.py` — executable bank consolidation capability integrating table extraction, row classification, and metadata retention.
+- `shakti/bank_statements/models.py` — typed Decimal-based financial models (`BankStatement`, `Transaction`, `AccountIdentity`, `ValidationIssue`).
+- `shakti/bank_statements/detector.py` — bank/profile identification plus account/statement clues using multi-signal evidence.
 - `shakti/bank_statements/table_locator.py` — classifies extracted tables as transaction, continuation, metadata, EOD/summary, or unrelated.
-- `shakti/bank_statements/row_classifier.py` — classifies raw rows as transaction, continuation, opening, closing, EOD, summary, repeated header, or noise before normalization.
-- `shakti/bank_statements/mapper.py` — maps source headers to canonical fields using bank exact → generic exact → bank fuzzy → generic fuzzy resolution and records mapping evidence.
+- `shakti/bank_statements/row_classifier.py` — classifies raw rows as transaction, continuation, opening, closing, EOD, summary, repeated header, or noise.
+- `shakti/bank_statements/mapper.py` — maps source headers to canonical fields using bank exact → generic exact → bank fuzzy → generic fuzzy resolution.
 - `shakti/bank_statements/converter.py` — converts dates/time, narration, references, dirty monetary values, Debit/Credit direction, balances, and currency into canonical typed values.
 - `shakti/bank_statements/validator.py` — transaction invariants, Decimal financial continuity, opening/closing/EOD/source-total reconciliation, and inversion evidence.
-- `shakti/bank_statements/deduplicator.py` — overlap candidate evaluation and evidence-based PROVEN/PROBABLE/DISTINCT duplicate decisions while retaining provenance.
-- `shakti/bank_statements/consolidator.py` — account grouping, safe chronology, final unified statement construction, and canonical output preparation.
-
-#### Shruti — Read / Native Extraction
-
-- `shakti/native_extraction/plugin.py` — plugin registration and capability declaration metadata.
-- `shakti/native_extraction/capability.py` — **Shruti — Read / Native Extraction** executable capability implementing the canonical Capability protocol.
-- `shakti/native_extraction/detector.py` — byte-signature and content format detection.
-- `shakti/native_extraction/readers.py` — format-specific native readers for PDF, XLSX/XLSM, legacy XLS, HTML tables, SpreadsheetML, and CSV/text.
-- `shakti/native_extraction/__init__.py` — public package exports.
-
-**Darshana — Identify** and Translation begin with only the files required by their locked flows. Their internal Python files are named here only after responsibility boundaries are fixed during implementation; this prevents the README from inventing speculative modules merely to make every plugin look symmetrical.
+- `shakti/bank_statements/deduplicator.py` — overlap candidate evaluation and evidence-based duplicate decisions while retaining provenance.
+- `shakti/bank_statements/consolidator.py` — multi-account grouping, safe chronology, cross-statement deduplication within accounts, and lossless Parquet/XLSX export.
 
 ------------------------------------------------------------------------
 

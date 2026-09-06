@@ -1,6 +1,6 @@
 # Sarathi V2 — Core Runtime Specification
 
-**Specification Updated:** 02-09-2026, 12:30 AM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Agni, Sankalpa, Nabhi, Pravaha, and Yantra.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -215,6 +215,8 @@ Responsibilities:
 -   invoke capabilities in the required order
 -   propagate failures and warnings correctly
 -   maintain execution lineage
+-   check `context.cancellation_token` cooperatively between stages and continuation loops to prevent runaway execution
+-   incorporate sorted `request.custom_options` into input hashing (`_compute_input_hash`) to prevent cross-stage cache collisions
 -   own document/capability failure isolation and the quarantine/retry
     lifecycle
 -   cooperate with shared services
@@ -443,6 +445,9 @@ fallback third.**
 
 This policy applies globally to OCR, native extraction, font conversion,
 translation, bank processing, and future plugins.
+
+#### Bounded Queue Waiting and Allocation Timeout
+When all compatible devices are saturated, execution requests do not block indefinitely. `Yantra.execute(..., timeout=...)` accepts an explicit allocation timeout (defaulting to 30.0 seconds). If a compatible worker or device does not become free within the timeout window, `Yantra` raises `DoshError(FailureCode.RESOURCE_EXHAUSTED)` with detailed queue metrics, enabling graceful Pravaha failure handling or quarantine instead of unrecoverable deadlocks.
 
 ### Runtime Selection
 
