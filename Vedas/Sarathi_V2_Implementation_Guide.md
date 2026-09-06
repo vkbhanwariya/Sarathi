@@ -147,7 +147,7 @@ architecture, ownership, or documentation routing changes.
 
 ``` text
 Sarathi/
-├── Arambha.bat
+├── arambha.bat
 ├── pyproject.toml
 ├── uv.lock
 ├── .python-version
@@ -155,6 +155,7 @@ Sarathi/
 │
 ├── scripts/
 │   ├── Initialize-SarathiArchitecture.ps1
+│   ├── Setup-OCRModels.ps1
 │   └── Setup-SarathiEnvironment.ps1
 │
 ├── src/
@@ -166,6 +167,7 @@ Sarathi/
 │       ├── sankalpa/
 │       │   ├── plugin.py
 │       │   ├── capability.py
+│       │   ├── readiness.py
 │       │   ├── request.py
 │       │   ├── result.py
 │       │   ├── artifact.py
@@ -189,8 +191,7 @@ Sarathi/
 │       │   ├── service.py
 │       │   ├── maruti.py
 │       │   ├── pramana.py
-│       │   ├── history.py
-│       │   └── exporters/
+│       │   └── history.py
 │       ├── mukha/
 │       │   ├── intake.py
 │       │   ├── presenter.py
@@ -345,6 +346,7 @@ This is the single authoritative map for Python-file ownership. Capability secti
 ### Project Automation
 
 - `scripts/Initialize-SarathiArchitecture.ps1` — idempotently creates the canonical directory/package scaffold and minimal project metadata without overwriting existing work or creating capability implementations.
+- `scripts/Setup-OCRModels.ps1` — provisions and verifies declared RapidOCR ONNX model assets against `data/ocr/manifest.json` checksums under strict network isolation.
 - `scripts/Setup-SarathiEnvironment.ps1` — verifies the locked uv/Python baseline, creates `.venv`, validates or creates `uv.lock`, and installs only dependencies declared by `pyproject.toml`/`uv.lock`.
 
 ### Package and Startup
@@ -357,6 +359,7 @@ This is the single authoritative map for Python-file ownership. Capability secti
 
 - `sankalpa/plugin.py` — one canonical plugin contract plus reviewable security declarations. Enforcement remains with **Kavacha — Security & Privacy**.
 - `sankalpa/capability.py` — capability declaration, support information, execution modes, and execution/device requirements.
+- `sankalpa/readiness.py` — canonical capability readiness probe declarations (`ReadinessStatus`, `CapabilityReadiness`).
 - `sankalpa/request.py` — canonical processing request.
 - `sankalpa/result.py` — canonical `Result`: data, artifact references, confidence, warnings, provenance, and metadata. Result may carry an optional `next_requirement` for direct runtime continuation.
 - `sankalpa/artifact.py` — typed `InputRef`, `ArtifactIntent`, and confirmed `ArtifactRef` contracts; no file I/O.
