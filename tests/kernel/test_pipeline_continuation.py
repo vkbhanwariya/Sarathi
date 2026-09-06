@@ -228,6 +228,7 @@ def test_font_conversion_scanned_continuation_e2e(tmp_path: Path) -> None:
         requirement="font_conversion",
         inputs=(inp,),
         profile=ExecutionProfile.INSTANT,
+        metadata={"font": "krutidev010"},
     )
 
     result = agni.execute(req)

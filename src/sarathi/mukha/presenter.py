@@ -129,31 +129,26 @@ class MukhaPresenter:
                     statuses[cap_id] = (False, "Not registered in Kosh")
             return statuses
 
-        # 3. Direct provider evaluation
-        from sarathi.sankalpa import PluginServices
-        from sarathi.sutra import get_canonical_data_root
-
-        base_data = data_root or get_canonical_data_root()
-        services = PluginServices(data_root=base_data)
-
-        active_provs: Sequence[Any]
+        # 3. Direct provider evaluation (when explicitly supplied by caller)
         if providers is not None:
-            active_provs = providers
-        else:
-            from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+            from sarathi.sankalpa import PluginServices
+            from sarathi.sutra import get_canonical_data_root
 
-            active_provs = BUILTIN_PLUGIN_PROVIDERS
+            base_data = data_root or get_canonical_data_root()
+            services = PluginServices(data_root=base_data)
 
-        statuses = {}
-        for prov in active_provs:
-            try:
-                for cap_id, r in prov.readiness(services).items():
-                    statuses[cap_id] = (r.ready, r.reason)
-            except Exception as exc:
-                for decl in getattr(prov, "declarations", ()):
-                    statuses[decl.capability_id] = (False, f"Readiness probe error: {type(exc).__name__}")
+            statuses = {}
+            for prov in providers:
+                try:
+                    for cap_id, r in prov.readiness(services).items():
+                        statuses[cap_id] = (r.ready, r.reason)
+                except Exception as exc:
+                    for decl in getattr(prov, "declarations", ()):
+                        statuses[decl.capability_id] = (False, f"Readiness probe error: {type(exc).__name__}")
 
-        return statuses
+            return statuses
+
+        return {}
 
     @staticmethod
     def build_startup_view(

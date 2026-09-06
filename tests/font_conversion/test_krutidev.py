@@ -29,10 +29,10 @@ def test_detector_hint_and_evidence_matrix() -> None:
     assert p3 == "krutidev010"
     assert c3 > 0.5
 
-    # 4. No hint + validated legacy evidence -> conversion
+    # 4. No hint + ambiguous legacy evidence (KrutiDev vs DevLys tie) -> no conversion (ambiguous)
     p4, c4 = detector.detect(legacy_text, font_hint=None)
-    assert p4 == "krutidev010"
-    assert c4 > 0.5
+    assert p4 is None
+    assert c4 == 0.0
 
 
 def test_krutidev_word_conversion() -> None:

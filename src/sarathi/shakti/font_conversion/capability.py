@@ -11,6 +11,7 @@ from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
     CanonicalDocument,
+    ConfidenceValue,
     ExecutionContext,
     PageData,
     ProvenanceRecord,
@@ -25,11 +26,14 @@ from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import (
     LegacyFontDetector,
     decide_run_profile,
+    load_font_profiles,
     rank_profiles_from_text,
     resolve_profile_from_font_name,
 )
 from sarathi.shakti.font_conversion.models import (
+    ConversionDecision,
     ConversionMetrics,
+    ConversionPlan,
 )
 from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.font_conversion.protector import TextProtector
@@ -81,9 +85,10 @@ class FontConversionCapability:
         self.declaration = CAPABILITY_DECLARATION
         self._darpana = darpana
         self._fonts_dir = fonts_dir.resolve() if fonts_dir is not None else _CANONICAL_FONTS_DIR
-        self._detector = LegacyFontDetector(fonts_dir=self._fonts_dir)
+        self._profiles = load_font_profiles(self._fonts_dir)
+        self._detector = LegacyFontDetector(fonts_dir=self._fonts_dir, profiles=self._profiles)
         self._protector = TextProtector()
-        self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava_path=anubhava_path)
+        self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava_path=anubhava_path, profiles=self._profiles)
         self._validator = FontConversionValidator()
 
     def execute(
@@ -198,7 +203,7 @@ class FontConversionCapability:
                 # Legacy-to-legacy validation: only reject if neither explicit font alias nor text margin >= 1.0
                 if is_to_legacy and self._detector.is_legacy_text(full_text):
                     if not detected_profile:
-                        candidates = rank_profiles_from_text(full_text, self._detector._profiles)
+                        candidates = rank_profiles_from_text(full_text, self._profiles)
                         if not candidates or candidates[0].score < 2.0:
                             raise DoshError(
                                 code=FailureCode.VALIDATION_FAILED,
@@ -214,10 +219,11 @@ class FontConversionCapability:
                 if not is_to_legacy and detected_profile is None:
                     # Check if any span or table has legacy font hint
                     has_any_legacy_span = any(
-                        s.metadata.get("font_name") and resolve_profile_from_font_name(s.metadata.get("font_name"), self._detector._profiles)[0]
+                        s.metadata.get("font_name") and resolve_profile_from_font_name(s.metadata.get("font_name"), self._profiles)[0]
                         for p in doc.pages for s in p.spans
                     )
-                    if not has_any_legacy_span:
+                    is_legacy_content = self._detector.is_legacy_text(full_text)
+                    if not has_any_legacy_span and not is_legacy_content:
                         converted_docs.append(doc)
                         all_warnings.append(
                             WarningRecord(
@@ -231,6 +237,7 @@ class FontConversionCapability:
                 total_spans_count = 0
                 metrics = ConversionMetrics()
                 profiles_used: set[str] = set()
+                decisions: list[ConversionDecision] = []
 
                 def _conv_text(raw: str, font_name: str | None = None) -> str:
                     nonlocal total_spans_count
@@ -257,8 +264,9 @@ class FontConversionCapability:
                         run_font=font_name,
                         run_text=raw,
                         doc_profile=detected_profile,
-                        profiles=self._detector._profiles,
+                        profiles=self._profiles,
                     )
+                    decisions.append(decision)
                     metrics.runs_scanned += 1
 
                     if decision.decision == "preserve":
@@ -378,6 +386,23 @@ class FontConversionCapability:
                         )
                     )
 
+                if metrics.runs_ambiguous > 0:
+                    all_warnings.append(
+                        WarningRecord(
+                            code="FONT_CONVERSION_AMBIGUOUS_PROFILE",
+                            message=f"Detected {metrics.runs_ambiguous} ambiguous run(s) where legacy font encoding could not be distinguished with certainty; text preserved.",
+                            stage="font_conversion",
+                        )
+                    )
+
+                plan = ConversionPlan(
+                    document_id=doc.document_id,
+                    source_input_id=doc.source_input_id,
+                    profile_decisions=tuple(decisions),
+                    overall_metrics=metrics,
+                    accepted=True,
+                )
+
                 prov = ProvenanceRecord(
                     source_input_id=doc.source_input_id,
                     capability_id="font_conversion",
@@ -392,6 +417,8 @@ class FontConversionCapability:
                         "runs_preserved": metrics.runs_preserved,
                         "runs_ambiguous": metrics.runs_ambiguous,
                         "residual_legacy_runs": metrics.residual_legacy_runs,
+                        "conversion_plan_accepted": plan.accepted,
+                        "profile_decisions_count": len(plan.profile_decisions),
                     },
                 )
                 all_provs.append(prov)
@@ -453,9 +480,25 @@ class FontConversionCapability:
                 payloads.append(docx_payload)
 
         final_data = tuple(converted_docs) if is_batch else converted_docs[0]
+        final_conf: ConfidenceValue | None = None
+        if len(all_provs) == 1 and all_provs[0].evidence.get("confidence") is not None:
+            c_score = float(all_provs[0].evidence["confidence"])
+            if 0.0 < c_score <= 1.0 and all_provs[0].evidence.get("profile_id"):
+                final_conf = ConfidenceValue(
+                    score=round(c_score, 4),
+                    method="roopa_coverage_weighted",
+                    evidence={
+                        "profile_id": str(all_provs[0].evidence["profile_id"]),
+                        "runs_converted": all_provs[0].evidence.get("runs_converted", 0),
+                        "runs_scanned": all_provs[0].evidence.get("runs_scanned", 0),
+                        "residual_legacy_runs": all_provs[0].evidence.get("residual_legacy_runs", 0),
+                    },
+                )
+
         return Result(
             data=final_data,
             artifact_payloads=tuple(payloads),
             provenance=tuple(all_provs),
             warnings=tuple(all_warnings),
+            confidence=final_conf,
         )

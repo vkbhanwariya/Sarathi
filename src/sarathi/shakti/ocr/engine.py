@@ -118,7 +118,10 @@ def extract_images_from_bytes(data: bytes) -> list[Any]:
 
     # 2. Check if standard Image format
     try:
+        from PIL import ImageOps
+
         img = Image.open(io.BytesIO(data))
+        img = ImageOps.exif_transpose(img)
         img = img.convert("RGB")
         return [img]
     except (UnidentifiedImageError, OSError, ValueError):
@@ -318,12 +321,7 @@ class TesseractFallbackAdapter:
                 message="Tesseract fallback engine is not available at configured executable path.",
             )
 
-        try:
-            import pytesseract
 
-            pytesseract.pytesseract.tesseract_cmd = str(self._executable_path)
-        except ImportError:
-            pass
 
         import subprocess
         import tempfile
@@ -433,25 +431,25 @@ def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
             return False, "Unavailable (OCR models directory is missing or invalid)"
 
         models_meta = manifest["models"]
-        for key in _REQUIRED_MODEL_KEYS:
+        for key in ("det", "rec", "cls", "rec_devanagari", "rec_v6_en"):
             if key not in models_meta or not isinstance(models_meta[key], dict):
-                return False, "Unavailable (OCR model manifest is missing required model entry)"
+                return False, f"Unavailable (OCR model manifest is missing required model entry '{key}')"
             entry = models_meta[key]
             filename = entry.get("filename")
             expected_sha = entry.get("sha256")
             if not filename or not expected_sha or not _is_safe_filename(filename):
-                return False, "Unavailable (OCR model specification is invalid)"
+                return False, f"Unavailable (OCR model specification for '{key}' is invalid)"
 
             model_path = models_dir / filename
             if not model_path.exists() or model_path.is_symlink() or not model_path.is_file():
-                return False, "Unavailable (Required OCR model asset is missing)"
+                return False, f"Unavailable (Required OCR model asset '{key}' is missing)"
 
             h = hashlib.sha256()
             with open(model_path, "rb") as f:
                 while chunk := f.read(65536):
                     h.update(chunk)
             if h.hexdigest().lower() != expected_sha.lower():
-                return False, "Unavailable (OCR model asset checksum mismatch)"
+                return False, f"Unavailable (OCR model asset '{key}' checksum mismatch)"
 
         return True, "Ready (RapidOCR + OpenVINO)"
     except Exception:
@@ -469,12 +467,26 @@ def _parse_rapidocr_output(
     has_invalid_confidence = False
     has_invalid_geometry = False
 
-    if output and output.txts:
-        for text_val, box_val, score_val in zip(
-            output.txts,
-            output.boxes if output.boxes is not None else [None] * len(output.txts),
-            output.scores if output.scores is not None else [None] * len(output.txts),
+    if output and getattr(output, "txts", None):
+        import itertools
+
+        raw_txts = list(output.txts)
+        raw_boxes = list(output.boxes) if getattr(output, "boxes", None) is not None else []
+        raw_scores = list(output.scores) if getattr(output, "scores", None) is not None else []
+        if (raw_boxes and len(raw_boxes) != len(raw_txts)) or (raw_scores and len(raw_scores) != len(raw_txts)):
+            warnings.append(
+                WarningRecord(
+                    code="OCR_METADATA_LENGTH_MISMATCH",
+                    message="Engine output text, box, and score counts disagree; unaligned items padded safely.",
+                    stage=_STAGE_NAME,
+                )
+            )
+
+        for text_val, box_val, score_val in itertools.zip_longest(
+            raw_txts, raw_boxes, raw_scores, fillvalue=None
         ):
+            if text_val is None:
+                continue
             norm_text = unicodedata.normalize("NFC", str(text_val or "").strip())
             if filter_opt:
                 norm_text = filter_english_and_numbers(norm_text)
@@ -585,6 +597,7 @@ class RapidOCREngine:
         self._tesseract: TesseractFallbackAdapter = tesseract_adapter or TesseractFallbackAdapter()
         self._init_lock: threading.Lock = threading.Lock()
         self._local: threading.local = threading.local()
+        self._verified_model_paths: dict[str, str] = {}
 
     @property
     def default_lang(self) -> str:
@@ -749,6 +762,10 @@ class RapidOCREngine:
         entries: dict[str, tuple[str, str]] = {}
 
         for key in target_keys:
+            if key in self._verified_model_paths:
+                verified_paths[key] = self._verified_model_paths[key]
+                continue
+
             entry = models_meta[key]
             filename = entry.get("filename")
             expected_sha256 = entry.get("sha256")
@@ -765,38 +782,43 @@ class RapidOCREngine:
 
             entries[key] = (str(filename), expected_sha256)
 
-        # Verify model assets on disk and validate SHA-256 checksums
+        # Verify model assets on disk and validate SHA-256 checksums if not already verified
         for key, (filename, expected_sha256) in entries.items():
             model_path = models_dir / filename
             try:
-                st = model_path.lstat()
+                model_stat = model_path.lstat()
             except OSError as exc:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Required local OCR model asset is missing.",
                 ) from exc
 
-            if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+            if stat.S_ISLNK(model_stat.st_mode) or not stat.S_ISREG(model_stat.st_mode):
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Required local OCR model asset is not a regular file.",
                 )
 
+            h = hashlib.sha256()
             try:
-                actual_sha256 = hashlib.sha256(model_path.read_bytes()).hexdigest()
+                with open(model_path, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
             except OSError as exc:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Failed to read local OCR model asset.",
                 ) from exc
 
-            if actual_sha256 != expected_sha256:
+            actual_sha256 = h.hexdigest().lower()
+            if actual_sha256 != expected_sha256.lower():
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Local OCR model asset has invalid checksum.",
                 )
 
             verified_paths[key] = str(model_path)
+            self._verified_model_paths[key] = str(model_path)
 
         try:
             from rapidocr import RapidOCR
@@ -933,12 +955,25 @@ class RapidOCREngine:
         # Synchronize preprocessed image for geometrically aligned cropping
         from PIL import Image
 
-        if isinstance(img_arr, np.ndarray):
-            processed_img = Image.fromarray(img_arr)
-        elif hasattr(image, "copy"):
-            processed_img = image.copy()
+        is_binarized = False
+        if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
+            is_binarized = True
+            if isinstance(img_arr, np.ndarray):
+                gray_pil = Image.fromarray(img_arr).convert("L")
+            elif hasattr(image, "convert"):
+                gray_pil = image.convert("L")
+            else:
+                gray_pil = Image.fromarray(np.array(image)).convert("L")
+            threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
+            processed_img = threshold_img
+            img_arr = np.array(threshold_img.convert("RGB"))
         else:
-            processed_img = image
+            if isinstance(img_arr, np.ndarray):
+                processed_img = Image.fromarray(img_arr)
+            elif hasattr(image, "copy"):
+                processed_img = image.copy()
+            else:
+                processed_img = image
 
         output = engine(img_arr)
 
@@ -965,81 +1000,70 @@ class RapidOCREngine:
         fallback_required = False
         fallback_unavailable = False
         fallback_failed = False
-        is_binarized = False
 
-        if profile == ExecutionProfile.ACCURATE and spans:
-            # Accurate mode: targeted Tesseract 5 fallback only for weak spans (< 0.65)
-            fallback_enabled = (
-                custom_options.get("fallback_enabled", True) if custom_options else True
-            )
-            if fallback_enabled:
-                tess_lang = "hin" if target_lang in _DEV_LANGS else "eng"
-                for idx, span in enumerate(spans):
-                    if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
-                        fallback_required = True
-                        if not self._tesseract.is_available():
-                            fallback_unavailable = True
+        # Accurate mode or Custom with fallback_enabled: targeted Tesseract fallback only for weak spans (< 0.65)
+        fallback_enabled = (
+            (custom_options.get("fallback_enabled", True) if custom_options else True)
+            if profile == ExecutionProfile.ACCURATE
+            else (bool(custom_options.get("fallback_enabled", False)) if custom_options else False)
+        )
+        if (profile in (ExecutionProfile.ACCURATE, ExecutionProfile.CUSTOM)) and fallback_enabled and spans:
+            tess_lang = "hin" if target_lang in _DEV_LANGS else "eng"
+            for idx, span in enumerate(spans):
+                if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
+                    fallback_required = True
+                    if not self._tesseract.is_available():
+                        fallback_unavailable = True
+                        warnings.append(
+                            WarningRecord(
+                                code="OCR_FALLBACK_UNAVAILABLE",
+                                message="Tesseract 5 fallback engine is not available on this host.",
+                                stage=_STAGE_NAME,
+                            )
+                        )
+                        break
+
+                    min_x, min_y, max_x, max_y = span.bounding_box
+                    w, h = processed_img.size if hasattr(processed_img, "size") else (int(max_x), int(max_y))
+                    box_crop = (
+                        max(0, int(min_x) - 2),
+                        max(0, int(min_y) - 2),
+                        min(w, int(max_x) + 2),
+                        min(h, int(max_y) + 2),
+                    )
+
+                    if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(processed_img, "crop"):
+                        cropped = processed_img.crop(box_crop)
+                        try:
+                            tess_res = self._tesseract.recognize_crop(cropped, language=tess_lang)
+                            if tess_res is not None:
+                                tess_text, tess_conf = tess_res
+                                if tess_conf is None:
+                                    warnings.append(
+                                        WarningRecord(
+                                            code="OCR_FALLBACK_CONFIDENCE_UNAVAILABLE",
+                                            message="Tesseract fallback confidence score is unavailable.",
+                                            stage=_STAGE_NAME,
+                                        )
+                                    )
+                                if tess_conf is not None and tess_conf > span.confidence:
+                                    spans[idx] = TextSpan(
+                                        text=tess_text,
+                                        confidence=tess_conf,
+                                        bounding_box=span.bounding_box,
+                                    )
+                                    if idx < len(lines):
+                                        lines[idx] = tess_text
+                                        fallback_applied = True
+                        except DoshError:
+                            fallback_failed = True
                             warnings.append(
                                 WarningRecord(
-                                    code="OCR_FALLBACK_UNAVAILABLE",
-                                    message="Tesseract 5 fallback engine is not available on this host.",
+                                    code="OCR_FALLBACK_FAILED",
+                                    message="Tesseract 5 fallback execution failed.",
                                     stage=_STAGE_NAME,
                                 )
                             )
-                            break
-
-                        min_x, min_y, max_x, max_y = span.bounding_box
-                        w, h = processed_img.size if hasattr(processed_img, "size") else (int(max_x), int(max_y))
-                        box_crop = (
-                            max(0, int(min_x) - 2),
-                            max(0, int(min_y) - 2),
-                            min(w, int(max_x) + 2),
-                            min(h, int(max_y) + 2),
-                        )
-
-                        if box_crop[2] > box_crop[0] and box_crop[3] > box_crop[1] and hasattr(processed_img, "crop"):
-                            cropped = processed_img.crop(box_crop)
-                            try:
-                                tess_res = self._tesseract.recognize_crop(cropped, language=tess_lang)
-                                if tess_res is not None:
-                                    tess_text, tess_conf = tess_res
-                                    if tess_conf is None:
-                                        warnings.append(
-                                            WarningRecord(
-                                                code="OCR_FALLBACK_CONFIDENCE_UNAVAILABLE",
-                                                message="Tesseract fallback confidence score is unavailable.",
-                                                stage=_STAGE_NAME,
-                                            )
-                                        )
-                                    if tess_conf is not None and tess_conf > span.confidence:
-                                        spans[idx] = TextSpan(
-                                            text=tess_text,
-                                            confidence=tess_conf,
-                                            bounding_box=span.bounding_box,
-                                        )
-                                        if idx < len(lines):
-                                            lines[idx] = tess_text
-                                            fallback_applied = True
-                            except DoshError:
-                                fallback_failed = True
-                                warnings.append(
-                                    WarningRecord(
-                                        code="OCR_FALLBACK_FAILED",
-                                        message="Tesseract 5 fallback execution failed.",
-                                        stage=_STAGE_NAME,
-                                    )
-                                )
-
-        elif profile == ExecutionProfile.CUSTOM:
-            if custom_options and custom_options.get("binarize") and hasattr(processed_img, "convert"):
-                is_binarized = True
-                gray = processed_img.convert("L")
-                threshold_img = gray.point(lambda p: 255 if p > 128 else 0)
-                cust_out = engine(np.array(threshold_img))
-                lines, spans, conf_scores, cust_warns, has_invalid_confidence, has_invalid_geometry = (
-                    _parse_rapidocr_output(cust_out, filter_opt=filter_opt)
-                )
-                warnings.extend(cust_warns)
 
         final_page_text = "\n".join(lines)
         if not final_page_text.strip():

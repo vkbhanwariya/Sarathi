@@ -514,3 +514,61 @@ class TestMukhaSummaryAndArtifactsTruth:
         assert monitor.terminal_files == 4
         # Since prev_state was "completed" (terminal), effective_status is sticky
         assert monitor.status == "completed"
+
+
+class TestMukhaAuditCapabilityStatus:
+    """Verify MukhaPresenter.audit_capability_status cleanly queries canonical sources without leaking into Shakti providers."""
+
+    def test_audit_without_sources_returns_empty_dict(self) -> None:
+        """When neither Agni, Kosh, nor providers are supplied, Mukha returns an empty dict without importing BUILTIN_PLUGIN_PROVIDERS."""
+        import sys
+        statuses = MukhaPresenter.audit_capability_status()
+        assert statuses == {}
+
+    def test_audit_through_agni(self) -> None:
+        """When Agni is supplied, audit_readiness is queried."""
+        from unittest.mock import MagicMock
+        from sarathi.sankalpa import CapabilityReadiness, ReadinessStatus
+
+        mock_agni = MagicMock()
+        mock_agni.audit_readiness.return_value = {
+            "ocr": CapabilityReadiness(ready=True, status=ReadinessStatus.READY, reason="Ready (OCR)"),
+            "translation": CapabilityReadiness(ready=False, status=ReadinessStatus.DEPENDENCY_UNAVAILABLE, reason="No model"),
+        }
+
+        statuses = MukhaPresenter.audit_capability_status(agni=mock_agni)
+        assert statuses["ocr"] == (True, "Ready (OCR)")
+        assert statuses["translation"] == (False, "No model")
+        mock_agni.audit_readiness.assert_called_once()
+
+    def test_audit_through_kosh(self) -> None:
+        """When Kosh is supplied, status is projected from registered capability declarations."""
+        from unittest.mock import MagicMock
+        from sarathi.sankalpa import CapabilityDeclaration, ExecutionProfile
+
+        decl = CapabilityDeclaration(
+            capability_id="font_conversion",
+            plugin_id="font_conversion",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.ACCURATE,),
+        )
+        mock_kosh = MagicMock()
+        mock_kosh.capabilities.return_value = (decl,)
+
+        statuses = MukhaPresenter.audit_capability_status(kosh=mock_kosh)
+        assert statuses["font_conversion"] == (True, "Ready (font_conversion)")
+        assert statuses["ocr"] == (False, "Not registered in Kosh")
+
+    def test_audit_through_explicit_providers(self) -> None:
+        """When providers are explicitly supplied, readiness is queried on each provider."""
+        from unittest.mock import MagicMock
+        from sarathi.sankalpa import CapabilityReadiness, ReadinessStatus
+
+        mock_prov = MagicMock()
+        mock_prov.readiness.return_value = {
+            "custom_cap": CapabilityReadiness(ready=True, status=ReadinessStatus.READY, reason="Ready (Custom)"),
+        }
+
+        statuses = MukhaPresenter.audit_capability_status(providers=[mock_prov])
+        assert statuses["custom_cap"] == (True, "Ready (Custom)")
+        mock_prov.readiness.assert_called_once()

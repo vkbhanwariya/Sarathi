@@ -140,6 +140,7 @@ def test_unlabelled_table_cell_with_multiline_mixed_content() -> None:
         request_id="req-test-tbl",
         requirement="font_conversion",
         inputs=(InputRef("inp-1", "dummy.docx", "dummy.docx", 100),),
+        metadata={"font": "krutidev010"},
     )
     ctx = ExecutionContext("run-1", "req-1", "t-1", "s-1")
 

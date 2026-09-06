@@ -36,7 +36,15 @@ class FontConversionProvider(PluginProvider):
             FontConversionCapability,
         )
 
-        return {"font_conversion": FontConversionCapability(darpana=services.darpana)}
+        fonts_dir = (services.data_root / "fonts") if services.data_root else None
+        anubhava_path = (services.data_root / "font_conversion" / "anubhava.toml") if services.data_root else None
+        return {
+            "font_conversion": FontConversionCapability(
+                darpana=services.darpana,
+                fonts_dir=fonts_dir,
+                anubhava_path=anubhava_path,
+            )
+        }
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:
         base_data = (services.data_root if services and services.data_root else get_canonical_data_root()) / "fonts"

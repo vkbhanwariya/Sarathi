@@ -80,6 +80,11 @@ class Yantra:
         return self._darpana
 
     @property
+    def max_workers(self) -> int:
+        """Return the maximum worker concurrency capacity of the execution pool."""
+        return self._max_workers
+
+    @property
     def is_started(self) -> bool:
         """Return True if Yantra execution pool has started."""
         with self._lifecycle_lock:

@@ -31,10 +31,12 @@ class OCRProvider(PluginProvider):
     def create_capabilities(self, services: PluginServices) -> Mapping[str, Capability]:
         from sarathi.shakti.ocr.capability import OCRCapability
 
+        ocr_data_root = (services.data_root / "ocr") if services.data_root else None
         return {
             "ocr": OCRCapability(
                 yantra=services.yantra,
                 darpana=services.darpana,
+                data_root=ocr_data_root,
             )
         }
 

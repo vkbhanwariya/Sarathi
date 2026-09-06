@@ -322,7 +322,7 @@ def rank_profiles_from_text(
             tokens = text.split()
             for t in tokens:
                 # If word has at least 2 chars of legacy mapping
-                m_chars = len(prof.compiled_forward_regex.findall(t))
+                m_chars = sum(len(m.group(0)) for m in prof.compiled_forward_regex.finditer(t))
                 if m_chars > 0:
                     mapped_count += m_chars
                     diff = len(t) - m_chars
@@ -465,9 +465,18 @@ def decide_run_profile(
 class LegacyFontDetector(BaseLegacyFontDetector):
     """Detects legacy font encoding from text statistical properties and profile clues."""
 
-    def __init__(self, fonts_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        fonts_dir: Path | None = None,
+        profiles: dict[str, LegacyFontProfile] | None = None,
+    ) -> None:
         super().__init__(fonts_dir=fonts_dir)
-        self._profiles = load_font_profiles(fonts_dir)
+        self._profiles = profiles if profiles is not None else load_font_profiles(fonts_dir)
+
+    @property
+    def profiles(self) -> dict[str, LegacyFontProfile]:
+        """Return the immutable mapping of loaded font profiles."""
+        return self._profiles
 
 
     def detect(self, text: str, font_hint: str | None = None) -> tuple[str | None, float]:
@@ -512,8 +521,8 @@ class LegacyFontDetector(BaseLegacyFontDetector):
             p1 = self._profiles.get(top.profile_id)
             p2 = self._profiles.get(candidates[1].profile_id)
             if p1 and p2 and {p1.family, p2.family} == {"krutidev", "devlys"} and margin < 1.0:
-                # Ambiguous: cannot distinguish KrutiDev from DevLys on text alone, default to krutidev010
-                return "krutidev010", min(1.0, 0.5 + len(top.positive_signatures) * 0.1)
+                # Ambiguous: cannot distinguish KrutiDev from DevLys on text alone without font hint
+                return None, 0.0
 
         conf = min(1.0, 0.5 + len(top.positive_signatures) * 0.1)
         return top.profile_id, conf

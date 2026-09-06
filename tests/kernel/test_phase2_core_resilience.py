@@ -205,7 +205,8 @@ def test_mukha_dynamic_capability_readiness(tmp_path: Path) -> None:
     fonts_dir.mkdir(parents=True)
     (fonts_dir / "krutidev010.json").write_text("{}", encoding="utf-8")
 
-    statuses = MukhaPresenter.audit_capability_status(data_root=data_dir)
+    from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+    statuses = MukhaPresenter.audit_capability_status(data_root=data_dir, providers=BUILTIN_PLUGIN_PROVIDERS)
     assert "bank_statements" in statuses
     is_ready, desc = statuses["bank_statements"]
     assert is_ready is True

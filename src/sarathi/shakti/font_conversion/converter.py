@@ -54,9 +54,19 @@ def _load_anubhava_corrections(anubhava_path: Path | None = None) -> dict[str, d
 class FontConverter:
     """Converts legacy font text into canonical Unicode Devanagari."""
 
-    def __init__(self, fonts_dir: Path | None = None, anubhava_path: Path | None = None) -> None:
-        self._profiles = load_font_profiles(fonts_dir)
+    def __init__(
+        self,
+        fonts_dir: Path | None = None,
+        anubhava_path: Path | None = None,
+        profiles: dict[str, LegacyFontProfile] | None = None,
+    ) -> None:
+        self._profiles = profiles if profiles is not None else load_font_profiles(fonts_dir)
         self._anubhava_corrections = _load_anubhava_corrections(anubhava_path)
+
+    @property
+    def profiles(self) -> dict[str, LegacyFontProfile]:
+        """Return the immutable mapping of loaded font profiles."""
+        return self._profiles
 
     def convert(self, text: str, profile_id: str) -> str:
         """Apply legacy-to-Unicode mapping, profile-specific pre-base matra reordering, and Akshara synthesis."""

@@ -208,7 +208,7 @@ class OCRCapability:
         max_concurrency = (
             context.execution_binding.approved_concurrency if context.execution_binding else None
         )
-        default_cap = getattr(self._yantra, "_max_workers", 2) if self._yantra is not None else 1
+        default_cap = self._yantra.max_workers if self._yantra is not None else 1
         approved_concurrency = max_concurrency if (max_concurrency and max_concurrency > 0) else default_cap
         can_parallelize = (
             total_pages_all > 1
@@ -237,12 +237,18 @@ class OCRCapability:
 
                         w_id = str(threading.get_ident() % 1000)
                         if progress_cb is not None:
+                            dev_str = (
+                                context.execution_binding.device_type.value
+                                if context.execution_binding
+                                else "CPU"
+                            )
                             progress_cb(
                                 file_display_name=inp_ref.display_name,
                                 page_number=p_idx,
                                 total_pages=tot_pages,
                                 worker_id=w_id,
                                 stage="Optical Character Recognition (OCR)",
+                                device_type=dev_str,
                             )
 
                         p_data, p_prov, _, p_warns = self._engine.ocr_page(
@@ -286,12 +292,18 @@ class OCRCapability:
                         context.cancellation_token.check_cancelled()
 
                     if progress_cb is not None:
+                        dev_str = (
+                            context.execution_binding.device_type.value
+                            if context.execution_binding
+                            else "CPU"
+                        )
                         progress_cb(
                             file_display_name=inp.display_name,
                             page_number=page_idx,
                             total_pages=tot,
                             worker_id="1",
                             stage="Optical Character Recognition (OCR)",
+                            device_type=dev_str,
                         )
 
                     page_data, prov, _, page_warnings = self._engine.ocr_page(

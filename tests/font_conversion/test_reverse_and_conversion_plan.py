@@ -26,10 +26,16 @@ def test_reverse_conversion_prefers_deterministic_reverse_mappings() -> None:
     assert rev_shra == "J"
 
     rev_ksha = converter.convert_to_legacy("क्ष", target_profile_id="krutidev010")
-    assert rev_ksha == "{"
+    assert rev_ksha == "{k"
 
     rev_visarga = converter.convert_to_legacy("पुनः", target_profile_id="krutidev010")
     assert "%" in rev_visarga
+
+    # Golden conjunct roundtrips (Problem F5)
+    for conj in ("क्ष", "द्य", "द्ध", "ज्ञ", "त्र"):
+        rev_val = converter.convert_to_legacy(conj, target_profile_id="krutidev010")
+        fwd_val = converter.convert(rev_val, profile_id="krutidev010")
+        assert fwd_val == conj, f"Roundtrip failed for '{conj}': got '{fwd_val}' via '{rev_val}'"
 
 
 def test_roundtrip_conversion_fidelity() -> None:

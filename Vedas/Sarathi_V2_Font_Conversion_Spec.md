@@ -18,7 +18,7 @@ No parallel engines, secondary subsystems, or private transducers (such as `plug
 - `protector.py`: Protected span detection and byte-for-byte PUA restoration (URLs, emails, Unicode Devanagari, parenthesized Latin phrases, dates, currency, IDs).
 - `validator.py`: Mapping coverage calculation (`calculate_mapping_coverage`) and structural Devanagari integrity validation (`validate_devanagari_structure`).
 - `capability.py`: Canonical `FontConversionCapability` implementing `Capability` contract with item-scoped batch escalation and telemetry emission.
-- `docx_exporter.py`: `DocxStyleResolver` (rPr -> rStyle -> pStyle -> basedOn -> docDefaults), safe run stitching (`_NON_DELETABLE_RUN_CHILDREN`), symbol conversion (`<w:sym>`), and typography preservation.
+- `src/sarathi/shakti/docx_exporter.py` (Shared Shakti Exporter): `DocxStyleResolver` (rPr -> rStyle -> pStyle -> basedOn -> docDefaults), safe run stitching (`_NON_DELETABLE_RUN_CHILDREN`), symbol conversion (`<w:sym>`), and typography-preserving artifact generation.
 
 ---
 
