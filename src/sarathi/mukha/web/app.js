@@ -10,7 +10,9 @@
     // Application State
     const state = {
         currentScreen: "home",
+        selectedRoots: [],
         selectedPaths: [],
+        excludedPaths: new Set(),
         currentRequirement: "read_native",
         currentProfile: "instant",
         isRecursive: true,
@@ -41,6 +43,7 @@
         chkRecursive: document.getElementById("chk-recursive"),
         chkSelectAllInputs: document.getElementById("chk-select-all-inputs"),
         selectedInputsTbody: document.getElementById("selected-inputs-tbody"),
+        inputGroupsContainer: document.getElementById("input-groups-container"),
         inputCountsBadge: document.getElementById("input-counts-badge"),
         reqCards: document.querySelectorAll(".req-card"),
         profileRow: document.getElementById("profile-row"),
@@ -105,7 +108,28 @@
         // Overlay
         aarambhaOverlay: document.getElementById("aarambha-overlay"),
         aarambhaStage: document.getElementById("aarambha-stage"),
+
+        // Alert Banner & Dialog Elements
+        errorBanner: document.getElementById("error-banner"),
+        errorBannerText: document.getElementById("error-banner-text"),
+        btnDismissError: document.getElementById("btn-dismiss-error"),
+        cancelRunDialog: document.getElementById("cancel-run-dialog"),
+        btnCancelDialogConfirm: document.getElementById("btn-cancel-dialog-confirm"),
+        btnCancelDialogDismiss: document.getElementById("btn-cancel-dialog-dismiss"),
     };
+
+    // Helper: Error Notification Banner
+    function showError(msg) {
+        if (!elements.errorBanner || !elements.errorBannerText) return;
+        elements.errorBannerText.textContent = msg;
+        elements.errorBanner.classList.remove("hidden");
+    }
+
+    function hideError() {
+        if (elements.errorBanner) {
+            elements.errorBanner.classList.add("hidden");
+        }
+    }
 
     // Helper: Format Bytes
     function formatBytes(bytes) {
@@ -118,9 +142,10 @@
 
     // Helper: Format Duration (nanoseconds to human string)
     function formatDuration(ns) {
-        if (ns == null || ns === 0) return "0.0s";
+        if (ns == null) return "—";
+        if (ns === 0) return "0s";
         const ms = ns / 1_000_000;
-        if (ms < 1000) return `${ms.toFixed(0)}ms`;
+        if (ms < 1000) return `${Math.round(ms)}ms`;
         const sec = ms / 1000;
         if (sec < 60) return `${sec.toFixed(1)}s`;
         const min = Math.floor(sec / 60);
@@ -187,24 +212,26 @@
     // Action: Browse Files via Native Dialog
     async function handleBrowseFiles() {
         elements.btnBrowseFiles.disabled = true;
+        hideError();
         const res = await apiPost("/api/browse/files");
         elements.btnBrowseFiles.disabled = false;
         if (res.ok && res.paths && res.paths.length > 0) {
             addSelectedPaths(res.paths);
         } else if (res.error) {
-            alert(res.error);
+            showError(res.error);
         }
     }
 
     // Action: Browse Folder via Native Dialog
     async function handleBrowseFolder() {
         elements.btnBrowseFolder.disabled = true;
+        hideError();
         const res = await apiPost("/api/browse/folder");
         elements.btnBrowseFolder.disabled = false;
         if (res.ok && res.paths && res.paths.length > 0) {
             addSelectedPaths(res.paths);
         } else if (res.error) {
-            alert(res.error);
+            showError(res.error);
         }
     }
 
@@ -212,6 +239,7 @@
     function handleAddManualPath() {
         const val = elements.inputManualPath.value.trim();
         if (val) {
+            hideError();
             addSelectedPaths([val]);
             elements.inputManualPath.value = "";
         }
@@ -219,8 +247,8 @@
 
     // Action: Add and Intake Paths
     async function addSelectedPaths(newPaths) {
-        const set = new Set([...state.selectedPaths, ...newPaths]);
-        state.selectedPaths = Array.from(set);
+        const set = new Set([...state.selectedRoots, ...newPaths]);
+        state.selectedRoots = Array.from(set);
         await refreshIntake();
     }
 
@@ -232,15 +260,14 @@
         elements.btnClearSelected.textContent = count > 0 ? `Clear Selected (${count})` : "Clear Selected";
     }
 
-    // Remove specific paths from input set
+    // Remove specific paths from input set without destroying folder roots
     function removePaths(pathsToRemove) {
         const toRemoveSet = new Set(pathsToRemove);
-        const allDiscoveredPaths = (state.intakeItems || [])
-            .map((i) => i.source_path || i.display_name)
-            .filter(Boolean);
-        const pool = allDiscoveredPaths.length > 0 ? allDiscoveredPaths : state.selectedPaths;
-        state.selectedPaths = pool.filter((p) => !toRemoveSet.has(p));
-        pathsToRemove.forEach((p) => state.checkedInputPaths.delete(p));
+        state.selectedRoots = state.selectedRoots.filter((p) => !toRemoveSet.has(p));
+        pathsToRemove.forEach((p) => {
+            state.excludedPaths.add(p);
+            state.checkedInputPaths.delete(p);
+        });
         updateClearSelectedButton();
         refreshIntake();
     }
@@ -253,7 +280,9 @@
 
     // Action: Clear All Selected Inputs
     async function handleClearInputs() {
+        state.selectedRoots = [];
         state.selectedPaths = [];
+        state.excludedPaths.clear();
         state.checkedInputPaths.clear();
         state.intakeItems = [];
         updateClearSelectedButton();
@@ -263,7 +292,9 @@
 
     // Intake & Preflight Refresh
     async function refreshIntake() {
-        if (state.selectedPaths.length === 0) {
+        if (state.selectedRoots.length === 0) {
+            state.selectedPaths = [];
+            state.intakeItems = [];
             renderInputsTable([]);
             renderPreflight({ eligible_count: 0, issue_count: 0, issues: [] });
             elements.btnStartRun.disabled = true;
@@ -272,23 +303,43 @@
         }
 
         const res = await apiPost("/api/intake", {
-            paths: state.selectedPaths,
+            paths: state.selectedRoots,
             recursive: state.isRecursive,
         });
 
         if (res.ok && res.input_selection) {
-            renderInputsTable(res.input_selection.items || []);
-            elements.inputCountsBadge.textContent = `${res.input_selection.total_files || 0} files (${formatBytes(res.input_selection.total_size_bytes || 0)})`;
-            renderPreflight(res.preflight || { eligible_count: 0, issue_count: 0, issues: [] });
-            elements.btnStartRun.disabled = (res.preflight?.eligible_count || 0) === 0;
+            const rawItems = res.input_selection.items || [];
+            const filteredItems = rawItems.filter((i) => !state.excludedPaths.has(i.source_path || i.display_name));
+            state.intakeItems = filteredItems;
+            state.selectedPaths = filteredItems.map((i) => i.source_path || i.display_name);
+
+            renderInputsTable(filteredItems, res.input_selection);
+            const totalSize = filteredItems.reduce((acc, it) => acc + (it.size_bytes || 0), 0);
+            elements.inputCountsBadge.textContent = `${filteredItems.length} files (${formatBytes(totalSize)})`;
+            renderPreflight(res.preflight || { eligible_count: filteredItems.length, issue_count: 0, issues: [] });
+            elements.btnStartRun.disabled = filteredItems.length === 0;
         } else if (res.error) {
-            alert(res.error);
+            showError(res.error);
         }
     }
 
     // Render Inputs Table in Griha
-    function renderInputsTable(items) {
+    function renderInputsTable(items, inputSelection) {
         state.intakeItems = items || [];
+
+        // Render format group summary if available
+        if (elements.inputGroupsContainer) {
+            if (inputSelection && inputSelection.groups && inputSelection.groups.length > 0) {
+                elements.inputGroupsContainer.classList.remove("hidden");
+                elements.inputGroupsContainer.innerHTML = inputSelection.groups
+                    .map((g) => `<div class="group-pill" style="padding: 4px 10px; background: var(--bg-hover, #334155); border-radius: 4px; font-size: 0.82em; display: inline-flex; align-items: center; gap: 6px;"><strong>${escapeHtml(g.format_name)}</strong>: ${g.file_count} files (${formatBytes(g.total_size_bytes)})</div>`)
+                    .join(" ");
+            } else {
+                elements.inputGroupsContainer.classList.add("hidden");
+                elements.inputGroupsContainer.innerHTML = "";
+            }
+        }
+
         if (!items || items.length === 0) {
             elements.selectedInputsTbody.innerHTML = '<tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>';
             state.checkedInputPaths.clear();
@@ -297,7 +348,10 @@
             return;
         }
 
-        elements.selectedInputsTbody.innerHTML = items
+        const MAX_RENDER_INPUTS = 100;
+        const itemsToRender = items.length > MAX_RENDER_INPUTS ? items.slice(0, MAX_RENDER_INPUTS) : items;
+
+        let rowsHtml = itemsToRender
             .map((item) => {
                 const pathVal = item.source_path || item.display_name;
                 const isChecked = state.checkedInputPaths.has(pathVal);
@@ -317,6 +371,12 @@
                 </tr>`;
             })
             .join("");
+
+        if (items.length > MAX_RENDER_INPUTS) {
+            rowsHtml += `<tr class="empty-row"><td colspan="5">Showing first ${MAX_RENDER_INPUTS} of ${items.length} documents.</td></tr>`;
+        }
+
+        elements.selectedInputsTbody.innerHTML = rowsHtml;
 
         updateClearSelectedButton();
         if (elements.chkSelectAllInputs) {
@@ -344,6 +404,7 @@
         if (state.selectedPaths.length === 0) return;
 
         elements.btnStartRun.disabled = true;
+        hideError();
         const profileToSend = state.currentRequirement === "ocr" ? state.currentProfile : "instant";
         const payload = {
             paths: state.selectedPaths,
@@ -379,16 +440,31 @@
             switchScreen("monitor");
             pollState();
         } else {
-            alert(res.error || "Failed to start document processing.");
+            showError(res.error || "Failed to start document processing.");
             elements.btnStartRun.disabled = false;
         }
     }
 
-    // Action: Cancel Active Run
-    async function handleCancelRun() {
+    // Action: Trigger Cancel Run Modal
+    function handleCancelRun() {
+        if (!state.activeRunId || state.activeRunStatus !== "RUNNING") return;
+        if (elements.cancelRunDialog && typeof elements.cancelRunDialog.showModal === "function") {
+            elements.cancelRunDialog.showModal();
+        } else {
+            if (window.confirm("Are you sure you want to cancel the active run?")) {
+                dispatchCancelRun();
+            }
+        }
+    }
+
+    // Action: Dispatch Cancel Run to Backend
+    async function dispatchCancelRun() {
         if (!state.activeRunId) return;
         elements.btnCancelRun.disabled = true;
-        await apiPost(`/api/runs/${state.activeRunId}/cancel`);
+        const res = await apiPost(`/api/runs/${state.activeRunId}/cancel`);
+        if (res && res.error) {
+            showError(res.error);
+        }
     }
 
     // Action: Open Output Folder
@@ -397,23 +473,54 @@
         await apiPost(`/api/runs/${state.activeRunId}/reveal`);
     }
 
+    // Helper: Determine polling frequency based on tab visibility and run activity
+    function getPollInterval() {
+        if (document.visibilityState === "hidden") {
+            return 3000;
+        }
+        return state.activeRunStatus === "RUNNING" ? 400 : 1500;
+    }
+
+    let lastStateJson = "";
+
     // State Polling Loop
     async function pollState() {
         const res = await apiGet("/api/state");
         if (res.ok && res.state) {
-            state.lastState = res.state;
-            updatePresentation(res.state);
+            const currentJson = JSON.stringify(res.state);
+            if (currentJson !== lastStateJson) {
+                lastStateJson = currentJson;
+                state.lastState = res.state;
+                updatePresentation(res.state);
+            }
         }
 
-        // Adjust polling frequency: fast when run is active, steady when idle
+        // Adjust polling frequency: adaptive based on visibility and activity
         clearTimeout(state.pollTimer);
-        const interval = state.activeRunStatus === "RUNNING" ? 400 : 1500;
-        state.pollTimer = setTimeout(pollState, interval);
+        state.pollTimer = setTimeout(pollState, getPollInterval());
     }
 
     // Update Presentation from View State Projection
     function updatePresentation(appState) {
         if (!appState) return;
+
+        // Header Status Dot & Label
+        if (elements.systemStatusDot && elements.systemStatusText) {
+            const curStatus = (state.activeRunStatus || "idle").toUpperCase();
+            if (curStatus === "RUNNING") {
+                elements.systemStatusDot.className = "status-dot running";
+                elements.systemStatusText.textContent = "Processing...";
+            } else if (curStatus === "FAILED") {
+                elements.systemStatusDot.className = "status-dot error";
+                elements.systemStatusText.textContent = "Failed";
+            } else if (curStatus === "CANCELLED") {
+                elements.systemStatusDot.className = "status-dot warning";
+                elements.systemStatusText.textContent = "Cancelled";
+            } else {
+                elements.systemStatusDot.className = "status-dot online";
+                elements.systemStatusText.textContent = "Ready";
+            }
+        }
 
         // 0. Update Processing Requirements from Available Actions Facts
         if (appState.available_actions && appState.available_actions.length > 0) {
@@ -439,11 +546,13 @@
         }
 
         // 1. Aarambha Startup Overlay
-        if (appState.startup && appState.startup.is_initializing && appState.startup.elapsed_ns > 5_000_000_000) {
-            elements.aarambhaOverlay.classList.remove("hidden");
-            elements.aarambhaStage.textContent = appState.startup.current_stage || "Initializing...";
-        } else {
-            elements.aarambhaOverlay.classList.add("hidden");
+        if (elements.aarambhaOverlay) {
+            if (appState.startup && appState.startup.is_initializing && appState.startup.elapsed_ns > 5_000_000_000) {
+                elements.aarambhaOverlay.classList.remove("hidden");
+                if (elements.aarambhaStage) elements.aarambhaStage.textContent = appState.startup.current_stage || "Initializing...";
+            } else {
+                elements.aarambhaOverlay.classList.add("hidden");
+            }
         }
 
         // 2. Pravritti Monitor Updates
@@ -535,15 +644,22 @@
             // Document Pipeline Table
             if (activeRun.files && activeRun.files.length > 0) {
                 elements.pipelineCounts.textContent = `${activeRun.terminal_files} / ${activeRun.total_files} completed`;
-                elements.filePipelineTbody.innerHTML = activeRun.files
+                const MAX_RENDER_FILES = 100;
+                const filesToRender = activeRun.files.length > MAX_RENDER_FILES
+                    ? activeRun.files.slice(0, MAX_RENDER_FILES)
+                    : activeRun.files;
+                let rowsHtml = filesToRender
                     .map((f) => {
-                        const statusBadge = f.status === "completed"
+                        const sUpper = (f.status || "").toUpperCase();
+                        const statusBadge = (sUpper === "COMPLETED" || sUpper === "SUCCESS")
                             ? '<span class="badge badge-emerald">Done</span>'
-                            : f.status === "running"
+                            : sUpper === "RUNNING"
                             ? '<span class="badge badge-indigo">Running</span>'
-                            : `<span class="badge">${f.status}</span>`;
+                            : (sUpper === "CANCELLED" ? '<span class="badge badge-amber">Cancelled</span>'
+                            : (sUpper === "FAILED" ? '<span class="badge badge-crimson">Failed</span>'
+                            : '<span class="badge">Pending</span>'));
                         return `<tr>
-                            <td>${f.ordinal + 1}</td>
+                            <td>${f.ordinal}</td>
                             <td><strong>${escapeHtml(f.display_name)}</strong></td>
                             <td>${escapeHtml(f.current_stage || "—")}</td>
                             <td>${statusBadge}</td>
@@ -552,6 +668,10 @@
                         </tr>`;
                     })
                     .join("");
+                if (activeRun.files.length > MAX_RENDER_FILES) {
+                    rowsHtml += `<tr class="empty-row"><td colspan="6">Showing first ${MAX_RENDER_FILES} of ${activeRun.files.length} documents.</td></tr>`;
+                }
+                elements.filePipelineTbody.innerHTML = rowsHtml;
             }
 
             if (activeRun.status !== "RUNNING") {
@@ -586,7 +706,7 @@
                     <td>${escapeHtml(it.stage)}</td>
                     <td>${it.confidence ? (it.confidence * 100).toFixed(1) + "%" : "—"}</td>
                     <td><span class="text-amber">${escapeHtml(it.issue_reason)}</span></td>
-                    <td><button class="btn btn-outline btn-sm">Inspect</button></td>
+                    <td><span class="badge badge-indigo" title="Diagnostic review record; decisions validated in pipeline">Recorded</span></td>
                 </tr>`)
                 .join("");
         } else {
@@ -652,7 +772,7 @@
         // 5. Nirikshana Inspector
         const inspector = appState.inspector;
         if (inspector) {
-            if (inspector.device_summaries && inspector.device_summaries.length > 0) {
+            if (elements.inspectorDeviceTbody && inspector.device_summaries && inspector.device_summaries.length > 0) {
                 elements.inspectorDeviceTbody.innerHTML = inspector.device_summaries
                     .map((ds) => `<tr>
                         <td><strong>${escapeHtml(ds.device_type)}</strong></td>
@@ -662,9 +782,19 @@
                     </tr>`)
                     .join("");
             }
-            if (inspector.activity_logs && inspector.activity_logs.length > 0) {
+            if (elements.inspectorLogs && inspector.activity_logs && inspector.activity_logs.length > 0) {
                 elements.inspectorLogs.innerHTML = inspector.activity_logs
-                    .map(([ts, comp, phase, msg]) => `<div class="log-entry"><span class="text-muted">[${ts}]</span> <strong>${escapeHtml(comp)}</strong>.${escapeHtml(phase)}: ${escapeHtml(msg)}</div>`)
+                    .map(([ts, severity, comp, msg]) => {
+                        const sevUpper = (severity || "").toUpperCase();
+                        const sevClass = (sevUpper === "ERROR" || sevUpper === "FAILED")
+                            ? "badge-crimson"
+                            : (sevUpper === "WARN" ? "badge-amber" : "badge-indigo");
+                        return `<div class="log-entry">
+                            <span class="text-muted">[${escapeHtml(ts)}]</span>
+                            <span class="badge ${sevClass}" style="font-size: 10px; padding: 1px 5px; margin: 0 4px;">${escapeHtml(sevUpper)}</span>
+                            <strong>${escapeHtml(comp)}</strong>: ${escapeHtml(msg)}
+                        </div>`;
+                    })
                     .join("");
             }
         }
@@ -763,6 +893,36 @@
         elements.btnCancelRun.addEventListener("click", handleCancelRun);
         elements.btnOpenOutputFolder.addEventListener("click", handleOpenOutputFolder);
         elements.btnReturnHome.addEventListener("click", () => switchScreen("home"));
+
+        // Error Banner Dismiss
+        if (elements.btnDismissError) {
+            elements.btnDismissError.addEventListener("click", hideError);
+        }
+
+        // Cancel Run Confirmation Modal
+        if (elements.btnCancelDialogConfirm) {
+            elements.btnCancelDialogConfirm.addEventListener("click", () => {
+                if (elements.cancelRunDialog && typeof elements.cancelRunDialog.close === "function") {
+                    elements.cancelRunDialog.close();
+                }
+                dispatchCancelRun();
+            });
+        }
+        if (elements.btnCancelDialogDismiss) {
+            elements.btnCancelDialogDismiss.addEventListener("click", () => {
+                if (elements.cancelRunDialog && typeof elements.cancelRunDialog.close === "function") {
+                    elements.cancelRunDialog.close();
+                }
+            });
+        }
+
+        // Page Visibility Polling Optimization
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+                clearTimeout(state.pollTimer);
+                pollState();
+            }
+        });
 
         updateRequirementOptionsVisibility();
 

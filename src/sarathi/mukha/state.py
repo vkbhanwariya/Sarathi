@@ -134,6 +134,7 @@ class WorkerPageView:
     stage: str = ""
     device_type: str = ""
     elapsed_ns: int = 0
+    idle_ns: int = 0
     status: str = "active"
 
 
@@ -145,8 +146,8 @@ class FileRunView:
     display_name: str
     ordinal: int
     status: str
-    elapsed_ns: int
-    current_stage: str
+    elapsed_ns: int | None = None
+    current_stage: str = ""
     warning_count: int = 0
     error_message: str | None = None
 

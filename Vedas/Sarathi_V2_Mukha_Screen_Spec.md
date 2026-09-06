@@ -229,16 +229,15 @@ canonical `available_actions` snapshot rather than screen-local conditionals.
 
 ### 7.3 OCR profile selection
 
-Mukha renders the four profiles owned by the
-[OCR Specification](Sarathi_V2_OCR_Spec.md): Instant, Accurate, Layout
-Preserving, and Custom. There is no Auto option.
+Mukha renders the supported OCR profiles owned by the
+[OCR Specification](Sarathi_V2_OCR_Spec.md): Instant, Accurate,
+and Custom. There is no Auto option. (Layout Preserving is reserved for future layout-analysis pipelines).
 
 ``` text
 OCR Profile
 
 ● Instant
 ○ Accurate
-○ Layout Preserving
 ○ Custom
 Average: — confidence • — time/page
 ```
@@ -480,10 +479,9 @@ Full tables are searchable/filterable. Missing values remain `—`. Historical
 profile evidence always includes comparable filters, sample count and
 last-tested date. Inspector observes; it never recommends or changes execution.
 
-Textual's official [TabbedContent](https://textual.textualize.io/widgets/tabbed_content/),
-[DataTable](https://textual.textualize.io/widgets/data_table/) and
-[RichLog](https://textual.textualize.io/widgets/rich_log/) provide the required
-tabs, dynamic rows and bounded activity view without another UI system.
+The canonical presentation surface provides the required tab navigation,
+dynamic tables, and bounded streaming log inspector over the native loopback dashboard
+without external UI dependencies.
 
 ## 12. Reusable Overlays and Components
 
@@ -496,10 +494,7 @@ These are not additional full screens.
 | Failure modal | Shows file/page, Dosh classification, attempt, quarantine state and currently valid detail/retry/return actions. |
 
 Together with **Aarambha — Startup Progress** in Section 6, these are the only
-four overlays. Textual supports screen stacks, modal screens and a command
-provider API: [screens](https://textual.textualize.io/guide/screens/),
-[events and messages](https://textual.textualize.io/guide/events/),
-[command API](https://textual.textualize.io/api/command/).
+four overlays, managed via native accessible `<dialog>` modals and presentation view state projections.
 
 ## 13. Typed Presentation State
 
@@ -620,8 +615,8 @@ Long values truncate in tables but remain available in the detail drawer. Vertic
 - confidence is never relabelled as accuracy, and verified accuracy identifies
   its metric, reference and sample count;
 - Bank Statement Consolidation renders no profile selector;
-- Instant, Accurate and Layout Preserving retain their tested fixed engine
-  bindings; only Custom exposes compatible engine/profile selection.
+- Instant and Accurate retain their tested fixed engine bindings; only Custom
+  exposes compatible engine/profile selection.
 
 ### Interaction
 

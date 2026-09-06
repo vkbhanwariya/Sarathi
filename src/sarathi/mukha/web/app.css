@@ -161,9 +161,26 @@ body {
     box-shadow: 0 0 8px var(--accent-emerald);
 }
 
-.status-dot.busy {
+.status-dot.busy,
+.status-dot.warning {
     background-color: var(--accent-amber);
     box-shadow: 0 0 8px var(--accent-amber);
+}
+
+.status-dot.running {
+    background-color: var(--accent-blue);
+    box-shadow: 0 0 8px var(--accent-blue);
+    animation: pulse 1.5s infinite;
+}
+
+.status-dot.error {
+    background-color: var(--accent-crimson);
+    box-shadow: 0 0 8px var(--accent-crimson);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
 }
 
 /* Main Area */
@@ -552,6 +569,7 @@ body {
 }
 .summary-hero.status-success { border-left: 6px solid var(--accent-emerald); }
 .summary-hero.status-cancelled { border-left: 6px solid var(--accent-amber); }
+.summary-hero.status-failed,
 .summary-hero.status-failure { border-left: 6px solid var(--accent-crimson); }
 
 .badge-hero {
@@ -672,3 +690,116 @@ body {
 .text-emerald { color: var(--accent-emerald); }
 .text-amber { color: var(--accent-amber); }
 .text-crimson { color: var(--accent-crimson); }
+
+/* Accessibility Focus */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+.nav-tab:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
+}
+
+/* Global Alert Banner */
+.alert-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--accent-crimson-bg);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.4);
+    color: var(--text-primary);
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 500;
+}
+.alert-banner .alert-icon { font-size: 16px; }
+.alert-banner .alert-message { flex: 1; }
+.alert-banner .btn-dismiss {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+}
+.alert-banner .btn-dismiss:hover { color: var(--text-primary); }
+
+/* Native Dialog Modal */
+.modal-dialog {
+    margin: auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    color: var(--text-primary);
+    padding: 0;
+    max-width: 480px;
+    width: 90%;
+}
+.modal-dialog::backdrop {
+    background: rgba(11, 15, 25, 0.85);
+    backdrop-filter: blur(4px);
+}
+.dialog-content {
+    padding: 24px;
+}
+.dialog-content h3 {
+    font-size: 18px;
+    margin-bottom: 8px;
+}
+.dialog-content p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1024px) {
+    .screen-grid,
+    .monitor-grid,
+    .inspector-grid {
+        grid-template-columns: 1fr;
+    }
+    .summary-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .table-container {
+        overflow-x: auto;
+    }
+}
+
+@media (max-width: 768px) {
+    .app-header {
+        flex-direction: column;
+        height: auto;
+        padding: 12px;
+        gap: 10px;
+    }
+    .screen-nav {
+        flex-wrap: wrap;
+        justify-content: center;
+        width: 100%;
+    }
+    .requirement-grid {
+        grid-template-columns: 1fr;
+    }
+    .summary-stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

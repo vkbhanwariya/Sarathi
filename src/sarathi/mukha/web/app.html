@@ -42,6 +42,13 @@
             </div>
         </header>
 
+        <!-- Global Inline Error Banner -->
+        <div id="error-banner" class="alert-banner hidden" role="alert" aria-live="assertive">
+            <span class="alert-icon">⚠️</span>
+            <span id="error-banner-text" class="alert-message"></span>
+            <button id="btn-dismiss-error" class="btn-dismiss" aria-label="Dismiss error notification">✕</button>
+        </div>
+
         <!-- Main Content Area -->
         <main class="app-main">
             <!-- Screen 1: Griha (F1 - Home / Run Setup) -->
@@ -72,6 +79,9 @@
                                     <span>Recursively scan subdirectories</span>
                                 </label>
                             </div>
+
+                            <!-- Grouped Summary Pills for Batches -->
+                            <div id="input-groups-container" class="input-groups-box hidden" style="margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
 
                             <!-- Selected Inputs Table -->
                             <div class="table-container input-table-container">
@@ -219,7 +229,7 @@
                     </div>
 
                     <!-- Progress Bar -->
-                    <div class="progress-bar-container">
+                    <div class="progress-bar-container" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
                         <div id="monitor-progress-bar" class="progress-bar" style="width: 0%;"></div>
                     </div>
 
@@ -474,6 +484,18 @@
             </section>
         </main>
     </div>
+
+    <!-- Cancel Run Confirmation Dialog -->
+    <dialog id="cancel-run-dialog" class="modal-dialog">
+        <div class="dialog-content">
+            <h3>Cancel Active Run?</h3>
+            <p>Are you sure you want to cancel the active processing run? Any in-flight document processing will be stopped immediately.</p>
+            <div class="dialog-actions">
+                <button id="btn-cancel-dialog-confirm" class="btn btn-danger">Yes, Cancel Run</button>
+                <button id="btn-cancel-dialog-dismiss" class="btn btn-outline">Keep Running</button>
+            </div>
+        </div>
+    </dialog>
 
     <script src="/app.js"></script>
 </body>

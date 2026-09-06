@@ -130,7 +130,7 @@ class TestMukhaWebServerAPI:
     def test_native_browse_endpoints_mocked(self, web_server: MukhaWebServer) -> None:
         """POST /api/browse/files and /api/browse/folder call NativePicker."""
         with patch(
-            "sarathi.mukha.web.server.NativePicker.browse_files", return_value=NativePickerResult(paths=("/doc.pdf",))
+            "sarathi.mukha.web.http_handler.NativePicker.browse_files", return_value=NativePickerResult(paths=("/doc.pdf",))
         ):
             status, data = _http_post(f"http://127.0.0.1:{web_server.resolved_port}/api/browse/files", data={})
             assert status == 200
@@ -138,7 +138,7 @@ class TestMukhaWebServerAPI:
             assert data["paths"] == ["/doc.pdf"]
 
         with patch(
-            "sarathi.mukha.web.server.NativePicker.browse_folder", return_value=NativePickerResult(paths=("/folder",))
+            "sarathi.mukha.web.http_handler.NativePicker.browse_folder", return_value=NativePickerResult(paths=("/folder",))
         ):
             status, data = _http_post(f"http://127.0.0.1:{web_server.resolved_port}/api/browse/folder", data={})
             assert status == 200
@@ -502,6 +502,31 @@ def test_format_public_error_strips_paths() -> None:
     assert "/var/secrets" not in formatted_posix
     assert "[path]" in formatted_posix
     assert "SECURITY_DENIED" in formatted_posix
+
+    # UNC paths and paths with spaces
+    err_unc = DoshError(
+        code=FailureCode.EXECUTION_FAILED,
+        message="Network error accessing \\\\fileserver\\shared\\data\\report.csv timeout.",
+    )
+    formatted_unc = _format_public_error(err_unc)
+    assert "\\\\fileserver" not in formatted_unc
+    assert "[path]" in formatted_unc
+
+    err_quoted = DoshError(
+        code=FailureCode.INVALID_CONFIGURATION,
+        message="Missing config file 'C:\\Program Files\\Sarathi\\config.json' from host.",
+    )
+    formatted_quoted = _format_public_error(err_quoted)
+    assert "C:\\Program Files" not in formatted_quoted
+    assert "[path]" in formatted_quoted
+
+    err_spaces = DoshError(
+        code=FailureCode.EXECUTION_FAILED,
+        message="Failed reading C:\\Users\\John Doe\\Secret Files\\doc.txt, aborting.",
+    )
+    formatted_spaces = _format_public_error(err_spaces)
+    assert "C:\\Users" not in formatted_spaces
+    assert "[path]" in formatted_spaces
 
 
 def test_artifact_endpoint_rejects_path_traversal(web_server: MukhaWebServer) -> None:
