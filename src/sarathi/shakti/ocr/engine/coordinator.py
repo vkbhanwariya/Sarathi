@@ -1,13 +1,10 @@
-"""RapidOCR + PP-OCRv5 + OpenVINO Engine Adapter for OCR Phase 1."""
+"""RapidOCR + PP-OCRv5/v6 + OpenVINO engine coordinator and readiness verifier."""
 
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import math
-import os
-import re
 import stat
 import threading
 import unicodedata
@@ -18,7 +15,6 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CancellationToken,
     ConfidenceValue,
-    DeviceType,
     ExecutionBinding,
     ExecutionProfile,
     PageData,
@@ -26,540 +22,28 @@ from sarathi.sankalpa import (
     TextSpan,
     WarningRecord,
 )
-from sarathi.sutra import get_canonical_data_root
-
-_STAGE_NAME = "ocr"
-_PLUGIN_ID = "shakti.ocr"
-_CAPABILITY_ID = "ocr"
-_CANONICAL_DATA_ROOT = get_canonical_data_root() / "ocr"
-_REQUIRED_MODEL_KEYS = ("det", "rec", "cls")
-_HEX_64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_SAFE_FILENAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
-
-_DEV_LANGS = frozenset({"devanagari", "hi", "hindi"})
-_V6_LANGS = frozenset({"en_v6", "v6", "english_v6"})
-_EN_LANGS = frozenset({"en", "eng", "english", "latin", "ch", "chinese"})
-_ALL_SUPPORTED_LANGS = _DEV_LANGS | _V6_LANGS | _EN_LANGS
-
-
-def _is_safe_filename(name: Any) -> bool:
-    """Validate that filename is a safe, non-empty basename without path traversal or separators."""
-    if not isinstance(name, str):
-        return False
-    clean = name.strip()
-    if not clean or clean in (".", ".."):
-        return False
-    if "/" in clean or "\\" in clean or ":" in clean:
-        return False
-    if not _SAFE_FILENAME_PATTERN.match(clean):
-        return False
-    return True
-
-
-def _disable_openvino_telemetry() -> None:
-    """Enforce strict local zero-network policy for OpenVINO and openvino-telemetry."""
-    import os
-
-    os.environ["OPENVINO_TELEMETRY_OPTOUT"] = "1"
-    os.environ["TELEMETRY_OPTOUT"] = "1"
-
-    try:
-        import platform
-        from pathlib import Path
-
-        base_dir: str | None = None
-        if platform.system() == "Windows":
-            base_dir = os.environ.get("LOCALAPPDATA")
-        else:
-            base_dir = str(Path.home())
-        if base_dir and os.path.isdir(base_dir):
-            consent_dir = Path(base_dir) / "openvino_telemetry"
-            consent_dir.mkdir(parents=True, exist_ok=True)
-            consent_file = consent_dir / "openvino_telemetry"
-            if not consent_file.exists() or consent_file.read_text(encoding="ascii", errors="ignore").strip() != "0":
-                consent_file.write_text("0", encoding="ascii")
-    except Exception:
-        pass
-
-    try:
-        import openvino_telemetry
-
-        if hasattr(openvino_telemetry, "Telemetry"):
-            openvino_telemetry.Telemetry.send = lambda *args, **kwargs: None
-            openvino_telemetry.Telemetry.send_opt_in_event = lambda *args, **kwargs: None
-        try:
-            from openvino_telemetry.utils.sender import TelemetrySender
-
-            TelemetrySender.send = lambda *args, **kwargs: None
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-
-_disable_openvino_telemetry()
-
-
-def _patch_rapidocr_openvino_device() -> None:
-    """Ensure RapidOCR OpenVINOInferSession respects the device configured in the inference params."""
-    _disable_openvino_telemetry()
-    try:
-        import rapidocr.inference_engine.openvino.main as ov_main
-
-        if getattr(ov_main.OpenVINOInferSession, "_sarathi_device_patched", False):
-            return
-
-        def _custom_init(self: Any, cfg: Any) -> None:
-            from pathlib import Path
-
-            try:
-                from openvino import Core
-            except ImportError:
-                from openvino.runtime import Core
-
-            device_name = str(cfg.get("device", "CPU")).upper()
-            core = Core()
-            model_path = Path(cfg.get("model_path"))
-            self._verify_model(model_path)
-
-            if device_name == "CPU":
-                try:
-                    from rapidocr.inference_engine.openvino.device_config import CPUConfig
-
-                    cpu_config = CPUConfig(cfg.get("engine_cfg", {}))
-                    core.set_property("CPU", cpu_config.get_config())
-                except Exception:
-                    pass
-
-            self.model = core.read_model(model_path)
-            compile_model = core.compile_model(model=self.model, device_name=device_name)
-            self.session = compile_model.create_infer_request()
-
-        ov_main.OpenVINOInferSession.__init__ = _custom_init
-        ov_main.OpenVINOInferSession._sarathi_device_patched = True
-    except Exception:
-        pass
-
-
-def extract_images_from_bytes(data: bytes) -> list[Any]:
-    """Convert input file bytes (PDF or Image) into a list of PIL RGB images."""
-    import pymupdf
-    from PIL import Image, UnidentifiedImageError
-
-    # 1. Check if PDF
-    if data.startswith(b"%PDF-") or b"%PDF-" in data[:1024]:
-        try:
-            doc = pymupdf.open(stream=data, filetype="pdf")
-        except (pymupdf.FileDataError, pymupdf.EmptyFileError, ValueError):
-            return []
-
-        images = []
-        try:
-            for page in doc:
-                pix = page.get_pixmap(dpi=150)
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                images.append(img)
-        finally:
-            doc.close()
-        return images
-
-    # 2. Check if standard Image format (including multipage TIFF)
-    try:
-        from PIL import ImageOps, ImageSequence
-
-        with Image.open(io.BytesIO(data)) as img:
-            images = []
-            for frame in ImageSequence.Iterator(img):
-                transposed = ImageOps.exif_transpose(frame)
-                images.append(transposed.convert("RGB"))
-            return images if images else [img.convert("RGB")]
-    except (UnidentifiedImageError, OSError, ValueError):
-        return []
-
-
-def deskew_image(image_arr: Any) -> tuple[Any, float]:
-    """Detect text orientation angle and apply affine rotation correction if cv2 is available."""
-    try:
-        import cv2
-        import numpy as np
-
-        if not isinstance(image_arr, np.ndarray) or image_arr.size == 0:
-            return image_arr, 0.0
-
-        gray = cv2.cvtColor(image_arr, cv2.COLOR_RGB2GRAY) if len(image_arr.shape) == 3 else image_arr.copy()
-        thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-        coords = np.column_stack(np.where(thresh > 0))
-
-        if len(coords) < 100:
-            return image_arr, 0.0
-
-        angle = cv2.minAreaRect(coords)[-1]
-        if angle < -45:
-            angle = -(90 + angle)
-        elif angle > 45:
-            angle = 90 - angle
-        else:
-            angle = -angle
-
-        if 0.2 < abs(angle) < 45.0:
-            (h, w) = image_arr.shape[:2]
-            center = (w // 2, h // 2)
-            m_rot = cv2.getRotationMatrix2D(center, angle, 1.0)
-            rotated = cv2.warpAffine(
-                image_arr,
-                m_rot,
-                (w, h),
-                flags=cv2.INTER_CUBIC,
-                borderMode=cv2.BORDER_REPLICATE,
-            )
-            return rotated, round(float(angle), 2)
-
-        return image_arr, 0.0
-    except Exception:
-        return image_arr, 0.0
-
-
-def is_low_contrast_image(image_arr: Any, std_threshold: float = 40.0) -> bool:
-    """Check if image has low global contrast based on pixel intensity standard deviation."""
-    try:
-        import numpy as np
-
-        if not isinstance(image_arr, np.ndarray) or image_arr.size == 0:
-            return False
-        if len(image_arr.shape) == 3:
-            gray = 0.299 * image_arr[:, :, 0] + 0.587 * image_arr[:, :, 1] + 0.114 * image_arr[:, :, 2]
-            return float(np.std(gray)) < std_threshold
-        return float(np.std(image_arr)) < std_threshold
-    except Exception:
-        return False
-
-
-def apply_clahe(image_arr: Any, clip_limit: float = 2.0, tile_grid_size: tuple[int, int] = (8, 8)) -> Any:
-    """Apply Contrast Limited Adaptive Histogram Equalization (CLAHE) if cv2 is available."""
-    try:
-        import cv2
-        import numpy as np
-
-        if not isinstance(image_arr, np.ndarray) or image_arr.size == 0:
-            return image_arr
-
-        if len(image_arr.shape) == 3:
-            lab = cv2.cvtColor(image_arr, cv2.COLOR_RGB2LAB)
-            l_ch, a_ch, b_ch = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-            cl = clahe.apply(l_ch)
-            limg = cv2.merge((cl, a_ch, b_ch))
-            return cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
-        else:
-            clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-            return clahe.apply(image_arr)
-    except Exception:
-        return image_arr
-
-
-def remove_stamp_artifacts(image_arr: Any) -> Any:
-    """Inpaint colored official rubber stamps that occlude underlying text if cv2 is available."""
-    try:
-        import cv2
-        import numpy as np
-
-        if not isinstance(image_arr, np.ndarray) or len(image_arr.shape) != 3 or image_arr.size == 0:
-            return image_arr
-
-        hsv = cv2.cvtColor(image_arr, cv2.COLOR_RGB2HSV)
-        # Mask red and blue official rubber stamp pigments
-        lower_red1 = np.array([0, 70, 50])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([170, 70, 50])
-        upper_red2 = np.array([180, 255, 255])
-        mask_r1 = cv2.inRange(hsv, lower_red1, upper_red1)
-        mask_r2 = cv2.inRange(hsv, lower_red2, upper_red2)
-        stamp_mask = mask_r1 | mask_r2
-
-        if cv2.countNonZero(stamp_mask) > 100:
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            stamp_mask = cv2.dilate(stamp_mask, kernel, iterations=1)
-            return cv2.inpaint(image_arr, stamp_mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
-
-        return image_arr
-    except Exception:
-        return image_arr
-
-
-def preprocess_ocr_image(
-    image_arr: Any,
-    deskew: bool = True,
-    clahe: bool = False,
-    remove_stamps: bool = False,
-) -> Any:
-    """Run the pre-OCR vision enhancement pipeline with strict fallback when cv2 is unavailable."""
-    try:
-        import cv2  # noqa: F401
-    except ImportError:
-        # Strict graceful fallback when OpenCV is not installed
-        return image_arr
-
-    out = image_arr
-    if deskew:
-        out, _ = deskew_image(out)
-    if remove_stamps:
-        out = remove_stamp_artifacts(out)
-    if clahe:
-        out = apply_clahe(out)
-    return out
-
-
-_ALPHANUMERIC_FILTER_RE = re.compile(r"[^\x20-\x7E₹€£\n\r\t]")
-_HAS_ENGLISH_OR_DIGIT_RE = re.compile(r"[A-Za-z0-9]")
-
-
-def filter_english_and_numbers(text: str) -> str:
-    """Filter text to retain only English characters, numbers, and standard alphanumeric symbols."""
-    cleaned = _ALPHANUMERIC_FILTER_RE.sub("", text)
-    cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-    if not _HAS_ENGLISH_OR_DIGIT_RE.search(cleaned):
-        return ""
-    return cleaned
-
-
-def find_tesseract_executable() -> Path | None:
-    """Discover Tesseract 5 executable across PATH, standard Windows install locations, and Unix paths."""
-    import shutil
-
-    candidates: list[Path] = [
-        Path.home() / "AppData" / "Local" / "Programs" / "Tesseract-OCR" / "tesseract.exe",
-        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
-    ]
-
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        candidates.append(Path(local_app_data) / "Programs" / "Tesseract-OCR" / "tesseract.exe")
-
-    prog_files = os.environ.get("ProgramFiles")
-    if prog_files:
-        candidates.append(Path(prog_files) / "Tesseract-OCR" / "tesseract.exe")
-
-    which_tess = shutil.which("tesseract")
-    if which_tess:
-        p = Path(which_tess).resolve()
-        if os.name == "nt":
-            if p.suffix.lower() == ".exe" and p.is_file():
-                candidates.insert(0, p)
-        elif p.is_file():
-            candidates.insert(0, p)
-
-    candidates.extend(
-        [
-            Path("/usr/bin/tesseract"),
-            Path("/usr/local/bin/tesseract"),
-        ]
-    )
-
-    for cand in candidates:
-        try:
-            if cand.exists() and cand.is_file():
-                return cand.resolve()
-        except OSError:
-            continue
-
-    return None
-
-
-def configure_pytesseract(
-    executable_path: Path | str | None = None,
-    tessdata_dir: Path | str | None = None,
-) -> bool:
-    """Discover, wire, and configure Tesseract and pytesseract.
-
-    Resolves the Tesseract binary across PATH and standard install paths,
-    prepends its directory to os.environ["PATH"], points
-    pytesseract.pytesseract.tesseract_cmd to the executable, and sets
-    TESSDATA_PREFIX if tessdata directory is discovered.
-
-    Returns:
-        True if Tesseract was successfully discovered and configured, False otherwise.
-    """
-    resolved_exe: Path | None = None
-    if executable_path is not None:
-        p = Path(executable_path).resolve()
-        if p.is_file():
-            resolved_exe = p
-    else:
-        resolved_exe = find_tesseract_executable()
-
-    if resolved_exe is None:
-        return False
-
-    bin_dir = str(resolved_exe.parent)
-    current_path = os.environ.get("PATH", "")
-    if bin_dir.lower() not in current_path.lower():
-        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{current_path}"
-
-    resolved_tessdata: Path | None = None
-    if tessdata_dir is not None:
-        td = Path(tessdata_dir).resolve()
-        if td.is_dir():
-            resolved_tessdata = td
-    elif "TESSDATA_PREFIX" in os.environ and Path(os.environ["TESSDATA_PREFIX"]).is_dir():
-        resolved_tessdata = Path(os.environ["TESSDATA_PREFIX"]).resolve()
-    else:
-        candidate_td = resolved_exe.parent / "tessdata"
-        if candidate_td.is_dir():
-            resolved_tessdata = candidate_td
-
-    if resolved_tessdata is not None and "TESSDATA_PREFIX" not in os.environ:
-        os.environ["TESSDATA_PREFIX"] = str(resolved_tessdata)
-
-    try:
-        import pytesseract
-
-        pytesseract.pytesseract.tesseract_cmd = str(resolved_exe)
-    except ImportError:
-        pass
-
-    return True
-
-
-class TesseractFallbackAdapter:
-    """Targeted Tesseract 5 fallback adapter for weak OCR bounding boxes."""
-
-    def __init__(
-        self,
-        executable_path: Path | str | None = None,
-        tessdata_dir: Path | str | None = None,
-        language: str = "eng",
-        timeout_seconds: float = 10.0,
-    ) -> None:
-        if executable_path is not None:
-            self._executable_path: Path | None = Path(executable_path).resolve()
-        else:
-            self._executable_path = find_tesseract_executable()
-
-        if tessdata_dir is not None:
-            self._tessdata_dir: Path | None = Path(tessdata_dir).resolve()
-        elif self._executable_path is not None and (self._executable_path.parent / "tessdata").is_dir():
-            self._tessdata_dir = self._executable_path.parent / "tessdata"
-        elif "TESSDATA_PREFIX" in os.environ and Path(os.environ["TESSDATA_PREFIX"]).is_dir():
-            self._tessdata_dir = Path(os.environ["TESSDATA_PREFIX"]).resolve()
-        else:
-            self._tessdata_dir = None
-
-        self._language: str = language
-        self._timeout_seconds: float = timeout_seconds
-
-        # Wire and configure pytesseract only on default discovery or explicit real executable
-        if executable_path is None and self._executable_path is not None and self._executable_path.is_file():
-            configure_pytesseract(self._executable_path, self._tessdata_dir)
-
-    @property
-    def executable_path(self) -> Path | None:
-        """Return the resolved path to the Tesseract executable, or None if unavailable."""
-        return self._executable_path
-
-    @property
-    def tessdata_dir(self) -> Path | None:
-        """Return the resolved path to the tessdata directory, or None if unavailable."""
-        return self._tessdata_dir
-
-    def is_available(self) -> bool:
-        """Return True only when fixed configured executable path exists on disk."""
-        return self._executable_path is not None and self._executable_path.is_file()
-
-    def recognize_crop(self, crop_image: Any, language: str | None = None) -> tuple[str, float | None]:
-        """Run Tesseract 5 on cropped sub-image and return (text, confidence).
-
-        Raises:
-            DoshError(DEPENDENCY_UNAVAILABLE): If Tesseract is not configured or executable missing.
-            DoshError(EXECUTION_FAILED): If subprocess execution fails, times out, or produces unusable output.
-        """
-        if not self.is_available() or self._executable_path is None:
-            raise DoshError(
-                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                message="Tesseract fallback engine is not available at configured executable path.",
-            )
-
-
-
-        import subprocess
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_f:
-            tmp_path = Path(tmp_f.name)
-
-        active_lang = language or self._language
-        cmd = [str(self._executable_path), str(tmp_path), "stdout", "--psm", "6", "-l", active_lang, "tsv"]
-        if self._tessdata_dir is not None:
-            cmd.extend(["--tessdata-dir", str(self._tessdata_dir)])
-
-        try:
-            crop_image.save(tmp_path)
-            res = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=self._timeout_seconds,
-                check=False,
-            )
-            if res.returncode != 0:
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Tesseract fallback execution returned non-zero exit status.",
-                )
-
-            stdout_text = res.stdout or ""
-            lines = [ln for ln in stdout_text.splitlines() if ln.strip()]
-            words: list[str] = []
-            conf_scores: list[float] = []
-
-            # Check for TSV format header
-            if lines and ("\tconf\ttext" in lines[0] or lines[0].startswith("level\t")):
-                has_invalid_conf = False
-                for line in lines[1:]:
-                    parts = line.split("\t")
-                    if len(parts) >= 12:
-                        word = parts[11].strip()
-                        conf_str = parts[10].strip()
-                        if word:
-                            words.append(word)
-                            try:
-                                conf_num = float(conf_str)
-                                # Tesseract TSV confidence is valid only when finite and within raw 0..100; convert once to 0..1
-                                if not math.isnan(conf_num) and not math.isinf(conf_num) and 0.0 <= conf_num <= 100.0:
-                                    conf_scores.append(conf_num / 100.0)
-                                else:
-                                    has_invalid_conf = True
-                            except (ValueError, TypeError):
-                                has_invalid_conf = True
-                if not words:
-                    raise DoshError(
-                        code=FailureCode.EXECUTION_FAILED,
-                        message="Tesseract fallback produced unusable output.",
-                    )
-                text = unicodedata.normalize("NFC", " ".join(words))
-                if has_invalid_conf or len(conf_scores) != len(words) or not conf_scores:
-                    measured_conf = None
-                else:
-                    measured_conf = sum(conf_scores) / len(conf_scores)
-                return text, measured_conf
-            else:
-                # Fallback for plain text output without TSV confidence
-                plain_text = unicodedata.normalize("NFC", (res.stdout or "").strip())
-                if not plain_text:
-                    raise DoshError(
-                        code=FailureCode.EXECUTION_FAILED,
-                        message="Tesseract fallback produced unusable output.",
-                    )
-                return plain_text, None
-        except (subprocess.SubprocessError, OSError, UnicodeDecodeError):
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message="Tesseract fallback execution failed.",
-            ) from None
-        finally:
-            tmp_path.unlink(missing_ok=True)
+from sarathi.shakti.ocr.engine.common import (
+    CANONICAL_DATA_ROOT,
+    DEV_LANGS,
+    HEX_64_PATTERN,
+    REQUIRED_MODEL_KEYS,
+    STAGE_NAME,
+    V6_LANGS,
+)
+from sarathi.shakti.ocr.engine.openvino import (
+    disable_openvino_telemetry,
+    is_safe_filename,
+    patch_rapidocr_openvino_device,
+    resolve_target_device,
+)
+from sarathi.shakti.ocr.engine.preprocessing import (
+    is_low_contrast_image,
+    preprocess_ocr_image,
+)
+from sarathi.shakti.ocr.engine.tesseract import (
+    TesseractFallbackAdapter,
+    filter_english_and_numbers,
+)
 
 
 def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
@@ -568,14 +52,14 @@ def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
     Returns:
         (is_ready, status_or_reason)
     """
-    _disable_openvino_telemetry()
+    disable_openvino_telemetry()
     import importlib.util
 
     for mod in ("rapidocr", "openvino", "PIL", "numpy"):
         if importlib.util.find_spec(mod) is None:
             return False, "Unavailable (Missing required OCR Python libraries)"
 
-    target_root = data_root.resolve() if data_root is not None else _CANONICAL_DATA_ROOT
+    target_root = data_root.resolve() if data_root is not None else CANONICAL_DATA_ROOT
     manifest_file = target_root / "manifest.json"
     models_dir = target_root / "models"
 
@@ -596,7 +80,7 @@ def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
             entry = models_meta[key]
             filename = entry.get("filename")
             expected_sha = entry.get("sha256")
-            if not filename or not expected_sha or not _is_safe_filename(filename):
+            if not filename or not expected_sha or not is_safe_filename(filename):
                 return False, f"Unavailable (OCR model specification for '{key}' is invalid)"
 
             model_path = models_dir / filename
@@ -637,7 +121,7 @@ def _parse_rapidocr_output(
                 WarningRecord(
                     code="OCR_METADATA_LENGTH_MISMATCH",
                     message="Engine output text, box, and score counts disagree; unaligned items padded safely.",
-                    stage=_STAGE_NAME,
+                    stage=STAGE_NAME,
                 )
             )
 
@@ -668,7 +152,7 @@ def _parse_rapidocr_output(
                                 WarningRecord(
                                     code="OCR_INVALID_CONFIDENCE",
                                     message="Engine returned out-of-bounds or non-finite confidence ratio.",
-                                    stage=_STAGE_NAME,
+                                    stage=STAGE_NAME,
                                 )
                             )
                     except (TypeError, ValueError):
@@ -677,7 +161,7 @@ def _parse_rapidocr_output(
                             WarningRecord(
                                 code="OCR_INVALID_CONFIDENCE",
                                 message="Engine returned non-numeric confidence value.",
-                                stage=_STAGE_NAME,
+                                stage=STAGE_NAME,
                             )
                         )
                 else:
@@ -686,7 +170,7 @@ def _parse_rapidocr_output(
                         WarningRecord(
                             code="OCR_INVALID_CONFIDENCE",
                             message="Engine returned missing confidence value.",
-                            stage=_STAGE_NAME,
+                            stage=STAGE_NAME,
                         )
                     )
 
@@ -699,7 +183,7 @@ def _parse_rapidocr_output(
                                 WarningRecord(
                                     code="OCR_INVALID_GEOMETRY",
                                     message="Engine returned bounding box with fewer than 4 points.",
-                                    stage=_STAGE_NAME,
+                                    stage=STAGE_NAME,
                                 )
                             )
                         else:
@@ -713,7 +197,7 @@ def _parse_rapidocr_output(
                                     WarningRecord(
                                         code="OCR_INVALID_GEOMETRY",
                                         message="Engine returned non-finite bounding box coordinates.",
-                                        stage=_STAGE_NAME,
+                                        stage=STAGE_NAME,
                                     )
                                 )
                             else:
@@ -724,7 +208,7 @@ def _parse_rapidocr_output(
                             WarningRecord(
                                 code="OCR_INVALID_GEOMETRY",
                                 message="Engine returned malformed or non-numeric bounding box coordinates.",
-                                stage=_STAGE_NAME,
+                                stage=STAGE_NAME,
                             )
                         )
 
@@ -739,20 +223,6 @@ def _parse_rapidocr_output(
     return lines, spans, conf_scores, warnings, has_invalid_confidence, has_invalid_geometry
 
 
-def _resolve_target_device(execution_binding: ExecutionBinding | None) -> str:
-    """Resolve factual OpenVINO target device string from execution binding."""
-    if execution_binding is None or execution_binding.device_type == DeviceType.CPU:
-        return "CPU"
-    if execution_binding.device_type == DeviceType.GPU:
-        return execution_binding.backend_device_id or "GPU"
-    if execution_binding.device_type == DeviceType.NPU:
-        return execution_binding.backend_device_id or "NPU"
-    raise DoshError(
-        code=FailureCode.UNSUPPORTED,
-        message=f"Unsupported execution device type '{execution_binding.device_type.value}' for OCR.",
-    )
-
-
 class RapidOCREngine:
     """Instance-owned RapidOCR + PP-OCRv5/v6 + OpenVINO engine adapter."""
 
@@ -762,7 +232,7 @@ class RapidOCREngine:
         tesseract_adapter: TesseractFallbackAdapter | None = None,
         default_lang: str = "en",
     ) -> None:
-        self._data_root: Path = data_root.resolve() if data_root is not None else _CANONICAL_DATA_ROOT
+        self._data_root: Path = data_root.resolve() if data_root is not None else CANONICAL_DATA_ROOT
         self._engine: Any = None
         self._engines: dict[str, Any] = {}
         self._model_labels: dict[str, str] = {}
@@ -789,15 +259,14 @@ class RapidOCREngine:
             self._local.engines = {}
 
         clean_lang = str(lang).lower().strip() if lang else self._default_lang
-        if clean_lang in _V6_LANGS:
+        if clean_lang in V6_LANGS:
             engine_key = "v6_en"
-        elif clean_lang in _DEV_LANGS:
+        elif clean_lang in DEV_LANGS:
             engine_key = "devanagari"
         else:
             engine_key = "en"
 
-        target_device = _resolve_target_device(execution_binding)
-
+        target_device = resolve_target_device(execution_binding)
         cache_key = f"{engine_key}:{target_device}"
 
         if cache_key in self._local.engines:
@@ -821,7 +290,7 @@ class RapidOCREngine:
             return self._get_engine_unlocked(lang=lang, execution_binding=execution_binding)
 
     def _get_engine_unlocked(self, lang: str = "en", execution_binding: ExecutionBinding | None = None) -> Any:
-        target_device = _resolve_target_device(execution_binding)
+        target_device = resolve_target_device(execution_binding)
 
         manifest_file = self._data_root / "manifest.json"
         models_dir = self._data_root / "models"
@@ -875,7 +344,7 @@ class RapidOCREngine:
         models_meta = manifest_dict["models"]
 
         # 1. Base required model keys
-        for key in _REQUIRED_MODEL_KEYS:
+        for key in REQUIRED_MODEL_KEYS:
             if key not in models_meta or not isinstance(models_meta[key], dict):
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
@@ -883,10 +352,10 @@ class RapidOCREngine:
                 )
 
         clean_lang = str(lang).lower().strip() if lang else self._default_lang
-        if clean_lang in _V6_LANGS:
+        if clean_lang in V6_LANGS:
             engine_key = "v6_en"
             rec_key = "rec_v6_en"
-        elif clean_lang in _DEV_LANGS:
+        elif clean_lang in DEV_LANGS:
             engine_key = "devanagari"
             rec_key = "rec_devanagari"
         else:
@@ -940,9 +409,9 @@ class RapidOCREngine:
             expected_sha256 = entry.get("sha256")
 
             if (
-                not _is_safe_filename(filename)
+                not is_safe_filename(filename)
                 or not isinstance(expected_sha256, str)
-                or not _HEX_64_PATTERN.match(expected_sha256)
+                or not HEX_64_PATTERN.match(expected_sha256)
             ):
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
@@ -999,7 +468,7 @@ class RapidOCREngine:
                 message="OCR dependencies are not installed. Install with 'uv add --optional ocr'.",
             ) from exc
 
-        _patch_rapidocr_openvino_device()
+        patch_rapidocr_openvino_device()
 
         if engine_key == "devanagari":
             params: dict[str, Any] = {
@@ -1095,8 +564,7 @@ class RapidOCREngine:
 
         import numpy as np
 
-        target_device = _resolve_target_device(execution_binding)
-
+        target_device = resolve_target_device(execution_binding)
         lang_opt = custom_options.get("lang") if custom_options else None
         target_lang = str(lang_opt).lower().strip() if lang_opt else self._default_lang
         engine = self._get_engine(target_lang, execution_binding=execution_binding)
@@ -1129,7 +597,9 @@ class RapidOCREngine:
             if remove_stamps:
                 applied_stamp_removal = True
 
-            img_arr = preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps)
+            import sarathi.shakti.ocr.engine as ocr_engine
+
+            img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps)
 
         # Synchronize preprocessed image for geometrically aligned cropping
         from PIL import Image
@@ -1162,7 +632,7 @@ class RapidOCREngine:
         if cancellation_token is not None and cancellation_token.is_cancelled:
             cancellation_token.check_cancelled()
 
-        if target_lang in _DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
+        if target_lang in DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
             filter_opt = False
         else:
             filter_opt = custom_options.get("english_numbers_only", True) if custom_options else True
@@ -1193,7 +663,7 @@ class RapidOCREngine:
             else (bool(custom_options.get("fallback_enabled", False)) if custom_options else False)
         )
         if (profile in (ExecutionProfile.ACCURATE, ExecutionProfile.CUSTOM)) and fallback_enabled and spans:
-            tess_lang = "hin" if target_lang in _DEV_LANGS else "eng"
+            tess_lang = "hin" if target_lang in DEV_LANGS else "eng"
             for idx, span in enumerate(spans):
                 if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
                     fallback_required = True
@@ -1203,7 +673,7 @@ class RapidOCREngine:
                             WarningRecord(
                                 code="OCR_FALLBACK_UNAVAILABLE",
                                 message="Tesseract 5 fallback engine is not available on this host.",
-                                stage=_STAGE_NAME,
+                                stage=STAGE_NAME,
                             )
                         )
                         break
@@ -1228,7 +698,7 @@ class RapidOCREngine:
                                         WarningRecord(
                                             code="OCR_FALLBACK_CONFIDENCE_UNAVAILABLE",
                                             message="Tesseract fallback confidence score is unavailable.",
-                                            stage=_STAGE_NAME,
+                                            stage=STAGE_NAME,
                                         )
                                     )
                                 if tess_conf is not None and tess_conf > span.confidence:
@@ -1246,7 +716,7 @@ class RapidOCREngine:
                                 WarningRecord(
                                     code="OCR_FALLBACK_FAILED",
                                     message="Tesseract 5 fallback execution failed.",
-                                    stage=_STAGE_NAME,
+                                    stage=STAGE_NAME,
                                 )
                             )
 
@@ -1256,14 +726,14 @@ class RapidOCREngine:
                 WarningRecord(
                     code="OCR_EMPTY_PAGE",
                     message="No text detected on page.",
-                    stage=_STAGE_NAME,
+                    stage=STAGE_NAME,
                 )
             )
 
         cache_key = f"{target_lang}:{target_device}"
-        if target_lang in _DEV_LANGS:
+        if target_lang in DEV_LANGS:
             model_label = "PP-OCRv5-Devanagari"
-        elif target_lang in _V6_LANGS:
+        elif target_lang in V6_LANGS:
             model_label = "PP-OCRv6"
         else:
             model_label = self._model_labels.get(cache_key, self._model_labels.get(f"en:{target_device}", "PP-OCRv5"))
@@ -1309,7 +779,7 @@ class RapidOCREngine:
         else:
             validation_outcome = "usable"
 
-        if target_lang in _DEV_LANGS:
+        if target_lang in DEV_LANGS:
             scope = "full_devanagari"
         elif filter_opt:
             scope = "english_and_numbers"
@@ -1348,9 +818,9 @@ class RapidOCREngine:
 
         provenance = ProvenanceRecord(
             source_input_id=input_id,
-            stage=_STAGE_NAME,
-            plugin_id=_PLUGIN_ID,
-            capability_id=_CAPABILITY_ID,
+            stage=STAGE_NAME,
+            plugin_id="shakti.ocr",
+            capability_id="ocr",
             page_number=page_number,
             evidence=evidence_dict,
         )
@@ -1364,16 +834,3 @@ class RapidOCREngine:
         )
 
         return page_data, provenance, page_confidence, tuple(warnings)
-
-
-__all__ = [
-    "RapidOCREngine",
-    "TesseractFallbackAdapter",
-    "check_ocr_readiness",
-    "configure_pytesseract",
-    "deskew_image",
-    "extract_images_from_bytes",
-    "filter_english_and_numbers",
-    "find_tesseract_executable",
-    "preprocess_ocr_image",
-]
