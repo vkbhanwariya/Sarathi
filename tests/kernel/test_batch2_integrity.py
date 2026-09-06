@@ -272,7 +272,7 @@ class TestFontConversionBatchIntegrity:
         # Verify collision-free artifact names
         names = [p.intent.name for p in res.artifact_payloads]
         assert len(names) == len(set(names))
-        assert "Converted_inp-1.txt" in names
-        assert "Converted_inp-1.docx" in names
-        assert "Converted_inp-2.txt" in names
-        assert "Converted_inp-2.docx" in names
+        assert "f1_converted.txt" in names
+        assert "f1_converted.docx" in names
+        assert "f2_converted.txt" in names
+        assert "f2_converted.docx" in names

@@ -19,6 +19,8 @@ __all__ = [
     "PLUGIN_INFO",
     "RapidOCREngine",
     "check_ocr_readiness",
+    "configure_pytesseract",
+    "find_tesseract_executable",
 ]
 
 
@@ -35,4 +37,21 @@ def __getattr__(name: str) -> Any:
         from sarathi.shakti.ocr.engine import check_ocr_readiness
 
         return check_ocr_readiness
+    if name == "configure_pytesseract":
+        from sarathi.shakti.ocr.engine import configure_pytesseract
+
+        return configure_pytesseract
+    if name == "find_tesseract_executable":
+        from sarathi.shakti.ocr.engine import find_tesseract_executable
+
+        return find_tesseract_executable
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# Auto-configure pytesseract and environment paths if Tesseract is installed
+try:
+    from sarathi.shakti.ocr.engine import configure_pytesseract
+
+    configure_pytesseract()
+except Exception:
+    pass

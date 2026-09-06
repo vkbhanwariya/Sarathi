@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 import stat
 import threading
@@ -273,6 +274,105 @@ def filter_english_and_numbers(text: str) -> str:
     return cleaned
 
 
+def find_tesseract_executable() -> Path | None:
+    """Discover Tesseract 5 executable across PATH, standard Windows install locations, and Unix paths."""
+    import shutil
+
+    candidates: list[Path] = [
+        Path.home() / "AppData" / "Local" / "Programs" / "Tesseract-OCR" / "tesseract.exe",
+        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+    ]
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "Programs" / "Tesseract-OCR" / "tesseract.exe")
+
+    prog_files = os.environ.get("ProgramFiles")
+    if prog_files:
+        candidates.append(Path(prog_files) / "Tesseract-OCR" / "tesseract.exe")
+
+    which_tess = shutil.which("tesseract")
+    if which_tess:
+        p = Path(which_tess).resolve()
+        if os.name == "nt":
+            if p.suffix.lower() == ".exe" and p.is_file():
+                candidates.insert(0, p)
+        elif p.is_file():
+            candidates.insert(0, p)
+
+    candidates.extend(
+        [
+            Path("/usr/bin/tesseract"),
+            Path("/usr/local/bin/tesseract"),
+        ]
+    )
+
+    for cand in candidates:
+        try:
+            if cand.exists() and cand.is_file():
+                return cand.resolve()
+        except OSError:
+            continue
+
+    return None
+
+
+def configure_pytesseract(
+    executable_path: Path | str | None = None,
+    tessdata_dir: Path | str | None = None,
+) -> bool:
+    """Discover, wire, and configure Tesseract and pytesseract.
+
+    Resolves the Tesseract binary across PATH and standard install paths,
+    prepends its directory to os.environ["PATH"], points
+    pytesseract.pytesseract.tesseract_cmd to the executable, and sets
+    TESSDATA_PREFIX if tessdata directory is discovered.
+
+    Returns:
+        True if Tesseract was successfully discovered and configured, False otherwise.
+    """
+    resolved_exe: Path | None = None
+    if executable_path is not None:
+        p = Path(executable_path).resolve()
+        if p.is_file():
+            resolved_exe = p
+    else:
+        resolved_exe = find_tesseract_executable()
+
+    if resolved_exe is None:
+        return False
+
+    bin_dir = str(resolved_exe.parent)
+    current_path = os.environ.get("PATH", "")
+    if bin_dir.lower() not in current_path.lower():
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{current_path}"
+
+    resolved_tessdata: Path | None = None
+    if tessdata_dir is not None:
+        td = Path(tessdata_dir).resolve()
+        if td.is_dir():
+            resolved_tessdata = td
+    elif "TESSDATA_PREFIX" in os.environ and Path(os.environ["TESSDATA_PREFIX"]).is_dir():
+        resolved_tessdata = Path(os.environ["TESSDATA_PREFIX"]).resolve()
+    else:
+        candidate_td = resolved_exe.parent / "tessdata"
+        if candidate_td.is_dir():
+            resolved_tessdata = candidate_td
+
+    if resolved_tessdata is not None and "TESSDATA_PREFIX" not in os.environ:
+        os.environ["TESSDATA_PREFIX"] = str(resolved_tessdata)
+
+    try:
+        import pytesseract
+
+        pytesseract.pytesseract.tesseract_cmd = str(resolved_exe)
+    except ImportError:
+        pass
+
+    return True
+
+
 class TesseractFallbackAdapter:
     """Targeted Tesseract 5 fallback adapter for weak OCR bounding boxes."""
 
@@ -286,23 +386,33 @@ class TesseractFallbackAdapter:
         if executable_path is not None:
             self._executable_path: Path | None = Path(executable_path).resolve()
         else:
-            import shutil
+            self._executable_path = find_tesseract_executable()
 
-            candidates: list[Path] = []
-            which_tess = shutil.which("tesseract")
-            if which_tess:
-                candidates.append(Path(which_tess).resolve())
-            candidates.extend(
-                [
-                    Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-                    Path.home() / "AppData" / "Local" / "Programs" / "Tesseract-OCR" / "tesseract.exe",
-                ]
-            )
-            self._executable_path = next((p for p in candidates if p.exists() and p.is_file()), None)
+        if tessdata_dir is not None:
+            self._tessdata_dir: Path | None = Path(tessdata_dir).resolve()
+        elif self._executable_path is not None and (self._executable_path.parent / "tessdata").is_dir():
+            self._tessdata_dir = self._executable_path.parent / "tessdata"
+        elif "TESSDATA_PREFIX" in os.environ and Path(os.environ["TESSDATA_PREFIX"]).is_dir():
+            self._tessdata_dir = Path(os.environ["TESSDATA_PREFIX"]).resolve()
+        else:
+            self._tessdata_dir = None
 
-        self._tessdata_dir: Path | None = Path(tessdata_dir).resolve() if tessdata_dir is not None else None
         self._language: str = language
         self._timeout_seconds: float = timeout_seconds
+
+        # Wire and configure pytesseract only on default discovery or explicit real executable
+        if executable_path is None and self._executable_path is not None and self._executable_path.is_file():
+            configure_pytesseract(self._executable_path, self._tessdata_dir)
+
+    @property
+    def executable_path(self) -> Path | None:
+        """Return the resolved path to the Tesseract executable, or None if unavailable."""
+        return self._executable_path
+
+    @property
+    def tessdata_dir(self) -> Path | None:
+        """Return the resolved path to the tessdata directory, or None if unavailable."""
+        return self._tessdata_dir
 
     def is_available(self) -> bool:
         """Return True only when fixed configured executable path exists on disk."""
@@ -1182,8 +1292,10 @@ __all__ = [
     "RapidOCREngine",
     "TesseractFallbackAdapter",
     "check_ocr_readiness",
+    "configure_pytesseract",
     "deskew_image",
     "extract_images_from_bytes",
     "filter_english_and_numbers",
+    "find_tesseract_executable",
     "preprocess_ocr_image",
 ]

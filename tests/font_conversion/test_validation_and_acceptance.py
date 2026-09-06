@@ -209,8 +209,8 @@ def test_batch_font_conversion_item_scoped_fault_tolerance_on_dosh_error(monkeyp
     assert res.data[1].metadata.get("conversion_status") == "failed"
     # Artifacts exist only for doc 1
     art_names = {p.intent.name for p in res.artifact_payloads}
-    assert "Converted_inp-1.txt" in art_names
-    assert "Converted_inp-2.txt" not in art_names
+    assert "1_converted.txt" in art_names
+    assert "2_converted.txt" not in art_names
     # Warning recorded
     assert any(w.code == "FONT_CONVERSION_EXECUTION_FAILED" for w in res.warnings)
 

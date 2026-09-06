@@ -14,6 +14,7 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     ConfidenceValue,
     ExecutionContext,
+    InputRef,
     PageData,
     ProvenanceRecord,
     Request,
@@ -22,6 +23,7 @@ from sarathi.sankalpa import (
     WarningRecord,
 )
 from sarathi.sankalpa.document import transform_canonical_document
+from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload, transform_docx_artifact
 from sarathi.shakti.font_conversion.converter import FontConverter
 from sarathi.shakti.font_conversion.detector import (
@@ -462,10 +464,21 @@ class FontConversionCapability:
                     )
                     all_provs.append(prov)
 
-                    txt_artifact_name = (
-                        "Converted_Document.txt"
-                        if len(docs) == 1
-                        else f"Converted_{doc.source_input_id or doc.document_id}.txt"
+                    # Deterministic source association (no positional fallback!)
+                    matching_inp = next((i for i in request.inputs if i.input_id == doc.source_input_id), None)
+                    naming_inp = matching_inp or InputRef(
+                        input_id=doc.source_input_id or doc.document_id,
+                        source_path=Path(f"{doc.document_id}.txt"),
+                        display_name=doc.document_id,
+                        size_bytes=0,
+                    )
+
+                    txt_artifact_name = format_artifact_filename(
+                        naming_inp,
+                        "converted",
+                        "txt",
+                        all_inputs=request.inputs,
+                        index=idx,
                     )
                     txt_content: str
                     if converted_doc.pages and len(converted_doc.pages) > 1:
@@ -484,15 +497,15 @@ class FontConversionCapability:
                         )
                     )
 
-                    docx_artifact_name = (
-                        "Converted_Document.docx"
-                        if len(docs) == 1
-                        else f"Converted_{doc.source_input_id or doc.document_id}.docx"
+                    docx_artifact_name = format_artifact_filename(
+                        naming_inp,
+                        "converted",
+                        "docx",
+                        all_inputs=request.inputs,
+                        index=idx,
                     )
 
-                    # Deterministic source association (no positional fallback!)
                     docx_payload: ArtifactPayload | None = None
-                    matching_inp = next((i for i in request.inputs if i.input_id == doc.source_input_id), None)
 
                     legacy_target_font = (
                         ("Kruti Dev 010" if target_mode == "to_krutidev" else "DevLys 010")

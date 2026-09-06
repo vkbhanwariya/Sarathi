@@ -46,9 +46,39 @@ def test_tesseract_discovery_finds_installed_executable() -> None:
     """Proves TesseractFallbackAdapter successfully discovers installed Tesseract in user programs."""
     adapter = TesseractFallbackAdapter()
     assert adapter.is_available() is True
-    assert adapter._executable_path is not None
-    assert adapter._executable_path.is_file()
-    assert "tesseract.exe" in adapter._executable_path.name.lower()
+    assert adapter.executable_path is not None
+    assert adapter.executable_path.is_file()
+    assert "tesseract.exe" in adapter.executable_path.name.lower()
+    if adapter.tessdata_dir is not None:
+        assert adapter.tessdata_dir.is_dir()
+
+
+def test_pytesseract_auto_configured_and_functional() -> None:
+    """Proves pytesseract is automatically configured with the resolved binary and operational."""
+    import pytesseract
+
+    from sarathi.shakti.ocr import configure_pytesseract
+
+    success = configure_pytesseract()
+    assert success is True
+    assert pytesseract.pytesseract.tesseract_cmd is not None
+    assert Path(pytesseract.pytesseract.tesseract_cmd).is_file()
+
+    version = pytesseract.get_tesseract_version()
+    assert str(version).startswith("5.")
+    langs = pytesseract.get_languages()
+    assert "eng" in langs
+
+
+def test_pytesseract_image_to_string_operational(tmp_path: Path) -> None:
+    """Proves pytesseract executes real image_to_string OCR on a rendered image."""
+    import pytesseract
+
+    img_path = tmp_path / "tess_test.png"
+    _create_sample_image("HELLO", img_path)
+
+    text = pytesseract.image_to_string(Image.open(img_path))
+    assert "HELLO" in text.upper()
 
 
 def test_multilingual_devanagari_engine_routing(tmp_path: Path) -> None:

@@ -69,8 +69,8 @@ def test_e2e_font_conversion_pipeline(tmp_path: Path) -> None:
     # Artifact confirmation
     assert len(result.artifacts) == 2
     art_names = {a.path.name for a in result.artifacts}
-    assert "Converted_Document.txt" in art_names
-    assert "Converted_Document.docx" in art_names
+    assert "krutidev_sample_converted.txt" in art_names
+    assert "krutidev_sample_converted.docx" in art_names
     for art in result.artifacts:
         assert art.path.exists()
         assert art.size_bytes > 0
@@ -153,7 +153,7 @@ def test_multi_page_text_artifact_preserves_page_identity() -> None:
     prior = Result(data=doc)
 
     res = cap.execute(req, context=ctx, prior_result=prior)
-    txt_payload = next(p for p in res.artifact_payloads if p.intent.name == "Converted_Document.txt")
+    txt_payload = next(p for p in res.artifact_payloads if p.intent.role == "converted_text")
     txt_content = txt_payload.content.decode("utf-8")
 
     assert "--- Page 1 ---" in txt_content
@@ -191,7 +191,7 @@ def test_single_page_text_artifact_clean_output() -> None:
     prior = Result(data=doc)
 
     res = cap.execute(req, context=ctx, prior_result=prior)
-    txt_payload = next(p for p in res.artifact_payloads if p.intent.name == "Converted_Document.txt")
+    txt_payload = next(p for p in res.artifact_payloads if p.intent.role == "converted_text")
     txt_content = txt_payload.content.decode("utf-8")
     assert "--- Page 1 ---" not in txt_content
     assert "मुझे अभी याद है।" in txt_content
