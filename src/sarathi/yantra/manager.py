@@ -236,23 +236,24 @@ class Yantra:
         next_task_idx = 0
         terminal_error: BaseException | None = None
 
-        def _cancel_and_drain() -> None:
+        def _cancel_and_drain(settle: bool = True) -> None:
             # Cancel all unstarted in-flight futures
-            for fut in in_flight:
-                fut.cancel()
-            # Await all futures that were already running so device work settles completely
             for fut in list(in_flight.keys()):
-                try:
-                    fut.result()
-                except BaseException:
-                    pass
+                fut.cancel()
+            if settle:
+                # Await all futures that were already running so device work settles completely
+                for fut in list(in_flight.keys()):
+                    try:
+                        fut.result()
+                    except BaseException:
+                        pass
             in_flight.clear()
 
         try:
             while next_task_idx < len(subtasks) or in_flight:
                 # 1. Check cancellation before submitting more work
                 if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-                    _cancel_and_drain()
+                    _cancel_and_drain(settle=False)
                     context.cancellation_token.check_cancelled()
 
                 # 2. Fill window up to bounded limit
@@ -286,11 +287,19 @@ class Yantra:
                             terminal_error = exc
 
                 if terminal_error is not None:
-                    _cancel_and_drain()
+                    _cancel_and_drain(settle=True)
                     raise terminal_error
 
-        except BaseException:
-            _cancel_and_drain()
+        except BaseException as exc:
+            is_cancel_exc = (
+                (isinstance(exc, DoshError) and exc.code == FailureCode.OPERATION_CANCELLED)
+                or (
+                    context is not None
+                    and context.cancellation_token is not None
+                    and context.cancellation_token.is_cancelled
+                )
+            )
+            _cancel_and_drain(settle=not is_cancel_exc)
             raise
 
         return ordered_results

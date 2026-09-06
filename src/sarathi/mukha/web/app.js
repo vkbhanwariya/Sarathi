@@ -460,11 +460,21 @@
     // Action: Dispatch Cancel Run to Backend
     async function dispatchCancelRun() {
         if (!state.activeRunId) return;
-        elements.btnCancelRun.disabled = true;
+        if (elements.btnCancelRun) {
+            elements.btnCancelRun.disabled = true;
+            elements.btnCancelRun.textContent = "Cancelling...";
+        }
+        if (elements.systemStatusText) {
+            elements.systemStatusText.textContent = "Cancelling...";
+        }
+        if (elements.systemStatusDot) {
+            elements.systemStatusDot.className = "status-dot warning";
+        }
         const res = await apiPost(`/api/runs/${state.activeRunId}/cancel`);
         if (res && res.error) {
             showError(res.error);
         }
+        await pollState();
     }
 
     // Action: Open Output Folder

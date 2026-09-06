@@ -16,6 +16,7 @@ from typing import Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
+    CancellationToken,
     ConfidenceValue,
     DeviceType,
     ExecutionBinding,
@@ -1086,8 +1087,12 @@ class RapidOCREngine:
         profile: ExecutionProfile = ExecutionProfile.INSTANT,
         custom_options: Mapping[str, Any] | None = None,
         execution_binding: ExecutionBinding | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> tuple[PageData, ProvenanceRecord, ConfidenceValue | None, tuple[WarningRecord, ...]]:
         """Run PP-OCR OpenVINO on a single image and return factual PageData, Provenance, and Warnings."""
+        if cancellation_token is not None and cancellation_token.is_cancelled:
+            cancellation_token.check_cancelled()
+
         import numpy as np
 
         target_device = _resolve_target_device(execution_binding)
@@ -1149,7 +1154,13 @@ class RapidOCREngine:
             else:
                 processed_img = image
 
+        if cancellation_token is not None and cancellation_token.is_cancelled:
+            cancellation_token.check_cancelled()
+
         output = engine(img_arr)
+
+        if cancellation_token is not None and cancellation_token.is_cancelled:
+            cancellation_token.check_cancelled()
 
         if target_lang in _DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
             filter_opt = False

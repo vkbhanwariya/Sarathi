@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
         "-c",
         type=str,
         default=None,
-        help="Path to Sutra settings TOML configuration file",
+        help="Path to Sutra settings TOML configuration file (defaults to config/settings.toml if present)",
     )
     parser.add_argument(
         "--input",
@@ -83,8 +83,13 @@ def main(argv: list[str] | None = None) -> int:
 
         # Interactive mode: launch MukhaWebServer connected to Agni bootstrap
         try:
+            effective_config = (
+                Path(args.config)
+                if args.config
+                else (Path("config/settings.toml") if Path("config/settings.toml").is_file() else None)
+            )
             with Agni(
-                settings=Path(args.config) if args.config else None,
+                settings=effective_config,
                 runtime_root=Path(args.runtime_root) if args.runtime_root else None,
                 output_root=Path(args.output_root) if args.output_root else None,
             ) as agni:
@@ -131,8 +136,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # 2. Composition root initialization to resolve effective configuration and roots
     try:
+        effective_config = (
+            Path(args.config)
+            if args.config
+            else (Path("config/settings.toml") if Path("config/settings.toml").is_file() else None)
+        )
         agni = Agni(
-            settings=Path(args.config) if args.config else None,
+            settings=effective_config,
             runtime_root=Path(args.runtime_root) if args.runtime_root else None,
             output_root=Path(args.output_root) if args.output_root else None,
         )

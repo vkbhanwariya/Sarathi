@@ -260,13 +260,19 @@ class OCRCapability:
                             input_id=inp_ref.input_id,
                         )
 
+                    ocr_kwargs: dict[str, Any] = {
+                        "profile": request.profile,
+                        "custom_options": request.custom_options,
+                        "execution_binding": context.execution_binding,
+                    }
+                    if context.cancellation_token is not None:
+                        ocr_kwargs["cancellation_token"] = context.cancellation_token
+
                     p_data, p_prov, _, p_warns = self._engine.ocr_page(
                         p_img,
                         p_idx,
                         inp_ref.input_id,
-                        profile=request.profile,
-                        custom_options=request.custom_options,
-                        execution_binding=context.execution_binding,
+                        **ocr_kwargs,
                     )
                     return p_data, p_prov, p_warns
 
@@ -301,13 +307,19 @@ class OCRCapability:
                             input_id=inp.input_id,
                         )
 
+                    seq_kwargs: dict[str, Any] = {
+                        "profile": request.profile,
+                        "custom_options": request.custom_options,
+                        "execution_binding": context.execution_binding,
+                    }
+                    if context.cancellation_token is not None:
+                        seq_kwargs["cancellation_token"] = context.cancellation_token
+
                     page_data, prov, _, page_warnings = self._engine.ocr_page(
                         img,
                         page_idx,
                         inp.input_id,
-                        profile=request.profile,
-                        custom_options=request.custom_options,
-                        execution_binding=context.execution_binding,
+                        **seq_kwargs,
                     )
                     doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
 
