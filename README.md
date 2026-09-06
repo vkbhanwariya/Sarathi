@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 06-09-2026, 07:50 PM IST (Asia/Kolkata)
+**README Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and
@@ -179,12 +179,14 @@ Sarathi strictly enforces architectural authority and deterministic runtime beha
   ```
 - **Pre-Commit Verification**: Run the canonical verification gate before submitting changes:
   ```powershell
+  uv run lint-imports
   uv run --group dev python -m compileall -q src tests
+  uv run --group dev pytest -q -m architecture
   uv run --group dev pytest -q <targeted-test-path>
   git diff --check
   ```
 - **Scoped Testing**: Test according to impact (local change $\rightarrow$ targeted test; subsystem change $\rightarrow$ subsystem tests; global milestone $\rightarrow$ full suite).
-- **Protected Baselines**: The Font Conversion architecture (`src/sarathi/shakti/font_conversion/`, `src/sarathi/shakti/docx_exporter.py`, and `tests/font_conversion/`) is a protected baseline. Any cross-cutting change must verify that `tests/font_conversion` remains 100% passing.
+- **Protected Baselines**: The Font Conversion architecture (`src/sarathi/shakti/font_conversion/`, `src/sarathi/shakti/docx_exporter/`, and `tests/font_conversion/`) is a protected baseline. Any cross-cutting change must verify that `tests/font_conversion` remains 100% passing.
 
 ------------------------------------------------------------------------
 
@@ -207,6 +209,22 @@ Sarathi operates as a local-first, privacy-preserving document intelligence runt
 ------------------------------------------------------------------------
 
 ## 10. Release History (Changelog)
+
+### [2.1.0] - 2026-09-06
+
+- **Pillar A: Declarative Architecture Manifest**: Introduced `Vedas/architecture.manifest.json` with strict JSON schema verification asserting explicit module roles, boundaries, and default-deny internal import policy.
+- **Pillar B: Automated Layering & Dependency Linter**: Integrated `import-linter` contracts enforcing foundational isolation (Sankalpa foundation, Shakti sibling independence, generic Nabhi decoupling, and Mukha presentation isolation).
+- **Pillar C: Subsystem Test Suites & Architectural Fitness**: Created dedicated `tests/architecture/` suite verifying AST boundary isolation, manifest topology adherence, platform service constraints, lazy module loading, explicit exports, and zero-monolith invariants.
+- **Pillar D: Zero-Monolith Modular Decomposition**: Decomposed all monolithic modules (>30 KB) across the system into focused single-responsibility subpackages:
+  - `shakti/native_extraction/readers/`: `pdf_reader.py`, `html_reader.py`, `spreadsheet_reader.py`, `docx.py`, `delimited.py`, `common.py`.
+  - `shakti/ocr/engine/`: `rapidocr.py`, `tesseract.py`, `preprocessing.py`, `rasterize.py`, `readiness.py`, `parser.py`, `factory.py`, `coordinator.py`.
+  - `nabhi/artifacts/`: `paths.py`, `atomic_io.py`, `manifest.py`, `boundary.py`, `promotion.py`, `finalization.py`, `workspace.py`.
+  - `shakti/docx_exporter/`: `helpers.py`, `styles.py`, `table_builder.py`, `section_builder.py`, `exporter.py`.
+  - `agni/`: `preflight.py`, `wiring.py`, `readiness.py`, `dispatcher.py`, `bootstrap.py`.
+  - `nabhi/pravaha/`: `common.py`, `lifecycle.py`, `pipeline.py`, `engine.py`.
+  - `mukha/web/`: `runner.py`, `state_builder.py`, `server.py`, `http_handler.py`, `native_picker.py`.
+- **Zero Monolithic Files**: 0 files exceeding 30 KB remain across `src/sarathi/`.
+- **100% Backward Compatibility**: Maintained seamless public façade re-exports across all package roots ensuring zero breakage for external callers and existing test suites.
 
 ### [2.0.0] - 2026-09-04
 

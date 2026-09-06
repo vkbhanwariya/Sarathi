@@ -94,7 +94,7 @@ Inspect `git diff --name-only` and group changed files by canonical owner:
   - If OCR hardware binding changed: `uv run --group dev --extra ocr pytest -q tests/ocr tests/yantra`
   - If Translation hardware binding changed: `uv run --group dev --extra translation pytest -q tests/translation tests/yantra`
   - Do not run Bank/Font tests unless execution contract changed.
-- **Pravaha / Manthan / Kernel (`src/sarathi/nabhi/pravaha.py`, `src/sarathi/nabhi/manthan.py`):**
+- **Pravaha / Manthan / Kernel (`src/sarathi/nabhi/pravaha/*`, `src/sarathi/nabhi/manthan.py`):**
   - Run: `uv run --group dev pytest -q tests/kernel`
   - Add the smallest capability integration test for affected path (e.g. OCR continuation → `tests/kernel` + OCR continuation/E2E; font_conversion resume_self → `tests/kernel` + font_conversion E2E).
   - Do not run unrelated document-domain suites.
@@ -105,7 +105,7 @@ Inspect `git diff --name-only` and group changed files by canonical owner:
   - Run: `uv run --group dev pytest -q tests/smriti`
   - For cache-key/serialization changes: add `uv run --group dev pytest -q tests/kernel -k "cache or smriti"`
   - Add capability suite only if cached canonical type is directly affected.
-- **Artifact Boundary (`src/sarathi/nabhi/artifacts.py`):**
+- **Artifact Boundary (`src/sarathi/nabhi/artifacts/*`):**
   - Run: `uv run --group dev pytest -q tests/kernel -k "artifact"` and dedicated artifact tests.
 - **OCR (`src/sarathi/shakti/ocr/*`):**
   - Progressive testing: `uv run --group dev --extra ocr pytest -q tests/ocr/<direct_test_file>.py` then `tests/ocr`.
@@ -122,7 +122,7 @@ Inspect `git diff --name-only` and group changed files by canonical owner:
 - **Native Extraction (`src/sarathi/shakti/native_extraction/*`):**
   - Run: `uv run --group dev pytest -q tests/native_extraction`.
   - Add OCR continuation tests only if empty content, parse failure, or OCR handoff changed.
-- **Shared DOCX Exporter (`src/sarathi/shakti/docx_exporter.py`):**
+- **Shared DOCX Exporter (`src/sarathi/shakti/docx_exporter/*`):**
   - Run: `uv run --group dev pytest -q tests/shakti/test_docx_exporter.py`.
   - Run direct consumers only (e.g. OCR/Translation/Font DOCX tests; do not run Bank tests).
 - **Sutra / Configuration (`src/sarathi/sutra/*`, `config/*`):**

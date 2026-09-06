@@ -1,6 +1,6 @@
 # Sarathi V2 — Mukha Screen Specification
 
-**Document Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
+**Document Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
 **Status:** Canonical detailed specification referenced by the main
 [Sarathi V2 README](../README.md).
 
@@ -671,7 +671,9 @@ mukha/
 ├── presenter.py      # canonical event → presentation state
 ├── state.py          # typed presentation projections
 └── web/
-    ├── server.py         # loopback-only ThreadingHTTPServer and run supervisor
+    ├── server.py         # loopback-only ThreadingHTTPServer coordinator
+    ├── runner.py         # background run thread and execution supervisor
+    ├── state_builder.py  # typed presentation projection and telemetry formatter
     ├── http_handler.py   # HTTP request routing, security, and artifact streaming
     ├── native_picker.py  # native OS file/folder selection bridge
     ├── app.html          # single-page web application markup

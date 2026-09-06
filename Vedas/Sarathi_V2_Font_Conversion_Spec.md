@@ -1,6 +1,6 @@
 # Sarathi V2 — Roopa — Font Conversion Specification
 
-**Specification Updated:** 04-09-2026 (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
 
 Scope: **Roopa — Convert / Font Conversion** canonical ownership, evidence-based detection, profile resolution, precompiled transducers, run-level style hierarchy, run stitching & DOM fidelity, single ConversionPlan truth, structural Devanagari validation, Pramana telemetry, and acceptance criteria.
 
@@ -19,7 +19,7 @@ No parallel engines, secondary subsystems, or private transducers (such as `plug
 - `validator.py`: Mapping coverage calculation (`calculate_mapping_coverage`) and structural Devanagari integrity validation (`validate_devanagari_structure`).
 - `font_size_normalizer.py`: Visual font-size compensation utility (`FontSizeAdjustment`, `normalize_font_size`) dynamically scaling legacy Devanagari typewriter fonts (DevLys / Kruti Dev) typed at 16 pt body text to modern 12 pt Unicode baseline (`Nirmala UI` / `Times New Roman`) at calibrated `scale = 0.75` (`12.0 / 16.0`), offset `0.0 pt`, while preserving heading and title hierarchy and symmetrically scaling reverse conversion (`scale = 4.0 / 3.0`).
 - `capability.py`: Canonical `FontConversionCapability` implementing `Capability` contract with item-scoped batch escalation and telemetry emission.
-- `src/sarathi/shakti/docx_exporter.py` (Shared Shakti Exporter): `DocxStyleResolver` (rPr -> rStyle -> pStyle -> basedOn -> docDefaults), safe run stitching (`_NON_DELETABLE_RUN_CHILDREN`), symbol conversion (`<w:sym>`), script-segmented legacy/Unicode styling, dynamic visual size scaling, and typography-preserving artifact generation.
+- `src/sarathi/shakti/docx_exporter/` (Shared Shakti Exporter Subpackage): `DocxStyleResolver` (rPr -> rStyle -> pStyle -> basedOn -> docDefaults), safe run stitching (`_NON_DELETABLE_RUN_CHILDREN`), symbol conversion (`<w:sym>`), script-segmented legacy/Unicode styling, dynamic visual size scaling, and typography-preserving artifact generation.
 
 ---
 

@@ -1,6 +1,6 @@
 # Sarathi V2 — Core Runtime Specification
 
-**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Agni, Sankalpa, Nabhi, Pravaha, and Yantra.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -41,7 +41,12 @@ SARATHI READY
 business logic.
 
 `Agni — Runtime Bootstrap` creates and wires services. It does not
-become another workflow engine.
+become another workflow engine. Internally, Agni is structured into focused single-responsibility modules:
+- `bootstrap.py`: Canonical composition root coordinating bootstrap sequence, presentation entry, and shutdown;
+- `preflight.py`: Filesystem root resolution, directory initialization, and access verification;
+- `wiring.py`: Topological service creation and dependency injection;
+- `readiness.py`: Capability audit dispatch and readiness verification;
+- `dispatcher.py`: Request intake validation and kernel execution hand-off.
 
 **Maruti — Runtime, Logging & Performance Telemetry** begins before the
 rest of system initialization so startup, configuration, warm-up, normal
@@ -221,6 +226,12 @@ Responsibilities:
     lifecycle
 -   cooperate with shared services
 
+The engine is organized into the `sarathi.nabhi.pravaha` subpackage:
+- `engine.py`: Canonical `Pravaha` coordinator managing plan execution, quarantine, and recovery;
+- `pipeline.py`: Plan execution loop, capability dependency sequencing, and step hand-off;
+- `lifecycle.py`: Retry lifecycle coordination, exception handling, and quarantine storage;
+- `common.py`: Pipeline execution state, step records, and shared internal contracts.
+
 ### Canonical Input, Workspace, and Output Lifecycle
 
 Sarathi supports arbitrary files, native multi-select, pasted paths, and folder
@@ -244,6 +255,15 @@ Output/<requirement>/Run-<timestamp>-<short-id>/
                     ├── partial/ only when explicitly preserved
                     └── run-manifest.json written last
 ```
+
+The artifact management system is implemented by the `sarathi.nabhi.artifacts` subpackage:
+- `boundary.py`: Canonical `ArtifactBoundary` coordinator resolving roots, staging paths, and commits;
+- `workspace.py`: Per-run staging directory lifecycle (`RunWorkspace`);
+- `promotion.py`: Safe atomic promotion of staged artifacts to confirmed output destinations;
+- `finalization.py`: Collision handling, relative path translation, and run-manifest emission;
+- `atomic_io.py`: SHA-256 computation and collision-safe atomic file writing;
+- `manifest.py`: Cryptographically validated run manifest serialization;
+- `paths.py`: Canonical path normalization, sanitization, and containment checks.
 
 Canonical rules:
 

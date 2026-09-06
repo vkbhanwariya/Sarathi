@@ -1,6 +1,6 @@
 # Sarathi V2 — Implementation Guide
 
-**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
+**Specification Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for implementation order, physical structure, wiring, testing, dependencies, and architecture status.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -163,7 +163,12 @@ Sarathi/
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── agni/
-│       │   └── bootstrap.py
+│       │   ├── __init__.py
+│       │   ├── bootstrap.py
+│       │   ├── dispatcher.py
+│       │   ├── preflight.py
+│       │   ├── readiness.py
+│       │   └── wiring.py
 │       ├── sankalpa/
 │       │   ├── plugin.py
 │       │   ├── capability.py
@@ -176,13 +181,27 @@ Sarathi/
 │       │   ├── cancellation.py
 │       │   └── execution_profile.py
 │       ├── nabhi/
+│       │   ├── __init__.py
 │       │   ├── dvara.py
 │       │   ├── kosh.py
 │       │   ├── prana.py
 │       │   ├── manthan.py
-│       │   ├── pravaha.py
 │       │   ├── quarantine.py
-│       │   └── artifacts.py
+│       │   ├── pravaha/
+│       │   │   ├── __init__.py
+│       │   │   ├── common.py
+│       │   │   ├── engine.py
+│       │   │   ├── lifecycle.py
+│       │   │   └── pipeline.py
+│       │   └── artifacts/
+│       │       ├── __init__.py
+│       │       ├── atomic_io.py
+│       │       ├── boundary.py
+│       │       ├── finalization.py
+│       │       ├── manifest.py
+│       │       ├── paths.py
+│       │       ├── promotion.py
+│       │       └── workspace.py
 │       ├── yantra/
 │       │   ├── manager.py
 │       │   ├── devices.py
@@ -202,7 +221,9 @@ Sarathi/
 │       │       ├── app.js
 │       │       ├── http_handler.py
 │       │       ├── native_picker.py
-│       │       └── server.py
+│       │       ├── runner.py
+│       │       ├── server.py
+│       │       └── state_builder.py
 │       ├── smriti/
 │       │   ├── key.py
 │       │   ├── memory.py
@@ -219,7 +240,13 @@ Sarathi/
 │       │   └── errors.py
 │       └── shakti/
 │           ├── artifact_naming.py
-│           ├── docx_exporter.py
+│           ├── docx_exporter/
+│           │   ├── __init__.py
+│           │   ├── exporter.py
+│           │   ├── helpers.py
+│           │   ├── section_builder.py
+│           │   ├── styles.py
+│           │   └── table_builder.py
 │           ├── providers.py
 │           ├── text/
 │           │   ├── legacy_detection.py
@@ -231,17 +258,36 @@ Sarathi/
 │           │   ├── plugin.py
 │           │   └── provider.py
 │           ├── native_extraction/
+│           │   ├── __init__.py
 │           │   ├── capability.py
 │           │   ├── detector.py
 │           │   ├── plugin.py
 │           │   ├── provider.py
-│           │   └── readers.py
+│           │   └── readers/
+│           │       ├── __init__.py
+│           │       ├── common.py
+│           │       ├── delimited.py
+│           │       ├── docx.py
+│           │       ├── html.py
+│           │       ├── pdf.py
+│           │       └── spreadsheet.py
 │           ├── ocr/
+│           │   ├── __init__.py
 │           │   ├── capability.py
-│           │   ├── engine.py
 │           │   ├── plugin.py
 │           │   ├── provider.py
-│           │   └── typography.py
+│           │   ├── typography.py
+│           │   └── engine/
+│           │       ├── __init__.py
+│           │       ├── common.py
+│           │       ├── coordinator.py
+│           │       ├── factory.py
+│           │       ├── openvino.py
+│           │       ├── parser.py
+│           │       ├── preprocessing.py
+│           │       ├── rasterize.py
+│           │       ├── readiness.py
+│           │       └── tesseract.py
 │           ├── font_conversion/
 │           │   ├── akshara.py
 │           │   ├── capability.py
@@ -299,6 +345,7 @@ Sarathi/
 │   └── Cache/                     # Smriti reusable-result state
 ├── tests/
 │   ├── agni/
+│   ├── architecture/
 │   ├── bank_statements/
 │   ├── cancellation/
 │   ├── capabilities/
@@ -319,6 +366,8 @@ Sarathi/
 │   ├── translation/
 │   └── yantra/
 └── Vedas/
+    ├── architecture.manifest.json
+    ├── architecture.manifest.schema.json
     ├── Sarathi_V2_Core_Runtime_Spec.md
     ├── Sarathi_V2_Shared_Services_Spec.md
     ├── Sarathi_V2_Mukha_Screen_Spec.md
@@ -353,7 +402,11 @@ This is the single authoritative map for Python-file ownership. Capability secti
 
 - `src/sarathi/__init__.py` — package metadata and minimal package-level exports only; no runtime initialization.
 - `src/sarathi/__main__.py` — minimal Python application entry point; hands startup to **Agni — Runtime Bootstrap**.
-- `src/sarathi/agni/bootstrap.py` — composes configuration, global services, core components, plugin discovery/registration, lifecycle startup, and presentation entry. It wires owners together; it does not absorb their logic.
+- `src/sarathi/agni/bootstrap.py` — composition root class (`Agni`); coordinates preflight checks, dependency wiring, readiness probes, and request dispatching without absorbing subsystem logic.
+- `src/sarathi/agni/preflight.py` — isolated filesystem root creation, access validation, and preflight sanity checks.
+- `src/sarathi/agni/wiring.py` — topological dependency wiring and subsystem instantiation.
+- `src/sarathi/agni/readiness.py` — system-wide capability readiness auditing and probe dispatch.
+- `src/sarathi/agni/dispatcher.py` — presentation-to-kernel request preparation, validation, and execution dispatch.
 
 ### Sankalpa — Canonical Contracts
 
@@ -374,11 +427,20 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `nabhi/kosh.py` — **Kosh — Plugin & Capability Registry**; stores registered plugin/capability declarations and lookup metadata.
 - `nabhi/prana.py` — **Prana — Lifecycle Manager**; coordinates startup/shutdown lifecycle of registered runtime components.
 - `nabhi/manthan.py` — **Manthan — Capability Resolver**; resolves the capabilities required by a request/document without implementing them.
-- `nabhi/pravaha.py` — **Pravaha — Dynamic Pipeline Engine**; executes the resolved plan and owns sequencing, failure-handling decisions, quarantine, and retry lifecycle.
 - `nabhi/quarantine.py` — focused Pravaha-owned quarantine persistence/state: hashed failure manifests, isolation state, retry status, release, and terminal quarantine. It is not a second manager/orchestrator.
-- `nabhi/artifacts.py` — the one global path-resolution, staging, collision,
-  atomic-commit, partial-artifact, and run-manifest boundary. It contains no
-  capability-specific serialization or presentation.
+- `nabhi/pravaha/` — **Pravaha — Dynamic Pipeline Engine** subpackage:
+  - `engine.py`: Canonical `Pravaha` coordinator managing plan execution, quarantine, and recovery.
+  - `pipeline.py`: Plan execution loop, capability dependency sequencing, and step hand-off.
+  - `lifecycle.py`: Retry lifecycle coordination, exception handling, and quarantine storage.
+  - `common.py`: Pipeline execution state, step records, and shared internal contracts.
+- `nabhi/artifacts/` — global path-resolution, staging, collision, atomic-commit, and run-manifest subpackage:
+  - `boundary.py`: Canonical `ArtifactBoundary` coordinator resolving roots, staging paths, and commits.
+  - `workspace.py`: Per-run staging directory lifecycle (`RunWorkspace`).
+  - `promotion.py`: Safe atomic promotion of staged artifacts to confirmed output destinations.
+  - `finalization.py`: Collision handling, relative path translation, and run-manifest emission.
+  - `atomic_io.py`: SHA-256 computation and collision-safe atomic file writing.
+  - `manifest.py`: Cryptographically validated run manifest serialization.
+  - `paths.py`: Canonical path normalization, sanitization, and containment checks.
 
 ### Yantra — Resource & Execution Manager
 
@@ -399,7 +461,9 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `mukha/presenter.py` — factual projection of canonical runtime/telemetry state into typed presentation views; no execution/lifecycle/security decisions.
 - `mukha/state.py` — typed immutable presentation/view-state contracts.
 - `mukha/intake.py` — input discovery, normalization, validation, and safe path intake.
-- `mukha/web/server.py` — loopback Local Web dashboard HTTP/SSE server orchestrating worker threads and dispatching typed intents to Agni.
+- `mukha/web/server.py` — loopback Local Web dashboard HTTP/SSE server coordinating runner threads and HTTP handlers.
+- `mukha/web/runner.py` — background run thread execution, progress observation, and cancellation supervision.
+- `mukha/web/state_builder.py` — presentation projection builder transforming Agni runtime state into web DTOs.
 - `mukha/web/http_handler.py` — HTTP/1.1 REST & SSE request handler serving UI assets and endpoints (`/api/state`, `/api/events`, `/api/run`, `/api/cancel`, `/api/action`, `/api/browse`, `/api/history`, `/api/review`, `/api/artifact`).
 - `mukha/web/native_picker.py` — controlled native Windows file and folder picker dialog integration.
 
@@ -444,7 +508,12 @@ Capability `plugin.py` and `provider.py` files are thin boundaries: declaration,
 
 - `shakti/providers.py` — canonical catalog of built-in `PluginProvider` instances (`BUILTIN_PLUGIN_PROVIDERS`).
 - `shakti/artifact_naming.py` — deterministic canonical naming generator for Shakti artifact outputs.
-- `shakti/docx_exporter.py` — shared multi-capability Word document exporter preserving style hierarchy, cell borders, dynamic visual scaling, and script segmentation.
+- `shakti/docx_exporter/` — shared multi-capability Word document exporter preserving style hierarchy, cell borders, dynamic visual scaling, and script segmentation:
+  - `exporter.py`: High-level `DocxExporter` facade and artifact transformation entry points (`build_docx_payload`, `transform_docx_artifact`).
+  - `styles.py`: XML-level style resolver (`DocxStyleResolver`) traversing `rPr` -> `rStyle` -> `pStyle` -> `basedOn` -> `docDefaults`.
+  - `table_builder.py`: Cell border styling, table grid management, and cell text population.
+  - `section_builder.py`: Document body population, paragraph styling, and run construction.
+  - `helpers.py`: XML namespace constants (`_W_NS`, `_A_NS`) and safe run stitching utilities.
 - `shakti/text/legacy_detection.py` — shared heuristics for legacy font and script detection.
 - `shakti/text/span_protection.py` — shared tokenization and placeholder restoration for protected spans.
 
@@ -462,7 +531,13 @@ Capability `plugin.py` and `provider.py` files are thin boundaries: declaration,
 - `shakti/native_extraction/provider.py` — `NativeExtractionProvider` constructing executable capability and auditing readiness.
 - `shakti/native_extraction/capability.py` — executable native extraction capability implementing `Capability`.
 - `shakti/native_extraction/detector.py` — byte-signature and content format detection.
-- `shakti/native_extraction/readers.py` — format-specific native readers for PDF, XLSX/XLSM, legacy XLS, HTML tables, SpreadsheetML, and CSV/text.
+- `shakti/native_extraction/readers/` — format-specific native reader subpackage:
+  - `pdf.py`: PDF native text, layout, and table extraction via PyMuPDF.
+  - `spreadsheet.py`: Excel (`.xlsx`, `.xlsm`, legacy `.xls`, `.xml`) extraction via Calamine/OpenPyXL/xlrd.
+  - `html.py`: HTML table and structured document parsing via BeautifulSoup.
+  - `docx.py`: Native Word document paragraph, table, and run extraction.
+  - `delimited.py`: Robust CSV, TSV, and plain text extraction with encoding detection.
+  - `common.py`: Shared reader abstractions, table conversion helpers, and cell normalization.
 - `shakti/native_extraction/__init__.py` — public package exports.
 
 #### OCR
@@ -470,8 +545,18 @@ Capability `plugin.py` and `provider.py` files are thin boundaries: declaration,
 - `shakti/ocr/plugin.py` — plugin registration and capability declaration metadata.
 - `shakti/ocr/provider.py` — `OCRProvider` constructing executable capability and auditing dependency readiness.
 - `shakti/ocr/capability.py` — executable OCR capability and input/prior-result integration.
-- `shakti/ocr/engine.py` — RapidOCR + OpenVINO primary engine adapter, Tesseract fallback, and page/image extraction.
 - `shakti/ocr/typography.py` — line-height font size inference and Devanagari/English font standardization.
+- `shakti/ocr/engine/` — modular OCR execution engine subpackage:
+  - `coordinator.py`: High-level engine coordinator managing inference execution, device fallback, and memory release.
+  - `rapidocr.py`: RapidOCR + OpenVINO primary engine adapter.
+  - `tesseract.py`: Tesseract fallback adapter and executable locator.
+  - `factory.py`: Engine instance lifecycle, backend instantiation, and device parameter binding.
+  - `parser.py`: OCR bounding box and text line parsing and confidence aggregation.
+  - `preprocessing.py`: Image contrast evaluation, thresholding, and binarization.
+  - `rasterize.py`: PDF-to-image rasterization and embedded image extraction via PyMuPDF.
+  - `readiness.py`: OpenVINO backend verification and Tesseract executable detection probes.
+  - `openvino.py`: OpenVINO device resolution and execution provider validation.
+  - `common.py`: Shared OCR dataclasses, constants, and stage identifiers.
 - `shakti/ocr/__init__.py` — public package exports.
 
 #### Roopa — Convert / Font Conversion
@@ -685,6 +770,19 @@ Before a new dependency is locked, verify target Python/Windows compatibility, b
 ## Architecture Status
 
 **Status:** The canonical architecture and behavior baseline is locked by this specification. Detailed decisions live in their owning sections; this section intentionally does not restate them.
+
+**V2 Modular Subpackage Architecture (Completed 06-09-2026):**
+- Zero files exceeding 30 KB remain across the entire production codebase (`src/sarathi`).
+- All 7 former monoliths decomposed into cohesive single-responsibility subpackages:
+  - `sarathi.shakti.native_extraction.readers`
+  - `sarathi.shakti.ocr.engine`
+  - `sarathi.nabhi.artifacts`
+  - `sarathi.shakti.docx_exporter`
+  - `sarathi.agni`
+  - `sarathi.nabhi.pravaha`
+  - `sarathi.mukha.web`
+- Declarative architectural governance enforced via `Vedas/architecture.manifest.json`, `import-linter` contracts, and AST-level fitness tests (`tests/architecture/`).
+- 100% backward compatibility maintained via root package re-exports (`__all__`).
 
 **Anubhava — Validated Experience Data** is locked as a capability-owned TOML convention. It has no Python module, runtime service, plugin, or database. A capability creates its file only after validated/approved reusable knowledge exists; autonomous learning and automatic promotion are not active paths.
 
