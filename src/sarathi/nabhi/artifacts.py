@@ -427,18 +427,33 @@ class RunWorkspace:
         hasher = hashlib.sha256()
         total_bytes = 0
 
+        scope = (
+            self._darpana.time_scope(
+                context=self._context,
+                phase_name="artifact_commit",
+                component="nabhi.artifacts",
+                attributes={
+                    "role": intent.role,
+                    "media_type": intent.media_type,
+                },
+            )
+            if self._darpana is not None and self._context is not None
+            else nullcontext()
+        )
+
         try:
-            with staged_path.open("rb") as src, temp_file.open("wb") as dst:
-                while True:
-                    chunk = src.read(_CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    dst.write(chunk)
-                    hasher.update(chunk)
-                    total_bytes += len(chunk)
-                dst.flush()
-                os.fsync(dst.fileno())
-            temp_file.replace(dest_path)
+            with scope:
+                with staged_path.open("rb") as src, temp_file.open("wb") as dst:
+                    while True:
+                        chunk = src.read(_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                        hasher.update(chunk)
+                        total_bytes += len(chunk)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                temp_file.replace(dest_path)
         except OSError as err:
             if temp_file.exists():
                 try:

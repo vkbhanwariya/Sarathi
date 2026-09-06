@@ -171,6 +171,11 @@ class Pravaha:
                 attributes={
                     "plugin_id": capability.declaration.plugin_id,
                     "profile": context.profile.value,
+                    **(
+                        {"device_type": context.execution_binding.device_type.value}
+                        if context.execution_binding is not None
+                        else {}
+                    ),
                 },
             )
             self._darpana.record_pramana(pramana_rec)

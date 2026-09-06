@@ -876,33 +876,35 @@ class MukhaWebServer:
                     )
                     maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
+                    summary = MukhaPresenter.build_summary_view(
+                        run_id=run_id,
+                        status=status,
+                        wall_time_ns=wall_time_ns,
+                        request=request,
+                        result=None,
+                        failures=failures,
+                        maruti_records=maruti_recs,
+                        pramana_records=pramana_recs,
+                    )
                     with self._lock:
                         self._terminal_status = status
-                        self._terminal_summary = RunSummaryView(
-                            run_id=run_id,
-                            status=status,
-                            wall_time_ns=wall_time_ns,
-                            total_inputs=len(request.inputs),
-                            failures=failures,
-                            stage_timings=(),
-                            device_summaries=(),
-                            artifacts=(),
-                        )
+                        self._terminal_summary = summary
                 except Exception as err:
                     maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
+                    summary = MukhaPresenter.build_summary_view(
+                        run_id=run_id,
+                        status="FAILED",
+                        wall_time_ns=wall_time_ns,
+                        request=request,
+                        result=None,
+                        failures=("EXECUTION_FAILED: An internal error occurred during processing.",),
+                        maruti_records=maruti_recs,
+                        pramana_records=pramana_recs,
+                    )
                     with self._lock:
                         self._terminal_status = "FAILED"
-                        self._terminal_summary = RunSummaryView(
-                            run_id=run_id,
-                            status="FAILED",
-                            wall_time_ns=wall_time_ns,
-                            total_inputs=len(request.inputs),
-                            failures=("EXECUTION_FAILED: An internal error occurred during processing.",),
-                            stage_timings=(),
-                            device_summaries=(),
-                            artifacts=(),
-                        )
+                        self._terminal_summary = summary
 
             self._active_thread = threading.Thread(
                 target=_worker,

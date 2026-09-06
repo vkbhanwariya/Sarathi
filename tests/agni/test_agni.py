@@ -548,3 +548,9 @@ class TestAgniBootstrap:
             assert result is not None
             assert "output_dir" in result.metadata
             assert Path(result.metadata["output_dir"]).is_absolute()
+            out_p = Path(result.metadata["output_dir"])
+            if out_p.exists():
+                import shutil
+                shutil.rmtree(out_p, ignore_errors=True)
+            if out_p.parent.exists() and not any(out_p.parent.iterdir()):
+                out_p.parent.rmdir()

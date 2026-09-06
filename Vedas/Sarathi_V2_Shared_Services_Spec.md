@@ -66,10 +66,11 @@ the winning result, approve a correction, or alter capability behavior.
 Runtime and capability facts
           ↓
 One typed Darpana record path
-          ├── bounded live state for approved consumers
-          ├── JSONL sequential export
-          └── SQLite searchable history when configured
+          ├── bounded in-memory live buffer for active run consumers (Mukha)
+          └── TerminalRunSummary history persistence (JSONL or SQLite) under Runtime/Telemetry
 ```
+
+`LiveTelemetryBuffer` stores in-memory ring buffers of `MarutiRecord` and `PramanaRecord` for live presentation (Mukha) and active run inspection. `TerminalRunHistoryStore` persists sanitized, schema-validated `TerminalRunSummary` records across runs upon run finalization (under `Runtime/Telemetry/history.jsonl` or SQLite `history.db`).
 
 **Mukha --- Console & Presentation** consumes only Darpana's public typed
 state/events. Exporter failure normally degrades observability rather than

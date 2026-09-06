@@ -145,6 +145,12 @@ class Agni:
                         code=FailureCode.INVALID_CONFIGURATION,
                         message="telemetry.history_path cannot be an absolute path; it must be relative to Runtime/Telemetry.",
                     )
+                # Strip leading Runtime/Telemetry or Telemetry prefix if specified relative to runtime_root
+                if len(user_hist.parts) >= 2 and user_hist.parts[0] == "Runtime" and user_hist.parts[1] == "Telemetry":
+                    user_hist = Path(*user_hist.parts[2:])
+                elif len(user_hist.parts) >= 1 and user_hist.parts[0] == "Telemetry":
+                    user_hist = Path(*user_hist.parts[1:])
+
                 resolved_hist = (hist_dir / user_hist).resolve()
                 if not (resolved_hist == hist_dir or hist_dir in resolved_hist.parents):
                     raise DoshError(
@@ -845,7 +851,9 @@ class Agni:
                             component="agni",
                             timestamp_utc=datetime.now(timezone.utc).isoformat(),
                             duration_ns=0,
-                            outcome="failure",
+                            outcome="cancelled",
+                            error_type="DoshError",
+                            failure_code=FailureCode.OPERATION_CANCELLED,
                             attributes={"cancelled": True},
                         )
                     )
@@ -881,16 +889,19 @@ class Agni:
                     except Exception:
                         pass
 
-                    self._record_terminal_summary(
-                        exec_ctx=exec_ctx,
-                        request=request,
-                        status=term_status,
-                        start_time_utc=t_start_utc,
-                        duration_ms=duration_ms,
-                        artifact_count=len(getattr(workspace, "committed_artifacts", ())),
-                        warning_count=0,
-                        output_dir=out_dir_fail,
-                    )
+                    try:
+                        self._record_terminal_summary(
+                            exec_ctx=exec_ctx,
+                            request=request,
+                            status=term_status,
+                            start_time_utc=t_start_utc,
+                            duration_ms=duration_ms,
+                            artifact_count=len(getattr(workspace, "committed_artifacts", ())),
+                            warning_count=0,
+                            output_dir=out_dir_fail,
+                        )
+                    except Exception:
+                        pass
                 raise
 
     def _record_terminal_summary(
@@ -930,19 +941,22 @@ class Agni:
             )
             self._darpana.record_run_summary(summary)
         except Exception:
-            from sarathi.darpana import MarutiRecord
+            try:
+                from sarathi.darpana import MarutiRecord
 
-            self._darpana.record_maruti(
-                MarutiRecord(
-                    run_id=exec_ctx.run_id,
-                    request_id=exec_ctx.request_id,
-                    trace_id=exec_ctx.trace_id,
-                    span_id=exec_ctx.span_id,
-                    phase_name="telemetry.history_persistence_failure",
-                    component="agni",
-                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
-                    duration_ns=0,
-                    outcome="failure",
-                    attributes={"error": "history_recording_failed"},
+                self._darpana.record_maruti(
+                    MarutiRecord(
+                        run_id=exec_ctx.run_id,
+                        request_id=exec_ctx.request_id,
+                        trace_id=exec_ctx.trace_id,
+                        span_id=exec_ctx.span_id,
+                        phase_name="telemetry.history_persistence_failure",
+                        component="agni",
+                        timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                        duration_ns=0,
+                        outcome="failure",
+                        attributes={"error": "history_recording_failed"},
+                    )
                 )
-            )
+            except Exception:
+                pass

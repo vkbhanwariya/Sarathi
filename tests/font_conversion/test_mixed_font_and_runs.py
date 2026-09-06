@@ -111,7 +111,7 @@ def test_mixed_font_docx_conversion_and_typography_preservation() -> None:
     rpr2 = r2.find(f"{{{_W_NS}}}rPr")
     assert rpr2.find(f"{{{_W_NS}}}i") is not None
     sz2 = rpr2.find(f"{{{_W_NS}}}sz")
-    assert sz2 is not None and sz2.attrib.get(f"{{{_W_NS}}}val") == "36"  # Preserved original 18pt!
+    assert sz2 is not None and sz2.attrib.get(f"{{{_W_NS}}}val") == "27"  # Dynamically scaled (36 * 0.75 = 27 half-pt / 13.5 pt)
     color2 = rpr2.find(f"{{{_W_NS}}}color")
     assert color2 is not None and color2.attrib.get(f"{{{_W_NS}}}val") == "0000FF"
     rf2 = rpr2.find(f"{{{_W_NS}}}rFonts")

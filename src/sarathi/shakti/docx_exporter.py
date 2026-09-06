@@ -1,8 +1,8 @@
 """Canonical OpenXML DOCX Document Exporter and Transformer for Sarathi Shakti.
 
 Provides standardized bilingual document export and in-place DOCX transformation:
-- Hindi (Devanagari): Nirmala UI, 14 pt (w:sz=28)
-- English / Latin: Arial, 12 pt (w:sz=24)
+- Hindi (Devanagari): Nirmala UI, 12 pt (w:sz=24)
+- English / Latin: Times New Roman, 12 pt (w:sz=24)
 - Preserves bold, italic, shadow, alignment, tables, and headers.
 """
 
@@ -36,11 +36,10 @@ ET.register_namespace("r", _R_NS)
 # Devanagari Unicode Blocks: standard Devanagari, Vedic Extensions, Devanagari Extended
 _DEVANAGARI_CHAR_RE = re.compile(r"[\u0900-\u097F\u1CD0-\u1CFF\uA8E0-\uA8FF]")
 
-# Typography constants per user specification
+# Typography constants per canonical Sarathi policy
 _HINDI_FONT = "Nirmala UI"
-_HINDI_HALF_PT = 28  # 14 pt
-_ENGLISH_FONT = "Arial"
-_ENGLISH_HALF_PT = 24  # 12 pt
+_ENGLISH_FONT = "Times New Roman"
+_DEFAULT_HALF_PT = 24  # 12 pt baseline
 
 _DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -86,19 +85,17 @@ def segment_text_by_script(text: str) -> list[tuple[str, bool]]:
 
 def _format_run_xml(
     text: str,
-    is_devanagari: bool,
+    font: str,
+    size_half_pt: int,
     bold: bool = False,
     italic: bool = False,
     shadow: bool = False,
 ) -> str:
     """Format an OpenXML <w:r> run string."""
-    font = _HINDI_FONT if is_devanagari else _ENGLISH_FONT
-    size = _HINDI_HALF_PT if is_devanagari else _ENGLISH_HALF_PT
-
     props: list[str] = [
         f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:cs="{font}"/>',
-        f'<w:sz w:val="{size}"/>',
-        f'<w:szCs w:val="{size}"/>',
+        f'<w:sz w:val="{size_half_pt}"/>',
+        f'<w:szCs w:val="{size_half_pt}"/>',
     ]
     if bold:
         props.append("<w:b/><w:bCs/>")
@@ -120,24 +117,64 @@ def _format_paragraph_xml(
     italic: bool = False,
     shadow: bool = False,
     alignment: str | None = None,
+    default_font: str | None = None,
+    default_size_pt: float | None = None,
+    legacy_target_font: str | None = None,
 ) -> str:
-    """Format an OpenXML <w:p> paragraph with script-segmented runs."""
+    """Format an OpenXML <w:p> paragraph adhering to canonical Sarathi typography policy."""
     p_pr = ""
     if alignment in ("center", "right", "both", "left"):
-        p_pr = f"<w:pPr><w:jc w:val=\"{alignment}\"/></w:pPr>"
+        p_pr = f'<w:pPr><w:jc w:val="{alignment}"/></w:pPr>'
 
     if not text:
         return f"<w:p>{p_pr}</w:p>"
 
-    segments = segment_text_by_script(text)
-    runs = [
-        _format_run_xml(chunk, is_dev, bold=bold, italic=italic, shadow=shadow)
-        for chunk, is_dev in segments
-    ]
+    size_half_pt = int(default_size_pt * 2) if default_size_pt and default_size_pt > 0 else _DEFAULT_HALF_PT
+
+    if legacy_target_font:
+        # Unicode -> Legacy mixed output: separate Devanagari legacy runs from Latin/number TNR runs
+        segments = segment_text_by_script(text)
+        runs = [
+            _format_run_xml(
+                chunk,
+                font=legacy_target_font if is_dev else _ENGLISH_FONT,
+                size_half_pt=size_half_pt,
+                bold=bold,
+                italic=italic,
+                shadow=shadow,
+            )
+            for chunk, is_dev in segments
+        ]
+    else:
+        # General Unicode DOCX policy:
+        # English-only -> Times New Roman
+        # Hindi-only or Hindi-English mixed -> Nirmala UI (unified run per §18)
+        if default_font:
+            font = default_font
+        else:
+            has_devanagari = bool(_DEVANAGARI_CHAR_RE.search(text))
+            font = _HINDI_FONT if has_devanagari else _ENGLISH_FONT
+
+        runs = [
+            _format_run_xml(
+                text,
+                font=font,
+                size_half_pt=size_half_pt,
+                bold=bold,
+                italic=italic,
+                shadow=shadow,
+            )
+        ]
+
     return f'<w:p>{p_pr}{"".join(runs)}</w:p>'
 
 
-def _format_table_xml(table: TableData) -> str:
+def _format_table_xml(
+    table: TableData,
+    default_font: str | None = None,
+    default_size_pt: float | None = None,
+    legacy_target_font: str | None = None,
+) -> str:
     """Format a TableData model into an OpenXML <w:tbl> table."""
     parts = [
         '<w:tbl>',
@@ -160,7 +197,14 @@ def _format_table_xml(table: TableData) -> str:
         parts.append('<w:tr><w:trPr><w:tblHeader/></w:trPr>')
         for h in table.headers:
             h_text = str(h)
-            p_xml = _format_paragraph_xml(h_text, bold=True, alignment="center")
+            p_xml = _format_paragraph_xml(
+                h_text,
+                bold=True,
+                alignment="center",
+                default_font=default_font,
+                default_size_pt=default_size_pt,
+                legacy_target_font=legacy_target_font,
+            )
             parts.append(
                 f'<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/></w:tcPr>{p_xml}</w:tc>'
             )
@@ -171,7 +215,13 @@ def _format_table_xml(table: TableData) -> str:
         parts.append('<w:tr>')
         for cell in row:
             c_text = str(cell)
-            p_xml = _format_paragraph_xml(c_text, bold=False)
+            p_xml = _format_paragraph_xml(
+                c_text,
+                bold=False,
+                default_font=default_font,
+                default_size_pt=default_size_pt,
+                legacy_target_font=legacy_target_font,
+            )
             parts.append(f'<w:tc>{p_xml}</w:tc>')
         parts.append('</w:tr>')
 
@@ -184,12 +234,15 @@ def build_docx_payload(
     filename: str,
     role: str = "document_docx",
     header_text: str | None = None,
+    default_font: str | None = None,
+    default_size_pt: float | None = None,
+    legacy_target_font: str | None = None,
 ) -> ArtifactPayload:
     """Generate a clean, standard OpenXML DOCX ArtifactPayload from a CanonicalDocument.
 
     Applies the standardized bilingual typography:
-    - Hindi: Nirmala UI, 14 pt
-    - English: Arial, 12 pt
+    - Hindi: Nirmala UI, 12 pt baseline
+    - English: Times New Roman, 12 pt baseline
     - Tables and headers preserved.
     """
     body_parts: list[str] = []
@@ -202,7 +255,14 @@ def build_docx_payload(
     )
     if eff_header.strip():
         body_parts.append(
-            _format_paragraph_xml(eff_header.strip(), bold=True, alignment="center")
+            _format_paragraph_xml(
+                eff_header.strip(),
+                bold=True,
+                alignment="center",
+                default_font=default_font,
+                default_size_pt=default_size_pt,
+                legacy_target_font=legacy_target_font,
+            )
         )
 
     rendered_table_ids: set[int] = set()
@@ -212,27 +272,97 @@ def build_docx_payload(
         for p in doc.pages:
             if len(doc.pages) > 1:
                 body_parts.append(
-                    _format_paragraph_xml(f"--- Page {p.page_number} ---", bold=True, alignment="center")
+                    _format_paragraph_xml(
+                        f"--- Page {p.page_number} ---",
+                        bold=True,
+                        alignment="center",
+                        default_font=default_font,
+                        default_size_pt=default_size_pt,
+                        legacy_target_font=legacy_target_font,
+                    )
                 )
             if p.text:
                 for line in p.text.splitlines():
                     trimmed = line.strip()
                     if trimmed:
-                        body_parts.append(_format_paragraph_xml(trimmed))
+                        line_bold = False
+                        line_size = default_size_pt
+                        clean_line = trimmed
+                        if trimmed.startswith("# "):
+                            clean_line = trimmed[2:].strip()
+                            line_bold = True
+                            line_size = 16.0
+                        elif trimmed.startswith("## "):
+                            clean_line = trimmed[3:].strip()
+                            line_bold = True
+                            line_size = 14.0
+                        elif trimmed.startswith("### "):
+                            clean_line = trimmed[4:].strip()
+                            line_bold = True
+                            line_size = 13.0
+
+                        body_parts.append(
+                            _format_paragraph_xml(
+                                clean_line,
+                                bold=line_bold,
+                                default_font=default_font,
+                                default_size_pt=line_size,
+                                legacy_target_font=legacy_target_font,
+                            )
+                        )
                     else:
                         body_parts.append("<w:p/>")
             if p.tables:
                 for tbl in p.tables:
                     rendered_table_ids.add(id(tbl))
                     if tbl.name:
-                        body_parts.append(_format_paragraph_xml(tbl.name, bold=True))
-                    body_parts.append(_format_table_xml(tbl))
+                        body_parts.append(
+                            _format_paragraph_xml(
+                                tbl.name,
+                                bold=True,
+                                default_font=default_font,
+                                default_size_pt=default_size_pt,
+                                legacy_target_font=legacy_target_font,
+                            )
+                        )
+                    body_parts.append(
+                        _format_table_xml(
+                            tbl,
+                            default_font=default_font,
+                            default_size_pt=default_size_pt,
+                            legacy_target_font=legacy_target_font,
+                        )
+                    )
                     body_parts.append("<w:p/>")
     elif doc.text:
         for line in doc.text.splitlines():
             trimmed = line.strip()
             if trimmed:
-                body_parts.append(_format_paragraph_xml(trimmed))
+                line_bold = False
+                line_size = default_size_pt
+                clean_line = trimmed
+                if trimmed.startswith("# "):
+                    clean_line = trimmed[2:].strip()
+                    line_bold = True
+                    line_size = 16.0
+                elif trimmed.startswith("## "):
+                    clean_line = trimmed[3:].strip()
+                    line_bold = True
+                    line_size = 14.0
+                elif trimmed.startswith("### "):
+                    clean_line = trimmed[4:].strip()
+                    line_bold = True
+                    line_size = 13.0
+
+                body_parts.append(
+                    _format_paragraph_xml(
+                        clean_line,
+                        bold=line_bold,
+                        default_font=default_font,
+                        default_size_pt=line_size,
+                        legacy_target_font=legacy_target_font,
+                    )
+                )
             else:
                 body_parts.append("<w:p/>")
 
@@ -247,8 +377,23 @@ def build_docx_payload(
                 ):
                     continue
                 if tbl.name:
-                    body_parts.append(_format_paragraph_xml(tbl.name, bold=True))
-                body_parts.append(_format_table_xml(tbl))
+                    body_parts.append(
+                        _format_paragraph_xml(
+                            tbl.name,
+                            bold=True,
+                            default_font=default_font,
+                            default_size_pt=default_size_pt,
+                            legacy_target_font=legacy_target_font,
+                        )
+                    )
+                body_parts.append(
+                    _format_table_xml(
+                        tbl,
+                        default_font=default_font,
+                        default_size_pt=default_size_pt,
+                        legacy_target_font=legacy_target_font,
+                    )
+                )
                 body_parts.append("<w:p/>")
 
     # Section properties
@@ -297,7 +442,7 @@ def build_docx_payload(
         '  <w:docDefaults>\n'
         '    <w:rPrDefault>\n'
         f'      <w:rPr><w:rFonts w:ascii="{_ENGLISH_FONT}" w:hAnsi="{_ENGLISH_FONT}" w:cs="{_HINDI_FONT}"/>'
-        f'<w:sz w:val="{_ENGLISH_HALF_PT}"/><w:szCs w:val="{_HINDI_HALF_PT}"/></w:rPr>\n'
+        f'<w:sz w:val="{_DEFAULT_HALF_PT}"/><w:szCs w:val="{_DEFAULT_HALF_PT}"/></w:rPr>\n'
         '    </w:rPrDefault>\n'
         '  </w:docDefaults>\n'
         '</w:styles>'
@@ -322,6 +467,7 @@ class DocxStyleResolver:
 
     def __init__(self, styles_xml: bytes | None = None) -> None:
         self.doc_default_fonts: dict[str, str] = {}
+        self.doc_default_size_half_pt: float | None = None
         self.styles: dict[str, dict[str, Any]] = {}
         if styles_xml:
             self._parse_styles(styles_xml)
@@ -341,6 +487,12 @@ class DocxStyleResolver:
                     val = rf.attrib.get(f"{{{_W_NS}}}{attr}")
                     if val:
                         self.doc_default_fonts[attr] = val
+            sz = rpr_def.find(f"{{{_W_NS}}}sz")
+            if sz is not None and f"{{{_W_NS}}}val" in sz.attrib:
+                try:
+                    self.doc_default_size_half_pt = float(sz.attrib[f"{{{_W_NS}}}val"])
+                except ValueError:
+                    pass
 
         # 2. styles
         for s in root.findall(f"{{{_W_NS}}}style"):
@@ -354,6 +506,7 @@ class DocxStyleResolver:
                 based_on = bo_elem.attrib.get(f"{{{_W_NS}}}val")
 
             fonts: dict[str, str] = {}
+            size_half_pt: float | None = None
             rpr = s.find(f"{{{_W_NS}}}rPr")
             if rpr is not None:
                 rf = rpr.find(f"{{{_W_NS}}}rFonts")
@@ -362,12 +515,66 @@ class DocxStyleResolver:
                         val = rf.attrib.get(f"{{{_W_NS}}}{attr}")
                         if val:
                             fonts[attr] = val
+                sz = rpr.find(f"{{{_W_NS}}}sz")
+                if sz is not None and f"{{{_W_NS}}}val" in sz.attrib:
+                    try:
+                        size_half_pt = float(sz.attrib[f"{{{_W_NS}}}val"])
+                    except ValueError:
+                        pass
 
             self.styles[style_id] = {
                 "type": style_type,
                 "based_on": based_on,
                 "fonts": fonts,
+                "size_half_pt": size_half_pt,
             }
+
+    def _find_size_in_style_hierarchy(self, style_id: str | None) -> float | None:
+        visited: set[str] = set()
+        curr = style_id
+        while curr and curr not in visited:
+            visited.add(curr)
+            s_info = self.styles.get(curr)
+            if not s_info:
+                break
+            sz_val = s_info.get("size_half_pt")
+            if sz_val is not None:
+                return sz_val
+            curr = s_info.get("based_on")
+        return None
+
+    def resolve_run_size_half_pt(
+        self,
+        r_or_rpr: ET.Element,
+        p: ET.Element | None = None,
+    ) -> float | None:
+        """Resolve effective font size in half-points following the OpenXML hierarchy."""
+        rpr = r_or_rpr if r_or_rpr.tag.endswith("rPr") else r_or_rpr.find(f"{{{_W_NS}}}rPr")
+        if rpr is not None:
+            sz = rpr.find(f"{{{_W_NS}}}sz")
+            if sz is not None and f"{{{_W_NS}}}val" in sz.attrib:
+                try:
+                    return float(sz.attrib[f"{{{_W_NS}}}val"])
+                except ValueError:
+                    pass
+            rstyle = rpr.find(f"{{{_W_NS}}}rStyle")
+            if rstyle is not None:
+                sid = rstyle.attrib.get(f"{{{_W_NS}}}val")
+                val = self._find_size_in_style_hierarchy(sid)
+                if val is not None:
+                    return val
+
+        if p is not None:
+            ppr = p.find(f"{{{_W_NS}}}pPr")
+            if ppr is not None:
+                pstyle = ppr.find(f"{{{_W_NS}}}pStyle")
+                if pstyle is not None:
+                    sid = pstyle.attrib.get(f"{{{_W_NS}}}val")
+                    val = self._find_size_in_style_hierarchy(sid)
+                    if val is not None:
+                        return val
+
+        return self.doc_default_size_half_pt
 
     def resolve_run_font_channels(
         self,
@@ -518,6 +725,7 @@ def transform_docx_artifact(
     warnings: list[WarningRecord] | None = None,
     preserve_modern_fonts: bool | None = None,
     preserve_typography: bool = False,
+    legacy_target_font: str | None = None,
 ) -> ArtifactPayload:
     """Transform an existing DOCX file in-place, preserving OpenXML layout and document structure."""
     try:
@@ -551,6 +759,7 @@ def transform_docx_artifact(
                             preserve_modern_fonts=should_preserve_modern,
                             preserve_typography=preserve_typography,
                             style_resolver=style_resolver,
+                            legacy_target_font=legacy_target_font,
                         )
                         updated_entry = _serialize_xml_preserving_namespaces(tree, raw_entry)
                         out_zf.writestr(item, updated_entry)
@@ -648,6 +857,7 @@ def _transform_xml_tree(
     preserve_modern_fonts: bool = False,
     preserve_typography: bool = False,
     style_resolver: DocxStyleResolver | None = None,
+    legacy_target_font: str | None = None,
 ) -> None:
     """Transform paragraphs and runs within an ElementTree OpenXML element."""
     from sarathi.shakti.font_conversion.detector import load_font_profiles, resolve_profile_from_font_name
@@ -745,7 +955,21 @@ def _transform_xml_tree(
                     else:
                         converted_text = converter_fn(full_run_text)
 
-                segments = segment_text_by_script(converted_text)
+                if legacy_target_font:
+                    raw_segments = segment_text_by_script(full_run_text)
+                    segments: list[tuple[str, bool]] = []
+                    for raw_chunk, is_dev in raw_segments:
+                        if is_dev:
+                            if converter_takes_font and effective_font:
+                                conv_chunk = converter_fn(raw_chunk, font_name=effective_font)
+                            else:
+                                conv_chunk = converter_fn(raw_chunk)
+                            segments.append((conv_chunk, True))
+                        else:
+                            segments.append((raw_chunk, False))
+                else:
+                    segments = segment_text_by_script(converted_text)
+
                 if not segments:
                     for t in t_elems:
                         t.text = ""
@@ -757,9 +981,10 @@ def _transform_xml_tree(
                     child.insert(0, rpr)
 
                 # If unconverted legacy text remains untouched (converted_text == full_run_text and not modern),
-                # do not disguise it as modern Arial formatting.
+                # do not disguise it as modern formatting.
                 is_unconverted_legacy = (
-                    converted_text == full_run_text
+                    not legacy_target_font
+                    and converted_text == full_run_text
                     and fam != "modern"
                     and not any(_DEVANAGARI_CHAR_RE.match(c) for c in converted_text)
                 )
@@ -767,28 +992,61 @@ def _transform_xml_tree(
                 if len(segments) == 1:
                     chunk, is_dev = segments[0]
                     if not is_unconverted_legacy:
-                        _apply_font_to_rpr(rpr, is_dev, rfonts_tag, sz_tag, szcs_tag, preserve_typography=preserve_typography)
+                        _apply_font_to_rpr(
+                            rpr,
+                            is_dev,
+                            rfonts_tag,
+                            sz_tag,
+                            szcs_tag,
+                            preserve_typography=preserve_typography,
+                            legacy_target_font=legacy_target_font,
+                            source_font=effective_font,
+                            style_resolver=style_resolver,
+                            p=p,
+                        )
                     t_elems[0].text = chunk
                     t_elems[0].attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
                     for extra_t in t_elems[1:]:
                         child.remove(extra_t)
                 else:
-                    # Multi-script segmentation: preserve original run, update first chunk, clone formatting for rest
                     chunk0, is_dev0 = segments[0]
+                    orig_rpr_xml = ET.tostring(rpr)
+
                     if not is_unconverted_legacy:
-                        _apply_font_to_rpr(rpr, is_dev0, rfonts_tag, sz_tag, szcs_tag, preserve_typography=preserve_typography)
+                        _apply_font_to_rpr(
+                            rpr,
+                            is_dev0,
+                            rfonts_tag,
+                            sz_tag,
+                            szcs_tag,
+                            preserve_typography=preserve_typography,
+                            legacy_target_font=legacy_target_font,
+                            source_font=effective_font,
+                            style_resolver=style_resolver,
+                            p=p,
+                        )
                     t_elems[0].text = chunk0
                     t_elems[0].attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
                     for extra_t in t_elems[1:]:
                         child.remove(extra_t)
 
-                    # Insert additional script runs after child in parent
                     c_idx = list(parent).index(child)
                     for offset, (chunk, is_dev) in enumerate(segments[1:], start=1):
                         new_r = ET.Element(r_tag)
-                        new_rpr = ET.fromstring(ET.tostring(rpr))
+                        new_rpr = ET.fromstring(orig_rpr_xml)
                         if not is_unconverted_legacy:
-                            _apply_font_to_rpr(new_rpr, is_dev, rfonts_tag, sz_tag, szcs_tag, preserve_typography=preserve_typography)
+                            _apply_font_to_rpr(
+                                new_rpr,
+                                is_dev,
+                                rfonts_tag,
+                                sz_tag,
+                                szcs_tag,
+                                preserve_typography=preserve_typography,
+                                legacy_target_font=legacy_target_font,
+                                source_font=effective_font,
+                                style_resolver=style_resolver,
+                                p=p,
+                            )
                         new_r.append(new_rpr)
                         new_t = ET.Element(t_tag)
                         new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
@@ -804,9 +1062,16 @@ def _apply_font_to_rpr(
     sz_tag: str,
     szcs_tag: str,
     preserve_typography: bool = False,
+    legacy_target_font: str | None = None,
+    source_font: str | None = None,
+    style_resolver: DocxStyleResolver | None = None,
+    p: ET.Element | None = None,
 ) -> None:
-    """Set font on a <w:rPr> element, preserving original size when preserve_typography is True."""
-    font = _HINDI_FONT if is_devanagari else _ENGLISH_FONT
+    """Set font on a <w:rPr> element, dynamically normalizing size according to calibration table."""
+    if legacy_target_font:
+        font = legacy_target_font if is_devanagari else _ENGLISH_FONT
+    else:
+        font = _HINDI_FONT if is_devanagari else _ENGLISH_FONT
 
     # Fonts
     rfonts = rpr.find(rfonts_tag)
@@ -818,7 +1083,7 @@ def _apply_font_to_rpr(
 
     # Size: only standardize if preserve_typography is False
     if not preserve_typography:
-        size_str = str(_HINDI_HALF_PT if is_devanagari else _ENGLISH_HALF_PT)
+        size_str = str(_DEFAULT_HALF_PT)
         sz = rpr.find(sz_tag)
         if sz is None:
             sz = ET.SubElement(rpr, sz_tag)
@@ -828,3 +1093,36 @@ def _apply_font_to_rpr(
         if szcs is None:
             szcs = ET.SubElement(rpr, szcs_tag)
         szcs.attrib[f"{{{_W_NS}}}val"] = size_str
+    else:
+        # Dynamic visual font-size normalization preserving document hierarchy
+        from sarathi.shakti.font_conversion.font_size_normalizer import get_font_size_adjustment
+
+        adj = get_font_size_adjustment(
+            anchor_font=source_font or "",
+            target_font=font,
+        )
+
+        cur_half_pt: float | None = None
+        sz_elem = rpr.find(sz_tag)
+        if sz_elem is not None and f"{{{_W_NS}}}val" in sz_elem.attrib:
+            try:
+                cur_half_pt = float(sz_elem.attrib[f"{{{_W_NS}}}val"])
+            except ValueError:
+                pass
+        elif style_resolver is not None:
+            cur_half_pt = style_resolver.resolve_run_size_half_pt(rpr, p)
+
+        if cur_half_pt is not None and (adj.scale != 1.0 or adj.offset_pt != 0.0):
+            cur_pt = cur_half_pt / 2.0
+            adj_pt = adj.apply(cur_pt)
+            new_half_pt = max(2, int(round(adj_pt * 2.0)))
+            size_str = str(new_half_pt)
+
+            if sz_elem is None:
+                sz_elem = ET.SubElement(rpr, sz_tag)
+            sz_elem.attrib[f"{{{_W_NS}}}val"] = size_str
+
+            szcs = rpr.find(szcs_tag)
+            if szcs is None:
+                szcs = ET.SubElement(rpr, szcs_tag)
+            szcs.attrib[f"{{{_W_NS}}}val"] = size_str

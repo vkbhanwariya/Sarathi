@@ -52,19 +52,45 @@ def read_pdf(
             if page_text:
                 full_text_parts.append(page_text)
 
-            # Extract block spans
+            # Extract text spans with font size and formatting evidence
             spans: list[TextSpan] = []
-            blocks = page.get_text("blocks")
-            for b in blocks:
-                if len(b) >= 5:
-                    x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
-                    if isinstance(text, str) and text.strip():
-                        spans.append(
-                            TextSpan(
-                                text=text.strip(),
-                                bounding_box=(float(x0), float(y0), float(x1), float(y1)),
+            try:
+                page_dict = page.get_text("dict")
+                for block in page_dict.get("blocks", []):
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            for s in line.get("spans", []):
+                                s_text = s.get("text", "")
+                                if isinstance(s_text, str) and s_text.strip():
+                                    s_bbox = tuple(float(v) for v in s.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                                    s_size = float(s.get("size", 12.0))
+                                    s_font = str(s.get("font", ""))
+                                    spans.append(
+                                        TextSpan(
+                                            text=s_text.strip(),
+                                            bounding_box=s_bbox,
+                                            metadata={
+                                                "font_name": s_font,
+                                                "font_size_pt": round(s_size, 1),
+                                                "is_heading": s_size >= 14.0,
+                                            },
+                                        )
+                                    )
+            except Exception:
+                pass
+
+            if not spans:
+                blocks = page.get_text("blocks")
+                for b in blocks:
+                    if len(b) >= 5:
+                        x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
+                        if isinstance(text, str) and text.strip():
+                            spans.append(
+                                TextSpan(
+                                    text=text.strip(),
+                                    bounding_box=(float(x0), float(y0), float(x1), float(y1)),
+                                )
                             )
-                        )
 
             # Extract native vector tables if present
             page_tables: list[TableData] = []
@@ -644,6 +670,17 @@ def read_docx(
                                 r, elem, text=r_text
                             )
 
+                            # Determine font size and heading status
+                            eff_half_pt = style_resolver.resolve_run_size_half_pt(r, elem)
+                            font_size_pt = round(eff_half_pt / 2.0, 1) if eff_half_pt is not None else None
+                            p_style_elem = elem.find(f"{_W_NAMESPACE}pPr/{_W_NAMESPACE}pStyle")
+                            p_style = p_style_elem.attrib.get(f"{_W_NAMESPACE}val", "") if p_style_elem is not None else ""
+                            is_heading = bool(
+                                "heading" in p_style.lower()
+                                or "title" in p_style.lower()
+                                or (font_size_pt is not None and font_size_pt >= 14.0 and r.find(f"{_W_NAMESPACE}rPr/{_W_NAMESPACE}b") is not None)
+                            )
+
                             # Determine font source
                             font_source = "doc_defaults"
                             rpr = r.find(f"{_W_NAMESPACE}rPr")
@@ -661,6 +698,8 @@ def read_docx(
                                     metadata={
                                         "font_name": effective_font or "",
                                         "font_source": font_source,
+                                        "font_size_pt": font_size_pt,
+                                        "is_heading": is_heading,
                                         "run_index": run_count,
                                         "paragraph_index": p_count,
                                         "document_part": "document",

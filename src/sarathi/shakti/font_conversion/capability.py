@@ -455,6 +455,12 @@ class FontConversionCapability:
                 docx_payload: ArtifactPayload | None = None
                 matching_inp = next((i for i in request.inputs if i.input_id == doc.source_input_id), None)
 
+                legacy_target_font = (
+                    ("Kruti Dev 010" if target_mode == "to_krutidev" else "DevLys 010")
+                    if is_to_legacy
+                    else None
+                )
+
                 if (
                     matching_inp is not None
                     and matching_inp.source_path is not None
@@ -469,12 +475,14 @@ class FontConversionCapability:
                         role="converted_document",
                         warnings=all_warnings,
                         preserve_typography=True,
+                        legacy_target_font=legacy_target_font,
                     )
                 else:
                     docx_payload = build_docx_payload(
                         doc=converted_doc,
                         filename=docx_artifact_name,
                         role="converted_document",
+                        legacy_target_font=legacy_target_font,
                     )
 
                 payloads.append(docx_payload)

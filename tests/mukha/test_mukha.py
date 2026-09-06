@@ -574,3 +574,159 @@ class TestMukhaAuditCapabilityStatus:
         statuses = MukhaPresenter.audit_capability_status(providers=[mock_prov])
         assert statuses["custom_cap"] == (True, "Ready (Custom)")
         mock_prov.readiness.assert_called_once()
+
+    def test_build_summary_view_without_result_retains_telemetry(self, tmp_path: Path) -> None:
+        """Proves build_summary_view supports result=None on failed/cancelled runs and preserves telemetry."""
+        from sarathi.darpana import MarutiRecord, PramanaRecord
+        from sarathi.sankalpa import ConfidenceValue
+
+        in_file = tmp_path / "in.txt"
+        in_file.write_text("hello", encoding="utf-8")
+        req = Request(
+            request_id="req-cancelled",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=in_file,
+                    display_name="in.txt",
+                    size_bytes=5,
+                ),
+            ),
+        )
+
+        maruti_recs = (
+            MarutiRecord(
+                run_id="req-cancelled",
+                request_id="req-cancelled",
+                trace_id="tr-1",
+                span_id="sp-1",
+                phase_name="intake",
+                component="nabhi.intake",
+                timestamp_utc="2026-09-06T00:00:00Z",
+                duration_ns=50_000_000,
+                outcome="success",
+            ),
+            MarutiRecord(
+                run_id="req-cancelled",
+                request_id="req-cancelled",
+                trace_id="tr-1",
+                span_id="sp-2",
+                phase_name="capability_execution",
+                component="ocr",
+                timestamp_utc="2026-09-06T00:00:01Z",
+                duration_ns=100_000_000,
+                outcome="cancelled",
+                attributes={"device_type": "GPU"},
+            ),
+        )
+        pramana_recs = (
+            PramanaRecord(
+                run_id="req-cancelled",
+                request_id="req-cancelled",
+                trace_id="tr-1",
+                span_id="sp-2",
+                capability_id="ocr",
+                stage="ocr",
+                timestamp_utc="2026-09-06T00:00:01Z",
+                confidence=ConfidenceValue(0.95, method="ocr", evidence={"chars": 100}),
+            ),
+        )
+
+        summary = MukhaPresenter.build_summary_view(
+            run_id="req-cancelled",
+            status="CANCELLED",
+            wall_time_ns=200_000_000,
+            request=req,
+            result=None,
+            failures=("Execution cancelled by user.",),
+            maruti_records=maruti_recs,
+            pramana_records=pramana_recs,
+        )
+
+        assert summary.status == "CANCELLED"
+        assert summary.failures == ("Execution cancelled by user.",)
+        assert len(summary.stage_timings) == 2
+        assert len(summary.device_summaries) == 1
+        assert summary.device_summaries[0].device_type == "GPU"
+        assert summary.device_summaries[0].avg_confidence == pytest.approx(0.95)
+        assert summary.avg_confidence == pytest.approx(0.95)
+        assert len(summary.artifacts) == 0
+
+    def test_build_summary_view_accuracy_resolution(self, tmp_path: Path) -> None:
+        """Proves build_summary_view extracts accuracy from PramanaRecord or Result metadata."""
+        from sarathi.darpana import AccuracyValue, PramanaRecord
+
+        in_file = tmp_path / "in.txt"
+        in_file.write_text("hello", encoding="utf-8")
+        req = Request(
+            request_id="req-acc",
+            requirement="read_native",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=in_file, display_name="in.txt", size_bytes=5),
+            ),
+        )
+
+        acc_val = AccuracyValue(score=0.98, method="cer", evidence={"ground_truth": "test"})
+        pramana_recs = (
+            PramanaRecord(
+                run_id="req-acc",
+                request_id="req-acc",
+                trace_id="tr-1",
+                span_id="sp-1",
+                capability_id="ocr",
+                stage="ocr",
+                timestamp_utc="2026-09-06T00:00:00Z",
+                accuracy=acc_val,
+            ),
+        )
+
+        summary = MukhaPresenter.build_summary_view(
+            run_id="req-acc",
+            status="SUCCESS",
+            wall_time_ns=100_000_000,
+            request=req,
+            result=None,
+            pramana_records=pramana_recs,
+        )
+        assert summary.accuracy == pytest.approx(0.98)
+
+    def test_build_inspector_view_cancellation_severity(self) -> None:
+        """Proves build_inspector_view logs outcome='cancelled' as WARN severity, not ERROR."""
+        from sarathi.darpana import MarutiRecord
+
+        maruti_recs = (
+            MarutiRecord(
+                run_id="run-1",
+                request_id="req-1",
+                trace_id="tr-1",
+                span_id="sp-1",
+                phase_name="exec",
+                component="kernel",
+                timestamp_utc="2026-09-06T00:00:00Z",
+                duration_ns=10_000_000,
+                outcome="cancelled",
+            ),
+            MarutiRecord(
+                run_id="run-1",
+                request_id="req-1",
+                trace_id="tr-1",
+                span_id="sp-2",
+                phase_name="fail_step",
+                component="kernel",
+                timestamp_utc="2026-09-06T00:00:01Z",
+                duration_ns=5_000_000,
+                outcome="failure",
+            ),
+        )
+
+        inspector = MukhaPresenter.build_inspector_view(
+            run_id="run-1",
+            status="CANCELLED",
+            elapsed_ns=15_000_000,
+            maruti_records=maruti_recs,
+            pramana_records=(),
+        )
+
+        assert inspector.activity_logs[0][1] == "WARN"
+        assert inspector.activity_logs[1][1] == "ERROR"

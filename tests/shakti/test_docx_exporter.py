@@ -60,9 +60,8 @@ def test_build_docx_payload_structure_and_typography() -> None:
 
         doc_xml = zf.read("word/document.xml").decode("utf-8")
         assert "Nirmala UI" in doc_xml
-        assert "Arial" in doc_xml
-        # Check font sizes: 14pt (28 half-pts) and 12pt (24 half-pts)
-        assert 'w:val="28"' in doc_xml
+        assert "Times New Roman" in doc_xml
+        # Check standard font size: 12pt (24 half-pts)
         assert 'w:val="24"' in doc_xml
         # Check table elements
         assert "<w:tbl>" in doc_xml
@@ -108,9 +107,9 @@ def test_transform_docx_artifact_preserves_formatting() -> None:
         # Bold and shadow must be preserved
         assert "<w:b" in out_xml
         assert "<w:shadow" in out_xml
-        # Font updated to Nirmala UI 14pt (28) for Devanagari
+        # Font updated to Nirmala UI 12pt (24) for Devanagari
         assert "Nirmala UI" in out_xml
-        assert 'w:val="28"' in out_xml
+        assert 'w:val="24"' in out_xml
 
 
 def test_transform_docx_artifact_corrupt_input_raises_dosh_error() -> None:
@@ -329,3 +328,138 @@ def test_genuine_unicode_hindi_with_mangal_cs_preserved() -> None:
         out_xml = zf.read("word/document.xml").decode("utf-8")
         assert "यह शुद्ध हिन्दी है" in out_xml
         assert "CORRUPTED" not in out_xml
+
+
+def test_legacy_target_font_script_segmentation() -> None:
+    """Verify legacy_target_font formats Devanagari in legacy font and Latin/digits in Times New Roman."""
+    doc = CanonicalDocument(
+        document_id="doc-legacy-mixed",
+        text="न्यायालय आदेश Case No 1234/2024",
+    )
+    payload = build_docx_payload(
+        doc=doc,
+        filename="legacy_mixed.docx",
+        legacy_target_font="Kruti Dev 010",
+    )
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+        assert "Kruti Dev 010" in doc_xml
+        assert "Times New Roman" in doc_xml
+
+
+def test_mixed_unicode_unified_nirmala_ui() -> None:
+    """Verify Hindi-English mixed Unicode paragraph remains unified in Nirmala UI without Latin splitting."""
+    doc = CanonicalDocument(
+        document_id="doc-mixed-unicode",
+        text="Section 482 CrPC के अंतर्गत याचिका स्वीकार की जाती है।",
+    )
+    payload = build_docx_payload(
+        doc=doc,
+        filename="mixed_unicode.docx",
+    )
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+        assert "Nirmala UI" in doc_xml
+        # Since paragraph is mixed, whole paragraph is unified under Nirmala UI
+        # and there should NOT be artificial Times New Roman splitting within this paragraph
+        root = ET.fromstring(doc_xml.encode("utf-8"))
+        p = root.find(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p")
+        assert p is not None
+        for rf in p.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rFonts"):
+            assert rf.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ascii") == "Nirmala UI"
+
+
+def test_dynamic_font_size_scaling_in_transform_docx() -> None:
+    """Verify that legacy 16 pt scales to 12 pt, headings scale proportionally, and modern sizes stay intact."""
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    doc_xml_content = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        f'<w:document xmlns:w="{w_ns}">\n'
+        '  <w:body>\n'
+        '    <w:p>\n'
+        '      <w:r><w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr><w:t>c;ku</w:t></w:r>\n'
+        '      <w:r><w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:sz w:val="48"/><w:szCs w:val="48"/></w:rPr><w:t>' + "vkns'k" + '</w:t></w:r>\n'
+        '      <w:r><w:rPr><w:rFonts w:ascii="Bookman Old Style"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr><w:t>Flat 1411</w:t></w:r>\n'
+        '    </w:p>\n'
+        '  </w:body>\n'
+        '</w:document>'
+    )
+    in_buf = io.BytesIO()
+    with zipfile.ZipFile(in_buf, "w") as zf:
+        zf.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        zf.writestr("word/document.xml", doc_xml_content)
+
+    def _dummy_converter(text: str, **kw: str) -> str:
+        if "c;ku" in text:
+            return "बयान"
+        if "vkns" in text:
+            return "आदेश"
+        return text
+
+    transformed = transform_docx_artifact(
+        input_bytes=in_buf.getvalue(),
+        converter_fn=_dummy_converter,
+        filename="scaled.docx",
+        preserve_typography=True,
+    )
+
+    with zipfile.ZipFile(io.BytesIO(transformed.content), "r") as zf:
+        out_xml = zf.read("word/document.xml").decode("utf-8")
+        tree = ET.fromstring(out_xml.encode("utf-8"))
+
+    runs = list(tree.iter(f"{{{w_ns}}}r"))
+    assert len(runs) >= 3
+
+    # Run 1: Kruti Dev 16 pt (sz=32) -> Nirmala UI 12 pt (sz=24)
+    r0 = runs[0]
+    sz0 = r0.find(f".//{{{w_ns}}}sz")
+    assert sz0 is not None
+    assert sz0.attrib[f"{{{w_ns}}}val"] == "24"
+
+    # Run 2: Kruti Dev 24 pt (sz=48, heading) -> Nirmala UI 18 pt (sz=36)
+    r1 = runs[1]
+    sz1 = r1.find(f".//{{{w_ns}}}sz")
+    assert sz1 is not None
+    assert sz1.attrib[f"{{{w_ns}}}val"] == "36"
+
+    # Run 3: Bookman Old Style 12 pt (sz=24) -> Times New Roman 12 pt (sz=24, untouched)
+    r2 = runs[2]
+    sz2 = r2.find(f".//{{{w_ns}}}sz")
+    assert sz2 is not None
+    assert sz2.attrib[f"{{{w_ns}}}val"] == "24"
+
+
+def test_markdown_heading_formatting_in_build_docx_payload() -> None:
+    """Verify build_docx_payload formats markdown heading levels dynamically with appropriate font sizes."""
+    doc = CanonicalDocument(
+        document_id="doc-heading-test",
+        text="# मुख्य शीर्षक\n## उप शीर्षक\nसाधारण विवरण यहाँ है।",
+    )
+    payload = build_docx_payload(doc=doc, filename="heading_test.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        out_xml = zf.read("word/document.xml").decode("utf-8")
+        tree = ET.fromstring(out_xml.encode("utf-8"))
+
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    paragraphs = list(tree.iter(f"{{{w_ns}}}p"))
+    assert len(paragraphs) == 3
+
+    # P0: # मुख्य शीर्षक -> 16 pt (sz=32), bold
+    t0 = paragraphs[0].find(f".//{{{w_ns}}}t")
+    assert t0 is not None and t0.text == "मुख्य शीर्षक"
+    assert paragraphs[0].find(f".//{{{w_ns}}}b") is not None
+    sz0 = paragraphs[0].find(f".//{{{w_ns}}}sz")
+    assert sz0 is not None and sz0.attrib[f"{{{w_ns}}}val"] == "32"
+
+    # P1: ## उप शीर्षक -> 14 pt (sz=28), bold
+    t1 = paragraphs[1].find(f".//{{{w_ns}}}t")
+    assert t1 is not None and t1.text == "उप शीर्षक"
+    assert paragraphs[1].find(f".//{{{w_ns}}}b") is not None
+    sz1 = paragraphs[1].find(f".//{{{w_ns}}}sz")
+    assert sz1 is not None and sz1.attrib[f"{{{w_ns}}}val"] == "28"
+
+    # P2: Body -> 12 pt (sz=24)
+    t2 = paragraphs[2].find(f".//{{{w_ns}}}t")
+    assert t2 is not None and t2.text == "साधारण विवरण यहाँ है।"
+    sz2 = paragraphs[2].find(f".//{{{w_ns}}}sz")
+    assert sz2 is not None and sz2.attrib[f"{{{w_ns}}}val"] == "24"

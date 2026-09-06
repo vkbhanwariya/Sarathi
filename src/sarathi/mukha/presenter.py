@@ -163,7 +163,7 @@ class MukhaPresenter:
         stages: list[tuple[str, str, int | None]] = []
         for r in maruti_records:
             if r.component == "bootstrap" or "init" in r.phase_name or "bootstrap" in r.phase_name:
-                st = "completed" if r.outcome == "success" else "failed"
+                st = "completed" if r.outcome == "success" else ("cancelled" if r.outcome == "cancelled" else "failed")
                 stages.append((r.phase_name, st, r.duration_ns))
         return StartupViewState(
             is_initializing=is_initializing,
@@ -317,7 +317,7 @@ class MukhaPresenter:
         status: str,
         wall_time_ns: int,
         request: Request,
-        result: Result,
+        result: Result | None = None,
         successful_files: int | None = None,
         warning_files: int | None = None,
         failed_files: int | None = None,
@@ -344,6 +344,7 @@ class MukhaPresenter:
 
         # Device execution summary: strictly phase_name == "capability_execution" with device_type attribute
         device_map: dict[str, list[int]] = {}
+        span_to_device: dict[str, str] = {}
         dev_confs: dict[str, list[float]] = {}
         for r in maruti_records:
             if r.phase_name == "capability_execution":
@@ -351,9 +352,10 @@ class MukhaPresenter:
                 if dev:
                     dev_str = str(dev).upper()
                     device_map.setdefault(dev_str, []).append(r.duration_ns)
+                    span_to_device[r.span_id] = dev_str
 
         for pr in pramana_records:
-            dev = pr.attributes.get("device_type")
+            dev = pr.attributes.get("device_type") or span_to_device.get(pr.span_id)
             if dev and pr.confidence is not None:
                 dev_confs.setdefault(str(dev).upper(), []).append(pr.confidence.score)
 
@@ -380,34 +382,46 @@ class MukhaPresenter:
 
         # Confirmed artifacts only: only include committed ArtifactRef
         confirmed_artifacts: list[ArtifactOutcomeView] = []
-        for art in result.artifacts:
-            if isinstance(art, ArtifactRef):
-                confirmed_artifacts.append(
-                    ArtifactOutcomeView(
-                        artifact_id=art.artifact_id,
-                        role=art.role,
-                        display_name=art.path.name if art.path else art.artifact_id,
-                        size_bytes=art.size_bytes,
-                        sha256_hex=art.checksum_sha256,
+        if result is not None:
+            for art in result.artifacts:
+                if isinstance(art, ArtifactRef):
+                    confirmed_artifacts.append(
+                        ArtifactOutcomeView(
+                            artifact_id=art.artifact_id,
+                            role=art.role,
+                            display_name=art.path.name if art.path else art.artifact_id,
+                            size_bytes=art.size_bytes,
+                            sha256_hex=art.checksum_sha256,
+                        )
                     )
-                )
 
         # Confidence from result or pramana records
         all_confs = [pr.confidence.score for pr in pramana_records if pr.confidence is not None]
-        avg_confidence = (
-            (sum(all_confs) / len(all_confs)) if all_confs else (result.confidence.score if result.confidence else None)
-        )
+        if all_confs:
+            avg_confidence = sum(all_confs) / len(all_confs)
+        elif result is not None and result.confidence is not None:
+            avg_confidence = result.confidence.score
+        else:
+            avg_confidence = None
 
-        # Accuracy remains None unless verified ground truth exists in metadata
-        verified_acc = (
-            result.metadata.get("verified_accuracy")
-            if isinstance(result.metadata.get("verified_accuracy"), float)
-            else None
-        )
+        # Accuracy remains None unless verified ground truth exists in pramana or metadata
+        all_accs = [pr.accuracy.score for pr in pramana_records if pr.accuracy is not None]
+        if all_accs:
+            verified_acc: float | None = sum(all_accs) / len(all_accs)
+        elif result is not None:
+            meta_acc = result.metadata.get("accuracy", result.metadata.get("verified_accuracy"))
+            if hasattr(meta_acc, "score"):
+                verified_acc = float(meta_acc.score)
+            elif isinstance(meta_acc, (int, float)) and not isinstance(meta_acc, bool):
+                verified_acc = float(meta_acc)
+            else:
+                verified_acc = None
+        else:
+            verified_acc = None
 
         avg_dur_per_input = int(wall_time_ns / max(1, len(request.inputs))) if wall_time_ns > 0 else None
 
-        warnings = tuple(str(w.message) for w in result.warnings)
+        warnings = tuple(str(w.message) for w in result.warnings) if result is not None else ()
 
         return RunSummaryView(
             run_id=run_id,
@@ -444,10 +458,16 @@ class MukhaPresenter:
         device_map: dict[str, list[int]] = {}
 
         for r in maruti_records:
+            if r.outcome == "success":
+                severity = "INFO"
+            elif r.outcome == "cancelled":
+                severity = "WARN"
+            else:
+                severity = "ERROR"
             logs.append(
                 (
                     r.timestamp_utc,
-                    "INFO" if r.outcome == "success" else "ERROR",
+                    severity,
                     r.component,
                     f"Phase {r.phase_name} ({r.duration_ns / 1_000_000:.2f}ms)",
                 )

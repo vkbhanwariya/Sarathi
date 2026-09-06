@@ -17,8 +17,9 @@ No parallel engines, secondary subsystems, or private transducers (such as `plug
 - `converter.py`: Precompiled forward and reverse transducer execution, two-tier Anubhava correction (`generic` before profile-specific), and reverse mapping.
 - `protector.py`: Protected span detection and byte-for-byte PUA restoration (URLs, emails, Unicode Devanagari, parenthesized Latin phrases, dates, currency, IDs).
 - `validator.py`: Mapping coverage calculation (`calculate_mapping_coverage`) and structural Devanagari integrity validation (`validate_devanagari_structure`).
+- `font_size_normalizer.py`: Visual font-size compensation utility (`FontSizeAdjustment`, `normalize_font_size`) dynamically scaling legacy Devanagari typewriter fonts (DevLys / Kruti Dev) typed at 16 pt body text to modern 12 pt Unicode baseline (`Nirmala UI` / `Times New Roman`) at calibrated `scale = 0.75` (`12.0 / 16.0`), offset `0.0 pt`, while preserving heading and title hierarchy and symmetrically scaling reverse conversion (`scale = 4.0 / 3.0`).
 - `capability.py`: Canonical `FontConversionCapability` implementing `Capability` contract with item-scoped batch escalation and telemetry emission.
-- `src/sarathi/shakti/docx_exporter.py` (Shared Shakti Exporter): `DocxStyleResolver` (rPr -> rStyle -> pStyle -> basedOn -> docDefaults), safe run stitching (`_NON_DELETABLE_RUN_CHILDREN`), symbol conversion (`<w:sym>`), and typography-preserving artifact generation.
+- `src/sarathi/shakti/docx_exporter.py` (Shared Shakti Exporter): `DocxStyleResolver` (rPr -> rStyle -> pStyle -> basedOn -> docDefaults), safe run stitching (`_NON_DELETABLE_RUN_CHILDREN`), symbol conversion (`<w:sym>`), script-segmented legacy/Unicode styling, dynamic visual size scaling, and typography-preserving artifact generation.
 
 ---
 
@@ -55,13 +56,19 @@ Font detection is deterministic, multi-tiered, and strictly evidence-driven:
 1. **Style Hierarchy Resolution (`DocxStyleResolver`)**:
    - Resolves effective run font by traversing: direct `w:rPr/w:rFonts` $\rightarrow$ character style (`w:rStyle`) $\rightarrow$ paragraph style (`w:pStyle`) $\rightarrow$ parent style (`w:basedOn`) $\rightarrow$ document defaults (`w:docDefaults`).
    - Resolves ASCII text to `w:ascii`/`w:hAnsi` channel and Devanagari text to `w:cs` channel.
+   - Resolves effective font size via `resolve_run_size_half_pt` through run properties, styles, and document defaults.
 2. **Run Stitching & Semantic Node Preservation**:
    - Adjacent compatible runs within paragraphs and hyperlinks are stitched prior to conversion to resolve cross-run split Aksharas (e.g. `'f'` + `'d'` $\rightarrow$ `'fd'` $\rightarrow$ `'कि'`).
    - Runs containing non-deletable child elements (`w:tab`, `w:drawing`, `w:sym`, `w:br`, `w:cr`, `w:fldSimple`, etc.) are never removed from the XML DOM; their text is cleared into the primary run while preserving formatting and layout nodes.
 3. **Symbol Conversion (`<w:sym>`)**:
    - Legacy symbols declared in `profile.symbols` (e.g. `F0B5` $\rightarrow$ `µ`, `F0B1` $\rightarrow$ `±`) are transformed into `<w:t>` elements. Modern symbols remain untouched.
-4. **Typography Preservation**:
-   - When `preserve_typography=True`, original font sizes (`w:sz`), bold (`w:b`), italic (`w:i`), color (`w:color`), and effects are preserved byte-for-byte; only the font name is updated to canonical Devanagari (`Nirmala UI`).
+4. **Dynamic Typography Standardization & Script Segmentation**:
+   - Standard body baseline across scripts is strictly 12 pt (`w:val="24"`).
+   - When `preserve_typography=True`, bold (`w:b`), italic (`w:i`), color (`w:color`), and effects are preserved byte-for-byte.
+   - For Legacy $\rightarrow$ Unicode conversion, Devanagari maps to canonical `Nirmala UI`, while English/Latin and digits map to `Times New Roman`. Mixed Hindi-English paragraphs remain unified in `Nirmala UI`.
+   - For Unicode $\rightarrow$ Legacy conversion (`to_krutidev`, `to_devlys`), Devanagari text maps to the selected legacy font (`Kruti Dev 010` or `DevLys 010`), while protected English text, legal citations (CrPC, IPC, FIR), and western digits are styled in `Times New Roman`.
+   - Dynamic visual size compensation in `font_size_normalizer.py` applies a calibrated `scale = 0.75` ($16\text{ pt legacy} \rightarrow 12\text{ pt modern}$), so legacy documents typed at 16 pt body text seamlessly match modern 12 pt English text, while headings (e.g., 20 pt, 24 pt) remain proportionally larger (15 pt, 18 pt). Reverse conversion applies `scale = 4.0 / 3.0` ($12\text{ pt} \rightarrow 16\text{ pt}$).
+
 
 ---
 

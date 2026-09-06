@@ -141,6 +141,9 @@ created only when an existing owner cannot hold the concern cleanly.
     and benchmark verification.
 -   Optional fallbacks remain disabled unless the primary path fails or an
     explicit profile requests them.
+-   Canonical DOCX typography standardizes on a 12 pt baseline across scripts:
+    English in `Times New Roman`, Hindi and mixed Devanagari in `Nirmala UI`,
+    with capability-local typography helpers and script-segmented legacy export.
 -   Phase 1 implementation proceeds under the locked architecture and
     linked capability specifications.
 

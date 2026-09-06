@@ -97,6 +97,7 @@ class TestYantraLifecycleUnderAgni:
         )
         agni = Agni(
             runtime_root=tmp_path / "runtime",
+            output_root=tmp_path / "output",
             inventory=inventory,
             plugins=[test_plugin],
             capabilities={"test_cap": cap},

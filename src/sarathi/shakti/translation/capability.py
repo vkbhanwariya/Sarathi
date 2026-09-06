@@ -24,6 +24,11 @@ from sarathi.sankalpa import (
 from sarathi.sankalpa.document import transform_canonical_document
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.translation.detector import LanguageDetector
+from sarathi.shakti.translation.typography import (
+    contains_devanagari,
+    normalize_size,
+    output_font,
+)
 from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
     TranslatorBackend,
@@ -217,10 +222,16 @@ class TranslationCapability:
                     ),
                     content=translated_doc.text.encode("utf-8"),
                 )
+                doc_has_dev = contains_devanagari(translated_doc.text) or (tgt_lang == "hi")
+                doc_font = output_font(contains_devanagari=doc_has_dev)
+                raw_size = doc.metadata.get("font_size_pt") if doc.metadata else None
+                doc_size = normalize_size(raw_size)
                 docx_payload = build_docx_payload(
                     doc=translated_doc,
                     filename=f"Translated_Document{suffix}.docx",
                     role="translated_document",
+                    default_font=doc_font,
+                    default_size_pt=doc_size,
                 )
                 return translated_doc, prov, [txt_payload, docx_payload]
 

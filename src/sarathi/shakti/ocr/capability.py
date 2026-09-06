@@ -26,6 +26,11 @@ from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+from sarathi.shakti.ocr.typography import (
+    contains_devanagari,
+    normalize_size,
+    output_font,
+)
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
@@ -456,12 +461,18 @@ class OCRCapability:
                 )
             )
 
+            doc_has_dev = contains_devanagari(doc.text)
+            doc_font = output_font(contains_devanagari=doc_has_dev)
+            raw_size = doc.metadata.get("font_size_pt") if doc.metadata else None
+            doc_size = normalize_size(raw_size)
             # 3. Formatted DOCX output
             payloads.append(
                 build_docx_payload(
                     doc=doc,
                     filename=docx_name,
                     role="ocr_document",
+                    default_font=doc_font,
+                    default_size_pt=doc_size,
                 )
             )
 

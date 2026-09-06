@@ -56,6 +56,13 @@ reusable translation or legal corrections may live in
 `data/translation/anubhava.toml`; unapproved runtime candidates never enter the
 active path and runtime never edits the file.
 
+## Typography and Output Formatting
+
+- Capability-local typography helper lives in `src/sarathi/shakti/translation/typography.py`.
+- Target font family: `Times New Roman` for English-only translated output; `Nirmala UI` for Hindi or mixed Devanagari output.
+- Font size: Preserves source logical font size and heading hierarchy (`normalize_size`), falling back to standard 12 pt baseline.
+- Preserves pure Unicode boundary: does not own legacy font conversions, calibration tables, or OpenXML serialization.
+
 ## Acceptance
 
 - non-Unicode legacy input returns an explicit conversion requirement;

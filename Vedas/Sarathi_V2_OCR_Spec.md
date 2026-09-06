@@ -97,6 +97,13 @@ Tested profiles and calibration assets live under `data/ocr/`. Approved
 reusable OCR knowledge may live in `data/ocr/anubhava.toml`; runtime never
 auto-promotes candidates into that file.
 
+## Typography and Output Formatting
+
+- Capability-local typography helper lives in `src/sarathi/shakti/ocr/typography.py`.
+- Target font family: `Times New Roman` for English-only recognized output; `Nirmala UI` for Hindi or mixed Devanagari output.
+- Font size: Dynamic estimation from bounding box heights (`infer_line_font_size`) preserves heading and title hierarchy (15–18 pt bold) while maintaining standard 12 pt baseline for body text (`normalize_size`).
+- Preserves pure Unicode boundary: does not own legacy font conversions, calibration tables, or OpenXML serialization.
+
 ## Acceptance
 
 - every standard profile resolves to one fixed tested engine path;
