@@ -2,9 +2,6 @@
 
 import threading
 import time
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,14 +9,11 @@ import pytest
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CancellationToken,
-    Capability,
     CapabilityDeclaration,
     DeviceRequirement,
     DeviceType,
-    ExecutionBinding,
     ExecutionContext,
     ExecutionProfile,
-    InputRef,
     Request,
     Result,
 )

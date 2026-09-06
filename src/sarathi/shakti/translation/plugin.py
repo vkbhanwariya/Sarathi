@@ -36,8 +36,8 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     ),
     prerequisites=("read_native",),
     device_requirement=DeviceRequirement(
-        preferred_devices=(DeviceType.CPU,),
-        supported_devices=(DeviceType.CPU, DeviceType.GPU),
+        preferred_devices=(DeviceType.GPU,),
+        supported_devices=(DeviceType.GPU, DeviceType.CPU),
         parallelizable=True,
         supported_backends=("cuda", "cpu"),
     ),

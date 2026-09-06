@@ -44,7 +44,6 @@ from sarathi.sankalpa.readiness import (
     ReadinessStatus,
 )
 from sarathi.sankalpa.request import Request
-
 from sarathi.sankalpa.result import (
     ConfidenceValue,
     ProvenanceRecord,

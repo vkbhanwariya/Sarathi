@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +91,6 @@ class PluginServices:
     settings: Any | None = None
     data_root: Path | None = None
 
-
-from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable

@@ -10,11 +10,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
-from sarathi.agni import Agni
 from sarathi.mukha.web import MukhaWebServer
-from sarathi.sankalpa import ArtifactRef, Result
+from sarathi.sankalpa import ArtifactRef, CanonicalDocument, Result, WarningRecord
 
 
 def _http_get(url: str) -> tuple[int, dict[str, Any]]:
@@ -337,3 +334,120 @@ class TestProgressFidelity:
             assert "already active" in data2["error"].lower()
 
             finish_evt.set()
+
+    def test_duplicate_basename_progress_no_collision(
+        self, web_server: MukhaWebServer, tmp_path: Path
+    ) -> None:
+        """Two distinct input files with identical names in different dirs do not overwrite each other."""
+        dir_a = tmp_path / "dir_a"
+        dir_b = tmp_path / "dir_b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+
+        fa = dir_a / "invoice.txt"
+        fb = dir_b / "invoice.txt"
+        fa.write_text("Invoice A", encoding="utf-8")
+        fb.write_text("Invoice B", encoding="utf-8")
+
+        started_evt = threading.Event()
+        finish_evt = threading.Event()
+
+        def mock_execute(req: Any) -> Any:
+            progress_cb = req.custom_options.get("progress_callback")
+            inps = req.inputs
+            # Simulate progress for first file
+            progress_cb(
+                file_display_name=inps[0].display_name,
+                page_number=1,
+                total_pages=1,
+                worker_id="1",
+                stage="Extraction",
+                device_type="CPU",
+                input_id=inps[0].input_id,
+            )
+            # Simulate progress for second file with same display_name
+            progress_cb(
+                file_display_name=inps[1].display_name,
+                page_number=1,
+                total_pages=1,
+                worker_id="2",
+                stage="Extraction",
+                device_type="CPU",
+                input_id=inps[1].input_id,
+            )
+            started_evt.set()
+            finish_evt.wait(timeout=2.0)
+            doc_a = CanonicalDocument(document_id="doc-a", source_input_id=inps[0].input_id, text="Invoice A")
+            doc_b = CanonicalDocument(document_id="doc-b", source_input_id=inps[1].input_id, text="Invoice B")
+            return Result(data=(doc_a, doc_b))
+
+        with patch.object(web_server._agni, "execute", side_effect=mock_execute):
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={"paths": [str(fa), str(fb)], "requirement": "read_native"},
+            )
+            assert status == 200
+            assert started_evt.wait(timeout=2.0)
+
+            # Query live state: both files must be tracked distinctly
+            status_code, state_resp = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+            assert status_code == 200
+            active_run = state_resp["state"]["active_run"]
+            assert active_run is not None
+            files = active_run["files"]
+            assert len(files) == 2
+            assert files[0]["input_id"] != files[1]["input_id"]
+            assert files[0]["display_name"] == "invoice.txt"
+            assert files[1]["display_name"] == "invoice.txt"
+
+            finish_evt.set()
+            time.sleep(0.5)
+
+            # Summary must show both successful
+            _, final_state = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+            summary = final_state["state"]["terminal_summary"]
+            assert summary is not None
+            assert summary["status"] == "SUCCESS"
+            assert summary["successful_files"] == 2
+            assert summary["warning_files"] == 0
+            assert summary["failed_files"] == 0
+
+    def test_result_with_warnings_reports_warning_status_not_success(
+        self, web_server: MukhaWebServer, tmp_path: Path
+    ) -> None:
+        """A run with WarningRecord must report status WARNING and warning_files count, not SUCCESS."""
+        f1 = tmp_path / "warning_doc.txt"
+        f1.write_text("Content with warning", encoding="utf-8")
+
+        def mock_execute(req: Any) -> Any:
+            inp = req.inputs[0]
+            warn = WarningRecord(
+                code="PAGE_DEGRADED",
+                message="Text quality degraded",
+                stage="Native Extraction",
+                context={"input_id": inp.input_id},
+            )
+            doc = CanonicalDocument(document_id="doc-warn", source_input_id=inp.input_id, text="Content with warning")
+            return Result(data=doc, warnings=(warn,))
+
+        with patch.object(web_server._agni, "execute", side_effect=mock_execute):
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={"paths": [str(f1)], "requirement": "read_native"},
+            )
+            assert status == 200
+            time.sleep(0.5)
+
+            _, state_resp = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+            summary = state_resp["state"]["terminal_summary"]
+            assert summary is not None
+            assert summary["status"] == "WARNING"
+            assert summary["successful_files"] == 0
+            assert summary["warning_files"] == 1
+            assert summary["failed_files"] == 0
+
+            # FileRunView must report warning_count=1 and status WARNING
+            files = state_resp["state"]["active_run"]["files"]
+            assert len(files) == 1
+            assert files[0]["status"] == "WARNING"
+            assert files[0]["warning_count"] == 1

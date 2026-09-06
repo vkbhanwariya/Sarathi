@@ -53,11 +53,11 @@ class OCRProvider(PluginProvider):
                     reason=msg,
                 )
             }
-        except Exception as exc:
+        except Exception:
             return {
                 "ocr": CapabilityReadiness(
                     ready=False,
                     status=ReadinessStatus.DEPENDENCY_UNAVAILABLE,
-                    reason=f"Unavailable (Missing OCR extra dependencies or models: {exc})",
+                    reason="Unavailable (Missing OCR extra dependencies or models)",
                 )
             }

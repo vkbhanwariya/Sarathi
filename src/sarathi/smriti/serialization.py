@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import datetime
 import json
+from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -22,23 +24,69 @@ from sarathi.sankalpa import (
 )
 
 
+def _serialize_metadata_value(v: Any) -> Any:
+    """Losslessly encode metadata values into JSON-compatible tagged representations."""
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, Path):
+        return {"__stype__": "Path", "val": str(v)}
+    if isinstance(v, datetime.datetime):
+        return {"__stype__": "datetime", "val": v.isoformat()}
+    if isinstance(v, datetime.date):
+        return {"__stype__": "date", "val": v.isoformat()}
+    if isinstance(v, datetime.time):
+        return {"__stype__": "time", "val": v.isoformat()}
+    if isinstance(v, Decimal):
+        return {"__stype__": "Decimal", "val": str(v)}
+    if isinstance(v, set):
+        return {"__stype__": "set", "val": [_serialize_metadata_value(x) for x in sorted(v, key=str)]}
+    if isinstance(v, tuple):
+        return {"__stype__": "tuple", "val": [_serialize_metadata_value(x) for x in v]}
+    if isinstance(v, list):
+        return [_serialize_metadata_value(x) for x in v]
+    if isinstance(v, Mapping):
+        return {str(k): _serialize_metadata_value(val) for k, val in v.items()}
+    raise ValueError(f"Unsupported metadata value type '{type(v).__name__}'; cannot be cached losslessly.")
+
+
+def _deserialize_metadata_value(v: Any) -> Any:
+    """Decode tagged representations back into exact canonical objects."""
+    if isinstance(v, dict):
+        if "__stype__" in v and "val" in v:
+            tag = v["__stype__"]
+            raw_val = v["val"]
+            if tag == "Path":
+                return Path(raw_val)
+            if tag == "datetime":
+                return datetime.datetime.fromisoformat(raw_val)
+            if tag == "date":
+                return datetime.date.fromisoformat(raw_val)
+            if tag == "time":
+                return datetime.time.fromisoformat(raw_val)
+            if tag == "Decimal":
+                return Decimal(raw_val)
+            if tag == "set":
+                return set(_deserialize_metadata_value(x) for x in raw_val)
+            if tag == "tuple":
+                return tuple(_deserialize_metadata_value(x) for x in raw_val)
+        return {k: _deserialize_metadata_value(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_deserialize_metadata_value(x) for x in v]
+    return v
+
+
 def _serialize_metadata(meta: Mapping[str, Any]) -> dict[str, Any]:
-    """Filter non-semantic runtime objects from metadata to ensure clean serialization."""
-    clean: dict[str, Any] = {}
-    for k, v in meta.items():
-        if v is None or isinstance(v, (int, float, str, bool)):
-            clean[str(k)] = v
-        elif isinstance(v, Path):
-            clean[str(k)] = str(v)
-        elif isinstance(v, (list, tuple)):
-            clean[str(k)] = [
-                str(x) if isinstance(x, Path) else x
-                for x in v
-                if x is None or isinstance(x, (int, float, str, bool, Path))
-            ]
-        elif isinstance(v, Mapping):
-            clean[str(k)] = _serialize_metadata(v)
-    return clean
+    """Serialize metadata mapping losslessly, preserving complete canonical types."""
+    if not isinstance(meta, Mapping):
+        raise ValueError(f"Metadata must be a Mapping, got {type(meta).__name__}")
+    return {str(k): _serialize_metadata_value(v) for k, v in meta.items()}
+
+
+def _deserialize_metadata(meta_dict: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Deserialize metadata mapping, restoring tagged types to exact canonical classes."""
+    if not isinstance(meta_dict, Mapping):
+        return {}
+    return {str(k): _deserialize_metadata_value(v) for k, v in meta_dict.items()}
 
 
 def _serialize_canonical_doc(doc: CanonicalDocument) -> dict[str, Any]:
@@ -90,6 +138,18 @@ def _serialize_canonical_doc(doc: CanonicalDocument) -> dict[str, Any]:
     }
 
 
+def _validate_doc_metadata(doc: CanonicalDocument) -> None:
+    _serialize_metadata(doc.metadata)
+    for p in doc.pages:
+        _serialize_metadata(p.metadata)
+        for s in p.spans:
+            _serialize_metadata(s.metadata)
+        for t in p.tables:
+            _serialize_metadata(t.metadata)
+    for t in doc.tables:
+        _serialize_metadata(t.metadata)
+
+
 def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
     """Deserialize a single CanonicalDocument dictionary."""
     pages = []
@@ -101,7 +161,7 @@ def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
                 bounding_box=tuple(s["bounding_box"]) if s.get("bounding_box") is not None else None,
                 language=s.get("language"),
                 script=s.get("script"),
-                metadata=MappingProxyType(s.get("metadata", {})),
+                metadata=MappingProxyType(_deserialize_metadata(s.get("metadata", {}))),
             )
             for s in p.get("spans", [])
         ]
@@ -110,7 +170,7 @@ def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
                 name=t["name"],
                 headers=tuple(t["headers"]),
                 rows=tuple(tuple(r) for r in t["rows"]),
-                metadata=MappingProxyType(t.get("metadata", {})),
+                metadata=MappingProxyType(_deserialize_metadata(t.get("metadata", {}))),
             )
             for t in p.get("tables", [])
         ]
@@ -120,7 +180,7 @@ def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
                 text=p["text"],
                 spans=tuple(p_spans),
                 tables=tuple(p_tables),
-                metadata=MappingProxyType(p.get("metadata", {})),
+                metadata=MappingProxyType(_deserialize_metadata(p.get("metadata", {}))),
             )
         )
 
@@ -129,7 +189,7 @@ def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
             name=t["name"],
             headers=tuple(t["headers"]),
             rows=tuple(tuple(r) for r in t["rows"]),
-            metadata=MappingProxyType(t.get("metadata", {})),
+            metadata=MappingProxyType(_deserialize_metadata(t.get("metadata", {}))),
         )
         for t in d.get("tables", [])
     ]
@@ -141,7 +201,7 @@ def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
         detected_type=d.get("detected_type"),
         pages=tuple(pages),
         tables=tuple(doc_tables),
-        metadata=MappingProxyType(d.get("metadata", {})),
+        metadata=MappingProxyType(_deserialize_metadata(d.get("metadata", {}))),
     )
 
 
@@ -151,15 +211,35 @@ def is_cacheable_result(result: Result) -> bool:
         return False
     if result.data is None:
         return False
-    if isinstance(result.data, CanonicalDocument):
-        return True
-    if (
-        isinstance(result.data, (tuple, list))
-        and len(result.data) > 0
-        and all(isinstance(d, CanonicalDocument) for d in result.data)
+    if not (
+        isinstance(result.data, CanonicalDocument)
+        or (
+            isinstance(result.data, (tuple, list))
+            and len(result.data) > 0
+            and all(isinstance(d, CanonicalDocument) for d in result.data)
+        )
     ):
-        return True
-    return False
+        return False
+
+    try:
+        if isinstance(result.data, CanonicalDocument):
+            _validate_doc_metadata(result.data)
+        else:
+            for doc in result.data:
+                _validate_doc_metadata(doc)
+        _serialize_metadata(result.metadata)
+        for p in result.artifact_payloads:
+            _serialize_metadata(p.intent.metadata)
+        for w in result.warnings:
+            _serialize_metadata(w.context)
+        for pr in result.provenance:
+            _serialize_metadata(pr.evidence)
+        if result.confidence is not None:
+            _serialize_metadata(result.confidence.evidence)
+    except (ValueError, TypeError):
+        return False
+
+    return True
 
 
 def serialize_result(result: Result) -> str:
@@ -262,7 +342,7 @@ def deserialize_result(json_str: str) -> Result:
                     role=intent_dict["role"],
                     media_type=intent_dict["media_type"],
                     relative_path=Path(rel_path) if rel_path else None,
-                    metadata=MappingProxyType(intent_dict.get("metadata", {})),
+                    metadata=MappingProxyType(_deserialize_metadata(intent_dict.get("metadata", {}))),
                 ),
                 content=base64.b64decode(p["content_b64"].encode("ascii")),
             )
@@ -273,7 +353,7 @@ def deserialize_result(json_str: str) -> Result:
             code=w["code"],
             message=w["message"],
             stage=w.get("stage"),
-            context=MappingProxyType(w.get("context", {})),
+            context=MappingProxyType(_deserialize_metadata(w.get("context", {}))),
         )
         for w in raw.get("warnings", [])
     ]
@@ -287,7 +367,7 @@ def deserialize_result(json_str: str) -> Result:
             capability_id=pr.get("capability_id"),
             page_number=pr.get("page_number"),
             region=pr.get("region"),
-            evidence=MappingProxyType(pr.get("evidence", {})),
+            evidence=MappingProxyType(_deserialize_metadata(pr.get("evidence", {}))),
             timestamp_utc=pr.get("timestamp_utc"),
         )
         for pr in raw.get("provenance", [])
@@ -298,7 +378,7 @@ def deserialize_result(json_str: str) -> Result:
         conf = ConfidenceValue(
             score=raw["confidence"]["score"],
             method=raw["confidence"]["method"],
-            evidence=MappingProxyType(raw["confidence"].get("evidence", {})),
+            evidence=MappingProxyType(_deserialize_metadata(raw["confidence"].get("evidence", {}))),
         )
 
     return Result(
@@ -310,5 +390,5 @@ def deserialize_result(json_str: str) -> Result:
         provenance=tuple(provs),
         next_requirement=raw.get("next_requirement"),
         resume_self=bool(raw.get("resume_self", False)),
-        metadata=MappingProxyType(raw.get("metadata", {})),
+        metadata=MappingProxyType(_deserialize_metadata(raw.get("metadata", {}))),
     )

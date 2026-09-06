@@ -1,8 +1,10 @@
+# ruff: noqa: E402
 """Tests for Pre-OCR Vision Filters and OpenCV Fallback Behavior."""
 
 from __future__ import annotations
 
 import unittest.mock as mock
+
 import pytest
 
 # Finding 26 Fix: Guard numpy import so environments without ocr optional extra skip cleanly
@@ -38,7 +40,7 @@ def test_deskew_image_handles_empty_or_trivial() -> None:
 
 def test_apply_clahe_enhancement() -> None:
     """Verify apply_clahe enhances contrast on RGB and grayscale images without altering shape."""
-    cv2 = pytest.importorskip("cv2")
+    pytest.importorskip("cv2")
     # Low-contrast image with a subtle gradient
     x = np.linspace(50, 80, 64, dtype=np.uint8)
     rgb_img = np.zeros((64, 64, 3), dtype=np.uint8)
@@ -66,7 +68,7 @@ def test_remove_stamp_artifacts_safety() -> None:
 
 def test_remove_stamp_artifacts_inpainting() -> None:
     """Verify remove_stamp_artifacts detects red stamp pixels and applies inpainting."""
-    cv2 = pytest.importorskip("cv2")
+    pytest.importorskip("cv2")
     img = np.full((80, 80, 3), 255, dtype=np.uint8)
     # Stamp a red circle in the center (RGB red: [255, 0, 0])
     img[30:50, 30:50] = [255, 0, 0]
@@ -92,7 +94,7 @@ def test_preprocess_ocr_image_defaults_are_non_destructive() -> None:
 
 def test_full_pipeline_with_cv2_present() -> None:
     """Finding 25 Fix: Verify full pipeline actually transforms image when cv2 is present."""
-    cv2 = pytest.importorskip("cv2")
+    pytest.importorskip("cv2")
     # Grayscale gradient image with a red patch
     sample_img = np.zeros((100, 100, 3), dtype=np.uint8)
     sample_img[:, :] = np.linspace(40, 100, 100, dtype=np.uint8)[:, None]
@@ -107,7 +109,7 @@ def test_full_pipeline_with_cv2_present() -> None:
 
 def test_ocr_page_profile_preprocessing_logic() -> None:
     """Findings 22 & 23: Verify ocr_page dispatches non-destructive preprocessing per profile."""
-    cv2 = pytest.importorskip("cv2")
+    pytest.importorskip("cv2")
     engine = RapidOCREngine.__new__(RapidOCREngine)
     engine._default_lang = "en"
     engine._model_labels = {}

@@ -60,11 +60,11 @@ class BankStatementsProvider(PluginProvider):
                     reason="Unavailable (No bank profiles loaded)",
                 )
             }
-        except Exception as exc:
+        except Exception:
             return {
                 "bank_statements": CapabilityReadiness(
                     ready=False,
                     status=ReadinessStatus.INVALID_CONFIGURATION,
-                    reason=f"Unavailable (Failed to load bank profiles: {exc})",
+                    reason="Unavailable (Failed to load bank profiles)",
                 )
             }

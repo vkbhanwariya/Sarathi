@@ -89,7 +89,6 @@ def main(argv: list[str] | None = None) -> int:
                 output_root=Path(args.output_root) if args.output_root else None,
             ) as agni:
                 import threading
-                import time
                 import webbrowser
 
                 from sarathi.mukha import MukhaWebServer

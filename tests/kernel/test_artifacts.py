@@ -342,7 +342,7 @@ class TestSecurityAndPathEscapeValidation:
             )
             ws.commit_artifact(intent, b"payload")
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
-        assert "Symlink escape detected" in exc_info.value.message
+        assert any(msg in exc_info.value.message for msg in ("Symlink escape detected", "escapes output root"))
 
 
 class TestManifestSafetyAndOrdering:

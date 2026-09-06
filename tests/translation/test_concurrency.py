@@ -9,8 +9,8 @@ import pytest
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
-    CanonicalDocument,
     CancellationToken,
+    CanonicalDocument,
     DeviceType,
     ExecutionBinding,
     ExecutionContext,

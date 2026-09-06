@@ -55,8 +55,53 @@ def _is_safe_filename(name: Any) -> bool:
     return True
 
 
+def _disable_openvino_telemetry() -> None:
+    """Enforce strict local zero-network policy for OpenVINO and openvino-telemetry."""
+    import os
+
+    os.environ["OPENVINO_TELEMETRY_OPTOUT"] = "1"
+    os.environ["TELEMETRY_OPTOUT"] = "1"
+
+    try:
+        import platform
+        from pathlib import Path
+
+        base_dir: str | None = None
+        if platform.system() == "Windows":
+            base_dir = os.environ.get("LOCALAPPDATA")
+        else:
+            base_dir = str(Path.home())
+        if base_dir and os.path.isdir(base_dir):
+            consent_dir = Path(base_dir) / "openvino_telemetry"
+            consent_dir.mkdir(parents=True, exist_ok=True)
+            consent_file = consent_dir / "openvino_telemetry"
+            if not consent_file.exists() or consent_file.read_text(encoding="ascii", errors="ignore").strip() != "0":
+                consent_file.write_text("0", encoding="ascii")
+    except Exception:
+        pass
+
+    try:
+        import openvino_telemetry
+
+        if hasattr(openvino_telemetry, "Telemetry"):
+            openvino_telemetry.Telemetry.send = lambda *args, **kwargs: None
+            openvino_telemetry.Telemetry.send_opt_in_event = lambda *args, **kwargs: None
+        try:
+            from openvino_telemetry.utils.sender import TelemetrySender
+
+            TelemetrySender.send = lambda *args, **kwargs: None
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+_disable_openvino_telemetry()
+
+
 def _patch_rapidocr_openvino_device() -> None:
     """Ensure RapidOCR OpenVINOInferSession respects the device configured in the inference params."""
+    _disable_openvino_telemetry()
     try:
         import rapidocr.inference_engine.openvino.main as ov_main
 
@@ -520,6 +565,7 @@ def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
     Returns:
         (is_ready, status_or_reason)
     """
+    _disable_openvino_telemetry()
     import importlib.util
 
     for mod in ("rapidocr", "openvino", "PIL", "numpy"):
@@ -690,6 +736,20 @@ def _parse_rapidocr_output(
     return lines, spans, conf_scores, warnings, has_invalid_confidence, has_invalid_geometry
 
 
+def _resolve_target_device(execution_binding: ExecutionBinding | None) -> str:
+    """Resolve factual OpenVINO target device string from execution binding."""
+    if execution_binding is None or execution_binding.device_type == DeviceType.CPU:
+        return "CPU"
+    if execution_binding.device_type == DeviceType.GPU:
+        return execution_binding.backend_device_id or "GPU"
+    if execution_binding.device_type == DeviceType.NPU:
+        return execution_binding.backend_device_id or "NPU"
+    raise DoshError(
+        code=FailureCode.UNSUPPORTED,
+        message=f"Unsupported execution device type '{execution_binding.device_type.value}' for OCR.",
+    )
+
+
 class RapidOCREngine:
     """Instance-owned RapidOCR + PP-OCRv5/v6 + OpenVINO engine adapter."""
 
@@ -733,9 +793,7 @@ class RapidOCREngine:
         else:
             engine_key = "en"
 
-        target_device = "CPU"
-        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
-            target_device = execution_binding.backend_device_id or "GPU"
+        target_device = _resolve_target_device(execution_binding)
 
         cache_key = f"{engine_key}:{target_device}"
 
@@ -760,9 +818,7 @@ class RapidOCREngine:
             return self._get_engine_unlocked(lang=lang, execution_binding=execution_binding)
 
     def _get_engine_unlocked(self, lang: str = "en", execution_binding: ExecutionBinding | None = None) -> Any:
-        target_device = "CPU"
-        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
-            target_device = execution_binding.backend_device_id or "GPU"
+        target_device = _resolve_target_device(execution_binding)
 
         manifest_file = self._data_root / "manifest.json"
         models_dir = self._data_root / "models"
@@ -995,7 +1051,15 @@ class RapidOCREngine:
                 "Global.log_level": "error",
             }
 
-        engine_inst = RapidOCR(params=params)
+        try:
+            engine_inst = RapidOCR(params=params)
+        except DoshError:
+            raise
+        except Exception as exc:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message=f"Failed to initialize OCR engine on device '{target_device}'.",
+            ) from exc
         setattr(engine_inst, "_owner_thread", threading.get_ident())
         if not hasattr(self._local, "engines"):
             self._local.engines = {}
@@ -1024,9 +1088,7 @@ class RapidOCREngine:
         """Run PP-OCR OpenVINO on a single image and return factual PageData, Provenance, and Warnings."""
         import numpy as np
 
-        target_device = "CPU"
-        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
-            target_device = execution_binding.backend_device_id or "GPU"
+        target_device = _resolve_target_device(execution_binding)
 
         lang_opt = custom_options.get("lang") if custom_options else None
         target_lang = str(lang_opt).lower().strip() if lang_opt else self._default_lang

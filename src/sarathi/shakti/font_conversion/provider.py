@@ -66,11 +66,11 @@ class FontConversionProvider(PluginProvider):
                     reason="Unavailable (Missing font mapping packs)",
                 )
             }
-        except Exception as exc:
+        except Exception:
             return {
                 "font_conversion": CapabilityReadiness(
                     ready=False,
                     status=ReadinessStatus.INVALID_CONFIGURATION,
-                    reason=f"Unavailable (Failed to inspect font packs: {exc})",
+                    reason="Unavailable (Failed to inspect font mapping packs)",
                 )
             }

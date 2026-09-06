@@ -475,7 +475,7 @@ class DocxStyleResolver:
     def _parse_styles(self, styles_xml: bytes) -> None:
         try:
             root = ET.fromstring(styles_xml)
-        except Exception:
+        except (ET.ParseError, ValueError):
             return
 
         # 1. docDefaults
@@ -676,9 +676,9 @@ def _serialize_xml_preserving_namespaces(
             if prefix:
                 try:
                     ET.register_namespace(prefix, uri)
-                except Exception:
+                except (ValueError, KeyError):
                     pass
-    except Exception:
+    except (ET.ParseError, ValueError):
         pass
 
     # 2. Serialize tree with ElementTree

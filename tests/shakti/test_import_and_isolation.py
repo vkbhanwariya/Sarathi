@@ -237,16 +237,26 @@ class TestArchitecturalBoundaries:
         )
         from sarathi.shakti.ocr.typography import (
             DEVANAGARI_FONT as OCR_DEV_FONT,
+        )
+        from sarathi.shakti.ocr.typography import (
             ENGLISH_FONT as OCR_ENG_FONT,
-            contains_devanagari as ocr_contains_dev,
+        )
+        from sarathi.shakti.ocr.typography import (
             normalize_size as ocr_norm_size,
+        )
+        from sarathi.shakti.ocr.typography import (
             output_font as ocr_output_font,
         )
         from sarathi.shakti.translation.typography import (
             DEVANAGARI_FONT as TRANS_DEV_FONT,
+        )
+        from sarathi.shakti.translation.typography import (
             ENGLISH_FONT as TRANS_ENG_FONT,
-            contains_devanagari as trans_contains_dev,
+        )
+        from sarathi.shakti.translation.typography import (
             normalize_size as trans_norm_size,
+        )
+        from sarathi.shakti.translation.typography import (
             output_font as trans_output_font,
         )
 

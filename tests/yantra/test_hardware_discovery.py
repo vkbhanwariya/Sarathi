@@ -6,14 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CapabilityDeclaration,
     DeviceRequirement,
     DeviceType,
     ExecutionContext,
-    ExecutionProfile,
-    InputRef,
     Request,
     Result,
 )

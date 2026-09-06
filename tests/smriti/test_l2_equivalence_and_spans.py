@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from types import MappingProxyType
 
-import pytest
-
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
@@ -14,12 +12,9 @@ from sarathi.sankalpa import (
     ExecutionContext,
     InputRef,
     PageData,
-    ProvenanceRecord,
     Request,
     Result,
-    TableData,
     TextSpan,
-    WarningRecord,
 )
 from sarathi.smriti.key import CacheKey
 from sarathi.smriti.serialization import deserialize_result, serialize_result

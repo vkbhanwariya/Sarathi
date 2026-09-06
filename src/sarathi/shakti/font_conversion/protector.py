@@ -7,23 +7,18 @@ and existing Unicode Devanagari text round-trip 100% untouched.
 from __future__ import annotations
 
 import re
-from typing import Any, Sequence
 
 from sarathi.shakti.font_conversion.models import ProtectedSpan
-
 from sarathi.shakti.text.span_protection import (
     _DATE_RE,
     _EMAIL_RE,
     _ID_RE,
     _NUM_RE,
     _PERCENT_RE,
-    _PROT_END,
-    _PROT_START,
     _UNICODE_DEVANAGARI_RE,
     _URL_RE,
     BaseSpanProtector,
 )
-
 
 _KRUTI_CHARS = set("~+ñòóôõö÷øùúûü")
 _KRUTI_DIGRAPHS = (

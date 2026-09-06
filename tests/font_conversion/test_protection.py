@@ -132,8 +132,8 @@ def test_protect_unparenthesized_english_address_and_titlecase_firms() -> None:
 
 def test_unlabelled_table_cell_with_multiline_mixed_content() -> None:
     """Verify multiline table cell with mixed English headers/rows and KrutiDev text converts cleanly."""
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
     from sarathi.shakti.font_conversion.capability import FontConversionCapability
-    from sarathi.sankalpa import CanonicalDocument, TableData, Request, ExecutionContext, InputRef, Result
 
     cap = FontConversionCapability()
     req = Request(

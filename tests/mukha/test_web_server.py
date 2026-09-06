@@ -387,7 +387,7 @@ class TestMukhaWebServerAPI:
         with web_server._lock:
             web_server._run_output_roots[run_id] = out_dir
 
-        with patch("subprocess.Popen") as mock_popen, patch("subprocess.run") as mock_run:
+        with patch("subprocess.Popen") as mock_popen, patch("subprocess.run"):
             res = web_server.reveal_output_directory(run_id)
             assert res is True
             assert mock_popen.called
@@ -418,7 +418,10 @@ class TestMukhaWebServerAPI:
             from sarathi.sankalpa import Result
             return Result(data=None)
 
-        with patch.object(web_server._agni, "execute", side_effect=mock_execute):
+        with (
+            patch.object(web_server._agni, "execute", side_effect=mock_execute),
+            patch("sarathi.mukha.presenter.MukhaPresenter.audit_capability_status", return_value={"ocr": (True, "Ready")}),
+        ):
             status, data = _http_post(
                 f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
                 data={"paths": [str(test_file)], "requirement": "ocr"},
@@ -460,7 +463,7 @@ def test_serialize_dataclass_with_value_field() -> None:
     from dataclasses import dataclass
     from enum import Enum
 
-    from sarathi.mukha.web.server import _serialize_dataclass
+    from sarathi.mukha.web.http_handler import _serialize_dataclass
 
     class StatusEnum(Enum):
         ACTIVE = "active"

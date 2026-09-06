@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 import pytest
 
-from sarathi.dosh import DoshError
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionContext,
@@ -155,7 +156,12 @@ def test_translation_engine_error_does_not_leak_paths(tmp_path: Path) -> None:
     # spm.model is intentionally missing
 
     engine = CTranslate2TranslationEngine(data_root=tmp_path)
-    backend = engine._ensure_backend()
+    try:
+        backend = engine._ensure_backend()
+    except DoshError as exc:
+        if exc.code is FailureCode.DEPENDENCY_UNAVAILABLE:
+            pytest.skip("Translation dependencies (ctranslate2, sentencepiece) are not installed.")
+        raise
     with pytest.raises(DoshError) as exc_info:
         backend.translate_sentences(["नमस्ते"], TranslationDirection.HI_TO_EN)
     err_msg = exc_info.value.message

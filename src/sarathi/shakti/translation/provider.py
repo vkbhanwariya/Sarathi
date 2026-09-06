@@ -67,11 +67,11 @@ class TranslationProvider(PluginProvider):
                     reason=f"Unavailable (Missing: {', '.join(missing_parts)})",
                 )
             }
-        except Exception as exc:
+        except Exception:
             return {
                 "translation": CapabilityReadiness(
                     ready=False,
                     status=ReadinessStatus.DEPENDENCY_UNAVAILABLE,
-                    reason=f"Unavailable (Failed to check translation dependencies: {exc})",
+                    reason="Unavailable (Failed to check translation dependencies)",
                 )
             }

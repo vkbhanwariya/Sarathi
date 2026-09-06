@@ -149,6 +149,10 @@ class DeviceInventory:
             ov_gpus: list[str] = []
             ov_npus: list[str] = []
             try:
+                import os
+
+                os.environ["OPENVINO_TELEMETRY_OPTOUT"] = "1"
+                os.environ["TELEMETRY_OPTOUT"] = "1"
                 import openvino as ov
 
                 core = ov.Core()

@@ -8,14 +8,14 @@ Verifies:
 from __future__ import annotations
 
 import http.client
-import urllib.request
+
 import pytest
 
-from sarathi.mukha.web.server import (
-    MukhaWebServer,
+from sarathi.mukha.web.http_handler import (
     _is_authorized_loopback_host,
     _is_authorized_loopback_origin,
 )
+from sarathi.mukha.web.server import MukhaWebServer
 
 
 class TestStructuralHostValidation:

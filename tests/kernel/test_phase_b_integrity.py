@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import os
-from datetime import date
-from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,7 +21,6 @@ from sarathi.sankalpa import (
     TableData,
 )
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
-from sarathi.shakti.bank_statements.models import BankStatement, Transaction
 from sarathi.shakti.translation.capability import TranslationCapability
 from sarathi.sutra.settings import get_canonical_data_root
 

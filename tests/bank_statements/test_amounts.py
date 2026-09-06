@@ -2,8 +2,6 @@
 
 from decimal import Decimal
 
-import pytest
-
 from sarathi.shakti.bank_statements.converter import parse_decimal_amount
 
 

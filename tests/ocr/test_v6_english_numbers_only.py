@@ -1,20 +1,12 @@
+# ruff: noqa: E402
 """Tests for PP-OCRv6 Locking and English Font & Numbers Only Filtering."""
 
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
-from PIL import Image, ImageDraw, ImageFont
-
-from sarathi.sankalpa import ExecutionProfile
-from sarathi.shakti.ocr.engine import (
-    RapidOCREngine,
-    filter_english_and_numbers,
-)
 
 _OCR_AVAILABLE = bool(
     importlib.util.find_spec("rapidocr")
@@ -28,6 +20,14 @@ if not _OCR_AVAILABLE:
         "Tests require optional OCR dependencies (rapidocr, openvino, PIL, numpy).",
         allow_module_level=True,
     )
+
+from PIL import Image, ImageDraw, ImageFont
+
+from sarathi.sankalpa import ExecutionProfile
+from sarathi.shakti.ocr.engine import (
+    RapidOCREngine,
+    filter_english_and_numbers,
+)
 
 
 def test_filter_english_and_numbers_unit() -> None:

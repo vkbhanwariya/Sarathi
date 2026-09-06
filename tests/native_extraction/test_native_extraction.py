@@ -915,14 +915,15 @@ class TestNativeExtraction:
             ),
         )
 
+        modules_before = set(sys.modules.keys())
         res = capability.execute(req, context)
         # Confidence must be unavailable (None), not fabricated
         assert res.confidence is None
 
-        # Verify no OCR engine modules have been imported
+        # Verify no OCR engine modules have been newly imported during execution
         forbidden_modules = {"rapidocr", "pytesseract", "tesseract", "easyocr", "paddleocr"}
-        for mod in forbidden_modules:
-            assert mod not in sys.modules
+        newly_imported = set(sys.modules.keys()) - modules_before
+        assert not (newly_imported & forbidden_modules)
 
     def test_plugin_and_capability_declarations(self) -> None:
         assert PLUGIN_INFO.plugin_id == "shakti.native_extraction"

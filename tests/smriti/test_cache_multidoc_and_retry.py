@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.manthan import CapabilityPlan, Manthan

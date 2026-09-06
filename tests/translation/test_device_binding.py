@@ -6,6 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytest.importorskip("ctranslate2")
+pytest.importorskip("sentencepiece")
+
 from sarathi.sankalpa import (
     CanonicalDocument,
     DeviceType,
@@ -22,6 +25,8 @@ from sarathi.shakti.translation.models import (
     TranslationDirection,
     TranslationResult,
 )
+from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION as TRANSLATION_DECL
+from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 
 
 class TestTranslationDeviceBinding:
@@ -151,3 +156,32 @@ class TestTranslationDeviceBinding:
         mock_engine.translate.assert_called_once()
         call_kwargs = mock_engine.translate.call_args[1]
         assert call_kwargs["execution_binding"] == binding
+
+    def test_translation_preferred_device_is_gpu_with_cpu_fallback(self) -> None:
+        """Verify translation capability prioritizes GPU over CPU and spills over when GPU is full."""
+        assert TRANSLATION_DECL.device_requirement.preferred_devices == (DeviceType.GPU,)
+        assert TRANSLATION_DECL.device_requirement.supported_devices == (DeviceType.GPU, DeviceType.CPU)
+
+        inventory = DeviceInventory([
+            DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=1),
+            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+        ])
+        yantra = Yantra(inventory)
+
+        # First allocation receives preferred GPU slot
+        alloc1 = yantra.allocate(TRANSLATION_DECL.device_requirement)
+        try:
+            assert alloc1.device_type == DeviceType.GPU
+            assert alloc1.device_id == "gpu-0"
+            assert alloc1.is_spillover is False
+
+            # When GPU slot is full, allocation spills over to CPU
+            alloc2 = yantra.allocate(TRANSLATION_DECL.device_requirement)
+            try:
+                assert alloc2.device_type == DeviceType.CPU
+                assert alloc2.device_id == "cpu-0"
+                assert alloc2.is_spillover is True
+            finally:
+                yantra.release(alloc2)
+        finally:
+            yantra.release(alloc1)

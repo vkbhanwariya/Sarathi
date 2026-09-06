@@ -15,18 +15,19 @@ Verifies:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock
+
 import pytest
 
+from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.darpana import Darpana, MarutiRecord
-from sarathi.nabhi import Dvara, Kosh, Prana
+from sarathi.mukha.presenter import MukhaPresenter
+from sarathi.nabhi import Dvara, Kosh
 from sarathi.sankalpa import (
-    CapabilityDeclaration,
     CanonicalDocument,
+    CapabilityDeclaration,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
@@ -35,16 +36,14 @@ from sarathi.sankalpa import (
     Request,
     Result,
     SecurityDeclaration,
-    TableData,
     TextSpan,
     WarningRecord,
 )
-from sarathi.smriti import compute_cache_key, compute_prior_result_digest
+from sarathi.shakti.bank_statements.capability import BankStatementCapability
 from sarathi.shakti.font_conversion.capability import FontConversionCapability
 from sarathi.shakti.translation.capability import TranslationCapability
-from sarathi.shakti.bank_statements.capability import BankStatementCapability
-from sarathi.mukha.presenter import MukhaPresenter
-from sarathi.yantra import Yantra, DeviceInventory
+from sarathi.smriti import compute_cache_key, compute_prior_result_digest
+from sarathi.yantra import DeviceInventory, Yantra
 
 
 def test_cache_key_includes_bounding_box() -> None:
@@ -261,7 +260,7 @@ def test_yantra_exception_note_sanitization() -> None:
 def test_pipeline_multi_stage_warning_accumulation(tmp_path: Path) -> None:
     """Finding 3: Pravaha centrally accumulates warnings across continuation and resumption stages."""
     from sarathi.nabhi import CapabilityPlan, Manthan, Pravaha, QuarantineStore, RetryPolicy
-    from sarathi.sankalpa import Capability, DeviceRequirement, DeviceType
+    from sarathi.sankalpa import Capability
 
     plugin = PluginInfo(
         plugin_id="p1",

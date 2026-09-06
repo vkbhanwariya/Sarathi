@@ -1,6 +1,8 @@
 """Tests for Contract 2: Canonical Result Serialization Safety."""
 
+import datetime
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
 
@@ -178,16 +180,52 @@ def test_multidocument_envelope_serialization_round_trip() -> None:
     assert restored.data[1].text == "Doc 2 text"
 
 
-def test_metadata_filters_non_serializable_objects() -> None:
-    """Verify metadata filters out runtime objects like lambdas without crashing."""
+def test_metadata_lossless_round_trip_canonical_vocabulary() -> None:
+    """Verify CanonicalDocument metadata losslessly preserves Decimal, dates, Path, sets, and tuples."""
+    rich_meta = {
+        "decimal_score": Decimal("99.85"),
+        "run_date": datetime.date(2026, 9, 6),
+        "run_timestamp": datetime.datetime(2026, 9, 6, 15, 30, 0),
+        "run_time": datetime.time(15, 30, 0),
+        "source_path": Path("/local/storage/file.pdf"),
+        "tags": {"invoice", "verified"},
+        "coord_tuple": (10.5, 20.0, 30.2),
+        "nested": {
+            "rate": Decimal("1.25"),
+            "sub_tuple": ("a", "b"),
+        },
+    }
     doc = CanonicalDocument(
-        document_id="doc-clean",
-        text="Clean doc",
-        metadata={"valid_str": "hello", "valid_int": 42, "func": lambda x: x},
+        document_id="doc-rich",
+        text="Rich metadata doc",
+        metadata=rich_meta,
     )
     res = Result(data=doc)
+    assert is_cacheable_result(res) is True
+
     serialized = serialize_result(res)
     restored = deserialize_result(serialized)
-    assert restored.data.metadata["valid_str"] == "hello"
-    assert restored.data.metadata["valid_int"] == 42
-    assert "func" not in restored.data.metadata
+
+    assert restored.data.metadata["decimal_score"] == Decimal("99.85")
+    assert restored.data.metadata["run_date"] == datetime.date(2026, 9, 6)
+    assert restored.data.metadata["run_timestamp"] == datetime.datetime(2026, 9, 6, 15, 30, 0)
+    assert restored.data.metadata["run_time"] == datetime.time(15, 30, 0)
+    assert restored.data.metadata["source_path"] == Path("/local/storage/file.pdf")
+    assert restored.data.metadata["tags"] == {"invoice", "verified"}
+    assert restored.data.metadata["coord_tuple"] == (10.5, 20.0, 30.2)
+    assert restored.data.metadata["nested"]["rate"] == Decimal("1.25")
+    assert restored.data.metadata["nested"]["sub_tuple"] == ("a", "b")
+
+
+def test_unsupported_metadata_type_refuses_cacheability() -> None:
+    """Verify uncacheable runtime objects (like lambdas or locks) cause is_cacheable_result to return False."""
+    doc = CanonicalDocument(
+        document_id="doc-uncacheable",
+        text="Uncacheable doc",
+        metadata={"valid_str": "hello", "func": lambda x: x},
+    )
+    res = Result(data=doc)
+    assert is_cacheable_result(res) is False
+
+    with pytest.raises(ValueError, match="not cacheable"):
+        serialize_result(res)

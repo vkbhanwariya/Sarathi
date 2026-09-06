@@ -2,15 +2,12 @@
 
 import importlib.util
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
-    CanonicalDocument,
     ExecutionContext,
     ExecutionProfile,
     InputRef,

@@ -4,21 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from PIL import Image
 
 from sarathi.sankalpa import (
-    CapabilityDeclaration,
-    DeviceRequirement,
     DeviceType,
     ExecutionBinding,
     ExecutionContext,
-    ExecutionProfile,
     InputRef,
     PageData,
     ProvenanceRecord,
     Request,
-    Result,
 )
 from sarathi.shakti.ocr.capability import OCRCapability
 from sarathi.shakti.ocr.engine import RapidOCREngine
@@ -132,6 +127,7 @@ class TestOCRCapabilityYantraIntegration:
 
     def test_no_threadpoolexecutor_in_ocr_capability(self) -> None:
         import inspect
+
         import sarathi.shakti.ocr.capability as cap_module
 
         src = inspect.getsource(cap_module)

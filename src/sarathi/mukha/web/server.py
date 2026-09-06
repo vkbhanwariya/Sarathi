@@ -15,7 +15,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
-from sarathi.dosh import DoshError, FailureCode
+from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import (
     ApplicationViewState,
@@ -32,14 +32,8 @@ from sarathi.mukha.web.http_handler import (
     MukhaHTTPHandler,
     StartRunResponse,
     StartRunStatus,
-    _SAFE_ID_PATTERN,
     _format_public_error,
-    _is_authorized_loopback_host,
-    _is_authorized_loopback_origin,
-    _sanitize_message,
-    _serialize_dataclass,
 )
-from sarathi.mukha.web.native_picker import NativePicker
 from sarathi.sankalpa import (
     ArtifactRef,
     CancellationToken,
@@ -226,17 +220,20 @@ class MukhaWebServer:
                 live_workers = dict(self._live_workers)
                 file_prog_map = dict(self._file_progress)
 
-            allocated_device = live_prog.get("device_type") or ""
-
             curr_page = live_prog.get("page_number")
             tot_pages = live_prog.get("total_pages")
             curr_file = live_prog.get("file_display_name")
+            curr_input_id = live_prog.get("input_id")
 
             inputs = active_req.inputs if active_req else ()
             files_list = []
             for idx, inp in enumerate(inputs):
-                f_prog = file_prog_map.get(inp.display_name) or file_prog_map.get(inp.input_id)
-                is_curr = bool(curr_file and (inp.display_name == curr_file or inp.input_id == curr_file))
+                f_prog = file_prog_map.get(inp.input_id) or file_prog_map.get(inp.display_name)
+                is_curr = bool(
+                    (curr_input_id and inp.input_id == curr_input_id)
+                    or (curr_file and (inp.display_name == curr_file or inp.input_id == curr_file))
+                )
+                f_warn_count = f_prog.get("warning_count", 0) if f_prog else 0
 
                 if is_alive:
                     if is_curr:
@@ -263,13 +260,17 @@ class MukhaWebServer:
                         f_stage = "Pending"
                         f_elapsed = None
                 else:
-                    if status == "SUCCESS":
-                        f_status = "SUCCESS"
+                    if f_prog and f_prog.get("status"):
+                        f_status = f_prog.get("status")
+                        f_stage = f_prog.get("stage", "Completed")
+                        f_elapsed = f_prog.get("duration_ns")
+                    elif status in ("SUCCESS", "WARNING"):
+                        f_status = "WARNING" if f_warn_count > 0 else "SUCCESS"
                         f_stage = "Completed"
                         f_elapsed = f_prog.get("duration_ns") if f_prog else None
                     elif status == "CANCELLED":
-                        if f_prog and f_prog.get("status") == "SUCCESS":
-                            f_status = "SUCCESS"
+                        if f_prog and f_prog.get("status") in ("SUCCESS", "WARNING"):
+                            f_status = f_prog.get("status")
                             f_stage = "Completed"
                             f_elapsed = f_prog.get("duration_ns")
                         else:
@@ -277,8 +278,8 @@ class MukhaWebServer:
                             f_stage = "Cancelled"
                             f_elapsed = None
                     else:
-                        if f_prog and f_prog.get("status") == "SUCCESS":
-                            f_status = "SUCCESS"
+                        if f_prog and f_prog.get("status") in ("SUCCESS", "WARNING"):
+                            f_status = f_prog.get("status")
                             f_stage = "Completed"
                             f_elapsed = f_prog.get("duration_ns")
                         else:
@@ -294,6 +295,7 @@ class MukhaWebServer:
                         status=f_status,
                         elapsed_ns=f_elapsed,
                         current_stage=f_stage,
+                        warning_count=f_warn_count,
                     )
                 )
             files = tuple(files_list)
@@ -428,6 +430,8 @@ class MukhaWebServer:
                 worker_id: str = "1",
                 stage: str = "Optical Character Recognition (OCR)",
                 device_type: str | None = None,
+                input_id: str = "",
+                **kwargs: Any,
             ) -> None:
                 with self._lock:
                     now = time.perf_counter_ns()
@@ -443,13 +447,16 @@ class MukhaWebServer:
                         "device_type": dev,
                         "started_ns": w_start,
                         "updated_ns": now,
+                        "input_id": input_id,
                     }
                     self._live_progress = w_info
                     self._live_workers[str(worker_id)] = w_info
 
-                    existing_f = self._file_progress.get(file_display_name)
+                    key = input_id or file_display_name
+                    existing_f = self._file_progress.get(key)
                     f_start = existing_f.get("started_ns", now) if existing_f else now
-                    self._file_progress[file_display_name] = {
+                    info = {
+                        "input_id": input_id,
                         "file_display_name": file_display_name,
                         "page_number": page_number,
                         "total_pages": total_pages,
@@ -459,6 +466,9 @@ class MukhaWebServer:
                         "started_ns": f_start,
                         "updated_ns": now,
                     }
+                    self._file_progress[key] = info
+                    if input_id and file_display_name:
+                        self._file_progress[file_display_name] = info
 
             effective_custom_options = dict(custom_options or {})
             effective_custom_options["progress_callback"] = _on_progress
@@ -500,32 +510,97 @@ class MukhaWebServer:
                         if result.artifacts:
                             self._confirmed_artifacts[run_id] = {art.artifact_id: art for art in result.artifacts}
 
-                        # Mark all inputs as SUCCESS in file progress if not already marked
+                        # Correlate warnings per input
+                        input_warn_counts: dict[str, int] = {inp.input_id: 0 for inp in request.inputs}
+                        unassociated_warns = 0
+                        for w in result.warnings:
+                            w_inp = (
+                                w.context.get("input_id")
+                                or w.context.get("source_input_id")
+                                or w.context.get("source_file")
+                            )
+                            if w_inp and w_inp in input_warn_counts:
+                                input_warn_counts[w_inp] += 1
+                            else:
+                                unassociated_warns += 1
+
+                        if unassociated_warns > 0:
+                            for inp_id in input_warn_counts:
+                                input_warn_counts[inp_id] += unassociated_warns
+
+                        # Map produced document outputs to inputs
+                        from sarathi.sankalpa import CanonicalDocument
+
+                        doc_map: dict[str, Any] = {}
+                        if isinstance(result.data, CanonicalDocument):
+                            doc_map[result.data.source_input_id] = result.data
+                        elif isinstance(result.data, (tuple, list)):
+                            for doc in result.data:
+                                if isinstance(doc, CanonicalDocument):
+                                    doc_map[doc.source_input_id] = doc
+
+                        successful_cnt = 0
+                        warning_cnt = 0
+                        failed_cnt = 0
+
                         for inp in request.inputs:
-                            existing = self._file_progress.get(inp.display_name, {})
+                            existing = (
+                                self._file_progress.get(inp.input_id)
+                                or self._file_progress.get(inp.display_name, {})
+                            )
                             start_t = existing.get("started_ns", self._active_start_ns)
                             duration = existing.get("duration_ns", max(0, time.perf_counter_ns() - start_t))
-                            self._file_progress[inp.display_name] = {
+                            w_count = input_warn_counts.get(inp.input_id, 0)
+
+                            # Determine factual per-input status
+                            has_doc = inp.input_id in doc_map or (len(request.inputs) == 1 and result.data is not None)
+                            has_artifact = bool(result.artifacts)
+
+                            if not has_doc and not has_artifact and result.data is None:
+                                f_stat = "FAILED"
+                                failed_cnt += 1
+                            elif w_count > 0:
+                                f_stat = "WARNING"
+                                warning_cnt += 1
+                            else:
+                                f_stat = "SUCCESS"
+                                successful_cnt += 1
+
+                            info = {
+                                "input_id": inp.input_id,
                                 "file_display_name": inp.display_name,
-                                "status": "SUCCESS",
+                                "status": f_stat,
                                 "stage": "Completed",
                                 "started_ns": start_t,
                                 "duration_ns": duration,
+                                "warning_count": w_count,
                             }
+                            self._file_progress[inp.input_id] = info
+                            self._file_progress[inp.display_name] = info
+
+                        # Determine factual overall run status
+                        if failed_cnt > 0 and successful_cnt == 0 and warning_cnt == 0:
+                            overall_status = "FAILED"
+                        elif failed_cnt > 0:
+                            overall_status = "PARTIAL"
+                        elif warning_cnt > 0:
+                            overall_status = "WARNING"
+                        else:
+                            overall_status = "SUCCESS"
 
                         summary = MukhaPresenter.build_summary_view(
                             run_id=run_id,
-                            status="SUCCESS",
+                            status=overall_status,
                             wall_time_ns=wall_time_ns,
                             request=request,
                             result=result,
-                            successful_files=len(request.inputs),
-                            warning_files=0,
-                            failed_files=0,
+                            successful_files=successful_cnt,
+                            warning_files=warning_cnt,
+                            failed_files=failed_cnt,
                             maruti_records=maruti_recs,
                             pramana_records=pramana_recs,
                         )
-                        self._terminal_status = "SUCCESS"
+                        self._terminal_status = overall_status
                         self._terminal_summary = summary
                 except DoshError as dosh_err:
                     is_cancelled = (
@@ -554,7 +629,7 @@ class MukhaWebServer:
                     with self._lock:
                         self._terminal_status = status
                         self._terminal_summary = summary
-                except Exception as err:
+                except Exception:
                     maruti_recs, pramana_recs = self._get_run_telemetry(run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
                     summary = MukhaPresenter.build_summary_view(

@@ -18,7 +18,6 @@ from sarathi.shakti.text.span_protection import (
     _URL_RE,
     BaseSpanProtector,
 )
-
 from sarathi.shakti.translation.models import TranslationSpan
 
 

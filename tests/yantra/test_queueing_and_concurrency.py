@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
 
 import pytest
 
@@ -14,7 +13,6 @@ from sarathi.sankalpa import (
     DeviceRequirement,
     DeviceType,
     ExecutionContext,
-    ExecutionProfile,
 )
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 

@@ -91,7 +91,11 @@ class SQLiteCacheStore:
         if not is_cacheable_result(result):
             return
 
-        data_json = serialize_result(result)
+        try:
+            data_json = serialize_result(result)
+        except (ValueError, TypeError):
+            return
+
         now = time.time()
 
         with self._lock, self._get_connection() as conn:

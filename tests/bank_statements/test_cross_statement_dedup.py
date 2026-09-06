@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import io
-from datetime import date, time
+from datetime import date
 from decimal import Decimal
 
 import polars as pl
-import pytest
 
 from sarathi.shakti.bank_statements.consolidator import (
     build_parquet_artifact,
-    build_xlsx_artifact,
     consolidate_statements,
 )
 from sarathi.shakti.bank_statements.models import (

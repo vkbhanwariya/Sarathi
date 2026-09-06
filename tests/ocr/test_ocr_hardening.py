@@ -18,10 +18,14 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+pytest.importorskip("numpy")
+pytest.importorskip("PIL")
 
 import numpy as np
-import pytest
 from PIL import Image
 
 from sarathi.dosh import DoshError, FailureCode
@@ -41,6 +45,7 @@ from sarathi.shakti.ocr import OCRCapability, check_ocr_readiness
 from sarathi.shakti.ocr.engine import (
     RapidOCREngine,
     TesseractFallbackAdapter,
+    _resolve_target_device,
 )
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
@@ -373,3 +378,87 @@ def test_ocr_cross_input_concurrency_with_bounded_subtasks(tmp_path: Path) -> No
     # Cross-input parallelism must have been active (> 1) and bounded by approved_concurrency (<= 2)
     assert max_active > 1, f"Expected concurrency > 1, got {max_active}"
     assert max_active <= 2, f"Expected concurrency <= 2, got {max_active}"
+
+
+def test_ocr_engine_device_dispatch_integrity() -> None:
+    """Verify factual target device resolution for CPU, GPU, NPU, and rejection of invalid types."""
+    assert _resolve_target_device(None) == "CPU"
+
+    cpu_b = ExecutionBinding("cpu-0", DeviceType.CPU, "cpu", "CPU")
+    assert _resolve_target_device(cpu_b) == "CPU"
+
+    gpu_b = ExecutionBinding("gpu-0", DeviceType.GPU, "openvino", "GPU.0")
+    assert _resolve_target_device(gpu_b) == "GPU.0"
+
+    npu_b = ExecutionBinding("npu-0", DeviceType.NPU, "openvino", "NPU.0")
+    assert _resolve_target_device(npu_b) == "NPU.0"
+
+    npu_default = ExecutionBinding("npu-0", DeviceType.NPU, "openvino", "NPU")
+    assert _resolve_target_device(npu_default) == "NPU"
+
+    # Fake/unsupported device type
+    mock_invalid = MagicMock()
+    mock_invalid.device_type = MagicMock()
+    mock_invalid.device_type.value = "tpu"
+    with pytest.raises(DoshError) as exc_info:
+        _resolve_target_device(mock_invalid)
+    assert exc_info.value.code is FailureCode.UNSUPPORTED
+
+
+def test_ocr_engine_npu_binding_passes_npu_to_rapidocr(tmp_path: Path) -> None:
+    """Verify that an NPU binding configures RapidOCR with NPU and does not coerce to CPU."""
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(
+        '{"models": {"det": {"filename": "det.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec": {"filename": "rec.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
+        encoding="utf-8",
+    )
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "det.onnx").write_bytes(b"")
+    (models_dir / "rec.onnx").write_bytes(b"")
+    (models_dir / "cls.onnx").write_bytes(b"")
+
+    engine = RapidOCREngine(data_root=tmp_path)
+    npu_b = ExecutionBinding("npu-0", DeviceType.NPU, "openvino", "NPU.0")
+
+    captured_params = {}
+
+    def mock_rapidocr_init(params=None):
+        nonlocal captured_params
+        captured_params = params or {}
+        mock_inst = MagicMock()
+        return mock_inst
+
+    with patch("rapidocr.RapidOCR", side_effect=mock_rapidocr_init):
+        inst = engine._get_engine(lang="en", execution_binding=npu_b)
+        assert inst is not None
+        assert captured_params.get("Det.device") == "NPU.0"
+        assert captured_params.get("Rec.device") == "NPU.0"
+        assert captured_params.get("Cls.device") == "NPU.0"
+
+
+def test_ocr_engine_initialization_failure_raises_dosh_error(tmp_path: Path) -> None:
+    """Verify hardware or compilation failures raise DoshError(FailureCode.EXECUTION_FAILED)."""
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(
+        '{"models": {"det": {"filename": "det.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec": {"filename": "rec.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
+        encoding="utf-8",
+    )
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "det.onnx").write_bytes(b"")
+    (models_dir / "rec.onnx").write_bytes(b"")
+    (models_dir / "cls.onnx").write_bytes(b"")
+
+    engine = RapidOCREngine(data_root=tmp_path)
+    npu_b = ExecutionBinding("npu-0", DeviceType.NPU, "openvino", "NPU")
+
+    with patch("rapidocr.RapidOCR", side_effect=RuntimeError("Level0 pfnCreate2 error")):
+        with pytest.raises(DoshError) as exc_info:
+            engine._get_engine(lang="en", execution_binding=npu_b)
+        assert exc_info.value.code is FailureCode.EXECUTION_FAILED
+        assert "Failed to initialize OCR engine on device 'NPU'" in exc_info.value.message

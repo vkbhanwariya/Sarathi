@@ -55,7 +55,6 @@ def test_krutidev_word_conversion() -> None:
 def test_krutidev_extended_ligatures_and_purna_viram() -> None:
     """Verify extended KrutiDev ligatures (त्त, क्र, फ्, ई, िं, रु, द्व) and purna viram (।) convert accurately."""
     converter = FontConverter()
-    protector = TextProtector()
 
     # Purna viram A -> ।
     assert converter.convert("A", "krutidev010") == "।"

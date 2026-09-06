@@ -76,8 +76,14 @@ def read_pdf(
                                             },
                                         )
                                     )
-            except Exception:
-                pass
+            except (ValueError, KeyError, TypeError, RuntimeError):
+                warnings.append(
+                    WarningRecord(
+                        code="PDF_RICH_SPAN_EXTRACTION_DEGRADED",
+                        message=f"Rich span formatting extraction degraded on page {page_num}; falling back to text blocks.",
+                        stage=_CAPABILITY_ID,
+                    )
+                )
 
             if not spans:
                 blocks = page.get_text("blocks")
@@ -665,7 +671,6 @@ def read_docx(
                         if r_text:
                             run_count += 1
                             p_runs_text.append(r_text)
-                            has_complex_script = any("\u0900" <= c <= "\u0d7f" for c in r_text)
                             effective_font = style_resolver.resolve_run_font(
                                 r, elem, text=r_text
                             )

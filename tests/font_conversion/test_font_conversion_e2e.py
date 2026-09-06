@@ -233,7 +233,6 @@ def test_residual_legacy_warning_and_metrics() -> None:
 
 def test_canonical_and_docx_conversion_parity() -> None:
     """Verify that CanonicalDocument span conversion and raw DOCX run conversion produce identical decisions."""
-    from sarathi.sankalpa import PageData, TextSpan
     from sarathi.shakti.docx_exporter import DocxStyleResolver
     from sarathi.shakti.font_conversion.detector import decide_run_profile
 

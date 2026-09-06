@@ -230,66 +230,54 @@ class OCRCapability:
         if can_parallelize:
             import threading
 
-            def _flush_chunk(chunk_items: list[tuple[InputRef, int, int, Any]]) -> None:
-                if not chunk_items:
-                    return
-
-                def _make_page_task(
-                    inp_ref: InputRef, p_idx: int, tot_pages: int, p_img: Any
-                ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
-                    def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
-                        if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-                            context.cancellation_token.check_cancelled()
-
-                        w_id = str(threading.get_ident() % 1000)
-                        if progress_cb is not None:
-                            dev_str = (
-                                context.execution_binding.device_type.value
-                                if context.execution_binding
-                                else "CPU"
-                            )
-                            progress_cb(
-                                file_display_name=inp_ref.display_name,
-                                page_number=p_idx,
-                                total_pages=tot_pages,
-                                worker_id=w_id,
-                                stage="Optical Character Recognition (OCR)",
-                                device_type=dev_str,
-                            )
-
-                        p_data, p_prov, _, p_warns = self._engine.ocr_page(
-                            p_img,
-                            p_idx,
-                            inp_ref.input_id,
-                            profile=request.profile,
-                            custom_options=request.custom_options,
-                            execution_binding=context.execution_binding,
-                        )
-                        return p_data, p_prov, p_warns
-
-                    return _task
-
-                subtasks = [_make_page_task(item[0], item[1], item[2], item[3]) for item in chunk_items]
-                page_results = self._yantra.execute_subtasks(
-                    subtasks, context=context, max_concurrency=max_concurrency
-                )
-                for (inp_ref, p_idx, _, _), (p_data, p_prov, p_warns) in zip(chunk_items, page_results):
-                    doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
-
-            chunk_size = max(2, approved_concurrency)
-            current_chunk: list[tuple[InputRef, int, int, Any]] = []
-
+            all_items: list[tuple[InputRef, int, int, Any]] = []
             for inp, images in ocr_inputs:
                 tot = len(images)
                 for p_idx, img in enumerate(images, 1):
-                    current_chunk.append((inp, p_idx, tot, img))
-                    if len(current_chunk) >= chunk_size:
-                        _flush_chunk(current_chunk)
-                        current_chunk.clear()
+                    all_items.append((inp, p_idx, tot, img))
 
-            if current_chunk:
-                _flush_chunk(current_chunk)
-                current_chunk.clear()
+            def _make_page_task(
+                inp_ref: InputRef, p_idx: int, tot_pages: int, p_img: Any
+            ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
+                def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
+                    if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                        context.cancellation_token.check_cancelled()
+
+                    w_id = str(threading.get_ident() % 1000)
+                    if progress_cb is not None:
+                        dev_str = (
+                            context.execution_binding.device_type.value
+                            if context.execution_binding
+                            else "CPU"
+                        )
+                        progress_cb(
+                            file_display_name=inp_ref.display_name,
+                            page_number=p_idx,
+                            total_pages=tot_pages,
+                            worker_id=w_id,
+                            stage="Optical Character Recognition (OCR)",
+                            device_type=dev_str,
+                            input_id=inp_ref.input_id,
+                        )
+
+                    p_data, p_prov, _, p_warns = self._engine.ocr_page(
+                        p_img,
+                        p_idx,
+                        inp_ref.input_id,
+                        profile=request.profile,
+                        custom_options=request.custom_options,
+                        execution_binding=context.execution_binding,
+                    )
+                    return p_data, p_prov, p_warns
+
+                return _task
+
+            subtasks = [_make_page_task(item[0], item[1], item[2], item[3]) for item in all_items]
+            page_results = self._yantra.execute_subtasks(
+                subtasks, context=context, max_concurrency=approved_concurrency
+            )
+            for (inp_ref, p_idx, _, _), (p_data, p_prov, p_warns) in zip(all_items, page_results):
+                doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
         else:
             for inp, images in ocr_inputs:
                 tot = len(images)
@@ -310,6 +298,7 @@ class OCRCapability:
                             worker_id="1",
                             stage="Optical Character Recognition (OCR)",
                             device_type=dev_str,
+                            input_id=inp.input_id,
                         )
 
                     page_data, prov, _, page_warnings = self._engine.ocr_page(

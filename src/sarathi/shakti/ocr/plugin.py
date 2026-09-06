@@ -31,6 +31,8 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
         ExecutionProfile.CUSTOM,
     ),
     device_requirement=DeviceRequirement(
+        # NPU execution is explicitly deferred: PP-OCR ONNX models utilize dynamic
+        # tensor dimensions without upper bounds required by the Intel NPU VCL compiler.
         preferred_devices=(DeviceType.GPU, DeviceType.CPU),
         supported_devices=(DeviceType.GPU, DeviceType.CPU),
         parallelizable=True,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any
 
 import pytest
 
@@ -119,6 +119,7 @@ def test_concurrent_intake_does_not_block_server_lock(tmp_path: Path) -> None:
     """Intake discovery must run outside server lock to prevent blocking concurrent status queries."""
     import threading
     from unittest.mock import MagicMock, patch
+
     from sarathi.mukha.web.server import MukhaWebServer
     from sarathi.sankalpa import ExecutionProfile
 
