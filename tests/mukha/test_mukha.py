@@ -521,13 +521,13 @@ class TestMukhaAuditCapabilityStatus:
 
     def test_audit_without_sources_returns_empty_dict(self) -> None:
         """When neither Agni, Kosh, nor providers are supplied, Mukha returns an empty dict without importing BUILTIN_PLUGIN_PROVIDERS."""
-        import sys
         statuses = MukhaPresenter.audit_capability_status()
         assert statuses == {}
 
     def test_audit_through_agni(self) -> None:
         """When Agni is supplied, audit_readiness is queried."""
         from unittest.mock import MagicMock
+
         from sarathi.sankalpa import CapabilityReadiness, ReadinessStatus
 
         mock_agni = MagicMock()
@@ -544,6 +544,7 @@ class TestMukhaAuditCapabilityStatus:
     def test_audit_through_kosh(self) -> None:
         """When Kosh is supplied, status is projected from registered capability declarations."""
         from unittest.mock import MagicMock
+
         from sarathi.sankalpa import CapabilityDeclaration, ExecutionProfile
 
         decl = CapabilityDeclaration(
@@ -562,6 +563,7 @@ class TestMukhaAuditCapabilityStatus:
     def test_audit_through_explicit_providers(self) -> None:
         """When providers are explicitly supplied, readiness is queried on each provider."""
         from unittest.mock import MagicMock
+
         from sarathi.sankalpa import CapabilityReadiness, ReadinessStatus
 
         mock_prov = MagicMock()

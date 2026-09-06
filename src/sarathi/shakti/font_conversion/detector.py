@@ -13,18 +13,18 @@ from sarathi.shakti.font_conversion.models import (
     ConversionDecision,
     LegacyFontProfile,
 )
-from sarathi.sutra import get_canonical_data_root
-
-_CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
-
 from sarathi.shakti.text.legacy_detection import (
     _CHANAKYA_SIGNATURES,
     _KNOWN_MODERN_FONTS,
     _KRUTI_SIGNATURES,
     _SHUSHA_SIGNATURES,
-    LegacyFontDetector as BaseLegacyFontDetector,
-    is_legacy_text,
 )
+from sarathi.shakti.text.legacy_detection import (
+    LegacyFontDetector as BaseLegacyFontDetector,
+)
+from sarathi.sutra import get_canonical_data_root
+
+_CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
 
 
 

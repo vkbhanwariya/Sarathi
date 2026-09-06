@@ -14,6 +14,7 @@ from sarathi.shakti.font_conversion.akshara import (
     synthesize_akshara_unicode,
 )
 from sarathi.shakti.font_conversion.detector import load_font_profiles
+from sarathi.shakti.font_conversion.models import LegacyFontProfile
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"

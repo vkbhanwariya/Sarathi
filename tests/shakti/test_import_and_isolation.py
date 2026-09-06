@@ -53,7 +53,7 @@ class TestCrossPluginIsolation:
                     if "font_conversion" in module:
                         violations.append(f"{py_file.name}:{node.lineno} imports from '{module}'")
 
-        assert not violations, f"Cross-plugin import violations found in translation:\n" + "\n".join(violations)
+        assert not violations, "Cross-plugin import violations found in translation:\n" + "\n".join(violations)
 
     def test_shakti_text_primitives_work_correctly(self) -> None:
         """Verify neutral shakti.text primitives operate as expected."""
