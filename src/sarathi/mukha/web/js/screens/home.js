@@ -197,38 +197,137 @@ export function renderPreflight(preflight) {
     }
 }
 
+export function renderAvailableActions(actions) {
+    if (!elements.requirementGrid || !actions || actions.length === 0) return;
+    state.availableActions = actions;
+
+    const cardsHtml = actions
+        .map((act) => {
+            const isActive = act.action_id === state.currentRequirement;
+            const isDisabled = !act.is_enabled;
+            const statusBadge = act.is_enabled
+                ? '<span class="req-status badge badge-emerald">Ready</span>'
+                : `<span class="req-status badge badge-amber" title="${escapeHtml(act.disabled_reason || "Unavailable")}">Unavailable</span>`;
+            return `
+                <button type="button" class="req-card ${isActive ? "selected active" : ""} ${isDisabled ? "disabled" : ""}" data-req="${escapeHtml(act.action_id)}" ${isDisabled ? "disabled" : ""}>
+                    <div class="req-title">${escapeHtml(act.label)}</div>
+                    <div class="req-desc">${escapeHtml(act.description || "")}</div>
+                    ${statusBadge}
+                </button>
+            `;
+        })
+        .join("");
+
+    elements.requirementGrid.innerHTML = cardsHtml;
+
+    const activeAction = actions.find((a) => a.action_id === state.currentRequirement) || actions[0];
+    if (activeAction) {
+        renderActionParameters(activeAction);
+    }
+}
+
+export function renderActionParameters(action) {
+    if (!elements.actionParamsContainer) return;
+    if (!action || !action.parameters || action.parameters.length === 0) {
+        elements.actionParamsContainer.classList.add("hidden");
+        elements.actionParamsContainer.innerHTML = "";
+        return;
+    }
+
+    elements.actionParamsContainer.classList.remove("hidden");
+
+    const selects = action.parameters.filter((p) => p.kind === "select");
+    const toggles = action.parameters.filter((p) => p.kind === "toggle");
+
+    let html = "";
+    if (selects.length > 0) {
+        html += selects
+            .map((p) => {
+                const optsHtml = (p.options || [])
+                    .map(([val, text]) => `<option value="${escapeHtml(val)}" ${val === p.default_value ? "selected" : ""}>${escapeHtml(text)}</option>`)
+                    .join("");
+                return `
+                    <div class="form-row" style="margin-bottom: 8px;">
+                        <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">${escapeHtml(p.display_name)}</label>
+                        <select class="form-select action-param-select" data-param="${escapeHtml(p.parameter_id)}" id="param-${escapeHtml(p.parameter_id)}">
+                            ${optsHtml}
+                        </select>
+                    </div>
+                `;
+            })
+            .join("");
+    }
+
+    if (toggles.length > 0) {
+        const isProfileCustom = !selects.some((p) => p.parameter_id === "profile") || (document.getElementById("param-profile") && document.getElementById("param-profile").value === "custom");
+        const togglesHtml = toggles
+            .map((t) => `
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" class="action-param-toggle" data-param="${escapeHtml(t.parameter_id)}" id="param-${escapeHtml(t.parameter_id)}" ${t.default_value ? "checked" : ""}>
+                    <span>${escapeHtml(t.display_name)}</span>
+                </label>
+            `)
+            .join("");
+
+        html += `
+            <div id="dynamic-toggles-group" class="form-row ${isProfileCustom ? "" : "hidden"}" style="border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); margin-top: 8px; background: rgba(8, 12, 20, 0.5);">
+                <label class="form-label" style="font-weight: 600; margin-bottom: 8px;">Advanced Engine Settings</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">
+                    ${togglesHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    elements.actionParamsContainer.innerHTML = html;
+
+    const profileSelect = document.getElementById("param-profile");
+    const togglesGroup = document.getElementById("dynamic-toggles-group");
+    if (profileSelect && togglesGroup) {
+        profileSelect.addEventListener("change", (e) => {
+            state.currentProfile = e.target.value;
+            togglesGroup.classList.toggle("hidden", e.target.value !== "custom");
+        });
+    }
+}
+
 export async function handleStartRun() {
     if (state.selectedPaths.length === 0 || !elements.btnStartRun) return;
 
     elements.btnStartRun.disabled = true;
     hideError();
-    const profileToSend = state.currentRequirement === "ocr" ? state.currentProfile : "instant";
+
+    const customOpts = {};
+    let profile = "instant";
+
+    if (elements.actionParamsContainer) {
+        const selects = elements.actionParamsContainer.querySelectorAll(".action-param-select");
+        selects.forEach((s) => {
+            const p = s.dataset.param;
+            if (p === "profile") {
+                profile = s.value;
+            } else {
+                customOpts[p] = s.value;
+            }
+        });
+
+        const toggles = elements.actionParamsContainer.querySelectorAll(".action-param-toggle");
+        toggles.forEach((t) => {
+            customOpts[t.dataset.param] = t.checked;
+        });
+    }
+
+    if (state.currentRequirement === "ocr" && profile === "custom") {
+        customOpts.engine = "rapidocr";
+    }
+
     const payload = {
         paths: state.selectedPaths,
         requirement: state.currentRequirement,
-        profile: profileToSend,
+        profile: profile,
         recursive: state.isRecursive,
+        custom_options: customOpts,
     };
-    if (state.currentRequirement === "ocr") {
-        const customOpts = {};
-        if (elements.selectOcrLang) customOpts.lang = elements.selectOcrLang.value;
-        if (state.currentProfile === "custom") {
-            customOpts.engine = "rapidocr";
-            if (elements.chkOcrPreprocess) customOpts.preprocess = elements.chkOcrPreprocess.checked;
-            if (elements.chkOcrDeskew) customOpts.deskew = elements.chkOcrDeskew.checked;
-            if (elements.chkOcrClahe) customOpts.clahe = elements.chkOcrClahe.checked;
-            if (elements.chkOcrBinarize) customOpts.binarize = elements.chkOcrBinarize.checked;
-            if (elements.chkOcrFallback) customOpts.fallback_enabled = elements.chkOcrFallback.checked;
-            if (elements.chkOcrValidation) customOpts.validation_enabled = elements.chkOcrValidation.checked;
-        }
-        payload.custom_options = customOpts;
-    } else if (state.currentRequirement === "font_conversion" && elements.selectFontMode) {
-        const fontOpts = { font_mode: elements.selectFontMode.value };
-        if (elements.selectFontSource && elements.selectFontSource.value) {
-            fontOpts.source_font = elements.selectFontSource.value;
-        }
-        payload.custom_options = fontOpts;
-    }
 
     const res = await apiPost("/api/runs", payload);
 
@@ -319,40 +418,19 @@ export function initHomeScreen() {
         });
     }
 
-    if (elements.reqCards) {
-        elements.reqCards.forEach((card) => {
-            card.addEventListener("click", () => {
-                elements.reqCards.forEach((c) => c.classList.remove("selected"));
-                card.classList.add("selected");
+    if (elements.requirementGrid) {
+        elements.requirementGrid.addEventListener("click", (e) => {
+            const card = e.target.closest(".req-card");
+            if (card && card.dataset.req && !card.classList.contains("disabled")) {
+                const cards = elements.requirementGrid.querySelectorAll(".req-card");
+                cards.forEach((c) => c.classList.remove("selected", "active"));
+                card.classList.add("selected", "active");
                 state.currentRequirement = card.dataset.req;
 
-                if (elements.profileRow) {
-                    elements.profileRow.classList.toggle("hidden", state.currentRequirement !== "ocr");
+                const act = (state.availableActions || []).find((a) => a.action_id === state.currentRequirement);
+                if (act) {
+                    renderActionParameters(act);
                 }
-                if (elements.ocrLangRow) {
-                    elements.ocrLangRow.classList.toggle("hidden", state.currentRequirement !== "ocr");
-                }
-                if (elements.ocrCustomControls) {
-                    elements.ocrCustomControls.classList.toggle(
-                        "hidden",
-                        !(state.currentRequirement === "ocr" && state.currentProfile === "custom")
-                    );
-                }
-                if (elements.fontModeRow) {
-                    elements.fontModeRow.classList.toggle("hidden", state.currentRequirement !== "font_conversion");
-                }
-            });
-        });
-    }
-
-    if (elements.selectProfile) {
-        elements.selectProfile.addEventListener("change", (e) => {
-            state.currentProfile = e.target.value;
-            if (elements.ocrCustomControls) {
-                elements.ocrCustomControls.classList.toggle(
-                    "hidden",
-                    !(state.currentRequirement === "ocr" && state.currentProfile === "custom")
-                );
             }
         });
     }

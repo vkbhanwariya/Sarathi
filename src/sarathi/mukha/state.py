@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 
 class ProgressKind(StrEnum):
@@ -102,6 +103,19 @@ class OCRProfileEvidenceView:
 
 
 @dataclass(frozen=True, slots=True)
+class ActionParameterView:
+    """Declarative parameter descriptor for an available action/capability."""
+
+    parameter_id: str
+    display_name: str
+    kind: str  # "select", "toggle", "text"
+    default_value: Any = None
+    options: tuple[tuple[str, str], ...] = ()
+    is_required: bool = False
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class AvailableActionView:
     """Action available to user on current screen."""
 
@@ -109,6 +123,8 @@ class AvailableActionView:
     label: str
     is_enabled: bool = True
     disabled_reason: str | None = None
+    description: str = ""
+    parameters: tuple[ActionParameterView, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

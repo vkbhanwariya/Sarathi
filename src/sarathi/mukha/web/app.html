@@ -1,732 +1,566 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sarathi V2 — Document Intelligence Console</title>
-    <link rel="stylesheet" href="/app.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sarathi V2 — Document Intelligence Console</title>
+  <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-    <!-- Aarambha Startup Overlay (Visible only when initialization > 5s) -->
-    <div id="aarambha-overlay" class="overlay hidden">
-        <div class="overlay-card">
-            <div class="spinner"></div>
-            <h2>Aarambha — Initializing Sarathi Bootstrap</h2>
-            <p id="aarambha-stage" class="text-muted">Loading system configuration...</p>
-            <div id="aarambha-stages" class="stage-list"></div>
-            <div id="aarambha-error" class="error-banner hidden"></div>
-        </div>
+  <div id="aarambha-overlay" class="overlay hidden">
+    <div class="overlay-card">
+      <div class="spinner"></div>
+      <h2>Aarambha — Initializing Sarathi Bootstrap</h2>
+      <p id="aarambha-stage" class="text-muted">Loading system configuration...</p>
+      <div id="aarambha-stages" class="stage-list"></div>
+      <div id="aarambha-error" class="error-banner hidden"></div>
     </div>
-
-    <!-- Application Shell -->
-    <div class="app-container">
-        <!-- Header -->
-        <header class="app-header">
-            <div class="brand">
-                <span class="brand-logo">☸</span>
-                <div class="brand-text">
-                    <h1>Sarathi <span class="version-tag">V2</span></h1>
-                    <span class="brand-subtitle">Local Document Intelligence</span>
-                </div>
-            </div>
-
-            <!-- Primary 5-Screen Navigation -->
-            <nav class="screen-nav">
-                <button class="nav-tab active" data-screen="home"><span class="shortcut">F1</span> Griha</button>
-                <button class="nav-tab" data-screen="monitor"><span class="shortcut">F2</span> Pravritti</button>
-                <button class="nav-tab" data-screen="review"><span class="shortcut">F3</span> Pariksha <span id="review-badge" class="badge badge-amber hidden">0</span></button>
-                <button class="nav-tab" data-screen="summary"><span class="shortcut">F4</span> Samapti</button>
-                <button class="nav-tab" data-screen="inspector"><span class="shortcut">F5</span> Nirikshana</button>
-            </nav>
-
-            <!-- Header Right Controls -->
-            <div class="header-actions">
-                <div id="sse-status-badge" class="sse-badge" title="Server-Sent Events Real-Time Channel">
-                    <span class="status-dot online"></span>
-                    <span id="sse-status-label">SSE LIVE</span>
-                </div>
-                <div class="header-status">
-                    <span id="system-status-dot" class="status-dot online"></span>
-                    <span id="system-status-text">Ready</span>
-                </div>
-                <button id="btn-open-history" class="btn-header-icon" title="Terminal Run History (Ctrl+H)">🕒</button>
-                <button id="btn-command-palette" class="btn-header-icon" title="Command Palette (Ctrl+P)">⌘</button>
-            </div>
-        </header>
-
-        <!-- Global Inline Error Banner -->
-        <div id="error-banner" class="alert-banner hidden" role="alert" aria-live="assertive">
-            <span class="alert-icon">⚠️</span>
-            <span id="error-banner-text" class="alert-message"></span>
-            <button id="btn-dismiss-error" class="btn-dismiss" aria-label="Dismiss error notification">✕</button>
+  </div>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-logo">☸</span>
+        <div class="brand-text">
+          <h1>Sarathi <span class="version-tag">V2</span></h1>
+          <span class="brand-subtitle">Local Document Intelligence</span>
         </div>
-
-        <!-- Main Content Area -->
-        <main class="app-main">
-            <!-- Screen 1: Griha (F1 - Home / Run Setup) -->
-            <section id="screen-home" class="screen-view active">
-                <div class="screen-grid">
-                    <!-- Left Column: Input Selection -->
-                    <div class="panel">
-                        <div class="panel-header">
-                            <h2>📂 Input Selection</h2>
-                            <span id="input-counts-badge" class="badge">0 files</span>
-                        </div>
-                        <div class="panel-body">
-                            <div class="button-group">
-                                <button id="btn-browse-files" class="btn btn-primary">➕ Add Files...</button>
-                                <button id="btn-browse-folder" class="btn btn-secondary">📁 Add Folder...</button>
-                                <button id="btn-clear-selected" class="btn btn-outline" disabled title="Clear only checked files">Clear Selected</button>
-                                <button id="btn-clear-inputs" class="btn btn-outline" title="Clear all files">Clear All</button>
-                            </div>
-
-                            <div class="path-entry-row">
-                                <input type="text" id="input-manual-path" placeholder="Paste absolute file or folder path...">
-                                <button id="btn-add-manual-path" class="btn btn-secondary">Add</button>
-                            </div>
-
-                            <div class="checkbox-row">
-                                <label>
-                                    <input type="checkbox" id="chk-recursive" checked>
-                                    <span>Recursively scan subdirectories</span>
-                                </label>
-                            </div>
-
-                            <!-- Grouped Summary Pills for Batches -->
-                            <div id="input-groups-container" class="input-groups-box hidden" style="margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
-
-                            <!-- Selected Inputs Table with Preview Actions -->
-                            <div class="table-container input-table-container">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th style="width: 36px; text-align: center;"><input type="checkbox" id="chk-select-all-inputs" title="Select all files"></th>
-                                            <th>Document Name</th>
-                                            <th>Size</th>
-                                            <th>Status</th>
-                                            <th style="width: 90px; text-align: center;">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="selected-inputs-tbody">
-                                        <tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Right Column: Requirement, Profile & Preflight -->
-                    <div class="panel">
-                        <div class="panel-header">
-                            <h2>⚙️ Processing Configuration</h2>
-                        </div>
-                        <div class="panel-body">
-                            <!-- Requirement Selection -->
-                            <label class="form-label">Processing Requirement</label>
-                            <div class="requirement-grid">
-                                <button class="req-card active" data-req="read_native">
-                                    <div class="req-title">Read Native</div>
-                                    <div class="req-desc">Fast text & spreadsheet extraction</div>
-                                    <span class="req-status badge badge-emerald">Ready</span>
-                                </button>
-                                <button class="req-card" data-req="bank_statements">
-                                    <div class="req-title">Bank Statements</div>
-                                    <div class="req-desc">Financial table & transaction normalization</div>
-                                    <span class="req-status badge badge-emerald">Ready</span>
-                                </button>
-                                <button class="req-card" data-req="ocr">
-                                    <div class="req-title">OCR</div>
-                                    <div class="req-desc">Local rapid image/PDF text recognition</div>
-                                    <span id="ocr-status-badge" class="req-status badge">Checking...</span>
-                                </button>
-                                <button class="req-card" data-req="font_conversion">
-                                    <div class="req-title">Font Conversion</div>
-                                    <div class="req-desc">Legacy Hindi font mapping & Unicode</div>
-                                    <span id="font-status-badge" class="req-status badge">Checking...</span>
-                                </button>
-                                <button class="req-card" data-req="translation">
-                                    <div class="req-title">Translation</div>
-                                    <div class="req-desc">Protected local Hindi↔English translation</div>
-                                    <span id="trans-status-badge" class="req-status badge badge-amber">Unavailable</span>
-                                </button>
-                            </div>
-
-                            <!-- Execution Profile (Visible only for OCR) -->
-                            <div id="profile-row" class="form-row hidden">
-                                <label class="form-label" for="select-profile">Execution Profile</label>
-                                <select id="select-profile" class="form-select">
-                                    <option value="instant" selected>Instant (Highest Throughput)</option>
-                                    <option value="accurate">Accurate (Quality Verification)</option>
-                                    <option value="custom">Custom Configuration</option>
-                                </select>
-                            </div>
-
-                            <!-- OCR Language Model Selection -->
-                            <div id="ocr-lang-row" class="form-row hidden">
-                                <label class="form-label" for="select-ocr-lang">OCR Model & Language</label>
-                                <select id="select-ocr-lang" class="form-select">
-                                    <option value="devanagari" selected>Hindi / Devanagari + English (PP-OCRv5 Mobile)</option>
-                                    <option value="en_v6">English / Latin (PP-OCRv6 Small)</option>
-                                    <option value="en">English / Latin (PP-OCRv5 Mobile)</option>
-                                </select>
-                            </div>
-
-                            <!-- OCR Custom Configuration Controls -->
-                            <div id="ocr-custom-controls" class="form-row hidden" style="border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); margin-top: 8px; background: rgba(8, 12, 20, 0.5);">
-                                <label class="form-label" style="font-weight: 600; margin-bottom: 8px;">Custom OCR Settings</label>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="checkbox" id="chk-ocr-preprocess" checked> Preprocessing
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="checkbox" id="chk-ocr-deskew" checked> Auto-Deskew
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="checkbox" id="chk-ocr-clahe"> CLAHE Contrast
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="checkbox" id="chk-ocr-binarize"> Binarization
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="checkbox" id="chk-ocr-fallback" checked> Fallback (Tesseract)
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <input type="checkbox" id="chk-ocr-validation" checked> Validation Gate
-                                    </label>
-                                </div>
-                            </div>
-
-                            <!-- Font Conversion Settings -->
-                            <div id="font-mode-row" class="form-row hidden" style="display: flex; gap: 12px;">
-                                <div style="flex: 1;">
-                                    <label class="form-label" for="select-font-source">Source Font Hint</label>
-                                    <select id="select-font-source" class="form-select">
-                                        <option value="" selected>Auto-Detect Source Font</option>
-                                        <option value="krutidev010">KrutiDev 010 / DevLys</option>
-                                        <option value="chanakya010">Chanakya</option>
-                                        <option value="shusha010">Shusha</option>
-                                        <option value="shivaji010">Shivaji</option>
-                                    </select>
-                                </div>
-                                <div style="flex: 1;">
-                                    <label class="form-label" for="select-font-mode">Conversion Target</label>
-                                    <select id="select-font-mode" class="form-select">
-                                        <option value="auto_unicode" selected>Auto-Detect & Convert to Unicode</option>
-                                        <option value="to_krutidev">Convert to KrutiDev</option>
-                                        <option value="to_devlys">Convert to DevLys</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <!-- Preflight Validation -->
-                            <div id="preflight-box" class="preflight-card">
-                                <div class="preflight-header">
-                                    <strong>Preflight Status:</strong>
-                                    <span id="preflight-summary">Ready to run</span>
-                                </div>
-                                <div id="preflight-issues" class="preflight-issues hidden" style="margin-top: 8px; font-size: 12px; color: var(--accent-amber);"></div>
-                            </div>
-
-                            <!-- Run Action -->
-                            <div class="run-action-row" style="margin-top: 8px;">
-                                <button id="btn-start-run" class="btn btn-start" disabled>▶ Start Document Processing</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Screen 2: Pravritti (F2 - Live Monitor) -->
-            <section id="screen-monitor" class="screen-view">
-                <div class="monitor-container">
-                    <div class="monitor-top-bar">
-                        <div class="run-meta">
-                            <span class="run-id-label">Run ID:</span>
-                            <span id="monitor-run-id" class="code-text">—</span>
-                            <span id="monitor-status-badge" class="badge badge-indigo">IDLE</span>
-                        </div>
-                        <div class="run-timing">
-                            <span>Elapsed:</span>
-                            <strong id="monitor-elapsed-time">0.0s</strong>
-                        </div>
-                        <button id="btn-cancel-run" class="btn btn-danger" disabled>⏹ Cancel Run</button>
-                    </div>
-
-                    <!-- Determinate / Shimmer Progress Bar -->
-                    <div class="progress-bar-container" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                        <div id="monitor-progress-bar" class="progress-bar" style="width: 0%;"></div>
-                    </div>
-
-                    <!-- Long Running Alert Box (>5s) -->
-                    <div id="long-running-alert" class="alert-box alert-amber hidden">
-                        <span class="alert-icon">⏳</span>
-                        <div class="alert-content">
-                            <strong>Long-Running Operation Active (&gt;5s):</strong>
-                            <span id="long-running-desc">—</span>
-                        </div>
-                    </div>
-
-                    <!-- Active Operations & Stage Focus -->
-                    <div class="monitor-grid">
-                        <div class="panel">
-                            <div class="panel-header">
-                                <h3>Current Stage Focus</h3>
-                            </div>
-                            <div class="panel-body">
-                                <div class="focus-stat-row">
-                                    <span>Active Stage:</span>
-                                    <strong id="focus-stage-name">—</strong>
-                                </div>
-                                <div class="focus-stat-row">
-                                    <span>Target Document:</span>
-                                    <strong id="focus-file-name">—</strong>
-                                </div>
-                                <div class="focus-stat-row">
-                                    <span>Allocated Device:</span>
-                                    <strong id="focus-device-type">—</strong>
-                                </div>
-                                <div class="focus-stat-row">
-                                    <span>Stage Duration:</span>
-                                    <strong id="focus-duration">—</strong>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="panel">
-                            <div class="panel-header">
-                                <h3>Hardware Device Throughput</h3>
-                            </div>
-                            <div class="panel-body">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Device</th>
-                                            <th>Units Processed</th>
-                                            <th>Total Time</th>
-                                            <th>Avg Time</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="device-throughput-tbody">
-                                        <tr class="empty-row"><td colspan="4">No device executions recorded yet.</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Active Parallel Workers Table -->
-                    <div class="panel" id="active-workers-panel">
-                        <div class="panel-header">
-                            <h3>Active Parallel Workers</h3>
-                            <span id="active-workers-count" class="badge badge-indigo">0 Active</span>
-                        </div>
-                        <div class="panel-body">
-                            <div class="table-container">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Worker ID</th>
-                                            <th>Document</th>
-                                            <th>Page</th>
-                                            <th>Stage</th>
-                                            <th>Hardware Device</th>
-                                            <th>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="active-workers-tbody">
-                                        <tr class="empty-row"><td colspan="6">No active workers.</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- File Execution Pipeline Table -->
-                    <div class="panel file-pipeline-panel">
-                        <div class="panel-header">
-                            <h3>Document Execution Pipeline</h3>
-                            <span id="pipeline-counts" class="badge">0 / 0 completed</span>
-                        </div>
-                        <div class="panel-body">
-                            <div class="table-container">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>#</th>
-                                            <th>Document</th>
-                                            <th>Stage</th>
-                                            <th>Status</th>
-                                            <th>Duration</th>
-                                            <th>Warnings</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="file-pipeline-tbody">
-                                        <tr class="empty-row"><td colspan="6">No files currently in pipeline.</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Screen 3: Pariksha (F3 - Review & Exceptions) -->
-            <section id="screen-review" class="screen-view">
-                <div class="panel">
-                    <div class="panel-header">
-                        <h2>🔍 Pariksha — Review & Exception Auditing</h2>
-                        <span id="review-queue-count" class="badge badge-amber">0 items</span>
-                    </div>
-                    <div class="panel-body">
-                        <!-- Review Queue Table -->
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Item ID</th>
-                                        <th>Document</th>
-                                        <th>Stage</th>
-                                        <th>Confidence</th>
-                                        <th>Issue Reason</th>
-                                        <th style="width: 120px; text-align: center;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="review-queue-tbody">
-                                    <tr class="empty-row"><td colspan="6">No items currently require human review.</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- Interactive Side-by-Side Review Inspector -->
-                        <div id="review-detail-card" class="panel hidden" style="margin-top: 16px; background: rgba(8, 12, 20, 0.7);">
-                            <div class="panel-header">
-                                <h3>Comparative Exception Inspector: <span id="review-active-item-title" class="code-text">—</span></h3>
-                                <div class="button-group">
-                                    <button id="btn-review-accept" class="btn btn-primary btn-sm">✓ Accept</button>
-                                    <button id="btn-review-edit" class="btn btn-secondary btn-sm">✎ Edit Correction</button>
-                                    <button id="btn-review-dismiss" class="btn btn-outline btn-sm">✕ Dismiss</button>
-                                </div>
-                            </div>
-                            <div class="panel-body">
-                                <div class="review-diff-container">
-                                    <div class="review-diff-box">
-                                        <span class="diff-title">Original Source Context</span>
-                                        <div id="review-source-text" class="diff-content">Loading source snippet...</div>
-                                    </div>
-                                    <div class="review-diff-box">
-                                        <span class="diff-title">Extracted / Converted Output</span>
-                                        <div id="review-output-text" class="diff-content">Loading output snippet...</div>
-                                    </div>
-                                </div>
-
-                                <div class="confidence-meter">
-                                    <span class="form-label" style="margin: 0;">Measured Confidence:</span>
-                                    <div class="confidence-meter-track">
-                                        <div id="review-confidence-fill" class="confidence-meter-fill" style="width: 0%; background: var(--accent-amber);"></div>
-                                    </div>
-                                    <strong id="review-confidence-text" class="code-text">—%</strong>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Screen 4: Samapti (F4 - Run Summary) -->
-            <section id="screen-summary" class="screen-view">
-                <div class="summary-container">
-                    <div id="summary-hero" class="summary-hero status-success">
-                        <div class="hero-left">
-                            <span id="summary-status-badge" class="badge badge-hero">SUCCESS</span>
-                            <h2 id="summary-title">Run Completed Successfully</h2>
-                            <p id="summary-run-meta" class="text-muted">Run ID: — | Total Time: —</p>
-                            <p id="summary-failure-reason" class="text-crimson failure-reason-msg hidden"></p>
-                        </div>
-                        <div class="hero-right" style="display: flex; gap: 10px;">
-                            <button id="btn-open-output-folder" class="btn btn-primary btn-lg">📂 Open Output Folder</button>
-                            <button id="btn-return-home" class="btn btn-outline btn-lg">➕ New Run</button>
-                        </div>
-                    </div>
-
-                    <!-- Summary Stats Grid -->
-                    <div class="summary-stats-grid">
-                        <div class="stat-card">
-                            <span class="stat-label">Total Documents</span>
-                            <span id="stat-total-files" class="stat-value">0</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Successful</span>
-                            <span id="stat-success-files" class="stat-value text-emerald">0</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Warnings</span>
-                            <span id="stat-warning-files" class="stat-value text-amber">0</span>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-label">Failed / Quarantined</span>
-                            <span id="stat-failed-files" class="stat-value text-crimson">0</span>
-                        </div>
-                    </div>
-
-                    <!-- Confirmed Artifacts Cards with Preview & Download -->
-                    <div class="panel">
-                        <div class="panel-header">
-                            <h3>📦 Confirmed Output Artifacts</h3>
-                        </div>
-                        <div class="panel-body">
-                            <div id="artifacts-grid" class="artifacts-grid">
-                                <div class="empty-card" style="grid-column: 1/-1; text-align: center; padding: 24px; color: var(--text-muted);">No output artifacts generated.</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Stage Performance Table -->
-                    <div class="panel">
-                        <div class="panel-header">
-                            <h3>⚡ Stage Performance Breakdown</h3>
-                        </div>
-                        <div class="panel-body">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Stage</th>
-                                        <th>Invocations</th>
-                                        <th>Total Time</th>
-                                        <th>Avg Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="summary-stages-tbody">
-                                    <tr class="empty-row"><td colspan="4">No stage timings recorded.</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Screen 5: Nirikshana (F5 - Inspector) -->
-            <section id="screen-inspector" class="screen-view">
-                <div class="panel">
-                    <div class="panel-header">
-                        <h2>🔬 Nirikshana — Execution Inspector & Telemetry</h2>
-                    </div>
-                    <div class="panel-body">
-                        <!-- Inspector Sub-Tabs -->
-                        <div class="inspector-sub-nav">
-                            <button class="inspector-tab active" data-tab="activity">Activity (Logs)</button>
-                            <button class="inspector-tab" data-tab="performance">Performance & Spans</button>
-                            <button class="inspector-tab" data-tab="quality">Quality & Accuracy</button>
-                            <button class="inspector-tab" data-tab="system">System & Health</button>
-                        </div>
-
-                        <!-- Tab 1: Activity Logs -->
-                        <div id="tab-inspector-activity" class="inspector-tab-content">
-                            <div class="log-filter-bar">
-                                <input type="text" id="input-log-search" placeholder="Search log entries...">
-                                <div class="log-pills">
-                                    <button class="log-pill active" data-level="ALL">ALL</button>
-                                    <button class="log-pill" data-level="INFO">INFO</button>
-                                    <button class="log-pill" data-level="WARN">WARN</button>
-                                    <button class="log-pill" data-level="ERROR">ERROR</button>
-                                </div>
-                                <button id="btn-copy-logs" class="btn btn-outline btn-sm">📋 Copy</button>
-                            </div>
-                            <div id="inspector-logs" class="log-stream-box">
-                                <div class="log-entry text-muted">[Ready] Mukha Inspector initialized.</div>
-                            </div>
-                        </div>
-
-                        <!-- Tab 2: Performance Spans -->
-                        <div id="tab-inspector-performance" class="inspector-tab-content hidden">
-                            <div class="inspector-grid">
-                                <div class="inspector-section">
-                                    <h3>Hardware Device Summary</h3>
-                                    <table class="data-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Device</th>
-                                                <th>Executions</th>
-                                                <th>Avg Duration</th>
-                                                <th>P95 Duration</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="inspector-device-tbody">
-                                            <tr class="empty-row"><td colspan="4">No hardware spans recorded.</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <div class="inspector-section">
-                                    <h3>Stage Timing Distribution</h3>
-                                    <div id="inspector-waterfall" class="table-container" style="max-height: 250px;">
-                                        <table class="data-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Stage</th>
-                                                    <th>Calls</th>
-                                                    <th>Total Duration</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="inspector-stages-tbody">
-                                                <tr class="empty-row"><td colspan="3">No stage records.</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                                <div class="inspector-section full-width" style="grid-column: 1 / -1; margin-top: 16px;">
-                                    <h3>Worker Execution Performance</h3>
-                                    <div class="table-container" style="max-height: 250px;">
-                                        <table class="data-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Worker ID</th>
-                                                    <th>Device</th>
-                                                    <th>Device ID</th>
-                                                    <th>Pages</th>
-                                                    <th>Tasks</th>
-                                                    <th>Total Time</th>
-                                                    <th>Avg Time</th>
-                                                    <th>Throughput</th>
-                                                    <th>Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="inspector-worker-tbody">
-                                                <tr class="empty-row"><td colspan="9">No worker telemetry recorded.</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tab 3: Quality Telemetry -->
-                        <div id="tab-inspector-quality" class="inspector-tab-content hidden">
-                            <div class="panel" style="background: rgba(8, 12, 20, 0.6);">
-                                <div class="panel-header"><h3>Confidence Distribution</h3></div>
-                                <div class="panel-body">
-                                    <div id="quality-distribution-box" style="display: flex; gap: 16px; flex-wrap: wrap;">
-                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
-                                            <span class="stat-label">90% - 100% (High)</span>
-                                            <span id="stat-conf-high" class="stat-value text-emerald">—</span>
-                                        </div>
-                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
-                                            <span class="stat-label">75% - 89% (Normal)</span>
-                                            <span id="stat-conf-mid" class="stat-value text-cyan">—</span>
-                                        </div>
-                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
-                                            <span class="stat-label">50% - 74% (Review)</span>
-                                            <span id="stat-conf-low" class="stat-value text-amber">—</span>
-                                        </div>
-                                        <div class="stat-card" style="flex: 1; min-width: 140px;">
-                                            <span class="stat-label">&lt; 50% (Critical)</span>
-                                            <span id="stat-conf-crit" class="stat-value text-crimson">—</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="inspector-section" style="margin-top: 16px;">
-                                <h3>Page-Level Quality & Confidence</h3>
-                                <div class="table-container" style="max-height: 250px;">
-                                    <table class="data-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Document</th>
-                                                <th>Page</th>
-                                                <th>Confidence</th>
-                                                <th>Regions</th>
-                                                <th>Min Conf</th>
-                                                <th>Max Conf</th>
-                                                <th>Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="inspector-page-conf-tbody">
-                                            <tr class="empty-row"><td colspan="7">No page confidence records.</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div class="inspector-section" style="margin-top: 16px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                    <h3 style="margin: 0;">Region-Level Extraction Confidence</h3>
-                                    <input type="text" id="inspector-region-filter" placeholder="Filter regions (e.g. p1, table, line)..." style="max-width: 260px; padding: 4px 8px; font-size: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #f8fafc;">
-                                </div>
-                                <div class="table-container" style="max-height: 250px;">
-                                    <table class="data-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Region ID</th>
-                                                <th>Document</th>
-                                                <th>Page</th>
-                                                <th>Type</th>
-                                                <th>Confidence</th>
-                                                <th>Method</th>
-                                                <th>Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="inspector-region-conf-tbody">
-                                            <tr class="empty-row"><td colspan="7">No region confidence records.</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tab 4: System Health & Security -->
-                        <div id="tab-inspector-system" class="inspector-tab-content hidden">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Property</th>
-                                        <th>Value</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="system-facts-tbody">
-                                    <tr><td>Binding Host</td><td>127.0.0.1 (Strict Loopback)</td></tr>
-                                    <tr><td>Security Policy</td><td>Kavacha Local Isolation</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </section>
-        </main>
+      </div>
+      <nav class="screen-nav">
+        <button class="nav-tab active" data-screen="home"><span class="shortcut">F1</span> Griha</button>
+        <button class="nav-tab" data-screen="monitor"><span class="shortcut">F2</span> Pravritti</button>
+        <button class="nav-tab" data-screen="review"><span class="shortcut">F3</span> Pariksha <span id="review-badge" class="badge badge-amber hidden">0</span></button>
+        <button class="nav-tab" data-screen="summary"><span class="shortcut">F4</span> Samapti</button>
+        <button class="nav-tab" data-screen="inspector"><span class="shortcut">F5</span> Nirikshana</button>
+      </nav>
+      <div class="header-actions">
+        <div id="sse-status-badge" class="sse-badge" title="Server-Sent Events Real-Time Channel">
+          <span class="status-dot online"></span>
+          <span id="sse-status-label">SSE LIVE</span>
+        </div>
+        <div class="header-status">
+          <span id="system-status-dot" class="status-dot online"></span>
+          <span id="system-status-text">Ready</span>
+        </div>
+        <button id="btn-open-history" class="btn-header-icon" title="Terminal Run History (Ctrl+H)">🕒</button>
+        <button id="btn-command-palette" class="btn-header-icon" title="Command Palette (Ctrl+P)">⌘</button>
+      </div>
+    </header>
+    <div id="error-banner" class="alert-banner hidden" role="alert" aria-live="assertive">
+      <span class="alert-icon">⚠️</span>
+      <span id="error-banner-text" class="alert-message"></span>
+      <button id="btn-dismiss-error" class="btn-dismiss" aria-label="Dismiss error notification">✕</button>
     </div>
-
-    <!-- Document Preview Modal Dialog -->
-    <dialog id="doc-preview-dialog" class="preview-modal-dialog">
-        <div class="preview-header">
-            <h3 id="preview-modal-title">Document Preview</h3>
-            <button id="btn-close-preview" class="btn btn-outline btn-sm">✕ Close</button>
-        </div>
-        <div id="preview-modal-content" class="preview-content-box">
-            <div class="spinner"></div>
-        </div>
-    </dialog>
-
-    <!-- Run History Drawer -->
-    <aside id="history-drawer" class="history-drawer">
-        <div class="drawer-header">
-            <h3>Terminal Run History</h3>
-            <button id="btn-close-history" class="btn btn-outline btn-sm">✕</button>
-        </div>
-        <div id="history-list-container" class="drawer-body">
-            <div class="text-muted" style="text-align: center; padding: 20px;">Loading history...</div>
-        </div>
-    </aside>
-
-    <!-- Cancel Run Confirmation Dialog -->
-    <dialog id="cancel-run-dialog" class="modal-dialog">
-        <div class="dialog-content">
-            <h3>Cancel Active Run?</h3>
-            <p>Are you sure you want to cancel the active processing run? Any in-flight document processing will be stopped immediately.</p>
-            <div class="dialog-actions">
-                <button id="btn-cancel-dialog-confirm" class="btn btn-danger">Yes, Cancel Run</button>
-                <button id="btn-cancel-dialog-dismiss" class="btn btn-outline">Keep Running</button>
+    <main class="app-main">
+      <section id="screen-home" class="screen-view active">
+        <div class="screen-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>📂 Input Selection</h2>
+              <span id="input-counts-badge" class="badge">0 files</span>
             </div>
+            <div class="panel-body">
+              <div class="button-group">
+                <button id="btn-browse-files" class="btn btn-primary">➕ Add Files...</button>
+                <button id="btn-browse-folder" class="btn btn-secondary">📁 Add Folder...</button>
+                <button id="btn-clear-selected" class="btn btn-outline" disabled title="Clear only checked files">Clear Selected</button>
+                <button id="btn-clear-inputs" class="btn btn-outline" title="Clear all files">Clear All</button>
+              </div>
+              <div class="path-entry-row">
+                <input type="text" id="input-manual-path" placeholder="Paste absolute file or folder path...">
+                <button id="btn-add-manual-path" class="btn btn-secondary">Add</button>
+              </div>
+              <div class="checkbox-row">
+                <label>
+                  <input type="checkbox" id="chk-recursive" checked>
+                  <span>Recursively scan subdirectories</span>
+                </label>
+              </div>
+              <div id="input-groups-container" class="input-groups-box hidden" style="margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
+              <div class="table-container input-table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 36px; text-align: center;"><input type="checkbox" id="chk-select-all-inputs" title="Select all files"></th>
+                      <th>Document Name</th>
+                      <th>Size</th>
+                      <th>Status</th>
+                      <th style="width: 90px; text-align: center;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="selected-inputs-tbody">
+                    <tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h2>⚙️ Processing Configuration</h2>
+            </div>
+            <div class="panel-body">
+              <label class="form-label">Processing Requirement</label>
+              <div id="requirement-grid" class="requirement-grid"></div>
+              <div id="action-parameters-container" class="action-params-box hidden"></div>
+              <div id="preflight-box" class="preflight-card">
+                <div class="preflight-header">
+                  <strong>Preflight Status:</strong>
+                  <span id="preflight-summary">Ready to run</span>
+                </div>
+                <div id="preflight-issues" class="preflight-issues hidden" style="margin-top: 8px; font-size: 12px; color: var(--accent-amber);"></div>
+              </div>
+              <div class="run-action-row" style="margin-top: 8px;">
+                <button id="btn-start-run" class="btn btn-start" disabled>▶ Start Document Processing</button>
+              </div>
+            </div>
+          </div>
         </div>
-    </dialog>
-
-    <script type="module" src="/app.js"></script>
+      </section>
+      <section id="screen-monitor" class="screen-view">
+        <div class="monitor-container">
+          <div class="monitor-top-bar">
+            <div class="run-meta">
+              <span class="run-id-label">Run ID:</span>
+              <span id="monitor-run-id" class="code-text">—</span>
+              <span id="monitor-status-badge" class="badge badge-indigo">IDLE</span>
+            </div>
+            <div class="run-timing">
+              <span>Elapsed:</span>
+              <strong id="monitor-elapsed-time">0.0s</strong>
+            </div>
+            <button id="btn-cancel-run" class="btn btn-danger" disabled>⏹ Cancel Run</button>
+          </div>
+          <div class="progress-bar-container" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+            <div id="monitor-progress-bar" class="progress-bar" style="width: 0%;"></div>
+          </div>
+          <div id="long-running-alert" class="alert-box alert-amber hidden">
+            <span class="alert-icon">⏳</span>
+            <div class="alert-content">
+              <strong>Long-Running Operation Active (&gt;5s):</strong>
+              <span id="long-running-desc">—</span>
+            </div>
+          </div>
+          <div class="monitor-grid">
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Current Stage Focus</h3>
+              </div>
+              <div class="panel-body">
+                <div class="focus-stat-row">
+                  <span>Active Stage:</span>
+                  <strong id="focus-stage-name">—</strong>
+                </div>
+                <div class="focus-stat-row">
+                  <span>Target Document:</span>
+                  <strong id="focus-file-name">—</strong>
+                </div>
+                <div class="focus-stat-row">
+                  <span>Allocated Device:</span>
+                  <strong id="focus-device-type">—</strong>
+                </div>
+                <div class="focus-stat-row">
+                  <span>Stage Duration:</span>
+                  <strong id="focus-duration">—</strong>
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Hardware Device Throughput</h3>
+              </div>
+              <div class="panel-body">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Device</th>
+                      <th>Units Processed</th>
+                      <th>Total Time</th>
+                      <th>Avg Time</th>
+                    </tr>
+                  </thead>
+                  <tbody id="device-throughput-tbody">
+                    <tr class="empty-row"><td colspan="4">No device executions recorded yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="panel" id="active-workers-panel">
+            <div class="panel-header">
+              <h3>Active Parallel Workers</h3>
+              <span id="active-workers-count" class="badge badge-indigo">0 Active</span>
+            </div>
+            <div class="panel-body">
+              <div class="table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Worker ID</th>
+                      <th>Document</th>
+                      <th>Page</th>
+                      <th>Stage</th>
+                      <th>Hardware Device</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="active-workers-tbody">
+                    <tr class="empty-row"><td colspan="6">No active workers.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="panel file-pipeline-panel">
+            <div class="panel-header">
+              <h3>Document Execution Pipeline</h3>
+              <span id="pipeline-counts" class="badge">0 / 0 completed</span>
+            </div>
+            <div class="panel-body">
+              <div class="table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Document</th>
+                      <th>Stage</th>
+                      <th>Status</th>
+                      <th>Duration</th>
+                      <th>Warnings</th>
+                    </tr>
+                  </thead>
+                  <tbody id="file-pipeline-tbody">
+                    <tr class="empty-row"><td colspan="6">No files currently in pipeline.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="screen-review" class="screen-view">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>🔍 Pariksha — Review & Exception Auditing</h2>
+            <span id="review-queue-count" class="badge badge-amber">0 items</span>
+          </div>
+          <div class="panel-body">
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Item ID</th>
+                    <th>Document</th>
+                    <th>Stage</th>
+                    <th>Confidence</th>
+                    <th>Issue Reason</th>
+                    <th style="width: 120px; text-align: center;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="review-queue-tbody">
+                  <tr class="empty-row"><td colspan="6">No items currently require human review.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="review-detail-card" class="panel hidden" style="margin-top: 16px; background: rgba(8, 12, 20, 0.7);">
+              <div class="panel-header">
+                <h3>Comparative Exception Inspector: <span id="review-active-item-title" class="code-text">—</span></h3>
+                <div class="button-group">
+                  <button id="btn-review-accept" class="btn btn-primary btn-sm">✓ Accept</button>
+                  <button id="btn-review-edit" class="btn btn-secondary btn-sm">✎ Edit Correction</button>
+                  <button id="btn-review-dismiss" class="btn btn-outline btn-sm">✕ Dismiss</button>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="review-diff-container">
+                  <div class="review-diff-box">
+                    <span class="diff-title">Original Source Context</span>
+                    <div id="review-source-text" class="diff-content">Loading source snippet...</div>
+                  </div>
+                  <div class="review-diff-box">
+                    <span class="diff-title">Extracted / Converted Output</span>
+                    <div id="review-output-text" class="diff-content">Loading output snippet...</div>
+                  </div>
+                </div>
+                <div class="confidence-meter">
+                  <span class="form-label" style="margin: 0;">Measured Confidence:</span>
+                  <div class="confidence-meter-track">
+                    <div id="review-confidence-fill" class="confidence-meter-fill" style="width: 0%; background: var(--accent-amber);"></div>
+                  </div>
+                  <strong id="review-confidence-text" class="code-text">—%</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="screen-summary" class="screen-view">
+        <div class="summary-container">
+          <div id="summary-hero" class="summary-hero status-success">
+            <div class="hero-left">
+              <span id="summary-status-badge" class="badge badge-hero">SUCCESS</span>
+              <h2 id="summary-title">Run Completed Successfully</h2>
+              <p id="summary-run-meta" class="text-muted">Run ID: — | Total Time: —</p>
+              <p id="summary-failure-reason" class="text-crimson failure-reason-msg hidden"></p>
+            </div>
+            <div class="hero-right" style="display: flex; gap: 10px;">
+              <button id="btn-open-output-folder" class="btn btn-primary btn-lg">📂 Open Output Folder</button>
+              <button id="btn-return-home" class="btn btn-outline btn-lg">➕ New Run</button>
+            </div>
+          </div>
+          <div class="summary-stats-grid">
+            <div class="stat-card">
+              <span class="stat-label">Total Documents</span>
+              <span id="stat-total-files" class="stat-value">0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Successful</span>
+              <span id="stat-success-files" class="stat-value text-emerald">0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Warnings</span>
+              <span id="stat-warning-files" class="stat-value text-amber">0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Failed / Quarantined</span>
+              <span id="stat-failed-files" class="stat-value text-crimson">0</span>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h3>📦 Confirmed Output Artifacts</h3>
+            </div>
+            <div class="panel-body">
+              <div id="artifacts-grid" class="artifacts-grid">
+                <div class="empty-card" style="grid-column: 1/-1; text-align: center; padding: 24px; color: var(--text-muted);">No output artifacts generated.</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h3>⚡ Stage Performance Breakdown</h3>
+            </div>
+            <div class="panel-body">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Stage</th>
+                    <th>Invocations</th>
+                    <th>Total Time</th>
+                    <th>Avg Time</th>
+                  </tr>
+                </thead>
+                <tbody id="summary-stages-tbody">
+                  <tr class="empty-row"><td colspan="4">No stage timings recorded.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="screen-inspector" class="screen-view">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>🔬 Nirikshana — Execution Inspector & Telemetry</h2>
+          </div>
+          <div class="panel-body">
+            <div class="inspector-sub-nav">
+              <button class="inspector-tab active" data-tab="activity">Activity (Logs)</button>
+              <button class="inspector-tab" data-tab="performance">Performance & Spans</button>
+              <button class="inspector-tab" data-tab="quality">Quality & Accuracy</button>
+              <button class="inspector-tab" data-tab="system">System & Health</button>
+            </div>
+            <div id="tab-inspector-activity" class="inspector-tab-content">
+              <div class="log-filter-bar">
+                <input type="text" id="input-log-search" placeholder="Search log entries...">
+                <div class="log-pills">
+                  <button class="log-pill active" data-level="ALL">ALL</button>
+                  <button class="log-pill" data-level="INFO">INFO</button>
+                  <button class="log-pill" data-level="WARN">WARN</button>
+                  <button class="log-pill" data-level="ERROR">ERROR</button>
+                </div>
+                <button id="btn-copy-logs" class="btn btn-outline btn-sm">📋 Copy</button>
+              </div>
+              <div id="inspector-logs" class="log-stream-box">
+                <div class="log-entry text-muted">[Ready] Mukha Inspector initialized.</div>
+              </div>
+            </div>
+            <div id="tab-inspector-performance" class="inspector-tab-content hidden">
+              <div class="inspector-grid">
+                <div class="inspector-section">
+                  <h3>Hardware Device Summary</h3>
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Device</th>
+                        <th>Executions</th>
+                        <th>Avg Duration</th>
+                        <th>P95 Duration</th>
+                      </tr>
+                    </thead>
+                    <tbody id="inspector-device-tbody">
+                      <tr class="empty-row"><td colspan="4">No hardware spans recorded.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="inspector-section">
+                  <h3>Stage Timing Distribution</h3>
+                  <div id="inspector-waterfall" class="table-container" style="max-height: 250px;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Stage</th>
+                          <th>Calls</th>
+                          <th>Total Duration</th>
+                        </tr>
+                      </thead>
+                      <tbody id="inspector-stages-tbody">
+                        <tr class="empty-row"><td colspan="3">No stage records.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="inspector-section full-width" style="grid-column: 1 / -1; margin-top: 16px;">
+                  <h3>Worker Execution Performance</h3>
+                  <div class="table-container" style="max-height: 250px;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Worker ID</th>
+                          <th>Device</th>
+                          <th>Device ID</th>
+                          <th>Pages</th>
+                          <th>Tasks</th>
+                          <th>Total Time</th>
+                          <th>Avg Time</th>
+                          <th>Throughput</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody id="inspector-worker-tbody">
+                        <tr class="empty-row"><td colspan="9">No worker telemetry recorded.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="tab-inspector-quality" class="inspector-tab-content hidden">
+              <div class="panel" style="background: rgba(8, 12, 20, 0.6);">
+                <div class="panel-header"><h3>Confidence Distribution</h3></div>
+                <div class="panel-body">
+                  <div id="quality-distribution-box" style="display: flex; gap: 16px; flex-wrap: wrap;">
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">90% - 100% (High)</span>
+                      <span id="stat-conf-high" class="stat-value text-emerald">—</span>
+                    </div>
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">75% - 89% (Normal)</span>
+                      <span id="stat-conf-mid" class="stat-value text-cyan">—</span>
+                    </div>
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">50% - 74% (Review)</span>
+                      <span id="stat-conf-low" class="stat-value text-amber">—</span>
+                    </div>
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">&lt; 50% (Critical)</span>
+                      <span id="stat-conf-crit" class="stat-value text-crimson">—</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="inspector-section" style="margin-top: 16px;">
+                <h3>Page-Level Quality & Confidence</h3>
+                <div class="table-container" style="max-height: 250px;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Document</th>
+                        <th>Page</th>
+                        <th>Confidence</th>
+                        <th>Regions</th>
+                        <th>Min Conf</th>
+                        <th>Max Conf</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="inspector-page-conf-tbody">
+                      <tr class="empty-row"><td colspan="7">No page confidence records.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="inspector-section" style="margin-top: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <h3 style="margin: 0;">Region-Level Extraction Confidence</h3>
+                  <input type="text" id="inspector-region-filter" placeholder="Filter regions (e.g. p1, table, line)..." style="max-width: 260px; padding: 4px 8px; font-size: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #f8fafc;">
+                </div>
+                <div class="table-container" style="max-height: 250px;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Region ID</th>
+                        <th>Document</th>
+                        <th>Page</th>
+                        <th>Type</th>
+                        <th>Confidence</th>
+                        <th>Method</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="inspector-region-conf-tbody">
+                      <tr class="empty-row"><td colspan="7">No region confidence records.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div id="tab-inspector-system" class="inspector-tab-content hidden">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Property</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody id="system-facts-tbody">
+                  <tr><td>Binding Host</td><td>127.0.0.1 (Strict Loopback)</td></tr>
+                  <tr><td>Security Policy</td><td>Kavacha Local Isolation</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <dialog id="doc-preview-dialog" class="preview-modal-dialog">
+    <div class="preview-header">
+      <h3 id="preview-modal-title">Document Preview</h3>
+      <button id="btn-close-preview" class="btn btn-outline btn-sm">✕ Close</button>
+    </div>
+    <div id="preview-modal-content" class="preview-content-box">
+      <div class="spinner"></div>
+    </div>
+  </dialog>
+  <aside id="history-drawer" class="history-drawer">
+    <div class="drawer-header">
+      <h3>Terminal Run History</h3>
+      <button id="btn-close-history" class="btn btn-outline btn-sm">✕</button>
+    </div>
+    <div id="history-list-container" class="drawer-body">
+      <div class="text-muted" style="text-align: center; padding: 20px;">Loading history...</div>
+    </div>
+  </aside>
+  <dialog id="cancel-run-dialog" class="modal-dialog">
+    <div class="dialog-content">
+      <h3>Cancel Active Run?</h3>
+      <p>Are you sure you want to cancel the active processing run? Any in-flight document processing will be stopped immediately.</p>
+      <div class="dialog-actions">
+        <button id="btn-cancel-dialog-confirm" class="btn btn-danger">Yes, Cancel Run</button>
+        <button id="btn-cancel-dialog-dismiss" class="btn btn-outline">Keep Running</button>
+      </div>
+    </div>
+  </dialog>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

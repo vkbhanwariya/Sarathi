@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import (
+    ActionParameterView,
     ApplicationViewState,
     AvailableActionView,
     FileRunView,
@@ -117,6 +118,105 @@ def build_inspector_view(
         system_facts=system_facts,
         live_workers=snapshot.live_workers if is_active else None,
     )
+
+
+def _build_action_parameters(act_id: str) -> tuple[ActionParameterView, ...]:
+    """Provide declarative configuration parameters for each capability."""
+    if act_id == "ocr":
+        return (
+            ActionParameterView(
+                parameter_id="profile",
+                display_name="Execution Profile",
+                kind="select",
+                default_value="instant",
+                options=(
+                    ("instant", "Instant (Highest Throughput)"),
+                    ("accurate", "Accurate (Quality Verification)"),
+                    ("custom", "Custom Configuration"),
+                ),
+            ),
+            ActionParameterView(
+                parameter_id="lang",
+                display_name="OCR Model & Language",
+                kind="select",
+                default_value="devanagari",
+                options=(
+                    ("devanagari", "Hindi / Devanagari + English (PP-OCRv5 Mobile)"),
+                    ("en_v6", "English / Latin (PP-OCRv6 Small)"),
+                    ("en", "English / Latin (PP-OCRv5 Mobile)"),
+                ),
+            ),
+            ActionParameterView(
+                parameter_id="preprocess",
+                display_name="Preprocessing",
+                kind="toggle",
+                default_value=True,
+                description="Adaptive grayscale and deskew preparation",
+            ),
+            ActionParameterView(
+                parameter_id="deskew",
+                display_name="Auto-Deskew",
+                kind="toggle",
+                default_value=True,
+                description="Orientation and skew correction",
+            ),
+            ActionParameterView(
+                parameter_id="clahe",
+                display_name="CLAHE Contrast",
+                kind="toggle",
+                default_value=False,
+                description="Adaptive histogram equalization",
+            ),
+            ActionParameterView(
+                parameter_id="binarize",
+                display_name="Binarization",
+                kind="toggle",
+                default_value=False,
+                description="Otsu binarization filter",
+            ),
+            ActionParameterView(
+                parameter_id="fallback_enabled",
+                display_name="Fallback (Tesseract)",
+                kind="toggle",
+                default_value=True,
+                description="CPU secondary fallback engine",
+            ),
+            ActionParameterView(
+                parameter_id="validation_enabled",
+                display_name="Validation Gate",
+                kind="toggle",
+                default_value=True,
+                description="Pramana confidence verification",
+            ),
+        )
+    if act_id == "font_conversion":
+        return (
+            ActionParameterView(
+                parameter_id="source_font",
+                display_name="Source Font Hint",
+                kind="select",
+                default_value="",
+                options=(
+                    ("", "Auto-Detect Source Font"),
+                    ("krutidev010", "KrutiDev 010 / DevLys"),
+                    ("chanakya010", "Chanakya"),
+                    ("shusha010", "Shusha"),
+                    ("shivaji010", "Shivaji"),
+                ),
+            ),
+            ActionParameterView(
+                parameter_id="font_mode",
+                display_name="Conversion Target",
+                kind="select",
+                default_value="auto_unicode",
+                options=(
+                    ("auto_unicode", "Auto-Detect & Convert to Unicode"),
+                    ("to_krutidev", "Convert to KrutiDev"),
+                    ("to_devlys", "Convert to DevLys"),
+                ),
+            ),
+        )
+    return ()
 
 
 def build_application_view_state(
@@ -266,6 +366,14 @@ def build_application_view_state(
     caps_status = MukhaPresenter.audit_capability_status(agni=agni)
     registered_caps = set(c.capability_id for c in agni.kosh.capabilities())
 
+    _ACTION_DESCS = {
+        "read_native": "Fast text & spreadsheet extraction",
+        "bank_statements": "Financial table & transaction normalization",
+        "ocr": "Local rapid image/PDF text recognition",
+        "font_conversion": "Legacy Hindi font mapping & Unicode",
+        "translation": "Protected local Hindi↔English translation",
+    }
+
     available_actions = []
     for decl in agni.kosh.capabilities():
         act_id = decl.capability_id
@@ -276,12 +384,15 @@ def build_application_view_state(
         is_avail, reason = caps_status.get(act_id, (False, "Unavailable"))
         enabled = is_avail and (act_id in registered_caps)
         disabled_reason = None if enabled else reason
+        params = _build_action_parameters(act_id)
         available_actions.append(
             AvailableActionView(
                 action_id=act_id,
                 label=act_label,
                 is_enabled=enabled,
                 disabled_reason=disabled_reason,
+                description=_ACTION_DESCS.get(act_id, ""),
+                parameters=params,
             )
         )
 

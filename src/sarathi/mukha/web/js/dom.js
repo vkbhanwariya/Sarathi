@@ -24,21 +24,8 @@ export const elements = {
     selectedInputsTbody: null,
     inputGroupsContainer: null,
     inputCountsBadge: null,
-    reqCards: null,
-    profileRow: null,
-    selectProfile: null,
-    ocrLangRow: null,
-    selectOcrLang: null,
-    ocrCustomControls: null,
-    chkOcrPreprocess: null,
-    chkOcrDeskew: null,
-    chkOcrClahe: null,
-    chkOcrBinarize: null,
-    chkOcrFallback: null,
-    chkOcrValidation: null,
-    fontModeRow: null,
-    selectFontSource: null,
-    selectFontMode: null,
+    requirementGrid: null,
+    actionParamsContainer: null,
     preflightSummary: null,
     preflightIssues: null,
     btnStartRun: null,
@@ -155,21 +142,8 @@ export function initDom() {
     elements.selectedInputsTbody = document.getElementById("selected-inputs-tbody");
     elements.inputGroupsContainer = document.getElementById("input-groups-container");
     elements.inputCountsBadge = document.getElementById("input-counts-badge");
-    elements.reqCards = document.querySelectorAll(".req-card");
-    elements.profileRow = document.getElementById("profile-row");
-    elements.selectProfile = document.getElementById("select-profile");
-    elements.ocrLangRow = document.getElementById("ocr-lang-row");
-    elements.selectOcrLang = document.getElementById("select-ocr-lang");
-    elements.ocrCustomControls = document.getElementById("ocr-custom-controls");
-    elements.chkOcrPreprocess = document.getElementById("chk-ocr-preprocess");
-    elements.chkOcrDeskew = document.getElementById("chk-ocr-deskew");
-    elements.chkOcrClahe = document.getElementById("chk-ocr-clahe");
-    elements.chkOcrBinarize = document.getElementById("chk-ocr-binarize");
-    elements.chkOcrFallback = document.getElementById("chk-ocr-fallback");
-    elements.chkOcrValidation = document.getElementById("chk-ocr-validation");
-    elements.fontModeRow = document.getElementById("font-mode-row");
-    elements.selectFontSource = document.getElementById("select-font-source");
-    elements.selectFontMode = document.getElementById("select-font-mode");
+    elements.requirementGrid = document.getElementById("requirement-grid");
+    elements.actionParamsContainer = document.getElementById("action-parameters-container");
     elements.preflightSummary = document.getElementById("preflight-summary");
     elements.preflightIssues = document.getElementById("preflight-issues");
     elements.btnStartRun = document.getElementById("btn-start-run");

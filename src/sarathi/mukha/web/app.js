@@ -7,7 +7,7 @@
 
 import { initSSE, pollState } from "./js/api.js";
 import { elements, hideError, initDom } from "./js/dom.js";
-import { initHomeScreen } from "./js/screens/home.js";
+import { initHomeScreen, renderAvailableActions } from "./js/screens/home.js";
 import { initInspectorScreen, loadInspector } from "./js/screens/inspector.js";
 import { initMonitorScreen, renderMonitor } from "./js/screens/monitor.js";
 import { initReviewScreen, loadReviewQueue } from "./js/screens/review.js";
@@ -36,8 +36,9 @@ function updatePresentation(appState) {
         }
     }
 
-    // Available Actions Synchronization
+    // Dynamic Capability & Available Actions Synchronization
     if (appState.available_actions && appState.available_actions.length > 0) {
+        renderAvailableActions(appState.available_actions);
         appState.available_actions.forEach((act) => {
             const card = document.querySelector(`.req-card[data-req="${act.action_id}"]`);
             if (card) {
