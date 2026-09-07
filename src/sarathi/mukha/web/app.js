@@ -13,6 +13,7 @@ import { initMonitorScreen, renderMonitor } from "./js/screens/monitor.js";
 import { initReviewScreen, loadReviewQueue } from "./js/screens/review.js";
 import { initSummaryScreen, renderSummary } from "./js/screens/summary.js";
 import { initCommandPalette, openCommandPalette } from "./js/palette.js";
+import { initPreviewDialog } from "./js/preview.js";
 import { registerScreenCallback, state, switchScreen } from "./js/state.js";
 
 // Presentation View State Projection
@@ -34,6 +35,44 @@ function updatePresentation(appState) {
         } else {
             elements.systemStatusDot.className = "status-dot online";
             elements.systemStatusText.textContent = "Ready";
+        }
+    }
+
+    // Top-Level Global Progress Bar
+    if (elements.topProgressContainer) {
+        const activeRun = appState.active_run;
+        if (activeRun && activeRun.status === "RUNNING") {
+            elements.topProgressContainer.classList.remove("hidden");
+            let pct = 0;
+            if (activeRun.progress && activeRun.progress.percentage !== null && activeRun.progress.percentage !== undefined) {
+                pct = Math.round(activeRun.progress.percentage);
+            } else if (activeRun.total_files > 0) {
+                pct = Math.min(100, Math.round(((activeRun.terminal_files || 0) / activeRun.total_files) * 100));
+            }
+            if (elements.topProgressBar) {
+                elements.topProgressBar.style.width = `${pct}%`;
+                elements.topProgressBar.setAttribute("aria-valuenow", pct.toString());
+            }
+            if (elements.topProgressPct) {
+                elements.topProgressPct.textContent = `${pct}%`;
+            }
+            if (elements.topProgressStage) {
+                const stageText = activeRun.current_focus && activeRun.current_focus.stage
+                    ? `${activeRun.current_focus.stage}${activeRun.current_focus.operation_name ? ' — ' + activeRun.current_focus.operation_name : ''}`
+                    : "Processing documents...";
+                elements.topProgressStage.textContent = stageText;
+            }
+        } else if (activeRun && (activeRun.status === "SUCCESS" || activeRun.status === "PARTIAL")) {
+            if (elements.topProgressBar) elements.topProgressBar.style.width = "100%";
+            if (elements.topProgressPct) elements.topProgressPct.textContent = "100%";
+            if (elements.topProgressStage) elements.topProgressStage.textContent = `Completed (${activeRun.status})`;
+            setTimeout(() => {
+                if (elements.topProgressContainer && (!state.activeRunStatus || state.activeRunStatus !== "RUNNING")) {
+                    elements.topProgressContainer.classList.add("hidden");
+                }
+            }, 2500);
+        } else {
+            elements.topProgressContainer.classList.add("hidden");
         }
     }
 
@@ -149,14 +188,7 @@ function init() {
         });
     }
 
-    // Preview close button
-    if (elements.btnClosePreview && elements.docPreviewDialog) {
-        elements.btnClosePreview.addEventListener("click", () => {
-            if (typeof elements.docPreviewDialog.close === "function") {
-                elements.docPreviewDialog.close();
-            }
-        });
-    }
+    initPreviewDialog();
 
     // Error banner dismiss button
     if (elements.btnDismissError) {

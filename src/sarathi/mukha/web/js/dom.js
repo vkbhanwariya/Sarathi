@@ -12,6 +12,12 @@ export const elements = {
     btnOpenHistory: null,
     btnCommandPalette: null,
 
+    // Top Global Progress Bar
+    topProgressContainer: null,
+    topProgressBar: null,
+    topProgressStage: null,
+    topProgressPct: null,
+
     // Home Elements
     btnBrowseFiles: null,
     btnBrowseFolder: null,
@@ -70,6 +76,7 @@ export const elements = {
     summaryTitle: null,
     summaryRunMeta: null,
     summaryFailureReason: null,
+    btnSummaryHistory: null,
     btnOpenOutputFolder: null,
     btnReturnHome: null,
     statTotalFiles: null,
@@ -99,6 +106,12 @@ export const elements = {
     statConfLow: null,
     statConfCrit: null,
     systemFactsTbody: null,
+    inspectorFallbackTbody: null,
+    statTessIntercepted: null,
+    statTessImproved: null,
+    statTessGain: null,
+    statTessPages: null,
+    tesseractRecoveryCount: null,
 
     // Document Preview Dialog
     docPreviewDialog: null,
@@ -133,6 +146,12 @@ export function initDom() {
     elements.sseStatusLabel = document.getElementById("sse-status-label");
     elements.btnOpenHistory = document.getElementById("btn-open-history");
     elements.btnCommandPalette = document.getElementById("btn-command-palette");
+
+    // Top Global Progress Bar
+    elements.topProgressContainer = document.getElementById("top-progress-container");
+    elements.topProgressBar = document.getElementById("top-progress-bar");
+    elements.topProgressStage = document.getElementById("top-progress-stage");
+    elements.topProgressPct = document.getElementById("top-progress-pct");
 
     // Home
     elements.btnBrowseFiles = document.getElementById("btn-browse-files");
@@ -194,6 +213,7 @@ export function initDom() {
     elements.summaryFailureReason = document.getElementById("summary-failure-reason");
     elements.btnOpenOutputFolder = document.getElementById("btn-open-output-folder");
     elements.btnReturnHome = document.getElementById("btn-return-home");
+    elements.btnSummaryHistory = document.getElementById("btn-summary-history");
     elements.statTotalFiles = document.getElementById("stat-total-files");
     elements.statSuccessFiles = document.getElementById("stat-success-files");
     elements.statWarningFiles = document.getElementById("stat-warning-files");
@@ -221,6 +241,12 @@ export function initDom() {
     elements.statConfLow = document.getElementById("stat-conf-low");
     elements.statConfCrit = document.getElementById("stat-conf-crit");
     elements.systemFactsTbody = document.getElementById("system-facts-tbody");
+    elements.inspectorFallbackTbody = document.getElementById("inspector-fallback-tbody");
+    elements.statTessIntercepted = document.getElementById("stat-tess-intercepted");
+    elements.statTessImproved = document.getElementById("stat-tess-improved");
+    elements.statTessGain = document.getElementById("stat-tess-gain");
+    elements.statTessPages = document.getElementById("stat-tess-pages");
+    elements.tesseractRecoveryCount = document.getElementById("tesseract-recovery-count");
 
     // Preview
     elements.docPreviewDialog = document.getElementById("doc-preview-dialog");

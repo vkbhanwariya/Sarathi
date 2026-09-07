@@ -78,6 +78,7 @@ class TestInspectorApi:
             assert "device_summaries" in inspector
             assert "stage_timings" in inspector
             assert "system_facts" in inspector
+            assert "fallback_improvements" in inspector
 
     def test_inspector_endpoint_rejects_invalid_id(
         self, web_server: MukhaWebServer

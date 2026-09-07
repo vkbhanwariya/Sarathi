@@ -736,3 +736,63 @@ def test_scoped_input_and_artifact_preview(web_server: MukhaWebServer, tmp_path:
         f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run-mock/artifacts/art-mock/preview"
     )
     assert status_art == 404
+
+
+def test_intake_preview_by_input_id(web_server: MukhaWebServer, tmp_path: Path) -> None:
+    """Verify documents added via intake can be previewed by input_id before starting a run."""
+    doc_file = tmp_path / "sample_doc.txt"
+    doc_file.write_text("Hello Sarathi V2 Preview!", encoding="utf-8")
+
+    # 1. Intake document
+    intake_status, intake_res = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
+        {"paths": [str(doc_file)], "recursive": False},
+    )
+    assert intake_status == 200
+    assert intake_res["ok"] is True
+    items = intake_res["input_selection"]["items"]
+    assert len(items) >= 1
+    input_id = items[0]["input_id"]
+
+    # 2. Preview document via /api/inputs/<input_id>/preview
+    prev_status, prev_data, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/inputs/{input_id}/preview"
+    )
+    assert prev_status == 200
+    prev_payload = json.loads(prev_data.decode("utf-8"))
+    assert prev_payload["ok"] is True
+    assert prev_payload["type"] == "text"
+    assert "Hello Sarathi V2 Preview!" in prev_payload["content"]
+
+
+def test_get_run_summary_endpoint(web_server: MukhaWebServer) -> None:
+    """Verify GET /api/runs/<run_id>/summary returns stored terminal run summary."""
+    from sarathi.mukha.state import RunSummaryView
+
+    # 404 for non-existent run summary
+    status_404, data_404, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run-fake/summary")
+    assert status_404 == 404
+
+    # Populate a mock summary in coordinator
+    mock_summary = RunSummaryView(
+        run_id="run-summary-test-123",
+        status="SUCCESS",
+        wall_time_ns=500_000_000,
+        total_inputs=2,
+        successful_files=2,
+        warning_files=0,
+        failed_files=0,
+    )
+    with web_server.runner._lock:
+        web_server.runner._run_summaries[mock_summary.run_id] = mock_summary
+
+    # Query endpoint
+    status_ok, data_ok, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{mock_summary.run_id}/summary"
+    )
+    assert status_ok == 200
+    res = json.loads(data_ok.decode("utf-8"))
+    assert res["ok"] is True
+    assert res["summary"]["run_id"] == mock_summary.run_id
+    assert res["summary"]["status"] == "SUCCESS"
+    assert res["summary"]["total_inputs"] == 2

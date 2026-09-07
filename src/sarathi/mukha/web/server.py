@@ -148,6 +148,14 @@ class MukhaWebServer:
         """Look up confirmed ArtifactRef by run ID and artifact ID."""
         return self._runner.get_confirmed_artifact(run_id, artifact_id)
 
+    def get_input_path(self, input_id: str) -> Path | None:
+        """Look up source file Path for an input ID from active or cached intake inputs."""
+        return self._runner.get_input_path(input_id)
+
+    def get_run_summary(self, run_id: str) -> Any | None:
+        """Look up full terminal run summary by run ID."""
+        return self._runner.get_run_summary(run_id)
+
     def get_run_history(self, limit: int = 50) -> tuple[Any, ...]:
         """Retrieve recent terminal run summaries from Darpana telemetry history."""
         return query_run_history(self._agni, limit=limit)

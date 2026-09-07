@@ -64,3 +64,29 @@ def test_js_endpoint_rejects_traversal(web_server: MukhaWebServer) -> None:
     """Attempting path traversal in /js/ endpoint must be blocked with HTTP 400."""
     status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/..%2F..%2Fsecret.py")
     assert status == 400
+
+
+def test_inspector_tabs_and_containers_integrity(web_server: MukhaWebServer) -> None:
+    """Every inspector tab button in app.html must have a corresponding container in app.html and match inspector.js."""
+    import re
+
+    # Fetch app.html
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/")
+    assert status == 200
+    html = data.decode("utf-8")
+
+    # Find all data-tab values in inspector sub-nav
+    tabs = re.findall(r'class="inspector-tab[^"]*"\s+data-tab="([^"]+)"', html)
+    assert set(tabs) == {"activity", "performance", "quality", "system"}
+
+    # Verify each tab has a matching container id="tab-inspector-<tab>"
+    for tab in tabs:
+        expected_id = f'id="tab-inspector-{tab}"'
+        assert expected_id in html, f"Missing container {expected_id} in app.html"
+
+    # Verify inspector.js matches tab-inspector- IDs and toggles hidden class
+    status_js, data_js, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/screens/inspector.js")
+    assert status_js == 200
+    js = data_js.decode("utf-8")
+    assert "tab-inspector-${state.activeInspectorTab}" in js
+    assert 'c.classList.toggle("hidden"' in js

@@ -98,11 +98,16 @@ def build_document_preview(path_str: str) -> tuple[int, dict[str, Any]]:
 def build_input_preview(mukha_app: Any, input_id: str) -> tuple[int, dict[str, Any]]:
     """Resolve authorized intake input by ID and build safe preview."""
     target_path: Path | None = None
-    app_state = mukha_app.get_application_view_state()
-    for item in app_state.input_selection.items:
-        if item.input_id == input_id and item.source_path:
-            target_path = Path(item.source_path).resolve()
-            break
+    if hasattr(mukha_app, "get_input_path"):
+        target_path = mukha_app.get_input_path(input_id)
+    if target_path is None and hasattr(mukha_app, "runner") and hasattr(mukha_app.runner, "get_input_path"):
+        target_path = mukha_app.runner.get_input_path(input_id)
+    if target_path is None:
+        app_state = mukha_app.get_application_view_state()
+        for item in app_state.input_selection.items:
+            if item.input_id == input_id and item.source_path:
+                target_path = Path(item.source_path).resolve()
+                break
     if target_path is None or not target_path.is_file():
         return 404, {"ok": False, "error": f"Input '{input_id}' not found."}
     return build_document_preview(str(target_path))

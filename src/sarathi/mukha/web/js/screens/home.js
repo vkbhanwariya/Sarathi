@@ -476,7 +476,7 @@ export function initHomeScreen() {
                 const pathVal = btnPreview.dataset.path;
                 const name = btnPreview.dataset.name;
                 const target = inputId ? `/api/inputs/${encodeURIComponent(inputId)}/preview` : pathVal;
-                if (target) openDocumentPreview(target, name);
+                if (target) openDocumentPreview(target, name, pathVal);
             }
         });
     }

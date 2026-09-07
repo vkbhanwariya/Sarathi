@@ -316,7 +316,22 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json(200, diag)
                 return
 
-        # 3c. GET /api/runs/compare?run_a=...&run_b=...
+        # 3c. GET /api/runs/<run_id>/summary
+        elif path.startswith("/api/runs/") and path.endswith("/summary"):
+            parts = path.strip("/").split("/")
+            if len(parts) == 4 and parts[1] == "runs" and parts[3] == "summary":
+                run_id = parts[2]
+                if not _SAFE_ID_PATTERN.match(run_id):
+                    self.send_error(HTTPStatus.BAD_REQUEST, "Invalid run identifier.")
+                    return
+                summary = self.mukha_app.get_run_summary(run_id)
+                if summary is None:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Run summary not found.")
+                    return
+                self._send_json(200, {"ok": True, "summary": _serialize_dataclass(summary)})
+                return
+
+        # 3d. GET /api/runs/compare?run_a=...&run_b=...
         elif path == "/api/runs/compare":
             query_params = urllib.parse.parse_qs(parsed_url.query)
             run_a = query_params.get("run_a", [""])[0].strip()
@@ -397,6 +412,8 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                     output_root=self.mukha_app.output_root,
                     recursive=recursive,
                 )
+                if hasattr(self.mukha_app, "runner") and self.mukha_app.runner is not None:
+                    self.mukha_app.runner.set_intake_selection(input_selection, inputs)
                 self._send_json(
                     200,
                     {

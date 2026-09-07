@@ -6,6 +6,7 @@ import { apiGet } from "../api.js";
 import { elements } from "../dom.js";
 import { escapeHtml, formatDuration } from "../formatters.js";
 import { state, switchScreen } from "../state.js";
+import { loadRunSummary } from "./summary.js";
 
 export async function loadInspector() {
     if (!state.activeRunId) {
@@ -84,6 +85,58 @@ export async function loadInspector() {
         if (elements.statConfMid) elements.statConfMid.textContent = distMap["75-89%"] ?? "0";
         if (elements.statConfLow) elements.statConfLow.textContent = distMap["50-74%"] ?? "0";
         if (elements.statConfCrit) elements.statConfCrit.textContent = distMap["<50%"] ?? "0";
+    }
+
+    // Tesseract Fallback Quality Recovery
+    const fallbacks = insp.fallback_improvements || [];
+    if (elements.tesseractRecoveryCount) {
+        elements.tesseractRecoveryCount.textContent = `${fallbacks.length} Recovered`;
+        elements.tesseractRecoveryCount.className = fallbacks.length > 0
+            ? "badge badge-emerald"
+            : "badge badge-indigo";
+    }
+    if (elements.statTessImproved) {
+        elements.statTessImproved.textContent = fallbacks.length;
+    }
+    if (elements.statTessIntercepted) {
+        elements.statTessIntercepted.textContent = fallbacks.length > 0 ? fallbacks.length : "0";
+    }
+    if (elements.statTessGain) {
+        if (fallbacks.length > 0) {
+            const avgGain = fallbacks.reduce((sum, f) => sum + (f.confidence_gain || 0), 0) / fallbacks.length;
+            elements.statTessGain.textContent = `+${(avgGain * 100).toFixed(1)}%`;
+            elements.statTessGain.className = "stat-value text-emerald";
+        } else {
+            elements.statTessGain.textContent = "+0.0%";
+            elements.statTessGain.className = "stat-value text-muted";
+        }
+    }
+    if (elements.statTessPages) {
+        const uniquePages = new Set(fallbacks.map((f) => `${f.file_display_name}:${f.page_number}`)).size;
+        elements.statTessPages.textContent = uniquePages;
+    }
+
+    if (elements.inspectorFallbackTbody) {
+        if (fallbacks.length > 0) {
+            elements.inspectorFallbackTbody.innerHTML = fallbacks
+                .map((f) => {
+                    const origPct = (f.original_confidence * 100).toFixed(1);
+                    const impPct = (f.improved_confidence * 100).toFixed(1);
+                    const gainPct = (f.confidence_gain * 100).toFixed(1);
+                    return `<tr>
+                        <td><strong class="code-text">${escapeHtml(f.region_id)}</strong></td>
+                        <td>${escapeHtml(f.file_display_name)}</td>
+                        <td>Page ${f.page_number}</td>
+                        <td><span class="badge badge-amber">${origPct}%</span></td>
+                        <td><span class="badge badge-emerald">${impPct}%</span></td>
+                        <td><strong class="text-emerald">+${gainPct}%</strong></td>
+                        <td><span class="badge badge-indigo">${escapeHtml(f.fallback_engine || "Tesseract 5")}</span></td>
+                    </tr>`;
+                })
+                .join("");
+        } else {
+            elements.inspectorFallbackTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No weak regions required Tesseract fallback for this run.</td></tr>';
+        }
     }
 
     // Page-Level Quality & Confidence
@@ -174,7 +227,7 @@ export function renderFilteredRegions() {
 
     const filtered = (state.allRegionConfidence || []).filter((rc) => {
         if (!query) return true;
-        const target = `${rc.region_id} ${rc.file_display_name} p${rc.page_number} ${rc.region_type} ${rc.method}`.toLowerCase();
+        const target = `${rc.region_id} ${rc.file_display_name} p${rc.page_number} ${rc.region_type} ${rc.method} ${rc.fallback_engine || ""}`.toLowerCase();
         return target.includes(query);
     });
 
@@ -189,16 +242,27 @@ export function renderFilteredRegions() {
             const confClass = rc.confidence_score >= 0.90
                 ? "badge-emerald"
                 : (rc.confidence_score >= 0.75 ? "badge-cyan" : "badge-amber");
-            const statusBadge = rc.review_recommended
+
+            let statusBadge = rc.review_recommended
                 ? '<span class="badge badge-amber">REVIEW</span>'
                 : '<span class="badge badge-emerald">OK</span>';
+            if (rc.confidence_gain !== undefined && rc.confidence_gain !== null && rc.confidence_gain > 0) {
+                const gainPct = (rc.confidence_gain * 100).toFixed(1);
+                statusBadge = `<span class="badge badge-emerald" title="Tesseract recovered +${gainPct}%">IMPROVED (+${gainPct}%)</span>`;
+            }
+
+            let methodBadge = escapeHtml(rc.method);
+            if (rc.method === "tesseract_fallback") {
+                methodBadge = `<span class="badge badge-indigo">${escapeHtml(rc.fallback_engine || "Tesseract 5")}</span>`;
+            }
+
             return `<tr>
                 <td><strong class="code-text">${escapeHtml(rc.region_id)}</strong></td>
                 <td>${escapeHtml(rc.file_display_name)}</td>
                 <td>P${rc.page_number}</td>
                 <td><span class="badge badge-indigo">${escapeHtml(rc.region_type)}</span></td>
                 <td><span class="badge ${confClass}">${pct}%</span></td>
-                <td>${escapeHtml(rc.method)}</td>
+                <td>${methodBadge}</td>
                 <td>${statusBadge}</td>
             </tr>`;
         })
@@ -225,9 +289,13 @@ export async function toggleHistoryDrawer(forceState) {
                                 <strong class="code-text">${escapeHtml(h.run_id)}</strong>
                                 ${stBadge}
                             </div>
-                            <div style="font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between;">
-                                <span>${h.total_inputs || 0} files</span>
+                            <div style="font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between; margin: 4px 0 8px 0;">
+                                <span>${escapeHtml(h.requirement || 'Document')} • ${h.total_inputs || 0} files</span>
                                 <span>${formatDuration(h.wall_time_ns)}</span>
+                            </div>
+                            <div class="history-card-actions">
+                                <button class="btn btn-primary btn-sm btn-view-run-result" data-run-id="${escapeHtml(h.run_id)}" style="flex: 1;">📋 View Result</button>
+                                <button class="btn btn-outline btn-sm btn-view-run-telemetry" data-run-id="${escapeHtml(h.run_id)}" style="flex: 1;">🔍 Telemetry</button>
                             </div>
                         </div>
                     `;
@@ -249,7 +317,9 @@ export function initInspectorScreen() {
 
                 if (elements.inspectorTabContents) {
                     elements.inspectorTabContents.forEach((c) => {
-                        c.classList.toggle("active", c.id === `tab-${state.activeInspectorTab}`);
+                        const isTarget = c.id === `tab-inspector-${state.activeInspectorTab}`;
+                        c.classList.toggle("hidden", !isTarget);
+                        c.classList.toggle("active", isTarget);
                     });
                 }
             });
@@ -313,12 +383,32 @@ export function initInspectorScreen() {
     }
     if (elements.historyListContainer) {
         elements.historyListContainer.addEventListener("click", (e) => {
+            const btnResult = e.target.closest(".btn-view-run-result");
+            const btnTelemetry = e.target.closest(".btn-view-run-telemetry");
             const card = e.target.closest(".history-card");
-            if (card && card.dataset.runId) {
-                state.activeRunId = card.dataset.runId;
+
+            if (btnResult && btnResult.dataset.runId) {
+                const runId = btnResult.dataset.runId;
+                state.activeRunId = runId;
+                toggleHistoryDrawer(false);
+                loadRunSummary(runId);
+                return;
+            }
+
+            if (btnTelemetry && btnTelemetry.dataset.runId) {
+                const runId = btnTelemetry.dataset.runId;
+                state.activeRunId = runId;
                 toggleHistoryDrawer(false);
                 switchScreen("inspector");
                 loadInspector();
+                return;
+            }
+
+            if (card && card.dataset.runId) {
+                const runId = card.dataset.runId;
+                state.activeRunId = runId;
+                toggleHistoryDrawer(false);
+                loadRunSummary(runId);
             }
         });
     }

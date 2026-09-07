@@ -13,11 +13,11 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
-from sarathi.mukha.state import ReviewIntent, RunSummaryView
+from sarathi.mukha.state import InputSelectionView, ReviewIntent, RunSummaryView
 from sarathi.mukha.web.http_handler import (
     StartRunResponse,
     StartRunStatus,
@@ -29,6 +29,7 @@ from sarathi.sankalpa import (
     CancellationToken,
     CanonicalDocument,
     ExecutionProfile,
+    InputRef,
     Request,
     Result,
 )
@@ -73,6 +74,9 @@ class RunCoordinator:
         self._file_progress: dict[str, dict[str, Any]] = {}
         self._review_intents: dict[str, ReviewIntent] = {}
         self._state_revision: int = 1
+        self._intake_selection: InputSelectionView | None = None
+        self._input_path_registry: dict[str, Path] = {}
+        self._run_summaries: dict[str, RunSummaryView] = {}
 
     @property
     def state_revision(self) -> int:
@@ -84,6 +88,51 @@ class RunCoordinator:
         """Return True if an interactive processing run is currently active on background worker thread."""
         with self._lock:
             return self._active_thread is not None and self._active_thread.is_alive()
+
+    def set_intake_selection(
+        self,
+        input_selection: InputSelectionView | None,
+        inputs: Sequence[InputRef] | None = None,
+    ) -> None:
+        """Cache intake input selection and register known input paths for safe preview."""
+        with self._lock:
+            self._intake_selection = input_selection
+            if inputs:
+                for inp in inputs:
+                    if inp.source_path:
+                        self._input_path_registry[inp.input_id] = Path(inp.source_path).resolve()
+            if input_selection and input_selection.items:
+                for item in input_selection.items:
+                    if item.source_path:
+                        self._input_path_registry[item.input_id] = Path(item.source_path).resolve()
+            self._state_revision += 1
+
+    def get_intake_selection(self) -> InputSelectionView | None:
+        """Return cached intake selection view."""
+        with self._lock:
+            return self._intake_selection
+
+    def get_input_path(self, input_id: str) -> Path | None:
+        """Resolve absolute source Path for an intake input_id."""
+        with self._lock:
+            path = self._input_path_registry.get(input_id)
+            if path and path.is_file():
+                return path
+            if self._active_request:
+                for inp in self._active_request.inputs:
+                    if inp.input_id == input_id and inp.source_path:
+                        resolved = Path(inp.source_path).resolve()
+                        if resolved.is_file():
+                            self._input_path_registry[input_id] = resolved
+                            return resolved
+            return None
+
+    def get_run_summary(self, run_id: str) -> RunSummaryView | None:
+        """Retrieve terminal run summary by run ID."""
+        with self._lock:
+            if self._terminal_summary and self._terminal_summary.run_id == run_id:
+                return self._terminal_summary
+            return self._run_summaries.get(run_id)
 
     def apply_review_intent(self, intent: ReviewIntent) -> bool:
         """Apply and record a human review decision."""
@@ -175,6 +224,10 @@ class RunCoordinator:
                     error_message="An interactive processing run is already active.",
                 )
 
+            for inp in inputs:
+                if inp.source_path:
+                    self._input_path_registry[inp.input_id] = Path(inp.source_path).resolve()
+
             # Reset live progress tracking for active run
             self._live_progress = {}
             self._live_workers = {}
@@ -231,6 +284,10 @@ class RunCoordinator:
             effective_custom_options = dict(custom_options or {})
             effective_custom_options["progress_callback"] = _on_progress
 
+            req_metadata = {}
+            if effective_custom_options.get("direction"):
+                req_metadata["direction"] = effective_custom_options["direction"]
+
             run_id = f"run_{uuid.uuid4().hex[:12]}"
             token = CancellationToken()
             request = Request(
@@ -240,6 +297,7 @@ class RunCoordinator:
                 profile=profile,
                 cancellation_token=token,
                 custom_options=effective_custom_options,
+                metadata=req_metadata,
             )
 
             self._active_run_id = run_id
@@ -377,6 +435,7 @@ class RunCoordinator:
                         )
                         self._terminal_status = overall_status
                         self._terminal_summary = summary
+                        self._run_summaries[run_id] = summary
                 except DoshError as dosh_err:
                     is_cancelled = (
                         (request.cancellation_token and request.cancellation_token.is_cancelled)
@@ -404,6 +463,7 @@ class RunCoordinator:
                     with self._lock:
                         self._terminal_status = status
                         self._terminal_summary = summary
+                        self._run_summaries[run_id] = summary
                 except Exception:
                     maruti_recs, pramana_recs = get_run_telemetry(self._agni, run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
@@ -420,6 +480,7 @@ class RunCoordinator:
                     with self._lock:
                         self._terminal_status = "FAILED"
                         self._terminal_summary = summary
+                        self._run_summaries[run_id] = summary
                 finally:
                     with self._lock:
                         if self._terminal_summary is None:
@@ -436,6 +497,7 @@ class RunCoordinator:
                                 maruti_records=maruti_recs,
                                 pramana_records=pramana_recs,
                             )
+                            self._run_summaries[run_id] = self._terminal_summary
                         self._state_revision += 1
 
             self._active_thread = threading.Thread(
@@ -462,28 +524,89 @@ class RunCoordinator:
 
     def reveal_output_directory(self, run_id: str) -> bool:
         """Safely reveal the confirmed run output folder in Windows Explorer / OS file manager in the foreground."""
+        # Resolve target directory with fallbacks
         with self._lock:
             target_dir = self._run_output_roots.get(run_id)
-        if target_dir is None or not target_dir.is_dir():
-            return False
-
+            if (target_dir is None or not target_dir.is_dir()) and self._last_result:
+                out_dir = self._last_result.metadata.get("output_dir")
+                if out_dir:
+                    target_dir = Path(out_dir)
+            if target_dir is None or not target_dir.is_dir():
+                artifacts = self._confirmed_artifacts.get(run_id)
+                if artifacts:
+                    first_art = next(iter(artifacts.values()), None)
+                    if first_art:
+                        target_dir = Path(first_art.path).parent
+            if target_dir is None or not target_dir.is_dir():
+                return False
         try:
             if sys.platform == "win32":
+                # Launch Explorer window
                 subprocess.Popen(["explorer.exe", str(target_dir)])
-                try:
-                    subprocess.run(
-                        [
-                            "powershell",
-                            "-NoProfile",
-                            "-Command",
-                            "(New-Object -ComObject WScript.Shell).AppActivate('Explorer')",
-                        ],
-                        capture_output=True,
-                        timeout=2.0,
-                        check=False,
-                    )
-                except Exception:
-                    pass
+                # PowerShell script to bring the Explorer window to the foreground
+                ps_script = r"""
+param([string]$targetPath)
+$target = [System.IO.Path]::GetFullPath($targetPath).TrimEnd('\').ToLower()
+$targetUri = ([System.Uri]$target).AbsoluteUri.ToLower().TrimEnd('/')
+
+$csharp = @'
+using System;
+using System.Runtime.InteropServices;
+public class Win32Helper {
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern void SwitchToThisWindow(IntPtr hWnd, bool fUnknown);
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+'@
+try { Add-Type -TypeDefinition $csharp -ErrorAction SilentlyContinue } catch {}
+
+$shell = New-Object -ComObject Shell.Application
+$activated = $false
+for ($i = 0; $i -lt 10; $i++) {
+    foreach ($w in $shell.Windows()) {
+        $loc = ''
+        try { $loc = [System.Uri]::UnescapeDataString($w.LocationURL).ToLower().TrimEnd('/') } catch {}
+        if ($loc -and ($loc -eq $targetUri -or $loc -like ($targetUri + '/*'))) {
+            $hwnd = [IntPtr]$w.HWND
+            try {
+                [Win32Helper]::ShowWindowAsync($hwnd, 9) | Out-Null
+                [Win32Helper]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+                [Win32Helper]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+                [Win32Helper]::SetForegroundWindow($hwnd) | Out-Null
+                [Win32Helper]::SwitchToThisWindow($hwnd, $true)
+            } catch {}
+            $activated = $true
+            break
+        }
+    }
+    if ($activated) { break }
+    Start-Sleep -Milliseconds 150
+}
+
+if (-not $activated) {
+    $folderName = Split-Path -Leaf $target
+    (New-Object -ComObject WScript.Shell).AppActivate($folderName) | Out-Null
+}
+"""
+                subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        f"& {{ {ps_script} }}",
+                        "-targetPath",
+                        str(target_dir),
+                    ],
+                    capture_output=True,
+                    timeout=5,
+                    check=False,
+                )
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", str(target_dir)])
             else:

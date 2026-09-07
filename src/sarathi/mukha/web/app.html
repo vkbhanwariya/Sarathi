@@ -41,10 +41,20 @@
           <span id="system-status-dot" class="status-dot online"></span>
           <span id="system-status-text">Ready</span>
         </div>
-        <button id="btn-open-history" class="btn-header-icon" title="Terminal Run History (Ctrl+H)">🕒</button>
+        <button id="btn-open-history" class="btn-header-history" title="Terminal Run History (Ctrl+H)">
+          <span class="history-icon">🕒</span>
+          <span class="history-label">Run History</span>
+        </button>
         <button id="btn-command-palette" class="btn-header-icon" title="Command Palette (Ctrl+P)">⌘</button>
       </div>
     </header>
+    <div id="top-progress-container" class="top-progress-container hidden" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+      <div id="top-progress-bar" class="top-progress-bar" style="width: 0%;"></div>
+      <div class="top-progress-info">
+        <span id="top-progress-stage" class="top-progress-stage">Processing...</span>
+        <span id="top-progress-pct" class="top-progress-pct">0%</span>
+      </div>
+    </div>
     <div id="error-banner" class="alert-banner hidden" role="alert" aria-live="assertive">
       <span class="alert-icon">⚠️</span>
       <span id="error-banner-text" class="alert-message"></span>
@@ -304,7 +314,8 @@
               <p id="summary-run-meta" class="text-muted">Run ID: — | Total Time: —</p>
               <p id="summary-failure-reason" class="text-crimson failure-reason-msg hidden"></p>
             </div>
-            <div class="hero-right" style="display: flex; gap: 10px;">
+            <div class="hero-right" style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button id="btn-summary-history" class="btn btn-secondary btn-lg" title="View all previous terminal runs">🕒 Past Runs</button>
               <button id="btn-open-output-folder" class="btn btn-primary btn-lg">📂 Open Output Folder</button>
               <button id="btn-return-home" class="btn btn-outline btn-lg">➕ New Run</button>
             </div>
@@ -498,8 +509,57 @@
                   </div>
                 </div>
               </div>
+              <div class="panel" id="tesseract-fallback-panel" style="background: rgba(8, 12, 20, 0.6); margin-top: 16px;">
+                <div class="panel-header">
+                  <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                    <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                      <span>🔄 Tesseract 5 Fallback &amp; Quality Recovery</span>
+                      <span id="badge-tesseract-status" class="badge badge-emerald">Available</span>
+                    </h3>
+                    <span id="tesseract-recovery-count" class="badge badge-indigo">0 Recovered</span>
+                  </div>
+                </div>
+                <div class="panel-body">
+                  <div class="quality-distribution-box" style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px;">
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">Weak Spans Evaluated</span>
+                      <span id="stat-tess-intercepted" class="stat-value text-muted">0</span>
+                    </div>
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">Regions Improved</span>
+                      <span id="stat-tess-improved" class="stat-value text-emerald">0</span>
+                    </div>
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">Avg Confidence Gain</span>
+                      <span id="stat-tess-gain" class="stat-value text-cyan">+0.0%</span>
+                    </div>
+                    <div class="stat-card" style="flex: 1; min-width: 140px;">
+                      <span class="stat-label">Enhanced Pages</span>
+                      <span id="stat-tess-pages" class="stat-value text-indigo">0</span>
+                    </div>
+                  </div>
+                  <div class="table-container" style="max-height: 220px;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Region ID</th>
+                          <th>Document</th>
+                          <th>Page</th>
+                          <th>Original Conf</th>
+                          <th>Tesseract Conf</th>
+                          <th>Confidence Boost</th>
+                          <th>Engine</th>
+                        </tr>
+                      </thead>
+                      <tbody id="inspector-fallback-tbody">
+                        <tr class="empty-row"><td colspan="7">No weak regions required Tesseract fallback for this run.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
               <div class="inspector-section" style="margin-top: 16px;">
-                <h3>Page-Level Quality & Confidence</h3>
+                <h3>Page-Level Quality &amp; Confidence</h3>
                 <div class="table-container" style="max-height: 250px;">
                   <table class="data-table">
                     <thead>

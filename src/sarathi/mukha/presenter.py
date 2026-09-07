@@ -19,6 +19,7 @@ from sarathi.mukha.state import (
     AvailableActionView,
     DeviceProgressView,
     DeviceSummaryView,
+    FallbackImprovementView,
     FileRunView,
     InputSelectionView,
     InspectorViewState,
@@ -574,6 +575,7 @@ class MukhaPresenter:
         conf_brackets = {"90-100%": 0, "75-89%": 0, "50-74%": 0, "<50%": 0}
         page_conf_map: dict[tuple[str, int], dict[str, Any]] = {}
         region_conf_list: list[RegionConfidenceView] = []
+        fallback_improvements: list[FallbackImprovementView] = []
 
         for pr in pramana_records:
             score = pr.confidence.score if pr.confidence is not None else None
@@ -590,6 +592,15 @@ class MukhaPresenter:
             level = pr.attributes.get("level")
             file_name = pr.attributes.get("file_display_name") or pr.subject_id or "document"
             p_num = int(pr.attributes.get("page_number", 1))
+
+            is_fallback = bool(
+                pr.attributes.get("fallback_applied")
+                or (pr.confidence is not None and getattr(pr.confidence, "evidence", None) and pr.confidence.evidence.get("fallback_applied"))
+            )
+            raw_eng = pr.attributes.get("fallback_engine") or "Tesseract 5"
+            fallback_eng = "Tesseract 5" if raw_eng in ("tesseract5", "tesseract") else str(raw_eng)
+            orig_conf = pr.attributes.get("original_confidence")
+            conf_gain = pr.attributes.get("confidence_gain")
 
             if level == "page" or (pr.attributes.get("page_number") is not None and level != "region"):
                 key = (file_name, p_num)
@@ -617,6 +628,10 @@ class MukhaPresenter:
                 rev = bool(pr.attributes.get("review_recommended", False))
                 if not rev and pr.confidence is not None and getattr(pr.confidence, "evidence", None):
                     rev = bool(pr.confidence.evidence.get("review_recommended", False))
+
+                orig_c_float = float(orig_conf) if orig_conf is not None else None
+                gain_float = float(conf_gain) if conf_gain is not None else None
+
                 region_conf_list.append(
                     RegionConfidenceView(
                         region_id=reg_id,
@@ -626,8 +641,24 @@ class MukhaPresenter:
                         region_type=reg_type,
                         method=method,
                         review_recommended=rev,
+                        original_confidence=round(orig_c_float, 4) if orig_c_float is not None else None,
+                        confidence_gain=round(gain_float, 4) if gain_float is not None else None,
+                        fallback_engine=fallback_eng if is_fallback else None,
                     )
                 )
+
+                if is_fallback and orig_c_float is not None:
+                    fallback_improvements.append(
+                        FallbackImprovementView(
+                            region_id=reg_id,
+                            file_display_name=file_name,
+                            page_number=p_num,
+                            original_confidence=round(orig_c_float, 4),
+                            improved_confidence=round(eff_score, 4),
+                            confidence_gain=round(gain_float if gain_float is not None else (eff_score - orig_c_float), 4),
+                            fallback_engine=fallback_eng,
+                        )
+                    )
 
         conf_dist = tuple(conf_brackets.items())
         page_confidence = tuple(
@@ -643,6 +674,8 @@ class MukhaPresenter:
                 ("Measured Stages", str(len(stage_map))),
             ]
         )
+        if fallback_improvements:
+            facts.append(("Tesseract Recoveries", f"{len(fallback_improvements)} regions improved"))
 
         return InspectorViewState(
             run_id=run_id,
@@ -656,4 +689,5 @@ class MukhaPresenter:
             worker_performance=tuple(worker_performance_list),
             page_confidence=page_confidence,
             region_confidence=tuple(region_conf_list),
+            fallback_improvements=tuple(fallback_improvements),
         )

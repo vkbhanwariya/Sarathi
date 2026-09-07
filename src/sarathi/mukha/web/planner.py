@@ -42,6 +42,10 @@ def preview_execution_plan(
                 "error": "No eligible input documents discovered.",
             }
 
+        req_metadata = {}
+        if custom_options and custom_options.get("direction"):
+            req_metadata["direction"] = custom_options["direction"]
+
         req = Request(
             request_id=f"preview-{uuid.uuid4().hex[:8]}",
             requirement=requirement,
@@ -49,6 +53,7 @@ def preview_execution_plan(
             profile=profile,
             cancellation_token=CancellationToken(),
             custom_options=dict(custom_options or {}),
+            metadata=req_metadata,
         )
 
         plan = agni.manthan.resolve(req)

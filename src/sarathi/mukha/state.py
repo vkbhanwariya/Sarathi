@@ -290,6 +290,22 @@ class RegionConfidenceView:
     region_type: str
     method: str
     review_recommended: bool = False
+    original_confidence: float | None = None
+    confidence_gain: float | None = None
+    fallback_engine: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FallbackImprovementView:
+    """Factual telemetry of bounding-box quality improvement by fallback engine (e.g. Tesseract 5)."""
+
+    region_id: str
+    file_display_name: str
+    page_number: int
+    original_confidence: float
+    improved_confidence: float
+    confidence_gain: float
+    fallback_engine: str = "Tesseract 5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +337,7 @@ class InspectorViewState:
     worker_performance: tuple[WorkerPerformanceView, ...] = ()
     page_confidence: tuple[PageConfidenceView, ...] = ()
     region_confidence: tuple[RegionConfidenceView, ...] = ()
+    fallback_improvements: tuple[FallbackImprovementView, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

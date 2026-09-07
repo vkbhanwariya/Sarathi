@@ -216,6 +216,20 @@ def _build_action_parameters(act_id: str) -> tuple[ActionParameterView, ...]:
                 ),
             ),
         )
+    if act_id == "translation":
+        return (
+            ActionParameterView(
+                parameter_id="direction",
+                display_name="Translation Direction",
+                kind="select",
+                default_value="",
+                options=(
+                    ("", "Auto-Detect Language Direction"),
+                    ("hi_en", "Hindi → English"),
+                    ("en_hi", "English → Hindi"),
+                ),
+            ),
+        )
     return ()
 
 
@@ -413,7 +427,11 @@ def build_application_view_state(
             ),
         )
     else:
-        input_sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+        cached_sel = getattr(runner, "get_intake_selection", lambda: None)()
+        if cached_sel is not None:
+            input_sel = cached_sel
+        else:
+            input_sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
 
     current_screen = "monitor" if active_run_id and is_alive else ("summary" if last_summary else "home")
     inspector_view = build_inspector_view(agni, runner, active_run_id, host, port) if active_run_id else None

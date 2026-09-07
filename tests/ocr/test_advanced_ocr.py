@@ -128,6 +128,13 @@ def test_accurate_profile_measured_confidence_replaces_weaker_rapidocr_span() ->
 
     assert page_data.spans[0].text == "TESSERACT_HIGH_CONF"
     assert page_data.spans[0].confidence == 0.94
+    assert page_data.spans[0].metadata.get("fallback_applied") is True
+    assert page_data.spans[0].metadata.get("fallback_engine") == "tesseract5"
+    assert page_data.spans[0].metadata.get("original_confidence") == 0.50
+    assert page_data.spans[0].metadata.get("confidence_gain") == 0.44
+    assert page_data.metadata.get("fallback_improved_count") == 1
+    assert page_data.metadata.get("fallback_intercepted_count") == 1
+    assert page_data.metadata.get("fallback_total_gain") == 0.44
     assert page_data.text == "TESSERACT_HIGH_CONF"
     assert prov.evidence.get("fallback_applied") is True
     assert adapter.call_count == 1

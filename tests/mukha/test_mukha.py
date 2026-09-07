@@ -735,6 +735,61 @@ class TestMukhaAuditCapabilityStatus:
         assert inspector.activity_logs[1].severity == "ERROR"
         assert inspector.activity_logs[1].component == "kernel"
 
+    def test_build_inspector_view_projects_fallback_improvements(self) -> None:
+        """Proves build_inspector_view projects Tesseract fallback quality recovery records into typed views."""
+        from sarathi.darpana import PramanaRecord
+        from sarathi.sankalpa import ConfidenceValue
+
+        pramana_recs = (
+            PramanaRecord(
+                run_id="run-fb-1",
+                request_id="req-1",
+                trace_id="tr-1",
+                span_id="sp-1",
+                capability_id="ocr",
+                stage="ocr",
+                timestamp_utc="2026-09-07T00:00:00Z",
+                subject_id="doc-1:p1:r0",
+                confidence=ConfidenceValue(
+                    score=0.88,
+                    method="tesseract_fallback",
+                    evidence={"fallback_applied": True, "original_confidence": 0.45, "confidence_gain": 0.43},
+                ),
+                attributes={
+                    "level": "region",
+                    "region_id": "p1_line_1",
+                    "file_display_name": "affidavit.pdf",
+                    "page_number": 1,
+                    "region_type": "line",
+                    "fallback_applied": True,
+                    "fallback_engine": "tesseract5",
+                    "original_confidence": 0.45,
+                    "confidence_gain": 0.43,
+                },
+            ),
+        )
+
+        inspector = MukhaPresenter.build_inspector_view(
+            run_id="run-fb-1",
+            status="SUCCESS",
+            elapsed_ns=100_000_000,
+            maruti_records=(),
+            pramana_records=pramana_recs,
+        )
+
+        assert len(inspector.fallback_improvements) == 1
+        fb = inspector.fallback_improvements[0]
+        assert fb.region_id == "p1_line_1"
+        assert fb.file_display_name == "affidavit.pdf"
+        assert fb.page_number == 1
+        assert fb.original_confidence == 0.45
+        assert fb.improved_confidence == 0.88
+        assert fb.confidence_gain == 0.43
+        assert fb.fallback_engine == "Tesseract 5"
+        assert inspector.region_confidence[0].confidence_gain == 0.43
+        assert inspector.region_confidence[0].fallback_engine == "Tesseract 5"
+        assert any(k == "Tesseract Recoveries" for k, _ in inspector.system_facts)
+
     def test_build_summary_view_device_breakdown_and_confidence(self, tmp_path: Path) -> None:
         """Proves build_summary_view aggregates worker_execution records and Pramana confidences by device."""
         from sarathi.darpana import MarutiRecord, PramanaRecord

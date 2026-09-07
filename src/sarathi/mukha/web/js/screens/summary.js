@@ -2,17 +2,30 @@
  * Screen 4: Samapti (Terminal Summary & Artifacts) Controller for Mukha.
  */
 
-import { apiPost } from "../api.js";
+import { apiGet, apiPost } from "../api.js";
 import { elements, showError } from "../dom.js";
 import { escapeHtml, formatBytes, formatDuration } from "../formatters.js";
 import { openDocumentPreview } from "../preview.js";
 import { state, switchScreen } from "../state.js";
+import { toggleHistoryDrawer } from "./inspector.js";
 
 export async function handleOpenOutputFolder() {
     if (!state.activeRunId) return;
     const res = await apiPost(`/api/runs/${encodeURIComponent(state.activeRunId)}/reveal`);
     if (!res.ok) {
         showError(res.error || "Failed to reveal output folder.");
+    }
+}
+
+export async function loadRunSummary(runId) {
+    if (!runId) return;
+    const res = await apiGet(`/api/runs/${encodeURIComponent(runId)}/summary`);
+    if (res.ok && res.summary) {
+        state.activeRunId = runId;
+        renderSummary(res.summary);
+        switchScreen("summary");
+    } else {
+        showError(res.error || `Failed to load summary for run ${runId}.`);
     }
 }
 
@@ -142,6 +155,9 @@ export function initSummaryScreen() {
     }
     if (elements.btnReturnHome) {
         elements.btnReturnHome.addEventListener("click", () => switchScreen("home"));
+    }
+    if (elements.btnSummaryHistory) {
+        elements.btnSummaryHistory.addEventListener("click", () => toggleHistoryDrawer(true));
     }
     if (elements.artifactsGrid) {
         elements.artifactsGrid.addEventListener("click", (e) => {

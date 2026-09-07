@@ -250,6 +250,9 @@ class RapidOCREngine:
         fallback_required = False
         fallback_unavailable = False
         fallback_failed = False
+        fallback_intercepted_count = 0
+        fallback_improved_count = 0
+        fallback_total_gain = 0.0
 
         # Accurate mode or Custom with fallback_enabled: targeted Tesseract fallback only for weak spans (< 0.65)
         fallback_enabled = (
@@ -262,6 +265,7 @@ class RapidOCREngine:
             for idx, span in enumerate(spans):
                 if span.confidence is not None and span.confidence < 0.65 and span.bounding_box:
                     fallback_required = True
+                    fallback_intercepted_count += 1
                     if not self._tesseract.is_available():
                         fallback_unavailable = True
                         warnings.append(
@@ -297,14 +301,25 @@ class RapidOCREngine:
                                         )
                                     )
                                 if tess_conf is not None and tess_conf > span.confidence:
+                                    gain = round(tess_conf - span.confidence, 4)
                                     spans[idx] = TextSpan(
                                         text=tess_text,
                                         confidence=tess_conf,
                                         bounding_box=span.bounding_box,
+                                        language=span.language,
+                                        script=span.script,
+                                        metadata={
+                                            "fallback_applied": True,
+                                            "fallback_engine": "tesseract5",
+                                            "original_confidence": span.confidence,
+                                            "confidence_gain": gain,
+                                        },
                                     )
                                     if idx < len(lines):
                                         lines[idx] = tess_text
-                                        fallback_applied = True
+                                    fallback_applied = True
+                                    fallback_improved_count += 1
+                                    fallback_total_gain += gain
                         except DoshError:
                             fallback_failed = True
                             warnings.append(
@@ -386,7 +401,13 @@ class RapidOCREngine:
             "validation_outcome": validation_outcome,
             "model": model_label,
             "scope": scope,
+            "fallback_intercepted_count": fallback_intercepted_count,
+            "fallback_improved_count": fallback_improved_count,
+            "fallback_applied": fallback_applied,
+            "fallback_total_gain": round(fallback_total_gain, 4),
         }
+        if fallback_applied or fallback_required:
+            metadata["fallback_engine"] = "tesseract5"
         if page_confidence is not None:
             metadata["confidence"] = page_confidence.score
 
@@ -405,8 +426,12 @@ class RapidOCREngine:
         if fallback_applied:
             evidence_dict["fallback_engine"] = "tesseract5"
             evidence_dict["fallback_applied"] = True
+            evidence_dict["fallback_improved_count"] = fallback_improved_count
+            evidence_dict["fallback_intercepted_count"] = fallback_intercepted_count
+            evidence_dict["fallback_total_gain"] = round(fallback_total_gain, 4)
         elif fallback_required:
             evidence_dict["fallback_engine"] = "tesseract5"
+            evidence_dict["fallback_intercepted_count"] = fallback_intercepted_count
             evidence_dict["fallback_status"] = (
                 "unavailable" if fallback_unavailable else ("failed" if fallback_failed else "unimproved")
             )

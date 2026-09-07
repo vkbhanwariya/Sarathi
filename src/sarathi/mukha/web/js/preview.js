@@ -7,7 +7,31 @@ import { elements } from "./dom.js";
 import { escapeHtml, formatBytes } from "./formatters.js";
 import { state } from "./state.js";
 
-export async function openDocumentPreview(pathOrUrl, displayName) {
+export function closeDocumentPreview() {
+    if (elements.docPreviewDialog && typeof elements.docPreviewDialog.close === "function") {
+        elements.docPreviewDialog.close();
+    }
+}
+
+export function initPreviewDialog() {
+    if (elements.btnClosePreview) {
+        elements.btnClosePreview.addEventListener("click", closeDocumentPreview);
+    }
+    if (elements.docPreviewDialog) {
+        elements.docPreviewDialog.addEventListener("click", (e) => {
+            const rect = elements.docPreviewDialog.getBoundingClientRect();
+            const isInDialog = (
+                rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                rect.left <= e.clientX && e.clientX <= rect.left + rect.width
+            );
+            if (!isInDialog) {
+                closeDocumentPreview();
+            }
+        });
+    }
+}
+
+export async function openDocumentPreview(pathOrUrl, displayName, fallbackPath = null) {
     if (!elements.docPreviewDialog || !elements.previewModalContent) return;
     elements.previewModalTitle.textContent = displayName || "Document Preview";
     elements.previewModalContent.innerHTML = '<div class="spinner"></div>';
@@ -17,12 +41,26 @@ export async function openDocumentPreview(pathOrUrl, displayName) {
         elements.docPreviewDialog.showModal();
     }
 
-    const endpoint = pathOrUrl.startsWith("/api/")
+    let endpoint = pathOrUrl.startsWith("/api/")
         ? pathOrUrl
         : `/api/preview?path=${encodeURIComponent(pathOrUrl)}`;
-    const res = await apiGet(endpoint);
+    let res = await apiGet(endpoint);
+    if (!res.ok && fallbackPath) {
+        const fallbackEndpoint = `/api/preview?path=${encodeURIComponent(fallbackPath)}`;
+        const fbRes = await apiGet(fallbackEndpoint);
+        if (fbRes.ok) {
+            res = fbRes;
+        }
+    }
     if (!res.ok) {
-        elements.previewModalContent.innerHTML = `<div class="alert-box alert-amber">${escapeHtml(res.error || "Failed to load document preview.")}</div>`;
+        elements.previewModalContent.innerHTML = `
+            <div class="alert-box alert-amber">${escapeHtml(res.error || "Failed to load document preview.")}</div>
+            <div style="text-align: right; margin-top: 12px;">
+                <button class="btn btn-outline btn-sm" id="btn-modal-dismiss-err">✕ Close</button>
+            </div>
+        `;
+        const btnErrClose = document.getElementById("btn-modal-dismiss-err");
+        if (btnErrClose) btnErrClose.addEventListener("click", closeDocumentPreview);
         return;
     }
 
