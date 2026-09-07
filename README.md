@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
+**README Updated:** 07-09-2026, 10:16 PM IST (Asia/Kolkata)
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and
@@ -209,6 +209,16 @@ Sarathi operates as a local-first, privacy-preserving document intelligence runt
 ------------------------------------------------------------------------
 
 ## 10. Release History (Changelog)
+
+### [2.1.1] - 2026-09-07
+
+- **Windows Explorer Foreground Reveal**: Overcame Windows Foreground Lock restriction when clicking "Open Output Folder" across all capability modules (Font Conversion, OCR, Translation, Bank Statements, Native Extraction) using Win32 COM `Shell.Application.Windows()` and parameterized raw PowerShell activation (`-targetPath`).
+- **Pre-Run Input File Preview**: Cached intake document selections in `RunCoordinator` during `POST /api/intake`, resolving `inp-001` identifiers instantly prior to pipeline initiation.
+- **Preview Dialog & Cancellation Responsiveness**: Attached direct dismissal handlers to close button, backdrop clicks, and Escape key in `#doc-preview-dialog`, preventing modal click trapping and restoring instant responsiveness to the "Cancel Run" control.
+- **Global Top-Level Progress Bar**: Embedded dynamic progress bar (`#top-progress-bar`) directly beneath the global header, updated in real time via Server-Sent Events (SSE) stream reflecting active stage and completion percentage.
+- **Run History & Historical Results Inspection**: Added `GET /api/runs/<run_id>/summary` endpoint, history drawer integration, and direct `"📋 View Result"` loading into Samapti (Screen 4) alongside `"🔍 Telemetry"` into Nirikshana (Screen 5).
+- **Tesseract Fallback Quality Telemetry**: Exposed quality recovery metrics, regional confidence gain, and Tesseract interception counts in Nirikshana (Screen 5).
+- **Full Capability & Parameter Wiring**: Seamless bidirectional wiring across all 5 Shakti modules (`ocr`, `font_conversion`, `translation`, `bank_statements`, `read_native`), including translation direction parameters.
 
 ### [2.1.0] - 2026-09-06
 

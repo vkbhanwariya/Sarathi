@@ -1,6 +1,6 @@
 # Sarathi V2 — Mukha Screen Specification
 
-**Document Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
+**Document Updated:** 07-09-2026, 10:16 PM IST (Asia/Kolkata)
 **Status:** Canonical detailed specification referenced by the main
 [Sarathi V2 README](../README.md).
 
@@ -82,13 +82,21 @@ Mukha Local Web communicates over a loopback HTTP/1.1 service bound strictly to 
 | `/app.css`, `/app.js` | `GET` | Static styling and vanilla JS application controller |
 | `/api/state` | `GET` | Returns full typed `PresentationState` JSON snapshot |
 | `/api/events` | `GET` | Server-Sent Events (SSE) text stream for real-time reactive UI updates |
-| `/api/run` | `POST` | Dispatches new execution run with validated input paths, requirement, and profile |
-| `/api/cancel` | `POST` | Requests cooperative cancellation of active run via `CancellationToken` |
-| `/api/action` | `POST` | Submits operator action intent (e.g. re-run, reset, inspect) |
-| `/api/browse` | `POST` | Opens controlled native Windows file/folder picker dialog (`native_picker.py`) |
+| `/api/runs` | `POST` | Dispatches new execution run with validated input paths, requirement, profile, and custom options |
+| `/api/runs/<id>/cancel` | `POST` | Requests cooperative cancellation of active run via `CancellationToken` |
+| `/api/plan/preview` | `POST` | Previews planned execution stages and hardware devices before run execution |
+| `/api/browse/files`, `/api/browse/folder` | `POST` | Opens controlled native Windows file/folder picker dialog (`native_picker.py`) |
+| `/api/intake` | `POST` | Ingests and inspects input paths, verifies boundary security, and caches intake items |
+| `/api/inputs/<id>/preview` | `GET` | Generates rendered HTML/Markdown/Image preview for an intake input document |
 | `/api/history` | `GET` | Retrieves terminal run history from Darpana store with optional limit query |
+| `/api/runs/<id>/summary` | `GET` | Retrieves persisted terminal `RunSummaryView` for historical inspection |
+| `/api/runs/<id>/reveal` | `POST` | Reveals run output folder in File Explorer in foreground via Win32 COM |
 | `/api/review` | `GET`, `POST` | Retrieves or applies corrections to pending exception review items |
-| `/api/artifact` | `GET` | Securely streams committed output artifact with traversal and MIME verification |
+| `/api/runs/<id>/artifacts/<aid>` | `GET` | Securely streams committed output artifact with traversal and MIME verification |
+| `/api/runs/<id>/artifacts/<aid>/preview` | `GET` | Generates rendered HTML/Markdown/Image preview for a committed artifact |
+| `/api/runs/<id>/inspector` | `GET` | Retrieves detailed `InspectorViewState` containing Maruti and Pramana records |
+| `/api/runs/<id>/diagnostics` | `GET` | Generates downloadable sanitized diagnostic JSON bundle |
+| `/api/runs/compare` | `GET` | Computes comparative metrics and duration deltas between two runs |
 
 ## 3. Presentation Architecture & Screen Model
 
