@@ -160,6 +160,20 @@ class MukhaWebServer:
         """Retrieve recent terminal run summaries from Darpana telemetry history."""
         return query_run_history(self._agni, limit=limit)
 
+    def clear_history(self) -> bool:
+        """Clear run history in coordinator and Darpana telemetry store."""
+        self._runner.clear_history()
+        if hasattr(self._agni, "darpana") and self._agni.darpana is not None:
+            return self._agni.darpana.clear_history()
+        return True
+
+    def clear_cache(self) -> int:
+        """Clear two-tier Smriti cache (L1 memory and L2 SQLite store)."""
+        if hasattr(self._agni, "smriti") and self._agni.smriti is not None:
+            return self._agni.smriti.clear()
+        return 0
+
+
     def get_review_items(self, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
         """Retrieve pending review/exception items from run result warnings."""
         return extract_review_items(self._runner, run_id=run_id)

@@ -124,6 +124,12 @@ export const elements = {
     historyDrawer: null,
     historyListContainer: null,
     btnCloseHistory: null,
+    btnClearHistory: null,
+
+    // System Maintenance
+    btnClearCache: null,
+    btnSystemClearHistory: null,
+    maintenanceFeedback: null,
 
     // Overlay
     aarambhaOverlay: null,
@@ -260,6 +266,12 @@ export function initDom() {
     elements.historyDrawer = document.getElementById("history-drawer");
     elements.historyListContainer = document.getElementById("history-list-container");
     elements.btnCloseHistory = document.getElementById("btn-close-history");
+    elements.btnClearHistory = document.getElementById("btn-clear-history");
+
+    // System Maintenance
+    elements.btnClearCache = document.getElementById("btn-clear-cache");
+    elements.btnSystemClearHistory = document.getElementById("btn-system-clear-history");
+    elements.maintenanceFeedback = document.getElementById("maintenance-feedback");
 
     // Overlay
     elements.aarambhaOverlay = document.getElementById("aarambha-overlay");

@@ -106,6 +106,17 @@ class Darpana:
             return self._history_store.get(run_id)
         return None
 
+    def clear_history(self) -> bool:
+        """Clear historical run summaries, telemetry records, and persistent history store."""
+        with self._lock:
+            self._run_summaries.clear()
+            self._maruti_history.clear()
+            self._pramana_history.clear()
+            self._history_persistence_failed = False
+        if self._history_store is not None:
+            return self._history_store.clear()
+        return True
+
     def record_maruti(self, record: MarutiRecord) -> None:
         """Record a structured Maruti runtime performance event."""
         if not isinstance(record, MarutiRecord):

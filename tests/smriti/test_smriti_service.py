@@ -167,3 +167,23 @@ def test_metadata_stype_dictionary_collision_safe_roundtrip() -> None:
 
     assert isinstance(deserialized.data, CanonicalDocument)
     assert deserialized.data.metadata["user_dict"] == user_meta
+
+
+def test_smriti_cache_clear_purges_both_tiers(tmp_path: Path) -> None:
+    """Verify SmritiCache.clear() purges entries across both L1 memory and L2 SQLite tiers."""
+    cache_dir = tmp_path / "Cache"
+    cache = SmritiCache(cache_dir=cache_dir)
+
+    inp = InputRef(input_id="inp-clr", source_path=tmp_path / "clr.txt", display_name="clr.txt", size_bytes=50)
+    req = Request(request_id="req-clr", requirement="read_native", inputs=(inp,))
+    key = compute_cache_key(req, "read_native", "1.0.0")
+
+    doc = CanonicalDocument(document_id="doc-clr", source_input_id="inp-clr", text="test-clear")
+    orig_res = Result(data=doc)
+    cache.put(key, orig_res)
+
+    assert cache.get(key) is not None
+
+    cleared_count = cache.clear()
+    assert cleared_count >= 1
+    assert cache.get(key) is None

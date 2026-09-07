@@ -150,6 +150,7 @@ class TerminalRunHistoryStore:
         self._format = fmt
         self._max_records = max_records
         self._lock = threading.Lock()
+        self._closed = False
 
         if self._format == "sqlite":
             self._init_sqlite()
@@ -332,6 +333,25 @@ class TerminalRunHistoryStore:
             if run.run_id == run_id:
                 return run
         return None
+
+    def clear(self) -> bool:
+        """Clear all historical run records."""
+        with self._lock:
+            if self._closed:
+                return False
+            try:
+                if self._format == "jsonl":
+                    if self._path.exists():
+                        self._path.write_text("", encoding="utf-8")
+                    return True
+                elif self._format == "sqlite":
+                    with sqlite3.connect(str(self._path)) as conn:
+                        with conn:
+                            conn.execute("DELETE FROM terminal_runs;")
+                    return True
+            except (OSError, sqlite3.Error):
+                return False
+        return False
 
     def close(self) -> None:
         """Close any open resources held by the history store."""

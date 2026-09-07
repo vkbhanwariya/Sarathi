@@ -146,6 +146,21 @@ class RunCoordinator:
         with self._lock:
             return dict(self._review_intents)
 
+    def clear_history(self) -> None:
+        """Clear cached terminal run summaries and historical run references."""
+        with self._lock:
+            self._run_summaries.clear()
+            self._confirmed_artifacts.clear()
+            self._run_output_roots.clear()
+            self._review_intents.clear()
+            if not (self._active_thread is not None and self._active_thread.is_alive()):
+                self._terminal_summary = None
+                self._terminal_status = None
+                self._last_result = None
+            self._state_revision += 1
+
+
+
     @property
     def last_result(self) -> Result | None:
         """Return the Result from the most recent run."""

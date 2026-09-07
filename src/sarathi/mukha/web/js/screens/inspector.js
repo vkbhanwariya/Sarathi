@@ -2,7 +2,7 @@
  * Screen 5: Nirikshana (Technical Inspector & Telemetry) and History Drawer Controller for Mukha.
  */
 
-import { apiGet } from "../api.js";
+import { apiGet, apiPost } from "../api.js";
 import { elements } from "../dom.js";
 import { escapeHtml, formatDuration } from "../formatters.js";
 import { state, switchScreen } from "../state.js";
@@ -381,6 +381,16 @@ export function initInspectorScreen() {
     if (elements.btnCloseHistory) {
         elements.btnCloseHistory.addEventListener("click", () => toggleHistoryDrawer(false));
     }
+    if (elements.btnClearHistory) {
+        elements.btnClearHistory.addEventListener("click", handleClearHistory);
+    }
+    if (elements.btnSystemClearHistory) {
+        elements.btnSystemClearHistory.addEventListener("click", handleClearHistory);
+    }
+    if (elements.btnClearCache) {
+        elements.btnClearCache.addEventListener("click", handleClearCache);
+    }
+
     if (elements.historyListContainer) {
         elements.historyListContainer.addEventListener("click", (e) => {
             const btnResult = e.target.closest(".btn-view-run-result");
@@ -411,5 +421,45 @@ export function initInspectorScreen() {
                 loadRunSummary(runId);
             }
         });
+    }
+}
+
+async function handleClearHistory() {
+    if (!confirm("Are you sure you want to clear all historical run records and telemetry? This cannot be undone.")) {
+        return;
+    }
+    const res = await apiPost("/api/history/clear");
+    if (res.ok) {
+        if (elements.historyListContainer) {
+            elements.historyListContainer.innerHTML = '<div class="text-muted" style="text-align: center; padding: 20px;">No previous terminal runs found.</div>';
+        }
+        if (elements.maintenanceFeedback) {
+            elements.maintenanceFeedback.textContent = "✓ Terminal run history cleared successfully.";
+            elements.maintenanceFeedback.className = "text-emerald";
+            setTimeout(() => {
+                if (elements.maintenanceFeedback) elements.maintenanceFeedback.textContent = "";
+            }, 4000);
+        }
+    } else {
+        alert("Failed to clear history: " + (res.error || "Unknown error"));
+    }
+}
+
+async function handleClearCache() {
+    if (!confirm("Are you sure you want to clear the Smriti cache? All L1 memory and L2 persistent cache entries will be purged.")) {
+        return;
+    }
+    const res = await apiPost("/api/cache/clear");
+    if (res.ok) {
+        const count = res.cleared_entries !== undefined ? res.cleared_entries : 0;
+        if (elements.maintenanceFeedback) {
+            elements.maintenanceFeedback.textContent = `✓ Smriti cache cleared (${count} entries purged).`;
+            elements.maintenanceFeedback.className = "text-emerald";
+            setTimeout(() => {
+                if (elements.maintenanceFeedback) elements.maintenanceFeedback.textContent = "";
+            }, 4000);
+        }
+    } else {
+        alert("Failed to clear cache: " + (res.error || "Unknown error"));
     }
 }

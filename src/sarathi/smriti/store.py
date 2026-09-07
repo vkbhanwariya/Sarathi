@@ -204,6 +204,10 @@ class SmritiCache:
         l2_count = self._l2.invalidate(key=key, capability_id=capability_id) if self._l2 else 0
         return l2_count if self._l2 is not None else l1_count
 
+    def clear(self) -> int:
+        """Clear all entries across both L1 Memory and L2 SQLite cache tiers."""
+        return self.invalidate(key=None, capability_id=None)
+
     def close(self) -> None:
         """Close L2 SQLite connection if initialized."""
         if self._l2 is not None:

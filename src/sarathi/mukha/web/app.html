@@ -618,6 +618,15 @@
                   <tr><td>Security Policy</td><td>Kavacha Local Isolation</td></tr>
                 </tbody>
               </table>
+              <div class="system-maintenance-card" style="margin-top: var(--space-4); padding: var(--space-4); background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                <h4 style="margin: 0 0 var(--space-2) 0; font-size: 0.95rem; font-weight: 600;">System Storage &amp; Cache Maintenance</h4>
+                <p class="text-muted" style="margin: 0 0 var(--space-3) 0; font-size: 0.85rem;">Clear cached results and historical execution run logs across the two-tier cache (L1 Memory + L2 SQLite) and Darpana telemetry.</p>
+                <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+                  <button id="btn-clear-cache" class="btn btn-outline btn-sm">⚡ Clear Smriti Cache</button>
+                  <button id="btn-system-clear-history" class="btn btn-outline btn-sm">🗑️ Clear Run History</button>
+                </div>
+                <div id="maintenance-feedback" class="text-muted" style="margin-top: var(--space-2); font-size: 0.82rem;"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -636,7 +645,10 @@
   <aside id="history-drawer" class="history-drawer">
     <div class="drawer-header">
       <h3>Terminal Run History</h3>
-      <button id="btn-close-history" class="btn btn-outline btn-sm">✕</button>
+      <div style="display: flex; gap: var(--space-2); align-items: center;">
+        <button id="btn-clear-history" class="btn btn-outline btn-sm" title="Clear all historical run records">🗑️ Clear History</button>
+        <button id="btn-close-history" class="btn btn-outline btn-sm" title="Close drawer">✕</button>
+      </div>
     </div>
     <div id="history-list-container" class="drawer-body">
       <div class="text-muted" style="text-align: center; padding: 20px;">Loading history...</div>

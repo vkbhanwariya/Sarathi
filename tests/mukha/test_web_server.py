@@ -569,6 +569,28 @@ def test_api_history_endpoint(web_server: MukhaWebServer) -> None:
     assert isinstance(data["history"], list)
 
 
+def test_api_clear_history_and_cache_endpoints(web_server: MukhaWebServer) -> None:
+    """Test POST /api/history/clear and POST /api/cache/clear endpoints."""
+    # 1. Clear history
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/history/clear",
+        {},
+    )
+    assert status == 200
+    assert resp.get("ok") is True
+    assert resp.get("cleared") is True
+
+    # 2. Clear cache
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/cache/clear",
+        {},
+    )
+    assert status == 200
+    assert resp.get("ok") is True
+    assert "cleared_entries" in resp
+
+
+
 def test_api_review_endpoints(web_server: MukhaWebServer) -> None:
     """F37: GET and POST /api/review handle review items and actions cleanly."""
     # 1. GET /api/review

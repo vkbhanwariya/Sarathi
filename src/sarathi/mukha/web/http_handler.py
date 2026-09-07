@@ -580,6 +580,18 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "revealed": revealed})
                 return
 
+        # 7. POST /api/history/clear
+        elif path == "/api/history/clear":
+            cleared = self.mukha_app.clear_history()
+            self._send_json(200, {"ok": True, "cleared": cleared})
+            return
+
+        # 8. POST /api/cache/clear
+        elif path == "/api/cache/clear":
+            count = self.mukha_app.clear_cache()
+            self._send_json(200, {"ok": True, "cleared_entries": count})
+            return
+
         self.send_error(HTTPStatus.NOT_FOUND, "Endpoint not found.")
 
     def _serve_static_resource(self, filename: str, content_type: str) -> None:

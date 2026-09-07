@@ -16,6 +16,8 @@ const COMMANDS = [
     { id: "act-start-run", label: "Action: Start Document Processing", action: () => elements.btnStartRun && elements.btnStartRun.click() },
     { id: "act-cancel-run", label: "Action: Cancel Active Run", action: () => elements.btnCancelRun && elements.btnCancelRun.click() },
     { id: "act-history", label: "Action: Open Run History (Ctrl+H)", action: () => elements.btnOpenHistory && elements.btnOpenHistory.click() },
+    { id: "act-clear-history", label: "Action: Clear Terminal Run History", action: () => elements.btnClearHistory && elements.btnClearHistory.click() },
+    { id: "act-clear-cache", label: "Action: Clear Smriti Cache", action: () => elements.btnClearCache && elements.btnClearCache.click() },
     { id: "act-copy-logs", label: "Action: Copy Activity Logs to Clipboard", action: () => elements.btnCopyLogs && elements.btnCopyLogs.click() },
     {
         id: "act-export-diag",

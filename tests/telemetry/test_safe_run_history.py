@@ -241,3 +241,46 @@ def test_agni_failure_sanitizes_request_id_and_preserves_root_exception(tmp_path
         assert len(history) == 1
         assert history[0].status == "failed"
         assert history[0].request_id == "req-failing-test"
+
+
+def test_darpana_clear_history_jsonl_and_sqlite(tmp_path: Path) -> None:
+    """Test clearing terminal run history across both JSONL and SQLite persistent stores."""
+    # 1. JSONL store
+    jsonl_path = tmp_path / "telemetry" / "runs.jsonl"
+    darpana_jsonl = Darpana(capacity=10, history_path=jsonl_path, history_format="jsonl")
+    sum1 = TerminalRunSummary(
+        run_id="run-j1",
+        request_id="req-j1",
+        requirement="read_native",
+        profile="instant",
+        status="completed",
+        start_time_utc="2026-09-02T12:00:00Z",
+        completed_at_utc="2026-09-02T12:00:01Z",
+        duration_ms=1000,
+        artifact_count=1,
+        warning_count=0,
+    )
+    darpana_jsonl.record_run_summary(sum1)
+    assert len(darpana_jsonl.query_run_history()) == 1
+    assert darpana_jsonl.clear_history() is True
+    assert len(darpana_jsonl.query_run_history()) == 0
+
+    # 2. SQLite store
+    sqlite_path = tmp_path / "telemetry" / "runs.db"
+    darpana_sqlite = Darpana(capacity=10, history_path=sqlite_path, history_format="sqlite")
+    sum2 = TerminalRunSummary(
+        run_id="run-s1",
+        request_id="req-s1",
+        requirement="ocr",
+        profile="accurate",
+        status="completed",
+        start_time_utc="2026-09-02T12:00:00Z",
+        completed_at_utc="2026-09-02T12:00:02Z",
+        duration_ms=2000,
+        artifact_count=1,
+        warning_count=0,
+    )
+    darpana_sqlite.record_run_summary(sum2)
+    assert len(darpana_sqlite.query_run_history()) == 1
+    assert darpana_sqlite.clear_history() is True
+    assert len(darpana_sqlite.query_run_history()) == 0
