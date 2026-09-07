@@ -316,4 +316,6 @@ def build_application_view_state(
         terminal_summary=last_summary,
         inspector=inspector_view,
         available_actions=tuple(available_actions),
+        schema_version=1,
+        state_revision=getattr(runner, "state_revision", 0),
     )

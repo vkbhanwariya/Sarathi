@@ -14,7 +14,7 @@ import socket
 import time
 import urllib.parse
 from dataclasses import dataclass
-from enum import Enum, StrEnum
+from enum import StrEnum
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -29,6 +29,14 @@ from sarathi.mukha.web.preview import (
     build_document_preview,
     build_input_preview,
 )
+from sarathi.mukha.web.security import (
+    _ALLOWED_LOOPBACK_HOSTNAMES,
+    _format_public_error,
+    _is_authorized_loopback_host,
+    _is_authorized_loopback_origin,
+    _sanitize_message,
+    _serialize_dataclass,
+)
 from sarathi.sankalpa import ExecutionProfile
 
 if TYPE_CHECKING:
@@ -36,12 +44,6 @@ if TYPE_CHECKING:
 
 
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
-
-# Path sanitization patterns for error messages: quoted paths, UNC paths, Windows drive paths, Unix paths
-_QUOTED_PATH_PATTERN = re.compile(r"""(?P<q>['"])(?:[A-Za-z]:[\\/]|\\\\|/)[^'"]*(?P=q)""")
-_UNC_PATH_PATTERN = re.compile(r"""\\\\[a-zA-Z0-9._-]+\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\s\\/:*?"<>|\r\n,;]*""")
-_WIN_PATH_PATTERN = re.compile(r"""[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\s\\/:*?"<>|\r\n,;]*""")
-_UNIX_PATH_PATTERN = re.compile(r"""(?:^|(?<=[\s(]))/(?:[^/\s'"()<>\r\n,;]+/+)*[^/\s'"()<>\r\n,;]+""")
 
 
 class StartRunStatus(StrEnum):
@@ -61,107 +63,17 @@ class StartRunResponse:
     error_message: str | None = None
 
 
-def _sanitize_message(msg: str) -> str:
-    """Sanitize error messages to eliminate raw filesystem paths, UNC paths, and quotes."""
-    if not msg:
-        return ""
-    res = _QUOTED_PATH_PATTERN.sub("[path]", msg)
-    res = _UNC_PATH_PATTERN.sub("[path]", res)
-    res = _WIN_PATH_PATTERN.sub("[path]", res)
-    res = _UNIX_PATH_PATTERN.sub("[path]", res)
-    return " ".join(res.split())
-
-
-def _format_public_error(dosh_err: DoshError) -> str:
-    """Format public DoshError for web presentation without leaking paths or secrets."""
-    sanitized = _sanitize_message(dosh_err.message)
-    if sanitized:
-        return f"{dosh_err.code.name}: {sanitized}"
-    return dosh_err.code.name
-
-
-def _serialize_dataclass(obj: Any) -> Any:
-    """Recursively convert dataclasses and enums into JSON-serializable primitives."""
-    if obj is None or isinstance(obj, (bool, int, float, str)):
-        return obj
-    if isinstance(obj, Enum):
-        return obj.value
-    if hasattr(obj, "__dataclass_fields__"):
-        res = {}
-        for k in obj.__dataclass_fields__:
-            val = getattr(obj, k)
-            res[k] = _serialize_dataclass(val)
-        return res
-    if isinstance(obj, (list, tuple)):
-        return [_serialize_dataclass(item) for item in obj]
-    if isinstance(obj, dict):
-        return {k: _serialize_dataclass(v) for k, v in obj.items()}
-    return str(obj)
-
-
-_ALLOWED_LOOPBACK_HOSTNAMES = frozenset({"127.0.0.1", "localhost", "::1"})
-
-
-def _is_authorized_loopback_host(host_header: str) -> bool:
-    """Structurally parse and validate Host header against approved loopback endpoints."""
-    if not host_header or not isinstance(host_header, str):
-        return False
-    clean = host_header.strip()
-    if not clean:
-        return False
-
-    # Handle bracketed IPv6: [::1] or [::1]:port
-    if clean.startswith("["):
-        closing = clean.find("]")
-        if closing == -1:
-            return False
-        hostname = clean[1:closing]
-        port_part = clean[closing + 1 :]
-        if port_part:
-            if not port_part.startswith(":"):
-                return False
-            port_str = port_part[1:]
-            try:
-                port = int(port_str)
-                if not (1 <= port <= 65535):
-                    return False
-            except ValueError:
-                return False
-        return hostname.lower() in _ALLOWED_LOOPBACK_HOSTNAMES
-
-    # Handle standard host[:port]
-    if ":" in clean:
-        parts = clean.split(":")
-        if len(parts) != 2:
-            return False
-        hostname, port_str = parts[0], parts[1]
-        try:
-            port = int(port_str)
-            if not (1 <= port <= 65535):
-                return False
-        except ValueError:
-            return False
-    else:
-        hostname = clean
-
-    return hostname.lower() in _ALLOWED_LOOPBACK_HOSTNAMES
-
-
-def _is_authorized_loopback_origin(origin_header: str) -> bool:
-    """Structurally validate Origin header against approved loopback endpoints."""
-    if not origin_header or not isinstance(origin_header, str):
-        return False
-    try:
-        parsed = urllib.parse.urlparse(origin_header)
-        if parsed.scheme not in ("http", "https"):
-            return False
-        if parsed.hostname is None or parsed.hostname.lower() not in _ALLOWED_LOOPBACK_HOSTNAMES:
-            return False
-        if parsed.port is not None and not (1 <= parsed.port <= 65535):
-            return False
-    except (ValueError, TypeError):
-        return False
-    return True
+__all__ = [
+    "MukhaHTTPHandler",
+    "StartRunResponse",
+    "StartRunStatus",
+    "_ALLOWED_LOOPBACK_HOSTNAMES",
+    "_format_public_error",
+    "_is_authorized_loopback_host",
+    "_is_authorized_loopback_origin",
+    "_sanitize_message",
+    "_serialize_dataclass",
+]
 
 
 class MukhaHTTPHandler(BaseHTTPRequestHandler):
@@ -297,7 +209,15 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         # 2. GET /api/state
         elif path == "/api/state":
             app_state = self.mukha_app.get_application_view_state()
-            self._send_json(200, {"ok": True, "state": _serialize_dataclass(app_state)})
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "schema_version": app_state.schema_version,
+                    "state_revision": app_state.state_revision,
+                    "state": _serialize_dataclass(app_state),
+                },
+            )
             return
 
         # 2a. GET /api/events (Server-Sent Events)
@@ -621,21 +541,33 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self._apply_security_headers(cache_control="no-cache")
         self.end_headers()
 
+        last_revision: int = -1
         last_serialized: str | None = None
         last_ping = time.time()
 
         try:
             while not getattr(self.server, "_shutting_down", False):
                 now = time.time()
+                runner_rev = getattr(getattr(self.mukha_app, "runner", None), "state_revision", None)
                 app_state = self.mukha_app.get_application_view_state()
-                serialized = json.dumps({"ok": True, "state": _serialize_dataclass(app_state)}, ensure_ascii=False)
                 is_running = bool(app_state.active_run and app_state.active_run.status == "RUNNING")
 
-                if serialized != last_serialized or is_running:
-                    last_serialized = serialized
-                    payload = f"event: state\ndata: {serialized}\n\n".encode("utf-8")
-                    self.wfile.write(payload)
-                    self.wfile.flush()
+                if runner_rev is None or runner_rev != last_revision or is_running:
+                    serialized = json.dumps(
+                        {
+                            "ok": True,
+                            "schema_version": app_state.schema_version,
+                            "state_revision": app_state.state_revision,
+                            "state": _serialize_dataclass(app_state),
+                        },
+                        ensure_ascii=False,
+                    )
+                    if serialized != last_serialized or runner_rev != last_revision:
+                        last_serialized = serialized
+                        last_revision = app_state.state_revision if runner_rev is not None else -1
+                        payload = f"event: state\ndata: {serialized}\n\n".encode("utf-8")
+                        self.wfile.write(payload)
+                        self.wfile.flush()
 
                 if now - last_ping >= 15.0:
                     last_ping = now

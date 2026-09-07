@@ -72,6 +72,13 @@ class RunCoordinator:
         self._live_workers: dict[str, dict[str, Any]] = {}
         self._file_progress: dict[str, dict[str, Any]] = {}
         self._review_intents: dict[str, ReviewIntent] = {}
+        self._state_revision: int = 1
+
+    @property
+    def state_revision(self) -> int:
+        """Monotonically increasing state revision counter."""
+        with self._lock:
+            return self._state_revision
 
     def is_busy(self) -> bool:
         """Return True if an interactive processing run is currently active on background worker thread."""
@@ -82,6 +89,7 @@ class RunCoordinator:
         """Apply and record a human review decision."""
         with self._lock:
             self._review_intents[intent.item_id] = intent
+            self._state_revision += 1
             return True
 
     def get_review_intents(self) -> dict[str, ReviewIntent]:
@@ -218,6 +226,7 @@ class RunCoordinator:
                     self._file_progress[key] = info
                     if input_id and file_display_name:
                         self._file_progress[file_display_name] = info
+                    self._state_revision += 1
 
             effective_custom_options = dict(custom_options or {})
             effective_custom_options["progress_callback"] = _on_progress
@@ -240,6 +249,7 @@ class RunCoordinator:
             self._last_result = None
             self._terminal_summary = None
             self._terminal_status = None
+            self._state_revision += 1
 
             def _worker() -> None:
                 nonlocal run_id, request
@@ -426,6 +436,7 @@ class RunCoordinator:
                                 maruti_records=maruti_recs,
                                 pramana_records=pramana_recs,
                             )
+                        self._state_revision += 1
 
             self._active_thread = threading.Thread(
                 target=_worker,
@@ -445,6 +456,7 @@ class RunCoordinator:
                 and self._active_thread.is_alive()
             ):
                 self._active_token.cancel()
+                self._state_revision += 1
                 return True
             return False
 

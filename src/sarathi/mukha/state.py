@@ -363,3 +363,5 @@ class ApplicationViewState:
     terminal_summary: RunSummaryView | None = None
     inspector: InspectorViewState | None = None
     startup: StartupViewState | None = None
+    schema_version: int = 1
+    state_revision: int = 0
