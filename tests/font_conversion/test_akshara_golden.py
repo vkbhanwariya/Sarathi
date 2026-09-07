@@ -138,3 +138,20 @@ def test_unicode_and_latin_preservation() -> None:
     assert "Ministry of Finance" in restored
     assert "2026-09-04" in restored
     assert "Vendor Name:" in restored
+
+
+def test_bidirectional_split_matra_composition() -> None:
+    """Verify bidirectional 2-part vowel matras compose properly in both forward and reverse orders."""
+    from sarathi.shakti.font_conversion.akshara import synthesize_akshara_unicode
+
+    # o matra (aa + e vs e + aa)
+    assert synthesize_akshara_unicode("क\u093e\u0947") == "को"
+    assert synthesize_akshara_unicode("क\u0947\u093e") == "को"
+
+    # au matra (aa + ai vs ai + aa)
+    assert synthesize_akshara_unicode("क\u093e\u0948") == "कौ"
+    assert synthesize_akshara_unicode("क\u0948\u093e") == "कौ"
+
+    # candra-o matra (aa + candra-e vs candra-e + aa)
+    assert synthesize_akshara_unicode("ड\u093e\u0945") == "डॉ"
+    assert synthesize_akshara_unicode("ड\u0945\u093e") == "डॉ"

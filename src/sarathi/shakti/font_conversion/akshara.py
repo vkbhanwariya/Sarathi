@@ -122,11 +122,19 @@ def synthesize_akshara_unicode(text: str) -> str:
     # Fix doubled virama
     text = re.sub(rf"{DEVA_VIRAMA}+", DEVA_VIRAMA, text)
 
-    # Compose Devanagari 2-part vowel matras:
+    # Compose Devanagari 2-part vowel matras (both forward and reverse typing orders):
     # aa matra (\u093e) + e matra (\u0947) -> o matra (\u094b)
+    # e matra (\u0947) + aa matra (\u093e) -> o matra (\u094b)
     # aa matra (\u093e) + ai matra (\u0948) -> au matra (\u094c)
+    # ai matra (\u0948) + aa matra (\u093e) -> au matra (\u094c)
+    # aa matra (\u093e) + candra-e (\u0945) -> candra-o (\u0949)
+    # candra-e (\u0945) + aa matra (\u093e) -> candra-o (\u0949)
     text = text.replace("\u093e\u0947", "\u094b")
+    text = text.replace("\u0947\u093e", "\u094b")
     text = text.replace("\u093e\u0948", "\u094c")
+    text = text.replace("\u0948\u093e", "\u094c")
+    text = text.replace("\u093e\u0945", "\u0949")
+    text = text.replace("\u0945\u093e", "\u0949")
 
     # Resolve conflicting consecutive e/ai matras (e.g. \u0947\u0948 -> \u0948)
     text = re.sub(r"[\u0947\u0948]{2,}", "\u0948", text)

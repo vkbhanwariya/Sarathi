@@ -149,3 +149,20 @@ def test_device_inventory_default_vs_detect_accelerators() -> None:
     # If openvino detected GPU or NPU, verify device types
     for dev in probed_inv.devices:
         assert dev.device_type in (DeviceType.CPU, DeviceType.GPU, DeviceType.NPU)
+
+
+def test_multilingual_ocr_preserves_mixed_hindi_tokens() -> None:
+    """Verify default OCR parser does not drop Devanagari tokens in mixed-script documents."""
+    from sarathi.shakti.ocr.engine.coordinator import _parse_rapidocr_output
+
+    class MockRapidOutput:
+        txts = ["Invoice #12345", "दिनांक: 15/08/2024", "कुल राशि: ₹ 45,250/-", "Approved by Manager"]
+        boxes = [[10, 10, 100, 20], [10, 30, 100, 40], [10, 50, 100, 60], [10, 70, 100, 80]]
+        scores = [0.95, 0.92, 0.90, 0.88]
+
+    # With filter_opt=False (new default for general OCR)
+    lines, spans, confs, warns, _, _ = _parse_rapidocr_output(MockRapidOutput(), filter_opt=False)
+    assert len(lines) == 4
+    assert any("दिनांक" in line for line in lines)
+    assert any("कुल राशि" in line for line in lines)
+    assert any("₹ 45,250/-" in line for line in lines)

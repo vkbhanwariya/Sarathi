@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import io
-from typing import Any
+from typing import Any, Iterator
 
 
-def extract_images_from_bytes(data: bytes) -> list[Any]:
-    """Convert input file bytes (PDF or Image) into a list of PIL RGB images."""
+def iter_images_from_bytes(data: bytes, dpi: int = 150) -> Iterator[Any]:
+    """Yield PIL RGB images page-by-page from input bytes (PDF or Image)."""
     import pymupdf
     from PIL import Image, UnidentifiedImageError
 
@@ -16,27 +16,32 @@ def extract_images_from_bytes(data: bytes) -> list[Any]:
         try:
             doc = pymupdf.open(stream=data, filetype="pdf")
         except (pymupdf.FileDataError, pymupdf.EmptyFileError, ValueError):
-            return []
+            return
 
-        images = []
         try:
             for page in doc:
-                pix = page.get_pixmap(dpi=150)
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                images.append(img)
+                pix = page.get_pixmap(dpi=dpi)
+                yield Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         finally:
             doc.close()
-        return images
+        return
 
     # 2. Check if standard Image format (including multipage TIFF)
     try:
         from PIL import ImageOps, ImageSequence
 
         with Image.open(io.BytesIO(data)) as img:
-            images = []
+            has_frames = False
             for frame in ImageSequence.Iterator(img):
+                has_frames = True
                 transposed = ImageOps.exif_transpose(frame)
-                images.append(transposed.convert("RGB"))
-            return images if images else [img.convert("RGB")]
+                yield transposed.convert("RGB")
+            if not has_frames:
+                yield img.convert("RGB")
     except (UnidentifiedImageError, OSError, ValueError):
-        return []
+        return
+
+
+def extract_images_from_bytes(data: bytes, dpi: int = 150) -> list[Any]:
+    """Convert input file bytes (PDF or Image) into a list of PIL RGB images."""
+    return list(iter_images_from_bytes(data, dpi=dpi))

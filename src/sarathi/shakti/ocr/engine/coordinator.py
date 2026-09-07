@@ -229,8 +229,10 @@ class RapidOCREngine:
 
         if target_lang in DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
             filter_opt = False
-        else:
+        elif target_lang in V6_LANGS:
             filter_opt = custom_options.get("english_numbers_only", True) if custom_options else True
+        else:
+            filter_opt = custom_options.get("english_numbers_only", False) if custom_options else False
 
         lines, spans, conf_scores, parse_warnings, has_invalid_confidence, has_invalid_geometry = (
             _parse_rapidocr_output(output, filter_opt=filter_opt)

@@ -261,15 +261,22 @@ class FontConversionCapability:
                     decisions: list[ConversionDecision] = []
                     profiles_used: set[str] = set()
                     total_spans_count = 0
+                    text_conv_cache: dict[tuple[str, str | None], str] = {}
 
                     def _conv_text(raw: str, font_name: str | None = None) -> str:
                         nonlocal total_spans_count
                         if not raw or not raw.strip():
                             return raw
 
+                        cache_key = (raw, font_name)
+                        if cache_key in text_conv_cache:
+                            return text_conv_cache[cache_key]
+
                         # If multiple paragraphs/lines exist in raw unlabelled text, convert line by line
                         if font_name is None and "\n" in raw:
-                            return "\n".join(_conv_text(line, font_name=None) for line in raw.split("\n"))
+                            res = "\n".join(_conv_text(line, font_name=None) for line in raw.split("\n"))
+                            text_conv_cache[cache_key] = res
+                            return res
 
                         # If target is legacy and text contains Devanagari, convert from Unicode
                         if is_to_legacy:
@@ -346,6 +353,7 @@ class FontConversionCapability:
                                 is_clean, _ = self._validator.validate_residual_legacy(restored, is_explicit_legacy=True)
                                 if not is_clean:
                                     metrics.residual_legacy_runs += 1
+                        text_conv_cache[cache_key] = restored
                         return restored
 
                     stitched_pages = []

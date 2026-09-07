@@ -28,7 +28,10 @@ from sarathi.shakti.ocr.engine.preprocessing import (
     preprocess_ocr_image,
     remove_stamp_artifacts,
 )
-from sarathi.shakti.ocr.engine.rasterize import extract_images_from_bytes
+from sarathi.shakti.ocr.engine.rasterize import (
+    extract_images_from_bytes,
+    iter_images_from_bytes,
+)
 from sarathi.shakti.ocr.engine.tesseract import (
     TesseractFallbackAdapter,
     configure_pytesseract,
@@ -56,6 +59,7 @@ __all__ = [
     "find_tesseract_executable",
     "is_low_contrast_image",
     "is_safe_filename",
+    "iter_images_from_bytes",
     "patch_rapidocr_openvino_device",
     "preprocess_ocr_image",
     "remove_stamp_artifacts",

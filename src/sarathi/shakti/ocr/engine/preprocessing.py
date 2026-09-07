@@ -29,7 +29,7 @@ def deskew_image(image_arr: Any) -> tuple[Any, float]:
         else:
             angle = -angle
 
-        if 0.2 < abs(angle) < 45.0:
+        if 0.5 < abs(angle) < 45.0:
             (h, w) = image_arr.shape[:2]
             center = (w // 2, h // 2)
             m_rot = cv2.getRotationMatrix2D(center, angle, 1.0)
