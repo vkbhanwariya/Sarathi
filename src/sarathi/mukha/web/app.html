@@ -76,6 +76,7 @@
                 </label>
               </div>
               <div id="input-groups-container" class="input-groups-box hidden" style="margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
+              <input type="text" id="input-files-filter" placeholder="Filter selected documents..." style="margin-bottom: 8px; width: 100%; padding: 4px 8px; font-size: 0.85rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-main);">
               <div class="table-container input-table-container">
                 <table class="data-table">
                   <thead>
@@ -108,6 +109,7 @@
                   <span id="preflight-summary">Ready to run</span>
                 </div>
                 <div id="preflight-issues" class="preflight-issues hidden" style="margin-top: 8px; font-size: 12px; color: var(--accent-amber);"></div>
+                <div id="preflight-plan-preview" class="preflight-plan hidden" style="margin-top: 8px; font-size: 12px;"></div>
               </div>
               <div class="run-action-row" style="margin-top: 8px;">
                 <button id="btn-start-run" class="btn btn-start" disabled>▶ Start Document Processing</button>

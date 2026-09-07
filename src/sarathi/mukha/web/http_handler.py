@@ -399,6 +399,35 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             )
             applied = self.mukha_app.apply_review_intent(intent)
             self._send_json(200, {"ok": True, "action": act_mapped, "item_id": intent.item_id, "applied": applied})
+        # 3c. POST /api/plan/preview
+        elif path == "/api/plan/preview":
+            raw_paths = body.get("paths")
+            requirement = body.get("requirement", "read_native")
+            profile_str = body.get("profile", "instant")
+            recursive = bool(body.get("recursive", True))
+            custom_options = body.get("custom_options")
+
+            if not isinstance(raw_paths, list) or not raw_paths:
+                self._send_json(400, {"ok": False, "error": "No input paths provided."})
+                return
+
+            try:
+                prof = ExecutionProfile.from_string(profile_str) if isinstance(profile_str, str) else ExecutionProfile.INSTANT
+            except ValueError:
+                prof = ExecutionProfile.INSTANT
+
+            paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
+            from sarathi.mukha.web.planner import preview_execution_plan
+
+            res = preview_execution_plan(
+                agni=self.mukha_app.agni,
+                paths=paths,
+                requirement=requirement,
+                profile=prof,
+                recursive=recursive,
+                custom_options=custom_options,
+            )
+            self._send_json(200 if res.get("ok") else 400, res)
             return
 
         # 4. POST /api/runs

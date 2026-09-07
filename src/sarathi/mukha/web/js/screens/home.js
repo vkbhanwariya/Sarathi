@@ -115,13 +115,15 @@ export async function refreshIntake() {
         if (elements.btnStartRun) {
             elements.btnStartRun.disabled = filteredItems.length === 0;
         }
+        previewPlan();
     } else if (res.error) {
         showError(res.error);
     }
 }
 
 export function renderInputsTable(items, inputSelection) {
-    state.intakeItems = items || [];
+    if (items) state.intakeItems = items;
+    const allItems = state.intakeItems || [];
 
     if (elements.inputGroupsContainer) {
         if (inputSelection && inputSelection.groups && inputSelection.groups.length > 0) {
@@ -137,16 +139,20 @@ export function renderInputsTable(items, inputSelection) {
 
     if (!elements.selectedInputsTbody) return;
 
-    if (!items || items.length === 0) {
-        elements.selectedInputsTbody.innerHTML = '<tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>';
-        state.checkedInputPaths.clear();
-        updateClearSelectedButton();
-        if (elements.chkSelectAllInputs) elements.chkSelectAllInputs.checked = false;
+    const query = (state.inputSearchQuery || "").toLowerCase().trim();
+    const visibleItems = query
+        ? allItems.filter((i) => (i.display_name || "").toLowerCase().includes(query) || (i.source_path || "").toLowerCase().includes(query))
+        : allItems;
+
+    if (visibleItems.length === 0) {
+        elements.selectedInputsTbody.innerHTML = allItems.length === 0
+            ? '<tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>'
+            : '<tr class="empty-row"><td colspan="5">No documents match the filter query.</td></tr>';
         return;
     }
 
     const MAX_RENDER_INPUTS = 100;
-    const itemsToRender = items.length > MAX_RENDER_INPUTS ? items.slice(0, MAX_RENDER_INPUTS) : items;
+    const itemsToRender = visibleItems.length > MAX_RENDER_INPUTS ? visibleItems.slice(0, MAX_RENDER_INPUTS) : visibleItems;
 
     let rowsHtml = itemsToRender
         .map((item) => {
@@ -170,14 +176,14 @@ export function renderInputsTable(items, inputSelection) {
         })
         .join("");
 
-    if (items.length > MAX_RENDER_INPUTS) {
-        rowsHtml += `<tr class="empty-row"><td colspan="5">Showing first ${MAX_RENDER_INPUTS} of ${items.length} documents.</td></tr>`;
+    if (visibleItems.length > MAX_RENDER_INPUTS) {
+        rowsHtml += `<tr class="empty-row"><td colspan="5">Showing first ${MAX_RENDER_INPUTS} of ${visibleItems.length} documents.</td></tr>`;
     }
 
     elements.selectedInputsTbody.innerHTML = rowsHtml;
     updateClearSelectedButton();
     if (elements.chkSelectAllInputs) {
-        elements.chkSelectAllInputs.checked = items.length > 0 && items.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
+        elements.chkSelectAllInputs.checked = allItems.length > 0 && allItems.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
     }
 }
 
@@ -287,7 +293,64 @@ export function renderActionParameters(action) {
         profileSelect.addEventListener("change", (e) => {
             state.currentProfile = e.target.value;
             togglesGroup.classList.toggle("hidden", e.target.value !== "custom");
+            previewPlan();
         });
+    }
+
+    elements.actionParamsContainer.addEventListener("change", () => {
+        previewPlan();
+    });
+}
+
+export async function previewPlan() {
+    if (state.selectedPaths.length === 0 || !elements.preflightPlanPreview) return;
+
+    const customOpts = {};
+    let profile = "instant";
+
+    if (elements.actionParamsContainer) {
+        const selects = elements.actionParamsContainer.querySelectorAll(".action-param-select");
+        selects.forEach((s) => {
+            const p = s.dataset.param;
+            if (p === "profile") {
+                profile = s.value;
+            } else {
+                customOpts[p] = s.value;
+            }
+        });
+
+        const toggles = elements.actionParamsContainer.querySelectorAll(".action-param-toggle");
+        toggles.forEach((t) => {
+            customOpts[t.dataset.param] = t.checked;
+        });
+    }
+
+    const res = await apiPost("/api/plan/preview", {
+        paths: state.selectedPaths,
+        requirement: state.currentRequirement,
+        profile: profile,
+        recursive: state.isRecursive,
+        custom_options: customOpts,
+    });
+
+    if (res.ok && res.stages) {
+        elements.preflightPlanPreview.classList.remove("hidden");
+        const stagesHtml = res.stages
+            .map((s) => `<span class="badge badge-indigo" style="font-size: 0.72rem; padding: 2px 6px;">${escapeHtml(s.name)}</span>`)
+            .join(" ➔ ");
+        const devHtml = (res.devices || [])
+            .map((d) => `<span class="badge ${d.is_available ? 'badge-emerald' : 'badge-amber'}" style="font-size: 0.72rem; padding: 2px 6px;">${escapeHtml(d.device_type)}</span>`)
+            .join(" ");
+        elements.preflightPlanPreview.innerHTML = `
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">PLANNED PIPELINE (${res.document_count} docs)</div>
+                <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 4px;">${stagesHtml}</div>
+                ${devHtml ? `<div style="font-size: 0.75rem; color: var(--text-muted);">DEVICES: ${devHtml}</div>` : ''}
+            </div>
+        `;
+    } else {
+        elements.preflightPlanPreview.classList.add("hidden");
+        elements.preflightPlanPreview.innerHTML = "";
     }
 }
 
@@ -431,7 +494,15 @@ export function initHomeScreen() {
                 if (act) {
                     renderActionParameters(act);
                 }
+                previewPlan();
             }
+        });
+    }
+
+    if (elements.inputFilesFilter) {
+        elements.inputFilesFilter.addEventListener("input", (e) => {
+            state.inputSearchQuery = e.target.value;
+            renderInputsTable();
         });
     }
 }

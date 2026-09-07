@@ -24,10 +24,12 @@ export const elements = {
     selectedInputsTbody: null,
     inputGroupsContainer: null,
     inputCountsBadge: null,
+    inputFilesFilter: null,
     requirementGrid: null,
     actionParamsContainer: null,
     preflightSummary: null,
     preflightIssues: null,
+    preflightPlanPreview: null,
     btnStartRun: null,
 
     // Monitor Elements
@@ -142,10 +144,12 @@ export function initDom() {
     elements.selectedInputsTbody = document.getElementById("selected-inputs-tbody");
     elements.inputGroupsContainer = document.getElementById("input-groups-container");
     elements.inputCountsBadge = document.getElementById("input-counts-badge");
+    elements.inputFilesFilter = document.getElementById("input-files-filter");
     elements.requirementGrid = document.getElementById("requirement-grid");
     elements.actionParamsContainer = document.getElementById("action-parameters-container");
     elements.preflightSummary = document.getElementById("preflight-summary");
     elements.preflightIssues = document.getElementById("preflight-issues");
+    elements.preflightPlanPreview = document.getElementById("preflight-plan-preview");
     elements.btnStartRun = document.getElementById("btn-start-run");
 
     // Monitor

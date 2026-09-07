@@ -5,7 +5,7 @@
 import { apiGet } from "../api.js";
 import { elements } from "../dom.js";
 import { escapeHtml, formatDuration } from "../formatters.js";
-import { state } from "../state.js";
+import { state, switchScreen } from "../state.js";
 
 export async function loadInspector() {
     if (!state.activeRunId) {
@@ -308,6 +308,7 @@ export function initInspectorScreen() {
             if (card && card.dataset.runId) {
                 state.activeRunId = card.dataset.runId;
                 toggleHistoryDrawer(false);
+                switchScreen("inspector");
                 loadInspector();
             }
         });

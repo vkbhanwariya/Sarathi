@@ -21,6 +21,7 @@ export const state = {
     pollTimer: null,
     checkedInputPaths: new Set(),
     intakeItems: [],
+    inputSearchQuery: "",
     sseSource: null,
     sseActive: false,
     activeInspectorTab: "activity",
