@@ -9,6 +9,19 @@ from typing import Any
 from sarathi.shakti.docx_exporter.constants import _W_NS
 
 
+def _is_complex_script_char(c: str) -> bool:
+    """Check if character belongs to complex script ranges (Indic, Arabic, Thai, Khmer), excluding Latin/General Punctuation."""
+    code = ord(c)
+    return (
+        0x0900 <= code <= 0x0DFF
+        or 0xA8E0 <= code <= 0xA8FF
+        or 0x1CD0 <= code <= 0x1CFF
+        or 0x0590 <= code <= 0x08FF
+        or 0x0E00 <= code <= 0x109F
+        or 0x1780 <= code <= 0x17FF
+    )
+
+
 def resolve_neutral_ooxml_font(
     *,
     ascii_font: str | None = None,
@@ -18,10 +31,10 @@ def resolve_neutral_ooxml_font(
 ) -> str | None:
     """Resolve effective font following ECMA-376 OpenXML character rules.
 
-    If run_text contains complex script characters (e.g. Devanagari Unicode >= 0x0900),
+    If run_text contains complex script characters (e.g. Devanagari Unicode),
     the complex script channel (cs) takes precedence. Otherwise, ascii/hAnsi applies.
     """
-    if run_text and any(ord(c) >= 0x0900 for c in run_text):
+    if run_text and any(_is_complex_script_char(c) for c in run_text):
         return cs_font or ascii_font or hansi_font
     return ascii_font or hansi_font or cs_font
 
@@ -231,3 +244,19 @@ class DocxStyleResolver:
         if is_ascii_text:
             return channels.get("ascii") or channels.get("hAnsi") or channels.get("cs")
         return channels.get("cs") or channels.get("ascii") or channels.get("hAnsi")
+
+    def get_primary_modern_cs_font(self) -> str | None:
+        """Inspect document defaults and styles to detect the declared modern complex script font."""
+        cs = self.doc_default_fonts.get("cs")
+        if cs:
+            return cs
+        normal_style = self.styles.get("Normal")
+        if normal_style:
+            cs = normal_style.get("fonts", {}).get("cs")
+            if cs:
+                return cs
+        for s_info in self.styles.values():
+            cs = s_info.get("fonts", {}).get("cs")
+            if cs:
+                return cs
+        return None

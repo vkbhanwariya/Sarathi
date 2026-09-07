@@ -100,6 +100,7 @@ def build_inspector_view(
         maruti_records=maruti_recs,
         pramana_records=pramana_recs,
         system_facts=system_facts,
+        live_workers=snapshot.live_workers if is_active else None,
     )
 
 

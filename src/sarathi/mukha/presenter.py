@@ -8,7 +8,7 @@ or fabricate metrics.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
 from sarathi.kavacha import Kavacha
@@ -22,13 +22,16 @@ from sarathi.mukha.state import (
     InputSelectionView,
     InspectorViewState,
     OperationView,
+    PageConfidenceView,
     PreflightView,
+    RegionConfidenceView,
     ReviewItemView,
     RunSummaryView,
     RunViewState,
     StageTimingView,
     StartupViewState,
     WorkerPageView,
+    WorkerPerformanceView,
 )
 from sarathi.sankalpa import ArtifactRef, InputRef, Request, Result
 
@@ -451,11 +454,13 @@ class MukhaPresenter:
         maruti_records: Sequence[MarutiRecord] = (),
         pramana_records: Sequence[PramanaRecord] = (),
         system_facts: Sequence[tuple[str, str]] = (),
+        live_workers: Mapping[str, Any] | None = None,
     ) -> InspectorViewState:
         """Build Screen 5: Nirikshana - Run Inspector presentation state."""
         logs: list[tuple[str, str, str, str]] = []
         stage_map: dict[str, list[int]] = {}
         device_map: dict[str, list[int]] = {}
+        worker_stats: dict[str, dict[str, Any]] = {}
 
         for r in maruti_records:
             if r.outcome == "success":
@@ -473,10 +478,70 @@ class MukhaPresenter:
                 )
             )
             stage_map.setdefault(r.phase_name, []).append(r.duration_ns)
-            if r.phase_name == "capability_execution":
-                dev = r.attributes.get("device_type")
-                if dev:
-                    device_map.setdefault(str(dev).upper(), []).append(r.duration_ns)
+            dev = r.attributes.get("device_type")
+            if dev:
+                device_map.setdefault(str(dev).upper(), []).append(r.duration_ns)
+
+            # Extract per-worker telemetry if present
+            w_id = r.attributes.get("worker_id")
+            if not w_id and dev:
+                w_id = f"{str(dev).lower()}-worker-{r.attributes.get('device_id', '0')}"
+
+            if w_id:
+                w_entry = worker_stats.setdefault(
+                    str(w_id),
+                    {
+                        "worker_id": str(w_id),
+                        "device_type": str(r.attributes.get("device_type") or "CPU").upper(),
+                        "device_id": str(r.attributes.get("device_id") or "0"),
+                        "tasks_completed": 0,
+                        "pages_completed": 0,
+                        "total_duration_ns": 0,
+                        "status": "COMPLETED" if status in ("COMPLETED", "FAILED") else "IDLE",
+                    },
+                )
+                w_entry["tasks_completed"] += 1
+                w_entry["pages_completed"] += int(r.attributes.get("pages_processed", 1))
+                w_entry["total_duration_ns"] += r.duration_ns
+
+        # Incorporate active live workers if run is active
+        if live_workers:
+            for wid, winfo in live_workers.items():
+                swid = str(wid)
+                if swid not in worker_stats:
+                    worker_stats[swid] = {
+                        "worker_id": swid,
+                        "device_type": str(winfo.get("device_type") or "CPU").upper(),
+                        "device_id": str(winfo.get("device_id") or "0"),
+                        "tasks_completed": 0,
+                        "pages_completed": 0,
+                        "total_duration_ns": 0,
+                        "status": "ACTIVE",
+                    }
+                else:
+                    if status == "RUNNING":
+                        worker_stats[swid]["status"] = "ACTIVE"
+
+        worker_performance_list: list[WorkerPerformanceView] = []
+        for wid, wdata in sorted(worker_stats.items()):
+            tot_ms = wdata["total_duration_ns"] / 1_000_000.0
+            tasks = wdata["tasks_completed"]
+            pages = wdata["pages_completed"]
+            avg_ms = tot_ms / max(1, tasks)
+            tput = pages / (tot_ms / 1000.0) if tot_ms > 0 else 0.0
+            worker_performance_list.append(
+                WorkerPerformanceView(
+                    worker_id=wid,
+                    device_type=wdata["device_type"],
+                    device_id=wdata["device_id"],
+                    tasks_completed=tasks,
+                    pages_completed=pages,
+                    total_duration_ms=round(tot_ms, 2),
+                    avg_duration_ms=round(avg_ms, 2),
+                    throughput_per_sec=round(tput, 2),
+                    status=wdata["status"],
+                )
+            )
 
         stage_timings = tuple(
             StageTimingView(stage_name=k, duration_ns=sum(v), call_count=len(v)) for k, v in sorted(stage_map.items())
@@ -495,9 +560,12 @@ class MukhaPresenter:
         )
 
         conf_brackets = {"90-100%": 0, "75-89%": 0, "50-74%": 0, "<50%": 0}
+        page_conf_map: dict[tuple[str, int], dict[str, Any]] = {}
+        region_conf_list: list[RegionConfidenceView] = []
+
         for pr in pramana_records:
-            if pr.confidence is not None:
-                score = pr.confidence.score
+            score = pr.confidence.score if pr.confidence is not None else None
+            if score is not None:
                 if score >= 0.90:
                     conf_brackets["90-100%"] += 1
                 elif score >= 0.75:
@@ -507,7 +575,53 @@ class MukhaPresenter:
                 else:
                     conf_brackets["<50%"] += 1
 
+            level = pr.attributes.get("level")
+            file_name = pr.attributes.get("file_display_name") or pr.subject_id or "document"
+            p_num = int(pr.attributes.get("page_number", 1))
+
+            if level == "page" or (pr.attributes.get("page_number") is not None and level != "region"):
+                key = (file_name, p_num)
+                eff_score = score if score is not None else 1.0
+                min_c = float(pr.attributes.get("min_confidence", eff_score))
+                max_c = float(pr.attributes.get("max_confidence", eff_score))
+                r_cnt = int(pr.attributes.get("region_count", 1))
+                rev = bool(pr.attributes.get("review_recommended", False))
+                if not rev and pr.confidence is not None and getattr(pr.confidence, "evidence", None):
+                    rev = bool(pr.confidence.evidence.get("review_recommended", False))
+                page_conf_map[key] = {
+                    "file_display_name": file_name,
+                    "page_number": p_num,
+                    "confidence_score": round(eff_score, 4),
+                    "region_count": r_cnt,
+                    "min_confidence": round(min_c, 4),
+                    "max_confidence": round(max_c, 4),
+                    "review_recommended": rev,
+                }
+            elif level == "region" or pr.attributes.get("region_id") is not None:
+                eff_score = score if score is not None else 1.0
+                reg_id = str(pr.attributes.get("region_id") or pr.span_id)
+                reg_type = str(pr.attributes.get("region_type", "text"))
+                method = pr.confidence.method if pr.confidence is not None else "direct"
+                rev = bool(pr.attributes.get("review_recommended", False))
+                if not rev and pr.confidence is not None and getattr(pr.confidence, "evidence", None):
+                    rev = bool(pr.confidence.evidence.get("review_recommended", False))
+                region_conf_list.append(
+                    RegionConfidenceView(
+                        region_id=reg_id,
+                        file_display_name=file_name,
+                        page_number=p_num,
+                        confidence_score=round(eff_score, 4),
+                        region_type=reg_type,
+                        method=method,
+                        review_recommended=rev,
+                    )
+                )
+
         conf_dist = tuple(conf_brackets.items())
+        page_confidence = tuple(
+            PageConfidenceView(**pdata)
+            for _, pdata in sorted(page_conf_map.items(), key=lambda kv: (kv[0][0], kv[0][1]))
+        )
 
         facts = list(system_facts)
         facts.extend(
@@ -527,4 +641,7 @@ class MukhaPresenter:
             device_summaries=device_summaries,
             confidence_distribution=conf_dist,
             system_facts=tuple(facts),
+            worker_performance=tuple(worker_performance_list),
+            page_confidence=page_confidence,
+            region_confidence=tuple(region_conf_list),
         )

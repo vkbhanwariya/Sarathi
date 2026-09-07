@@ -572,6 +572,29 @@
                                         </table>
                                     </div>
                                 </div>
+                                <div class="inspector-section full-width" style="grid-column: 1 / -1; margin-top: 16px;">
+                                    <h3>Worker Execution Performance</h3>
+                                    <div class="table-container" style="max-height: 250px;">
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Worker ID</th>
+                                                    <th>Device</th>
+                                                    <th>Device ID</th>
+                                                    <th>Pages</th>
+                                                    <th>Tasks</th>
+                                                    <th>Total Time</th>
+                                                    <th>Avg Time</th>
+                                                    <th>Throughput</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="inspector-worker-tbody">
+                                                <tr class="empty-row"><td colspan="9">No worker telemetry recorded.</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -586,18 +609,65 @@
                                             <span id="stat-conf-high" class="stat-value text-emerald">—</span>
                                         </div>
                                         <div class="stat-card" style="flex: 1; min-width: 140px;">
-                                            <span class="stat-label">80% - 89% (Normal)</span>
+                                            <span class="stat-label">75% - 89% (Normal)</span>
                                             <span id="stat-conf-mid" class="stat-value text-cyan">—</span>
                                         </div>
                                         <div class="stat-card" style="flex: 1; min-width: 140px;">
-                                            <span class="stat-label">70% - 79% (Review)</span>
+                                            <span class="stat-label">50% - 74% (Review)</span>
                                             <span id="stat-conf-low" class="stat-value text-amber">—</span>
                                         </div>
                                         <div class="stat-card" style="flex: 1; min-width: 140px;">
-                                            <span class="stat-label">&lt; 70% (Critical)</span>
+                                            <span class="stat-label">&lt; 50% (Critical)</span>
                                             <span id="stat-conf-crit" class="stat-value text-crimson">—</span>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+
+                            <div class="inspector-section" style="margin-top: 16px;">
+                                <h3>Page-Level Quality & Confidence</h3>
+                                <div class="table-container" style="max-height: 250px;">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Document</th>
+                                                <th>Page</th>
+                                                <th>Confidence</th>
+                                                <th>Regions</th>
+                                                <th>Min Conf</th>
+                                                <th>Max Conf</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="inspector-page-conf-tbody">
+                                            <tr class="empty-row"><td colspan="7">No page confidence records.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="inspector-section" style="margin-top: 16px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <h3 style="margin: 0;">Region-Level Extraction Confidence</h3>
+                                    <input type="text" id="inspector-region-filter" placeholder="Filter regions (e.g. p1, table, line)..." style="max-width: 260px; padding: 4px 8px; font-size: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #f8fafc;">
+                                </div>
+                                <div class="table-container" style="max-height: 250px;">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Region ID</th>
+                                                <th>Document</th>
+                                                <th>Page</th>
+                                                <th>Type</th>
+                                                <th>Confidence</th>
+                                                <th>Method</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="inspector-region-conf-tbody">
+                                            <tr class="empty-row"><td colspan="7">No region confidence records.</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>

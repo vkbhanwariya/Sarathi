@@ -32,6 +32,8 @@
         allActivityLogs: [],
         selectedReviewItem: null,
         imageZoomLevel: 1.0,
+        regionSearchQuery: "",
+        allRegionConfidence: [],
     };
 
     // DOM Elements Mapping
@@ -132,6 +134,10 @@
         inspectorLogs: document.getElementById("inspector-logs"),
         inspectorDeviceTbody: document.getElementById("inspector-device-tbody"),
         inspectorStagesTbody: document.getElementById("inspector-stages-tbody"),
+        inspectorWorkerTbody: document.getElementById("inspector-worker-tbody"),
+        inspectorPageConfTbody: document.getElementById("inspector-page-conf-tbody"),
+        inspectorRegionConfTbody: document.getElementById("inspector-region-conf-tbody"),
+        inspectorRegionFilter: document.getElementById("inspector-region-filter"),
         statConfHigh: document.getElementById("stat-conf-high"),
         statConfMid: document.getElementById("stat-conf-mid"),
         statConfLow: document.getElementById("stat-conf-low"),
@@ -795,6 +801,11 @@
                 switchScreen("summary");
             }
         }
+
+        // Live Inspector updates if currently viewing Nirikshana
+        if (state.currentScreen === "inspector" && state.activeRunId) {
+            loadInspector();
+        }
     }
 
     // Render Terminal Summary in Samapti
@@ -1036,7 +1047,7 @@
         }
 
         // Hardware Device Summary Table
-        if (insp.device_summaries && insp.device_summaries.length > 0) {
+        if (insp.device_summaries && insp.device_summaries.length > 0 && elements.inspectorDeviceTbody) {
             elements.inspectorDeviceTbody.innerHTML = insp.device_summaries
                 .map((ds) => `<tr>
                     <td><strong>${escapeHtml(ds.device_type)}</strong></td>
@@ -1057,6 +1068,75 @@
                 </tr>`)
                 .join("");
         }
+
+        // Worker Execution Performance
+        if (elements.inspectorWorkerTbody) {
+            if (insp.worker_performance && insp.worker_performance.length > 0) {
+                elements.inspectorWorkerTbody.innerHTML = insp.worker_performance
+                    .map((wp) => {
+                        const statusBadge = wp.status === "ACTIVE"
+                            ? '<span class="badge badge-emerald">ACTIVE</span>'
+                            : (wp.status === "COMPLETED"
+                                ? '<span class="badge badge-cyan">COMPLETED</span>'
+                                : '<span class="badge badge-indigo">IDLE</span>');
+                        return `<tr>
+                            <td><strong class="code-text">${escapeHtml(wp.worker_id)}</strong></td>
+                            <td><span class="badge badge-indigo">${escapeHtml(wp.device_type)}</span></td>
+                            <td>${escapeHtml(wp.device_id || "—")}</td>
+                            <td>${wp.pages_completed}</td>
+                            <td>${wp.tasks_completed}</td>
+                            <td>${wp.total_duration_ms.toFixed(1)}ms</td>
+                            <td>${wp.avg_duration_ms.toFixed(1)}ms</td>
+                            <td><strong>${wp.throughput_per_sec.toFixed(2)} p/s</strong></td>
+                            <td>${statusBadge}</td>
+                        </tr>`;
+                    })
+                    .join("");
+            } else {
+                elements.inspectorWorkerTbody.innerHTML = '<tr class="empty-row"><td colspan="9">No worker telemetry recorded.</td></tr>';
+            }
+        }
+
+        // Confidence Distribution Cards
+        if (insp.confidence_distribution) {
+            const distMap = Object.fromEntries(insp.confidence_distribution);
+            if (elements.statConfHigh) elements.statConfHigh.textContent = distMap["90-100%"] ?? "0";
+            if (elements.statConfMid) elements.statConfMid.textContent = distMap["75-89%"] ?? "0";
+            if (elements.statConfLow) elements.statConfLow.textContent = distMap["50-74%"] ?? "0";
+            if (elements.statConfCrit) elements.statConfCrit.textContent = distMap["<50%"] ?? "0";
+        }
+
+        // Page-Level Quality & Confidence
+        if (elements.inspectorPageConfTbody) {
+            if (insp.page_confidence && insp.page_confidence.length > 0) {
+                elements.inspectorPageConfTbody.innerHTML = insp.page_confidence
+                    .map((pc) => {
+                        const pct = (pc.confidence_score * 100).toFixed(1);
+                        const confClass = pc.confidence_score >= 0.90
+                            ? "badge-emerald"
+                            : (pc.confidence_score >= 0.75 ? "badge-cyan" : "badge-amber");
+                        const statusBadge = pc.review_recommended
+                            ? '<span class="badge badge-amber">REVIEW</span>'
+                            : '<span class="badge badge-emerald">OK</span>';
+                        return `<tr>
+                            <td><strong>${escapeHtml(pc.file_display_name)}</strong></td>
+                            <td>Page ${pc.page_number}</td>
+                            <td><span class="badge ${confClass}">${pct}%</span></td>
+                            <td>${pc.region_count}</td>
+                            <td>${(pc.min_confidence * 100).toFixed(1)}%</td>
+                            <td>${(pc.max_confidence * 100).toFixed(1)}%</td>
+                            <td>${statusBadge}</td>
+                        </tr>`;
+                    })
+                    .join("");
+            } else {
+                elements.inspectorPageConfTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No page confidence records.</td></tr>';
+            }
+        }
+
+        // Region-Level Quality & Confidence
+        state.allRegionConfidence = insp.region_confidence || [];
+        renderFilteredRegions();
 
         // System Facts
         if (insp.system_facts && insp.system_facts.length > 0 && elements.systemFactsTbody) {
@@ -1098,6 +1178,43 @@
                     <span class="badge ${sevClass}">${escapeHtml(sevUpper)}</span>
                     <strong>${escapeHtml(comp)}</strong>: ${escapeHtml(msg)}
                 </div>`;
+            })
+            .join("");
+    }
+
+    function renderFilteredRegions() {
+        if (!elements.inspectorRegionConfTbody) return;
+        const query = (state.regionSearchQuery || "").toLowerCase();
+
+        const filtered = (state.allRegionConfidence || []).filter((rc) => {
+            if (!query) return true;
+            const target = `${rc.region_id} ${rc.file_display_name} p${rc.page_number} ${rc.region_type} ${rc.method}`.toLowerCase();
+            return target.includes(query);
+        });
+
+        if (filtered.length === 0) {
+            elements.inspectorRegionConfTbody.innerHTML = '<tr class="empty-row"><td colspan="7">No region confidence records match filter.</td></tr>';
+            return;
+        }
+
+        elements.inspectorRegionConfTbody.innerHTML = filtered
+            .map((rc) => {
+                const pct = (rc.confidence_score * 100).toFixed(1);
+                const confClass = rc.confidence_score >= 0.90
+                    ? "badge-emerald"
+                    : (rc.confidence_score >= 0.75 ? "badge-cyan" : "badge-amber");
+                const statusBadge = rc.review_recommended
+                    ? '<span class="badge badge-amber">REVIEW</span>'
+                    : '<span class="badge badge-emerald">OK</span>';
+                return `<tr>
+                    <td><strong class="code-text">${escapeHtml(rc.region_id)}</strong></td>
+                    <td>${escapeHtml(rc.file_display_name)}</td>
+                    <td>P${rc.page_number}</td>
+                    <td><span class="badge badge-indigo">${escapeHtml(rc.region_type)}</span></td>
+                    <td><span class="badge ${confClass}">${pct}%</span></td>
+                    <td>${escapeHtml(rc.method)}</td>
+                    <td>${statusBadge}</td>
+                </tr>`;
             })
             .join("");
     }
@@ -1303,6 +1420,12 @@
                 renderFilteredLogs();
             });
         }
+        if (elements.inspectorRegionFilter) {
+            elements.inspectorRegionFilter.addEventListener("input", (e) => {
+                state.regionSearchQuery = e.target.value;
+                renderFilteredRegions();
+            });
+        }
         if (elements.btnCopyLogs) {
             elements.btnCopyLogs.addEventListener("click", () => {
                 if (elements.inspectorLogs) {
@@ -1337,6 +1460,13 @@
 
         // Connect Real-Time SSE Stream (with Polling Fallback)
         initSSE();
+
+        // Dynamic Inspector refresh during active runs
+        setInterval(() => {
+            if (state.currentScreen === "inspector" && state.activeRunStatus === "RUNNING") {
+                loadInspector();
+            }
+        }, 1500);
     }
 
     function updateRequirementOptionsVisibility() {

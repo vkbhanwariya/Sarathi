@@ -16,6 +16,7 @@ from sarathi.sankalpa import (
     ArtifactPayload,
     CanonicalDocument,
     ExecutionContext,
+    InputRef,
     ProvenanceRecord,
     Request,
     Result,
@@ -59,6 +60,99 @@ class TranslationCapability:
             backend=backend,
             protector=self._protector,
         )
+
+    def _record_telemetry(
+        self,
+        context: ExecutionContext,
+        doc: CanonicalDocument,
+        naming_inp: InputRef,
+    ) -> None:
+        """Record worker execution performance and page/region quality telemetry in Darpana."""
+        if self._darpana is None:
+            return
+        from datetime import datetime, timezone
+
+        from sarathi.darpana import MarutiRecord, PramanaRecord
+        from sarathi.sankalpa import ConfidenceValue
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
+        dev_i = str(context.execution_binding.device_id) if context.execution_binding else "0"
+        pages = doc.pages or ()
+
+        self._darpana.record_maruti(
+            MarutiRecord(
+                run_id=context.run_id,
+                request_id=context.request_id,
+                trace_id=context.trace_id,
+                span_id=context.span_id,
+                phase_name="worker_execution",
+                component="shakti.translation",
+                timestamp_utc=now_iso,
+                duration_ns=1_000_000,
+                outcome="success",
+                attributes={
+                    "worker_id": f"{dev_t.lower()}-worker-{dev_i}",
+                    "device_type": dev_t,
+                    "device_id": dev_i,
+                    "pages_processed": max(1, len(pages)),
+                    "file_display_name": naming_inp.display_name,
+                },
+            )
+        )
+        for p in pages:
+            self._darpana.record_pramana(
+                PramanaRecord(
+                    run_id=context.run_id,
+                    request_id=context.request_id,
+                    trace_id=context.trace_id,
+                    span_id=context.span_id,
+                    capability_id="translation",
+                    stage="translation",
+                    timestamp_utc=now_iso,
+                    subject_id=f"{doc.document_id}:p{p.page_number}",
+                    confidence=ConfidenceValue(
+                        score=1.0,
+                        method="neural_translation",
+                        evidence={"review_recommended": False},
+                    ),
+                    attributes={
+                        "level": "page",
+                        "page_number": p.page_number,
+                        "file_display_name": naming_inp.display_name,
+                        "region_count": len(p.spans),
+                        "min_confidence": 1.0,
+                        "max_confidence": 1.0,
+                        "review_recommended": False,
+                    },
+                )
+            )
+            for s_idx, span in enumerate(p.spans[:30]):
+                self._darpana.record_pramana(
+                    PramanaRecord(
+                        run_id=context.run_id,
+                        request_id=context.request_id,
+                        trace_id=context.trace_id,
+                        span_id=context.span_id,
+                        capability_id="translation",
+                        stage="translation",
+                        timestamp_utc=now_iso,
+                        subject_id=f"{doc.document_id}:p{p.page_number}:s{s_idx}",
+                        confidence=ConfidenceValue(
+                            score=1.0,
+                            method="neural_translation",
+                            evidence={"review_recommended": False},
+                        ),
+                        attributes={
+                            "level": "region",
+                            "region_id": f"p{p.page_number}_span_{s_idx + 1}",
+                            "page_number": p.page_number,
+                            "file_display_name": naming_inp.display_name,
+                            "region_type": "text",
+                            "review_recommended": False,
+                        },
+                    )
+                )
 
     def execute(
         self,
@@ -229,6 +323,15 @@ class TranslationCapability:
                         "backend": "ctranslate2",
                     },
                 )
+
+                matching_inp = next((i for i in request.inputs if i.input_id == doc.source_input_id), None)
+                naming_inp = matching_inp or InputRef(
+                    input_id=doc.source_input_id or doc.document_id,
+                    source_path=Path(f"{doc.document_id}.txt"),
+                    display_name=doc.document_id,
+                    size_bytes=0,
+                )
+                self._record_telemetry(context, translated_doc, naming_inp)
 
                 suffix = f"_{idx + 1}" if len(docs) > 1 else ""
                 txt_payload = ArtifactPayload(

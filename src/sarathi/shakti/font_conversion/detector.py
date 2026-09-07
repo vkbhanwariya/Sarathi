@@ -629,7 +629,10 @@ def resolve_effective_font(
         return cs_font
 
     # 4. If neither is legacy: if text has complex script characters (non-ascii outside Latin-1), pick cs
-    has_cs_chars = any(ord(c) >= 0x0900 for c in run_text) if run_text else False
+    has_cs_chars = any(
+        (0x0900 <= ord(c) <= 0x0DFF or 0xA8E0 <= ord(c) <= 0xA8FF or 0x1CD0 <= ord(c) <= 0x1CFF or 0x0590 <= ord(c) <= 0x08FF or 0x0E00 <= ord(c) <= 0x109F or 0x1780 <= ord(c) <= 0x17FF)
+        for c in run_text
+    ) if run_text else False
     if has_cs_chars:
         return cs_font or ascii_font or hansi_font
 

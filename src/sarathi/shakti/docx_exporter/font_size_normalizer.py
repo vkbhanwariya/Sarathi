@@ -89,6 +89,14 @@ _PAIR_ADJUSTMENTS: dict[tuple[str, str], FontSizeAdjustment] = {
     ("times new roman", "devlys 010"): FontSizeAdjustment(scale=_MODERN_TO_LEGACY_SCALE, offset_pt=0.0),
     ("nirmala ui", "times new roman"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
     ("times new roman", "nirmala ui"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("kruti dev 010", "utsaah"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("devlys 010", "utsaah"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("utsaah", "kruti dev 010"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("utsaah", "devlys 010"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("utsaah", "nirmala ui"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("nirmala ui", "utsaah"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("utsaah", "times new roman"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
+    ("times new roman", "utsaah"): FontSizeAdjustment(scale=1.0, offset_pt=0.0),
 }
 
 

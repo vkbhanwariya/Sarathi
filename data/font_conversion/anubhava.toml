@@ -2,8 +2,8 @@
 # Every entry is revalidated before activation.
 
 [metadata]
-version = "1.0.0"
-updated_at_utc = "2026-09-02T00:00:00Z"
+version = "1.1.0"
+updated_at_utc = "2026-09-07T00:00:00Z"
 
 [[corrections]]
 profile_id = "krutidev010"
@@ -21,4 +21,35 @@ verified = true
 profile_id = "generic"
 source = "कायार्लय"
 target = "कार्यालय"
+verified = true
+
+# Standalone Remington keyboard comma slip (typist pressing English comma key instead of ] in KrutiDev)
+
+[[corrections]]
+profile_id = "generic"
+mapping_type = "regex"
+source = "(^|\\s)ए(\\s+)"
+target = "\\1,\\2"
+verified = true
+
+# Nuqta & Matra repairs
+[[corrections]]
+profile_id = "generic"
+mapping_type = "post_conversion"
+source = "िछपाया"
+target = "छिपाया"
+verified = true
+
+[[corrections]]
+profile_id = "generic"
+mapping_type = "post_conversion"
+source = "पढ्"
+target = "पढ़"
+verified = true
+
+[[corrections]]
+profile_id = "generic"
+mapping_type = "post_conversion"
+source = "तोड् मरोड्"
+target = "तोड़-मरोड़"
 verified = true

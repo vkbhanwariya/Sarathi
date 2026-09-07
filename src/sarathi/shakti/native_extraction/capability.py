@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import time
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING, Any, Callable
 from zipfile import BadZipFile
@@ -102,6 +103,101 @@ class NativeExtractionCapability:
         self.declaration: CapabilityDeclaration = declaration
         self._darpana: Darpana | None = darpana
 
+    def _record_telemetry(
+        self,
+        context: ExecutionContext,
+        inp: Any,
+        doc: CanonicalDocument,
+        dur_ns: int,
+    ) -> None:
+        """Record fine-grained worker performance and page/region quality telemetry in Darpana."""
+        if self._darpana is None:
+            return
+        from datetime import datetime, timezone
+
+        from sarathi.darpana import MarutiRecord, PramanaRecord
+        from sarathi.sankalpa import ConfidenceValue
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
+        dev_i = str(context.execution_binding.device_id) if context.execution_binding else "0"
+        page_cnt = max(1, len(doc.pages))
+
+        self._darpana.record_maruti(
+            MarutiRecord(
+                run_id=context.run_id,
+                request_id=context.request_id,
+                trace_id=context.trace_id,
+                span_id=context.span_id,
+                phase_name="worker_execution",
+                component="shakti.native_extraction",
+                timestamp_utc=now_iso,
+                duration_ns=dur_ns,
+                outcome="success",
+                attributes={
+                    "worker_id": f"cpu-worker-{dev_i}",
+                    "device_type": dev_t,
+                    "device_id": dev_i,
+                    "pages_processed": page_cnt,
+                    "file_display_name": inp.display_name,
+                },
+            )
+        )
+
+        for p in (doc.pages or ()):
+            self._darpana.record_pramana(
+                PramanaRecord(
+                    run_id=context.run_id,
+                    request_id=context.request_id,
+                    trace_id=context.trace_id,
+                    span_id=context.span_id,
+                    capability_id="native_extraction",
+                    stage="read_native",
+                    timestamp_utc=now_iso,
+                    subject_id=f"{doc.document_id}:p{p.page_number}",
+                    confidence=ConfidenceValue(
+                        score=1.0,
+                        method="native_digital",
+                        evidence={"review_recommended": False},
+                    ),
+                    attributes={
+                        "level": "page",
+                        "page_number": p.page_number,
+                        "file_display_name": inp.display_name,
+                        "region_count": len(p.spans) + len(p.tables),
+                        "min_confidence": 1.0,
+                        "max_confidence": 1.0,
+                        "review_recommended": False,
+                    },
+                )
+            )
+            for s_idx, span in enumerate(p.spans[:30]):
+                self._darpana.record_pramana(
+                    PramanaRecord(
+                        run_id=context.run_id,
+                        request_id=context.request_id,
+                        trace_id=context.trace_id,
+                        span_id=context.span_id,
+                        capability_id="native_extraction",
+                        stage="read_native",
+                        timestamp_utc=now_iso,
+                        subject_id=f"{doc.document_id}:p{p.page_number}:s{s_idx}",
+                        confidence=ConfidenceValue(
+                            score=1.0,
+                            method="native_digital",
+                            evidence={"review_recommended": False},
+                        ),
+                        attributes={
+                            "level": "region",
+                            "region_id": f"p{p.page_number}_span_{s_idx + 1}",
+                            "page_number": p.page_number,
+                            "file_display_name": inp.display_name,
+                            "region_type": "text",
+                            "review_recommended": False,
+                        },
+                    )
+                )
+
     def execute(
         self,
         request: Request,
@@ -187,10 +283,13 @@ class NativeExtractionCapability:
 
             # Route to concrete native readers with honest parse error handling
             try:
+                t0 = time.perf_counter_ns()
                 doc, provs, warns = reader(data, inp.input_id)
+                dur = max(0, time.perf_counter_ns() - t0)
                 extracted_docs.append(doc)
                 all_provenance.extend(provs)
                 all_warnings.extend(warns)
+                self._record_telemetry(context, inp, doc, dur)
 
                 if not _has_usable_content(doc):
                     # Empty native content -> escalate to OCR only for OCR-capable format (PDF)

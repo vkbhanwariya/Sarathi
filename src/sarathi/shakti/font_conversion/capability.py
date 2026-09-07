@@ -40,6 +40,7 @@ from sarathi.shakti.font_conversion.models import (
 )
 from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.font_conversion.protector import TextProtector
+from sarathi.shakti.font_conversion.telemetry import emit_conversion_telemetry
 from sarathi.shakti.font_conversion.validator import FontConversionValidator
 from sarathi.sutra import get_canonical_data_root
 
@@ -479,6 +480,8 @@ class FontConversionCapability:
                         display_name=doc.document_id,
                         size_bytes=0,
                     )
+
+                    emit_conversion_telemetry(self._darpana, context, converted_doc, naming_inp, conf)
 
                     txt_artifact_name = format_artifact_filename(
                         naming_inp,

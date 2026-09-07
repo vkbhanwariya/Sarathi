@@ -27,9 +27,16 @@ from sarathi.shakti.docx_exporter.constants import (
     _NON_DELETABLE_RUN_CHILDREN,
     _W_NS,
 )
-from sarathi.shakti.docx_exporter.font_size_normalizer import get_font_size_adjustment
+from sarathi.shakti.docx_exporter.font_size_normalizer import (
+    FontSizeAdjustment,
+    get_font_size_adjustment,
+)
 from sarathi.shakti.docx_exporter.scripts import segment_text_by_script
-from sarathi.shakti.docx_exporter.styles import DocxStyleResolver, resolve_neutral_ooxml_font
+from sarathi.shakti.docx_exporter.styles import (
+    DocxStyleResolver,
+    _is_complex_script_char,
+    resolve_neutral_ooxml_font,
+)
 from sarathi.shakti.text.legacy_detection import _KNOWN_MODERN_FONTS
 
 
@@ -93,6 +100,7 @@ def transform_docx_artifact(
     warnings: list[WarningRecord] | None = None,
     preserve_modern_fonts: bool | None = None,
     preserve_typography: bool = False,
+    normalize_font_sizes: bool = True,
     legacy_target_font: str | None = None,
     profiles: Mapping[str, Any] | None = None,
     font_resolver: Callable[..., str | None] | None = None,
@@ -129,6 +137,7 @@ def transform_docx_artifact(
                             converter_fn,
                             preserve_modern_fonts=should_preserve_modern,
                             preserve_typography=preserve_typography,
+                            normalize_font_sizes=normalize_font_sizes,
                             style_resolver=style_resolver,
                             legacy_target_font=legacy_target_font,
                             profiles=profiles,
@@ -221,6 +230,11 @@ def _merge_adjacent_compatible_runs(container: ET.Element) -> None:
                 t1 = c1.find(t_tag)
                 t2 = c2.find(t_tag)
                 if t1 is not None and t2 is not None and t2.text:
+                    cs1 = any(_is_complex_script_char(c) for c in (t1.text or ""))
+                    cs2 = any(_is_complex_script_char(c) for c in (t2.text or ""))
+                    if cs1 != cs2:
+                        i += 1
+                        continue
                     t1.text = (t1.text or "") + t2.text
                     if not has_non_deletable:
                         container.remove(c2)
@@ -324,6 +338,7 @@ def _transform_xml_tree(
     converter_fn: Callable[[str], str],
     preserve_modern_fonts: bool = False,
     preserve_typography: bool = False,
+    normalize_font_sizes: bool = True,
     style_resolver: DocxStyleResolver | None = None,
     legacy_target_font: str | None = None,
     profiles: Mapping[str, Any] | None = None,
@@ -476,6 +491,7 @@ def _transform_xml_tree(
                             sz_tag,
                             szcs_tag,
                             preserve_typography=preserve_typography,
+                            normalize_font_sizes=normalize_font_sizes,
                             legacy_target_font=legacy_target_font,
                             source_font=effective_font,
                             style_resolver=style_resolver,
@@ -497,6 +513,7 @@ def _transform_xml_tree(
                             sz_tag,
                             szcs_tag,
                             preserve_typography=preserve_typography,
+                            normalize_font_sizes=normalize_font_sizes,
                             legacy_target_font=legacy_target_font,
                             source_font=effective_font,
                             style_resolver=style_resolver,
@@ -519,6 +536,7 @@ def _transform_xml_tree(
                                 sz_tag,
                                 szcs_tag,
                                 preserve_typography=preserve_typography,
+                                normalize_font_sizes=normalize_font_sizes,
                                 legacy_target_font=legacy_target_font,
                                 source_font=effective_font,
                                 style_resolver=style_resolver,
@@ -539,6 +557,7 @@ def _apply_font_to_rpr(
     sz_tag: str,
     szcs_tag: str,
     preserve_typography: bool = False,
+    normalize_font_sizes: bool = True,
     legacy_target_font: str | None = None,
     source_font: str | None = None,
     style_resolver: DocxStyleResolver | None = None,
@@ -548,7 +567,9 @@ def _apply_font_to_rpr(
     if legacy_target_font:
         font = legacy_target_font if is_devanagari else _ENGLISH_FONT
     else:
-        font = _HINDI_FONT if is_devanagari else _ENGLISH_FONT
+        doc_cs = style_resolver.get_primary_modern_cs_font() if style_resolver is not None else None
+        target_hindi = doc_cs if doc_cs else _HINDI_FONT
+        font = target_hindi if is_devanagari else _ENGLISH_FONT
 
     # Fonts
     rfonts = rpr.find(rfonts_tag)
@@ -572,10 +593,13 @@ def _apply_font_to_rpr(
         szcs.attrib[f"{{{_W_NS}}}val"] = size_str
     else:
         # Dynamic visual font-size normalization preserving document hierarchy
-        adj = get_font_size_adjustment(
-            anchor_font=source_font or "",
-            target_font=font,
-        )
+        if normalize_font_sizes:
+            adj = get_font_size_adjustment(
+                anchor_font=source_font or "",
+                target_font=font,
+            )
+        else:
+            adj = FontSizeAdjustment(scale=1.0, offset_pt=0.0)
 
         cur_half_pt: float | None = None
         sz_elem = rpr.find(sz_tag)

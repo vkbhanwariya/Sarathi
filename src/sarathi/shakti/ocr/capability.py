@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -102,6 +103,110 @@ class OCRCapability:
         self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine(data_root=data_root)
         self._yantra: Yantra | None = yantra
         self._darpana: Darpana | None = darpana
+
+    def _record_page_telemetry(
+        self,
+        context: ExecutionContext,
+        inp_ref: InputRef,
+        page_idx: int,
+        page_data: PageData,
+        dur_ns: int,
+        binding: Any,
+        worker_id: str,
+    ) -> None:
+        """Record fine-grained worker performance and page/region quality telemetry in Darpana."""
+        if self._darpana is None:
+            return
+        from datetime import datetime, timezone
+
+        from sarathi.darpana import MarutiRecord, PramanaRecord
+        from sarathi.sankalpa import ConfidenceValue
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        dev_t = binding.device_type.value.upper() if binding and hasattr(binding, "device_type") else "CPU"
+        dev_i = str(getattr(binding, "device_id", "0")) if binding else "0"
+
+        self._darpana.record_maruti(
+            MarutiRecord(
+                run_id=context.run_id,
+                request_id=context.request_id,
+                trace_id=context.trace_id,
+                span_id=context.span_id,
+                phase_name="worker_execution",
+                component="shakti.ocr",
+                timestamp_utc=now_iso,
+                duration_ns=dur_ns,
+                outcome="success",
+                attributes={
+                    "worker_id": worker_id,
+                    "device_type": dev_t,
+                    "device_id": dev_i,
+                    "pages_processed": 1,
+                    "page_number": page_idx,
+                    "file_display_name": inp_ref.display_name,
+                },
+            )
+        )
+
+        p_conf = page_data.confidence if page_data.confidence is not None else 0.85
+        span_confs = [s.confidence for s in page_data.spans if s.confidence is not None]
+        min_c = min(span_confs) if span_confs else p_conf
+        max_c = max(span_confs) if span_confs else p_conf
+
+        self._darpana.record_pramana(
+            PramanaRecord(
+                run_id=context.run_id,
+                request_id=context.request_id,
+                trace_id=context.trace_id,
+                span_id=context.span_id,
+                capability_id="ocr",
+                stage="ocr",
+                timestamp_utc=now_iso,
+                subject_id=f"{inp_ref.input_id}:p{page_idx}",
+                confidence=ConfidenceValue(
+                    score=p_conf,
+                    method="rapidocr",
+                    evidence={"review_recommended": (p_conf < 0.75)},
+                ),
+                attributes={
+                    "level": "page",
+                    "page_number": page_idx,
+                    "file_display_name": inp_ref.display_name,
+                    "region_count": len(page_data.spans),
+                    "min_confidence": min_c,
+                    "max_confidence": max_c,
+                    "review_recommended": (p_conf < 0.75),
+                },
+            )
+        )
+
+        for s_idx, span in enumerate(page_data.spans[:30]):
+            s_conf = span.confidence if span.confidence is not None else p_conf
+            self._darpana.record_pramana(
+                PramanaRecord(
+                    run_id=context.run_id,
+                    request_id=context.request_id,
+                    trace_id=context.trace_id,
+                    span_id=context.span_id,
+                    capability_id="ocr",
+                    stage="ocr",
+                    timestamp_utc=now_iso,
+                    subject_id=f"{inp_ref.input_id}:p{page_idx}:r{s_idx}",
+                    confidence=ConfidenceValue(
+                        score=s_conf,
+                        method="rapidocr_line",
+                        evidence={"review_recommended": (s_conf < 0.75)},
+                    ),
+                    attributes={
+                        "level": "region",
+                        "region_id": f"p{page_idx}_line_{s_idx + 1}",
+                        "page_number": page_idx,
+                        "file_display_name": inp_ref.display_name,
+                        "region_type": "line",
+                        "review_recommended": (s_conf < 0.75),
+                    },
+                )
+            )
 
     def execute(
         self,
@@ -316,11 +421,22 @@ class OCRCapability:
                             if context.cancellation_token is not None:
                                 ocr_kwargs["cancellation_token"] = context.cancellation_token
 
+                            t0 = time.perf_counter_ns()
                             p_data, p_prov, _, p_warns = self._engine.ocr_page(
                                 p_img,
                                 p_idx,
                                 inp_ref.input_id,
                                 **ocr_kwargs,
+                            )
+                            dur = max(0, time.perf_counter_ns() - t0)
+                            self._record_page_telemetry(
+                                context=context,
+                                inp_ref=inp_ref,
+                                page_idx=p_idx,
+                                page_data=p_data,
+                                dur_ns=dur,
+                                binding=slot_binding,
+                                worker_id=w_id,
                             )
                             return p_data, p_prov, p_warns
                     else:
@@ -348,11 +464,22 @@ class OCRCapability:
                         if context.cancellation_token is not None:
                             ocr_kwargs["cancellation_token"] = context.cancellation_token
 
+                        t0 = time.perf_counter_ns()
                         p_data, p_prov, _, p_warns = self._engine.ocr_page(
                             p_img,
                             p_idx,
                             inp_ref.input_id,
                             **ocr_kwargs,
+                        )
+                        dur = max(0, time.perf_counter_ns() - t0)
+                        self._record_page_telemetry(
+                            context=context,
+                            inp_ref=inp_ref,
+                            page_idx=p_idx,
+                            page_data=p_data,
+                            dur_ns=dur,
+                            binding=context.execution_binding,
+                            worker_id=w_id,
                         )
                         return p_data, p_prov, p_warns
 
@@ -399,11 +526,22 @@ class OCRCapability:
                     if context.cancellation_token is not None:
                         seq_kwargs["cancellation_token"] = context.cancellation_token
 
+                    t0 = time.perf_counter_ns()
                     page_data, prov, _, page_warnings = self._engine.ocr_page(
                         img,
                         page_idx,
                         inp.input_id,
                         **seq_kwargs,
+                    )
+                    dur = max(0, time.perf_counter_ns() - t0)
+                    self._record_page_telemetry(
+                        context=context,
+                        inp_ref=inp,
+                        page_idx=page_idx,
+                        page_data=page_data,
+                        dur_ns=dur,
+                        binding=context.execution_binding,
+                        worker_id="1",
                     )
                     doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
 

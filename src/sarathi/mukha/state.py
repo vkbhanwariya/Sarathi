@@ -235,6 +235,47 @@ class RunSummaryView:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkerPerformanceView:
+    """Factual worker-level execution performance summary."""
+
+    worker_id: str
+    device_type: str
+    device_id: str
+    tasks_completed: int
+    pages_completed: int
+    total_duration_ms: float
+    avg_duration_ms: float
+    throughput_per_sec: float
+    status: str = "IDLE"
+
+
+@dataclass(frozen=True, slots=True)
+class PageConfidenceView:
+    """Factual page-level confidence metrics for inspection."""
+
+    file_display_name: str
+    page_number: int
+    confidence_score: float
+    region_count: int
+    min_confidence: float
+    max_confidence: float
+    review_recommended: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RegionConfidenceView:
+    """Factual region-level / block-level confidence details."""
+
+    region_id: str
+    file_display_name: str
+    page_number: int
+    confidence_score: float
+    region_type: str
+    method: str
+    review_recommended: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class InspectorViewState:
     """Detailed inspection presentation state."""
 
@@ -246,6 +287,9 @@ class InspectorViewState:
     device_summaries: tuple[DeviceSummaryView, ...] = ()
     confidence_distribution: tuple[tuple[str, int], ...] = ()
     system_facts: tuple[tuple[str, str], ...] = ()
+    worker_performance: tuple[WorkerPerformanceView, ...] = ()
+    page_confidence: tuple[PageConfidenceView, ...] = ()
+    region_confidence: tuple[RegionConfidenceView, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

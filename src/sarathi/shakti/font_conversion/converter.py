@@ -6,6 +6,7 @@ import re
 import tomllib
 import unicodedata
 from pathlib import Path
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.font_conversion.akshara import (
@@ -24,16 +25,27 @@ _CANONICAL_ANUBHAVA_PATH = get_canonical_data_root() / "font_conversion" / "anub
 # Captures optional half-consonants (D, P, R, F, Y, O, L, C, H, E, U, I, x~, etc.) + base consonant + optional sub-ra ('z')
 # In Remington: uppercase letters D, P, R, F, Y, O, L, C, H, E, U, I are half-consonants (क्, च्, त्, थ्, ल्, व्, स्, ब्, भ्, म्, न्, प्)
 # Lowercase letters d, x, p, t, T, V, B, M, r, n, u, c, ;, j, y, o, ?, g, h, K, s, e are base consonants (क, ग, च, ज, झ, ट, ठ, ड, त, द, न, ब, य, र, ल, व, ?, घ, ह, ज्ञ, स, म)
-_KRUTI_HALF_CONSONANTS = r"(?:[DPRFYOCLHUI\xb6\xd9]|E(?!$)|x~|\{|\&|J~)"
-_KRUTI_BASE_CONSONANTS = r"(?:\[k|\?k|Fk|/k|Hk|'k|\"k|\.k|\{k|\u2019k|\xd9k|[ldixptTVBMrnuc;jyo\?ghKsQeJK\xe7\xe4\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe=\}\xd8\)])"
+_KRUTI_HALF_CONSONANTS = r"(?:[DPRFYOCLHUI\xb6\xd9\x27\u2018\u2019\u201c\u201d]|E(?!$)|x~|\{|\&|J~|\.)"
+_KRUTI_BASE_CONSONANTS = r"(?:\[k|\?k|Fk|/k|Hk|'k|\"k|\.k|\{k|[\u2018\u2019\u201c\u201d]k|\xd9k|[ldixptTVBMrnuc;jyo\?ghKsQeJK\xe7\xe4\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe=\}\xd8\)])"
 _KRUTI_CONSONANT_CLUSTER = rf"(?:{_KRUTI_HALF_CONSONANTS})*{_KRUTI_BASE_CONSONANTS}z?"
 
 
-def _load_anubhava_corrections(anubhava_path: Path | None = None) -> dict[str, dict[str, str]]:
+class AnubhavaStore(dict[str, dict[str, str]]):
+    """Structured container for multi-type Anubhava approved corrections."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.pre_corrections: dict[str, dict[str, str]] = {}
+        self.post_corrections: dict[str, dict[str, str]] = {}
+        self.regex_corrections: list[tuple[re.Pattern[str], str]] = []
+
+
+def _load_anubhava_corrections(anubhava_path: Path | None = None) -> AnubhavaStore:
     """Load and return approved corrections directly from capability-owned anubhava.toml."""
     path = (anubhava_path or _CANONICAL_ANUBHAVA_PATH).resolve()
+    store = AnubhavaStore()
     if not path.exists():
-        return {}
+        return store
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
@@ -41,15 +53,41 @@ def _load_anubhava_corrections(anubhava_path: Path | None = None) -> dict[str, d
             code=FailureCode.INVALID_CONFIGURATION,
             message=f"Failed to parse font conversion Anubhava TOML: {path.name}",
         ) from exc
-    corrections: dict[str, dict[str, str]] = {}
+
     for item in data.get("corrections", []):
-        if isinstance(item, dict) and item.get("verified", False):
-            pid = item.get("profile_id", "generic")
-            src = item.get("source", "")
-            tgt = item.get("target", "")
-            if src and tgt:
-                corrections.setdefault(pid, {})[src] = tgt
-    return corrections
+        if not isinstance(item, dict) or not item.get("verified", False):
+            continue
+        pid = str(item.get("profile_id", "generic"))
+        src = str(item.get("source", ""))
+        tgt = str(item.get("target", ""))
+        m_type = str(item.get("mapping_type", "")).strip().lower()
+
+        if not src:
+            continue
+
+        # Standard dict mapping for backward compatibility
+        store.setdefault(pid, {})[src] = tgt
+
+        if m_type == "regex":
+            try:
+                pat = re.compile(src)
+                store.regex_corrections.append((pat, tgt))
+            except re.error:
+                continue
+        elif m_type == "post_conversion":
+            store.post_corrections.setdefault(pid, {})[src] = tgt
+        elif m_type == "pre_conversion":
+            store.pre_corrections.setdefault(pid, {})[src] = tgt
+        else:
+            # Automatic classification if mapping_type is omitted
+            is_indic_src = any(0x0900 <= ord(c) <= 0x0DFF for c in src)
+            if is_indic_src:
+                store.post_corrections.setdefault(pid, {})[src] = tgt
+                store.pre_corrections.setdefault(pid, {})[src] = tgt
+            else:
+                store.pre_corrections.setdefault(pid, {})[src] = tgt
+
+    return store
 
 
 class FontConverter:
@@ -62,7 +100,7 @@ class FontConverter:
         profiles: dict[str, LegacyFontProfile] | None = None,
     ) -> None:
         self._profiles = profiles if profiles is not None else load_font_profiles(fonts_dir)
-        self._anubhava_corrections = _load_anubhava_corrections(anubhava_path)
+        self._anubhava_corrections: AnubhavaStore = _load_anubhava_corrections(anubhava_path)
 
     @property
     def profiles(self) -> dict[str, LegacyFontProfile]:
@@ -75,12 +113,15 @@ class FontConverter:
         if profile is None:
             return text
 
-        # 1. Apply verified Anubhava corrections: generic first, profile-specific second
-        generic_corrections = self._anubhava_corrections.get("generic", {})
+        if text.strip() in (",", ",,", ",,,"):
+            return text
+
+        # 1. Apply verified pre-conversion Anubhava corrections: generic first, profile-specific second
+        generic_corrections = self._anubhava_corrections.pre_corrections.get("generic", {})
         for src, tgt in generic_corrections.items():
             text = text.replace(src, tgt)
 
-        profile_corrections = self._anubhava_corrections.get(profile_id, {})
+        profile_corrections = self._anubhava_corrections.pre_corrections.get(profile_id, {})
         for src, tgt in profile_corrections.items():
             text = text.replace(src, tgt)
 
@@ -125,6 +166,18 @@ class FontConverter:
         # 5b. Family corrections (e.g. typewriter artifact corrections declared in profile)
         for src, tgt in profile.family_corrections:
             text = text.replace(src, tgt)
+
+        # 5c. Post-conversion Anubhava approved corrections (generic and profile-specific)
+        generic_post = self._anubhava_corrections.post_corrections.get("generic", {})
+        for src, tgt in generic_post.items():
+            text = text.replace(src, tgt)
+
+        profile_post = self._anubhava_corrections.post_corrections.get(profile_id, {})
+        for src, tgt in profile_post.items():
+            text = text.replace(src, tgt)
+
+        for pat, repl in self._anubhava_corrections.regex_corrections:
+            text = pat.sub(repl, text)
 
         # 6. Akshara Unicode synthesis and canonical NFC normalization
         return synthesize_akshara_unicode(text)
