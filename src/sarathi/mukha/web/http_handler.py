@@ -197,6 +197,14 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         elif path == "/app.js":
             self._serve_static_resource("app.js", "application/javascript; charset=utf-8")
             return
+        elif path.startswith("/js/"):
+            js_rel = path.removeprefix("/js/")
+            if ".." in js_rel or "\\" in js_rel:
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid script path.")
+                return
+            filename = f"js/{js_rel}"
+            self._serve_static_resource(filename, "application/javascript; charset=utf-8")
+            return
         elif path.startswith("/assets/"):
             asset_filename = path.removeprefix("/assets/")
             if ".." in asset_filename or "/" in asset_filename or "\\" in asset_filename:

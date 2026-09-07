@@ -86,8 +86,12 @@ class TestMukhaWebServerSecurityAndStatic:
         assert "Sarathi V2" in js_text
         assert "function updatePresentation(appState)" in js_text
         assert "function init()" in js_text
-        assert "function handleBrowseFiles()" in js_text
-        assert "function handleAddManualPath()" in js_text
+
+        status_home, body_home, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/screens/home.js")
+        assert status_home == 200
+        home_text = body_home.decode("utf-8")
+        assert "function handleBrowseFiles()" in home_text
+        assert "function handleAddManualPath()" in home_text
 
     def test_security_rejects_forbidden_host(self, web_server: MukhaWebServer) -> None:
         """Requests with non-loopback Host header are rejected with 403."""
