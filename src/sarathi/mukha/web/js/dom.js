@@ -29,6 +29,26 @@ export const elements = {
     chkSelectAllInputs: null,
     selectedInputsTbody: null,
     inputGroupsContainer: null,
+    inputGroupedSummary: null,
+    inputGroupedSummaryText: null,
+    btnViewAllInputs: null,
+    btnCollapseInputs: null,
+    inputFiltersBar: null,
+    btnFilterAll: null,
+    btnFilterEligible: null,
+    btnFilterIssues: null,
+    filterAllCount: null,
+    filterEligibleCount: null,
+    filterIssuesCount: null,
+    selectionScopeBanner: null,
+    selectionScopeText: null,
+    btnSelectAllMatching: null,
+    btnClearSelectionScope: null,
+    inputTableContainer: null,
+    inputPaginationContainer: null,
+    btnInputPrev: null,
+    btnInputNext: null,
+    inputPageIndicator: null,
     inputCountsBadge: null,
     inputFilesFilter: null,
     requirementGrid: null,
@@ -171,6 +191,26 @@ export function initDom() {
     elements.chkSelectAllInputs = document.getElementById("chk-select-all-inputs");
     elements.selectedInputsTbody = document.getElementById("selected-inputs-tbody");
     elements.inputGroupsContainer = document.getElementById("input-groups-container");
+    elements.inputGroupedSummary = document.getElementById("input-grouped-summary");
+    elements.inputGroupedSummaryText = document.getElementById("input-grouped-summary-text");
+    elements.btnViewAllInputs = document.getElementById("btn-view-all-inputs");
+    elements.btnCollapseInputs = document.getElementById("btn-collapse-inputs");
+    elements.inputFiltersBar = document.getElementById("input-filters-bar");
+    elements.btnFilterAll = document.getElementById("btn-filter-all");
+    elements.btnFilterEligible = document.getElementById("btn-filter-eligible");
+    elements.btnFilterIssues = document.getElementById("btn-filter-issues");
+    elements.filterAllCount = document.getElementById("filter-all-count");
+    elements.filterEligibleCount = document.getElementById("filter-eligible-count");
+    elements.filterIssuesCount = document.getElementById("filter-issues-count");
+    elements.selectionScopeBanner = document.getElementById("selection-scope-banner");
+    elements.selectionScopeText = document.getElementById("selection-scope-text");
+    elements.btnSelectAllMatching = document.getElementById("btn-select-all-matching");
+    elements.btnClearSelectionScope = document.getElementById("btn-clear-selection-scope");
+    elements.inputTableContainer = document.querySelector(".input-table-container");
+    elements.inputPaginationContainer = document.getElementById("input-pagination-container");
+    elements.btnInputPrev = document.getElementById("btn-input-prev");
+    elements.btnInputNext = document.getElementById("btn-input-next");
+    elements.inputPageIndicator = document.getElementById("input-page-indicator");
     elements.inputCountsBadge = document.getElementById("input-counts-badge");
     elements.inputFilesFilter = document.getElementById("input-files-filter");
     elements.requirementGrid = document.getElementById("requirement-grid");

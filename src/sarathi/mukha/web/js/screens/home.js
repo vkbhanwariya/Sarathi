@@ -16,6 +16,7 @@ export function updateClearSelectedButton() {
 }
 
 export async function addSelectedPaths(newPaths) {
+    newPaths.forEach((p) => state.excludedPaths.delete(p));
     const set = new Set([...state.selectedRoots, ...newPaths]);
     state.selectedRoots = Array.from(set);
     await refreshIntake();
@@ -79,8 +80,16 @@ export async function handleClearInputs() {
     state.excludedPaths.clear();
     state.checkedInputPaths.clear();
     state.intakeItems = [];
+    state.showAllInputsTable = false;
+    state.inputPagination = { page: 1, pageSize: 10 };
+    state.inputFilterMode = "all";
+    state.inputSearchQuery = "";
+    if (elements.inputFilesFilter) elements.inputFilesFilter.value = "";
     updateClearSelectedButton();
-    if (elements.chkSelectAllInputs) elements.chkSelectAllInputs.checked = false;
+    if (elements.chkSelectAllInputs) {
+        elements.chkSelectAllInputs.checked = false;
+        elements.chkSelectAllInputs.indeterminate = false;
+    }
     await refreshIntake();
 }
 
@@ -123,68 +132,193 @@ export async function refreshIntake() {
 
 export function renderInputsTable(items, inputSelection) {
     if (items) state.intakeItems = items;
+    if (inputSelection) state.lastInputSelection = inputSelection;
     const allItems = state.intakeItems || [];
+    const totalSize = allItems.reduce((acc, it) => acc + (it.size_bytes || 0), 0);
 
+    const selectionObj = inputSelection || state.lastInputSelection;
     if (elements.inputGroupsContainer) {
-        if (inputSelection && inputSelection.groups && inputSelection.groups.length > 0) {
-            elements.inputGroupsContainer.classList.remove("hidden");
-            elements.inputGroupsContainer.innerHTML = inputSelection.groups
+        if (selectionObj && selectionObj.groups && selectionObj.groups.length > 0) {
+            elements.inputGroupsContainer.innerHTML = selectionObj.groups
                 .map((g) => `<div class="badge badge-indigo" style="padding: 4px 10px;"><strong>${escapeHtml(g.format_name)}</strong>: ${g.file_count} files (${formatBytes(g.total_size_bytes)})</div>`)
                 .join(" ");
         } else {
-            elements.inputGroupsContainer.classList.add("hidden");
             elements.inputGroupsContainer.innerHTML = "";
         }
     }
 
+    const isLargeBatch = allItems.length > 10;
+    if (elements.inputGroupedSummary) {
+        elements.inputGroupedSummary.classList.toggle("hidden", !isLargeBatch);
+        if (elements.inputGroupedSummaryText) {
+            elements.inputGroupedSummaryText.textContent = `${allItems.length} documents selected (${formatBytes(totalSize)})`;
+        }
+        if (elements.btnViewAllInputs) {
+            elements.btnViewAllInputs.textContent = `👁️ View All (${allItems.length} files)`;
+            elements.btnViewAllInputs.classList.toggle("hidden", state.showAllInputsTable);
+        }
+    }
+    if (elements.btnCollapseInputs) {
+        elements.btnCollapseInputs.classList.toggle("hidden", !isLargeBatch || !state.showAllInputsTable);
+    }
+
+    const showTable = !isLargeBatch || state.showAllInputsTable;
+    if (elements.inputTableContainer) {
+        elements.inputTableContainer.classList.toggle("hidden", !showTable);
+    }
+    if (elements.inputFiltersBar) {
+        elements.inputFiltersBar.classList.toggle("hidden", !showTable && isLargeBatch);
+    }
+
+    // Filter counting across all items
+    const eligibleCount = allItems.filter((i) => i.is_eligible).length;
+    const issuesCount = allItems.filter((i) => !i.is_eligible).length;
+    if (elements.filterAllCount) elements.filterAllCount.textContent = allItems.length;
+    if (elements.filterEligibleCount) elements.filterEligibleCount.textContent = eligibleCount;
+    if (elements.filterIssuesCount) elements.filterIssuesCount.textContent = issuesCount;
+
+    if (elements.btnFilterAll) {
+        elements.btnFilterAll.classList.toggle("active", state.inputFilterMode === "all");
+        elements.btnFilterAll.setAttribute("aria-selected", state.inputFilterMode === "all");
+    }
+    if (elements.btnFilterEligible) {
+        elements.btnFilterEligible.classList.toggle("active", state.inputFilterMode === "eligible");
+        elements.btnFilterEligible.setAttribute("aria-selected", state.inputFilterMode === "eligible");
+    }
+    if (elements.btnFilterIssues) {
+        elements.btnFilterIssues.classList.toggle("active", state.inputFilterMode === "issues");
+        elements.btnFilterIssues.setAttribute("aria-selected", state.inputFilterMode === "issues");
+    }
+
+    // Search and status filtering
+    const query = (state.inputSearchQuery || "").toLowerCase().trim();
+    let textMatched = allItems;
+    if (query) {
+        textMatched = allItems.filter((i) =>
+            (i.display_name || "").toLowerCase().includes(query) ||
+            (i.source_path || "").toLowerCase().includes(query)
+        );
+    }
+
+    let matchingItems = textMatched;
+    if (state.inputFilterMode === "eligible") {
+        matchingItems = textMatched.filter((i) => i.is_eligible);
+    } else if (state.inputFilterMode === "issues") {
+        matchingItems = textMatched.filter((i) => !i.is_eligible);
+    }
+
+    // Pagination
+    const pageSize = (state.inputPagination && state.inputPagination.pageSize) || 10;
+    const totalPages = Math.max(1, Math.ceil(matchingItems.length / pageSize));
+    if (!state.inputPagination) state.inputPagination = { page: 1, pageSize: 10 };
+    if (state.inputPagination.page > totalPages) {
+        state.inputPagination.page = totalPages;
+    }
+    if (state.inputPagination.page < 1) {
+        state.inputPagination.page = 1;
+    }
+    const currentPage = state.inputPagination.page;
+    const startIndex = (currentPage - 1) * pageSize;
+    const itemsToRender = matchingItems.slice(startIndex, startIndex + pageSize);
+
+    if (elements.inputPageIndicator) {
+        elements.inputPageIndicator.textContent = `Page ${currentPage} of ${totalPages} (${matchingItems.length} total)`;
+    }
+    if (elements.btnInputPrev) {
+        elements.btnInputPrev.disabled = currentPage <= 1;
+    }
+    if (elements.btnInputNext) {
+        elements.btnInputNext.disabled = currentPage >= totalPages;
+    }
+    if (elements.inputPaginationContainer) {
+        elements.inputPaginationContainer.classList.toggle("hidden", !showTable || matchingItems.length === 0);
+    }
+
     if (!elements.selectedInputsTbody) return;
 
-    const query = (state.inputSearchQuery || "").toLowerCase().trim();
-    const visibleItems = query
-        ? allItems.filter((i) => (i.display_name || "").toLowerCase().includes(query) || (i.source_path || "").toLowerCase().includes(query))
-        : allItems;
-
-    if (visibleItems.length === 0) {
+    if (matchingItems.length === 0) {
         elements.selectedInputsTbody.innerHTML = allItems.length === 0
             ? '<tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>'
             : '<tr class="empty-row"><td colspan="5">No documents match the filter query.</td></tr>';
-        return;
+    } else {
+        const rowsHtml = itemsToRender
+            .map((item) => {
+                const pathVal = item.source_path || item.display_name;
+                const isChecked = state.checkedInputPaths.has(pathVal);
+                const issueText = item.issue_reason || "Ineligible";
+                const badge = item.is_eligible
+                    ? '<span class="badge badge-emerald">Eligible</span>'
+                    : `<button type="button" class="badge badge-amber btn-issue-info" tabindex="0" aria-label="Issue: ${escapeHtml(issueText)}" title="${escapeHtml(issueText)}">Issue</button>`;
+                return `<tr>
+                    <td style="text-align: center;">
+                        <input type="checkbox" class="input-row-chk" data-path="${escapeHtml(pathVal)}" ${isChecked ? "checked" : ""}>
+                    </td>
+                    <td><strong>${escapeHtml(item.display_name)}</strong></td>
+                    <td>${formatBytes(item.size_bytes)}</td>
+                    <td>${badge}</td>
+                    <td style="text-align: center;">
+                        <button class="btn btn-outline btn-sm btn-preview-file" data-path="${escapeHtml(pathVal)}" data-input-id="${escapeHtml(item.input_id || '')}" data-name="${escapeHtml(item.display_name)}" title="Preview Document">👁️</button>
+                        <button class="btn btn-outline btn-sm btn-remove-row" data-path="${escapeHtml(pathVal)}" title="Remove" style="color: var(--accent-crimson); margin-left: 4px;">✕</button>
+                    </td>
+                </tr>`;
+            })
+            .join("");
+        elements.selectedInputsTbody.innerHTML = rowsHtml;
     }
 
-    const MAX_RENDER_INPUTS = 100;
-    const itemsToRender = visibleItems.length > MAX_RENDER_INPUTS ? visibleItems.slice(0, MAX_RENDER_INPUTS) : visibleItems;
+    // Selection scope and header checkbox state
+    const totalMatchingCount = matchingItems.length;
+    const checkedMatchingCount = matchingItems.filter((i) => state.checkedInputPaths.has(i.source_path || i.display_name)).length;
+    const checkedCurrentPageCount = itemsToRender.filter((i) => state.checkedInputPaths.has(i.source_path || i.display_name)).length;
 
-    let rowsHtml = itemsToRender
-        .map((item) => {
-            const pathVal = item.source_path || item.display_name;
-            const isChecked = state.checkedInputPaths.has(pathVal);
-            const badge = item.is_eligible
-                ? '<span class="badge badge-emerald">Eligible</span>'
-                : `<span class="badge badge-amber" title="${item.issue_reason || 'Ineligible'}">Issue</span>`;
-            return `<tr>
-                <td style="text-align: center;">
-                    <input type="checkbox" class="input-row-chk" data-path="${escapeHtml(pathVal)}" ${isChecked ? "checked" : ""}>
-                </td>
-                <td><strong>${escapeHtml(item.display_name)}</strong></td>
-                <td>${formatBytes(item.size_bytes)}</td>
-                <td>${badge}</td>
-                <td style="text-align: center;">
-                    <button class="btn btn-outline btn-sm btn-preview-file" data-path="${escapeHtml(pathVal)}" data-input-id="${escapeHtml(item.input_id || '')}" data-name="${escapeHtml(item.display_name)}" title="Preview Document">👁️</button>
-                    <button class="btn btn-outline btn-sm btn-remove-row" data-path="${escapeHtml(pathVal)}" title="Remove" style="color: var(--accent-crimson); margin-left: 4px;">✕</button>
-                </td>
-            </tr>`;
-        })
-        .join("");
-
-    if (visibleItems.length > MAX_RENDER_INPUTS) {
-        rowsHtml += `<tr class="empty-row"><td colspan="5">Showing first ${MAX_RENDER_INPUTS} of ${visibleItems.length} documents.</td></tr>`;
-    }
-
-    elements.selectedInputsTbody.innerHTML = rowsHtml;
-    updateClearSelectedButton();
     if (elements.chkSelectAllInputs) {
-        elements.chkSelectAllInputs.checked = allItems.length > 0 && allItems.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
+        if (totalMatchingCount === 0) {
+            elements.chkSelectAllInputs.checked = false;
+            elements.chkSelectAllInputs.indeterminate = false;
+        } else if (checkedMatchingCount === totalMatchingCount) {
+            elements.chkSelectAllInputs.checked = true;
+            elements.chkSelectAllInputs.indeterminate = false;
+        } else if (checkedMatchingCount > 0) {
+            elements.chkSelectAllInputs.checked = false;
+            elements.chkSelectAllInputs.indeterminate = true;
+        } else {
+            elements.chkSelectAllInputs.checked = false;
+            elements.chkSelectAllInputs.indeterminate = false;
+        }
     }
+
+    if (elements.selectionScopeBanner) {
+        if (showTable && totalMatchingCount > itemsToRender.length && checkedCurrentPageCount === itemsToRender.length && itemsToRender.length > 0 && checkedMatchingCount < totalMatchingCount) {
+            elements.selectionScopeBanner.classList.remove("hidden");
+            if (elements.selectionScopeText) {
+                elements.selectionScopeText.textContent = `All ${itemsToRender.length} documents on this page selected.`;
+            }
+            if (elements.btnSelectAllMatching) {
+                elements.btnSelectAllMatching.textContent = `Select all ${totalMatchingCount} matching documents`;
+                elements.btnSelectAllMatching.classList.remove("hidden");
+            }
+            if (elements.btnClearSelectionScope) {
+                elements.btnClearSelectionScope.textContent = "Clear selection";
+                elements.btnClearSelectionScope.classList.remove("hidden");
+            }
+        } else if (showTable && totalMatchingCount > itemsToRender.length && checkedMatchingCount === totalMatchingCount && totalMatchingCount > 0) {
+            elements.selectionScopeBanner.classList.remove("hidden");
+            if (elements.selectionScopeText) {
+                elements.selectionScopeText.textContent = `All ${totalMatchingCount} matching documents selected.`;
+            }
+            if (elements.btnSelectAllMatching) {
+                elements.btnSelectAllMatching.classList.add("hidden");
+            }
+            if (elements.btnClearSelectionScope) {
+                elements.btnClearSelectionScope.textContent = "Clear selection";
+                elements.btnClearSelectionScope.classList.remove("hidden");
+            }
+        } else {
+            elements.selectionScopeBanner.classList.add("hidden");
+        }
+    }
+
+    updateClearSelectedButton();
 }
 
 export function renderPreflight(preflight) {
@@ -494,19 +628,134 @@ export function initHomeScreen() {
         });
     }
 
+    if (elements.btnViewAllInputs) {
+        elements.btnViewAllInputs.addEventListener("click", () => {
+            state.showAllInputsTable = true;
+            renderInputsTable();
+        });
+    }
+
+    if (elements.btnCollapseInputs) {
+        elements.btnCollapseInputs.addEventListener("click", () => {
+            state.showAllInputsTable = false;
+            renderInputsTable();
+        });
+    }
+
+    if (elements.btnFilterAll) {
+        elements.btnFilterAll.addEventListener("click", () => {
+            state.inputFilterMode = "all";
+            state.inputPagination.page = 1;
+            renderInputsTable();
+        });
+    }
+
+    if (elements.btnFilterEligible) {
+        elements.btnFilterEligible.addEventListener("click", () => {
+            state.inputFilterMode = "eligible";
+            state.inputPagination.page = 1;
+            renderInputsTable();
+        });
+    }
+
+    if (elements.btnFilterIssues) {
+        elements.btnFilterIssues.addEventListener("click", () => {
+            state.inputFilterMode = "issues";
+            state.inputPagination.page = 1;
+            renderInputsTable();
+        });
+    }
+
+    if (elements.btnInputPrev) {
+        elements.btnInputPrev.addEventListener("click", () => {
+            if (state.inputPagination && state.inputPagination.page > 1) {
+                state.inputPagination.page--;
+                renderInputsTable();
+            }
+        });
+    }
+
+    if (elements.btnInputNext) {
+        elements.btnInputNext.addEventListener("click", () => {
+            if (!state.inputPagination) state.inputPagination = { page: 1, pageSize: 10 };
+            state.inputPagination.page++;
+            renderInputsTable();
+        });
+    }
+
+    if (elements.btnSelectAllMatching) {
+        elements.btnSelectAllMatching.addEventListener("click", () => {
+            const allItems = state.intakeItems || [];
+            const query = (state.inputSearchQuery || "").toLowerCase().trim();
+            let matching = query
+                ? allItems.filter((i) => (i.display_name || "").toLowerCase().includes(query) || (i.source_path || "").toLowerCase().includes(query))
+                : allItems;
+            if (state.inputFilterMode === "eligible") {
+                matching = matching.filter((i) => i.is_eligible);
+            } else if (state.inputFilterMode === "issues") {
+                matching = matching.filter((i) => !i.is_eligible);
+            }
+            matching.forEach((i) => {
+                const p = i.source_path || i.display_name;
+                if (p) state.checkedInputPaths.add(p);
+            });
+            updateClearSelectedButton();
+            renderInputsTable();
+        });
+    }
+
+    if (elements.btnClearSelectionScope) {
+        elements.btnClearSelectionScope.addEventListener("click", () => {
+            const allItems = state.intakeItems || [];
+            const query = (state.inputSearchQuery || "").toLowerCase().trim();
+            let matching = query
+                ? allItems.filter((i) => (i.display_name || "").toLowerCase().includes(query) || (i.source_path || "").toLowerCase().includes(query))
+                : allItems;
+            if (state.inputFilterMode === "eligible") {
+                matching = matching.filter((i) => i.is_eligible);
+            } else if (state.inputFilterMode === "issues") {
+                matching = matching.filter((i) => !i.is_eligible);
+            }
+            matching.forEach((i) => {
+                const p = i.source_path || i.display_name;
+                if (p) state.checkedInputPaths.delete(p);
+            });
+            updateClearSelectedButton();
+            renderInputsTable();
+        });
+    }
+
     if (elements.chkSelectAllInputs) {
         elements.chkSelectAllInputs.addEventListener("change", (e) => {
+            const allItems = state.intakeItems || [];
+            const query = (state.inputSearchQuery || "").toLowerCase().trim();
+            let matching = query
+                ? allItems.filter((i) => (i.display_name || "").toLowerCase().includes(query) || (i.source_path || "").toLowerCase().includes(query))
+                : allItems;
+            if (state.inputFilterMode === "eligible") {
+                matching = matching.filter((i) => i.is_eligible);
+            } else if (state.inputFilterMode === "issues") {
+                matching = matching.filter((i) => !i.is_eligible);
+            }
+
+            const pageSize = (state.inputPagination && state.inputPagination.pageSize) || 10;
+            const currentPage = (state.inputPagination && state.inputPagination.page) || 1;
+            const pageItems = matching.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
             const isChecked = e.target.checked;
             if (isChecked) {
-                state.intakeItems.forEach((it) => {
+                pageItems.forEach((it) => {
                     const p = it.source_path || it.display_name;
                     if (p) state.checkedInputPaths.add(p);
                 });
             } else {
-                state.checkedInputPaths.clear();
+                pageItems.forEach((it) => {
+                    const p = it.source_path || it.display_name;
+                    if (p) state.checkedInputPaths.delete(p);
+                });
             }
             updateClearSelectedButton();
-            renderInputsTable(state.intakeItems);
+            renderInputsTable();
         });
     }
 
@@ -520,9 +769,7 @@ export function initHomeScreen() {
                     state.checkedInputPaths.delete(pathVal);
                 }
                 updateClearSelectedButton();
-                if (elements.chkSelectAllInputs) {
-                    elements.chkSelectAllInputs.checked = state.intakeItems.length > 0 && state.intakeItems.every((i) => state.checkedInputPaths.has(i.source_path || i.display_name));
-                }
+                renderInputsTable();
             }
         });
 
@@ -566,6 +813,7 @@ export function initHomeScreen() {
     if (elements.inputFilesFilter) {
         elements.inputFilesFilter.addEventListener("input", (e) => {
             state.inputSearchQuery = e.target.value;
+            if (state.inputPagination) state.inputPagination.page = 1;
             renderInputsTable();
         });
     }

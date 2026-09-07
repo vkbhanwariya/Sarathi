@@ -85,8 +85,31 @@
                   <span>Recursively scan subdirectories</span>
                 </label>
               </div>
-              <div id="input-groups-container" class="input-groups-box hidden" style="margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
-              <input type="text" id="input-files-filter" placeholder="Filter selected documents..." style="margin-bottom: 8px; width: 100%; padding: 4px 8px; font-size: 0.85rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-main);">
+              <div id="input-grouped-summary" class="grouped-summary-card hidden" style="margin-bottom: 10px; padding: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span id="input-grouped-summary-text" style="font-weight: 600; font-size: 0.9rem;">0 documents selected</span>
+                  <button id="btn-view-all-inputs" class="btn btn-secondary btn-sm" type="button">👁️ View All</button>
+                </div>
+                <div id="input-groups-container" class="input-groups-box" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+              </div>
+              <div id="input-filters-bar" class="input-filters-bar" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap;">
+                <div class="filter-pills" role="tablist" style="display: flex; gap: 4px;">
+                  <button id="btn-filter-all" class="filter-pill active" role="tab" aria-selected="true" data-filter="all" type="button">All <span id="filter-all-count" class="badge badge-subtle">0</span></button>
+                  <button id="btn-filter-eligible" class="filter-pill" role="tab" aria-selected="false" data-filter="eligible" type="button">Eligible <span id="filter-eligible-count" class="badge badge-emerald">0</span></button>
+                  <button id="btn-filter-issues" class="filter-pill" role="tab" aria-selected="false" data-filter="issues" type="button">Issues <span id="filter-issues-count" class="badge badge-amber">0</span></button>
+                </div>
+                <div style="flex: 1; min-width: 160px;">
+                  <input type="text" id="input-files-filter" placeholder="Search selected documents..." style="width: 100%; padding: 4px 8px; font-size: 0.85rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-main);">
+                </div>
+                <button id="btn-collapse-inputs" class="btn btn-outline btn-sm hidden" type="button" title="Collapse table to grouped summary">Collapse</button>
+              </div>
+              <div id="selection-scope-banner" class="selection-scope-banner hidden" style="margin-bottom: 8px; padding: 6px 12px; font-size: 0.82rem; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
+                <span id="selection-scope-text">All 10 documents on this page selected.</span>
+                <div style="display: flex; gap: 6px;">
+                  <button id="btn-select-all-matching" class="btn btn-outline btn-sm" type="button" style="font-size: 0.78rem; padding: 2px 8px;">Select all matching</button>
+                  <button id="btn-clear-selection-scope" class="btn btn-outline btn-sm" type="button" style="font-size: 0.78rem; padding: 2px 8px;">Clear selection</button>
+                </div>
+              </div>
               <div class="table-container input-table-container">
                 <table class="data-table">
                   <thead>
@@ -102,6 +125,11 @@
                     <tr class="empty-row"><td colspan="5">No documents selected. Click "Add Files" or "Add Folder" to begin.</td></tr>
                   </tbody>
                 </table>
+              </div>
+              <div id="input-pagination-container" class="pagination-bar" style="margin-top: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
+                <button id="btn-input-prev" class="btn btn-outline btn-sm" type="button" disabled>◀ Previous</button>
+                <span id="input-page-indicator" class="page-indicator">Page 1 of 1</span>
+                <button id="btn-input-next" class="btn btn-outline btn-sm" type="button" disabled>Next ▶</button>
               </div>
             </div>
           </div>

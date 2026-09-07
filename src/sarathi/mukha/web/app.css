@@ -1495,3 +1495,62 @@ select:focus-visible,
     display: flex;
     gap: 8px;
 }
+
+/* Batch Selection & Navigation */
+.filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.filter-pill:hover {
+    background: rgba(51, 65, 85, 0.8);
+    color: var(--text-main);
+}
+
+.filter-pill.active {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: var(--accent-indigo);
+    color: #fff;
+    font-weight: 600;
+}
+
+.badge-subtle {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+}
+
+.btn-issue-info {
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.btn-issue-info:focus-visible {
+    outline: 2px solid var(--accent-amber);
+    outline-offset: 2px;
+}
+
+.pagination-bar {
+    padding: 6px 4px;
+}
+
+.page-indicator {
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.selection-scope-banner {
+    transition: opacity 0.2s ease;
+}

@@ -39,6 +39,10 @@ export const state = {
     requestSeq: 0,
     summaryRequestSeq: 0,
     inspectorRequestSeq: 0,
+    inputFilterMode: "all",
+    inputPagination: { page: 1, pageSize: 10 },
+    inputSelectionScope: "page",
+    showAllInputsTable: false,
 };
 
 if (typeof window !== "undefined") {
