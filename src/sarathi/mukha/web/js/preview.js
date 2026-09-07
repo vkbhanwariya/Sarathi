@@ -8,18 +8,28 @@ import { escapeHtml, formatBytes } from "./formatters.js";
 import { state } from "./state.js";
 
 export function closeDocumentPreview() {
-    if (elements.docPreviewDialog && typeof elements.docPreviewDialog.close === "function") {
-        elements.docPreviewDialog.close();
+    const dlg = elements.docPreviewDialog || document.getElementById("doc-preview-dialog");
+    if (dlg) {
+        if (typeof dlg.close === "function" && dlg.open) {
+            dlg.close();
+        }
+        dlg.removeAttribute("open");
     }
 }
 
 export function initPreviewDialog() {
-    if (elements.btnClosePreview) {
-        elements.btnClosePreview.addEventListener("click", closeDocumentPreview);
+    const btnClose = elements.btnClosePreview || document.getElementById("btn-close-preview");
+    if (btnClose) {
+        btnClose.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeDocumentPreview();
+        });
     }
-    if (elements.docPreviewDialog) {
-        elements.docPreviewDialog.addEventListener("click", (e) => {
-            const rect = elements.docPreviewDialog.getBoundingClientRect();
+    const dlg = elements.docPreviewDialog || document.getElementById("doc-preview-dialog");
+    if (dlg) {
+        dlg.addEventListener("click", (e) => {
+            const rect = dlg.getBoundingClientRect();
             const isInDialog = (
                 rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
                 rect.left <= e.clientX && e.clientX <= rect.left + rect.width
@@ -28,17 +38,22 @@ export function initPreviewDialog() {
                 closeDocumentPreview();
             }
         });
+        dlg.addEventListener("cancel", (e) => {
+            e.preventDefault();
+            closeDocumentPreview();
+        });
     }
 }
 
 export async function openDocumentPreview(pathOrUrl, displayName, fallbackPath = null) {
-    if (!elements.docPreviewDialog || !elements.previewModalContent) return;
+    const dlg = elements.docPreviewDialog || document.getElementById("doc-preview-dialog");
+    if (!dlg || !elements.previewModalContent) return;
     elements.previewModalTitle.textContent = displayName || "Document Preview";
     elements.previewModalContent.innerHTML = '<div class="spinner"></div>';
     state.imageZoomLevel = 1.0;
 
-    if (typeof elements.docPreviewDialog.showModal === "function") {
-        elements.docPreviewDialog.showModal();
+    if (typeof dlg.showModal === "function" && !dlg.open) {
+        dlg.showModal();
     }
 
     let endpoint = pathOrUrl.startsWith("/api/")
@@ -56,11 +71,17 @@ export async function openDocumentPreview(pathOrUrl, displayName, fallbackPath =
         elements.previewModalContent.innerHTML = `
             <div class="alert-box alert-amber">${escapeHtml(res.error || "Failed to load document preview.")}</div>
             <div style="text-align: right; margin-top: 12px;">
-                <button class="btn btn-outline btn-sm" id="btn-modal-dismiss-err">✕ Close</button>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-modal-dismiss-err">✕ Close</button>
             </div>
         `;
         const btnErrClose = document.getElementById("btn-modal-dismiss-err");
-        if (btnErrClose) btnErrClose.addEventListener("click", closeDocumentPreview);
+        if (btnErrClose) {
+            btnErrClose.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeDocumentPreview();
+            });
+        }
         return;
     }
 

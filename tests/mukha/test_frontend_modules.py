@@ -90,3 +90,36 @@ def test_inspector_tabs_and_containers_integrity(web_server: MukhaWebServer) -> 
     js = data_js.decode("utf-8")
     assert "tab-inspector-${state.activeInspectorTab}" in js
     assert 'c.classList.toggle("hidden"' in js
+
+
+def test_preview_dialog_and_close_button_contract(web_server: MukhaWebServer) -> None:
+    """Verify document preview dialog structure, close button contract, and CSS display isolation."""
+    # 1. Check app.html
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/")
+    assert status == 200
+    html = data.decode("utf-8")
+    assert '<dialog id="doc-preview-dialog" class="preview-modal-dialog">' in html
+    assert '<button id="btn-close-preview" type="button" class="btn btn-outline btn-sm" aria-label="Close Preview">✕ Close</button>' in html
+
+    # 2. Check app.css display rules for closed dialogs
+    status_css, data_css, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.css")
+    assert status_css == 200
+    css = data_css.decode("utf-8")
+    assert "dialog:not([open])" in css
+    assert ".preview-modal-dialog[open]" in css
+    assert ".preview-modal-dialog:not([open])" in css
+    assert "display: none !important;" in css
+
+    # 3. Check preview.js exports and close handlers
+    status_prev, data_prev, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/preview.js")
+    assert status_prev == 200
+    prev_js = data_prev.decode("utf-8")
+    assert "export function closeDocumentPreview()" in prev_js
+    assert 'dlg.removeAttribute("open")' in prev_js
+    assert "initPreviewDialog" in prev_js
+
+    # 4. Check app.js imports closeDocumentPreview
+    status_app, data_app, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.js")
+    assert status_app == 200
+    app_js = data_app.decode("utf-8")
+    assert "closeDocumentPreview" in app_js

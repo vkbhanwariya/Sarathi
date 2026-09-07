@@ -1024,6 +1024,11 @@ input[type="text"]:focus, .form-select:focus {
     gap: 8px;
 }
 
+/* Ensure closed dialogs are strictly hidden even when author CSS defines custom display */
+dialog:not([open]) {
+    display: none !important;
+}
+
 /* Document Preview Modal */
 .preview-modal-dialog {
     margin: auto;
@@ -1036,8 +1041,15 @@ input[type="text"]:focus, .form-select:focus {
     max-width: 900px;
     width: 92%;
     max-height: 85vh;
+}
+
+.preview-modal-dialog[open] {
     display: flex;
     flex-direction: column;
+}
+
+.preview-modal-dialog:not([open]) {
+    display: none !important;
 }
 
 .preview-modal-dialog::backdrop {

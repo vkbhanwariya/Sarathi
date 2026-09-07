@@ -13,7 +13,7 @@ import { initMonitorScreen, renderMonitor } from "./js/screens/monitor.js";
 import { initReviewScreen, loadReviewQueue } from "./js/screens/review.js";
 import { initSummaryScreen, renderSummary } from "./js/screens/summary.js";
 import { initCommandPalette, openCommandPalette } from "./js/palette.js";
-import { initPreviewDialog } from "./js/preview.js";
+import { closeDocumentPreview, initPreviewDialog } from "./js/preview.js";
 import { registerScreenCallback, state, switchScreen } from "./js/state.js";
 
 // Presentation View State Projection
@@ -152,9 +152,7 @@ function setupKeyboardShortcuts() {
             e.preventDefault();
             openCommandPalette();
         } else if (e.key === "Escape") {
-            if (elements.docPreviewDialog && elements.docPreviewDialog.open) {
-                elements.docPreviewDialog.close();
-            }
+            closeDocumentPreview();
             if (elements.historyDrawer && elements.historyDrawer.classList.contains("open")) {
                 elements.historyDrawer.classList.remove("open");
             }
