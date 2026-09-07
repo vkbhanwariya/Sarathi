@@ -76,6 +76,7 @@ export const elements = {
     summaryTitle: null,
     summaryRunMeta: null,
     summaryFailureReason: null,
+    summaryAlertsContainer: null,
     btnSummaryHistory: null,
     btnOpenOutputFolder: null,
     btnReturnHome: null,
@@ -211,6 +212,7 @@ export function initDom() {
     elements.summaryTitle = document.getElementById("summary-title");
     elements.summaryRunMeta = document.getElementById("summary-run-meta");
     elements.summaryFailureReason = document.getElementById("summary-failure-reason");
+    elements.summaryAlertsContainer = document.getElementById("summary-alerts-container");
     elements.btnOpenOutputFolder = document.getElementById("btn-open-output-folder");
     elements.btnReturnHome = document.getElementById("btn-return-home");
     elements.btnSummaryHistory = document.getElementById("btn-summary-history");

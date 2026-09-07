@@ -168,8 +168,8 @@ class TesseractFallbackAdapter:
         """Return True only when fixed configured executable path exists on disk."""
         return self._executable_path is not None and self._executable_path.is_file()
 
-    def recognize_crop(self, crop_image: Any, language: str | None = None) -> tuple[str, float | None]:
-        """Run Tesseract 5 on cropped sub-image and return (text, confidence).
+    def recognize_crop(self, crop_image: Any, language: str | None = None) -> tuple[str, float | None] | None:
+        """Run Tesseract 5 on cropped sub-image and return (text, confidence) or None if no words found.
 
         Raises:
             DoshError(DEPENDENCY_UNAVAILABLE): If Tesseract is not configured or executable missing.
@@ -234,10 +234,7 @@ class TesseractFallbackAdapter:
                             except (ValueError, TypeError):
                                 has_invalid_conf = True
                 if not words:
-                    raise DoshError(
-                        code=FailureCode.EXECUTION_FAILED,
-                        message="Tesseract fallback produced unusable output.",
-                    )
+                    return None
                 text = unicodedata.normalize("NFC", " ".join(words))
                 if has_invalid_conf or len(conf_scores) != len(words) or not conf_scores:
                     measured_conf = None

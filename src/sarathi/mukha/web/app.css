@@ -846,7 +846,8 @@ input[type="text"]:focus, .form-select:focus {
 }
 
 .summary-hero.status-success { border-left: 5px solid var(--accent-emerald); }
-.summary-hero.status-partial { border-left: 5px solid var(--accent-amber); }
+.summary-hero.status-partial,
+.summary-hero.status-warning { border-left: 5px solid var(--accent-amber); }
 .summary-hero.status-failed { border-left: 5px solid var(--accent-crimson); }
 
 .summary-hero h2 {

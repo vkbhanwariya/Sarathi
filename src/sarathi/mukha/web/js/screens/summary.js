@@ -33,14 +33,13 @@ export function renderSummary(summary) {
     if (!summary) return;
     state.activeRunId = summary.run_id;
 
+    const isSuccess = summary.status === "SUCCESS";
+    const isWarning = summary.status === "WARNING" || summary.status === "PARTIAL";
+
     if (elements.summaryStatusBadge) {
         elements.summaryStatusBadge.textContent = summary.status;
         elements.summaryStatusBadge.className = `badge badge-hero ${
-            summary.status === "SUCCESS"
-                ? "badge-emerald"
-                : summary.status === "PARTIAL"
-                ? "badge-amber"
-                : "badge-crimson"
+            isSuccess ? "badge-emerald" : isWarning ? "badge-amber" : "badge-crimson"
         }`;
     }
 
@@ -50,15 +49,59 @@ export function renderSummary(summary) {
 
     if (elements.summaryTitle) {
         elements.summaryTitle.textContent =
-            summary.status === "SUCCESS"
+            isSuccess
                 ? "Run Completed Successfully"
-                : summary.status === "PARTIAL"
-                ? "Run Completed with Warnings / Partial Extraction"
+                : isWarning
+                ? "Run Completed with Warnings"
                 : `Run Failed (${summary.status})`;
     }
 
     if (elements.summaryRunMeta) {
         elements.summaryRunMeta.textContent = `Run ID: ${summary.run_id} | Total Wall Time: ${formatDuration(summary.wall_time_ns)}`;
+    }
+
+    const failures = summary.failures || [];
+    const warnings = summary.warnings || [];
+
+    if (elements.summaryFailureReason) {
+        if (failures.length > 0) {
+            elements.summaryFailureReason.textContent = typeof failures[0] === "string" ? failures[0] : (failures[0].message || JSON.stringify(failures[0]));
+            elements.summaryFailureReason.classList.remove("hidden");
+        } else {
+            elements.summaryFailureReason.textContent = "";
+            elements.summaryFailureReason.classList.add("hidden");
+        }
+    }
+
+    if (elements.summaryAlertsContainer) {
+        if (failures.length > 0 || warnings.length > 0) {
+            elements.summaryAlertsContainer.classList.remove("hidden");
+            let alertsHtml = "";
+            if (failures.length > 0) {
+                alertsHtml += `
+                    <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid var(--accent-crimson); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 8px;">
+                        <strong style="color: var(--accent-crimson); display: block; margin-bottom: 4px;">⚠️ Failures Detected:</strong>
+                        <ul style="margin: 0; padding-left: 20px; font-size: 0.88rem; color: var(--text-primary);">
+                            ${failures.map((f) => `<li>${escapeHtml(typeof f === "string" ? f : f.message || JSON.stringify(f))}</li>`).join("")}
+                        </ul>
+                    </div>
+                `;
+            }
+            if (warnings.length > 0) {
+                alertsHtml += `
+                    <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid var(--accent-amber); border-radius: var(--radius-md); padding: 12px 16px;">
+                        <strong style="color: var(--accent-amber); display: block; margin-bottom: 4px;">⚠️ Execution Warnings:</strong>
+                        <ul style="margin: 0; padding-left: 20px; font-size: 0.88rem; color: var(--text-primary);">
+                            ${warnings.map((w) => `<li>${escapeHtml(typeof w === "string" ? w : w.message || JSON.stringify(w))}</li>`).join("")}
+                        </ul>
+                    </div>
+                `;
+            }
+            elements.summaryAlertsContainer.innerHTML = alertsHtml;
+        } else {
+            elements.summaryAlertsContainer.classList.add("hidden");
+            elements.summaryAlertsContainer.innerHTML = "";
+        }
     }
 
     if (elements.statTotalFiles) elements.statTotalFiles.textContent = summary.total_inputs || 0;
