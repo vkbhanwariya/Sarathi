@@ -232,19 +232,24 @@ class MukhaPresenter:
 
         elapsed_ns = max(0, now_ns - started_at_ns)
 
-        # Factual device execution aggregation: ONLY count phase_name == "capability_execution" records
+        # Factual device execution aggregation: prefer worker_execution records if present, else capability_execution
+        worker_maruti = [r for r in maruti_records if r.phase_name == "worker_execution" and r.attributes.get("device_type")]
+        target_maruti = worker_maruti if worker_maruti else [r for r in maruti_records if r.phase_name == "capability_execution" and r.attributes.get("device_type")]
+
         device_durations: dict[str, list[int]] = {}
         device_confidences: dict[str, list[float]] = {}
+        span_to_device_mon: dict[str, str] = {}
 
-        for rec in maruti_records:
-            if rec.phase_name == "capability_execution":
-                dev = rec.attributes.get("device_type")
-                if dev:
-                    dev_key = str(dev).upper()
-                    device_durations.setdefault(dev_key, []).append(rec.duration_ns)
+        for rec in target_maruti:
+            dev = rec.attributes.get("device_type")
+            if dev:
+                dev_key = str(dev).upper()
+                device_durations.setdefault(dev_key, []).append(rec.duration_ns)
+                if rec.span_id:
+                    span_to_device_mon[rec.span_id] = dev_key
 
         for p_rec in pramana_records:
-            dev = p_rec.attributes.get("device_type")
+            dev = p_rec.attributes.get("device_type") or span_to_device_mon.get(p_rec.span_id)
             if dev and p_rec.confidence is not None:
                 device_confidences.setdefault(str(dev).upper(), []).append(p_rec.confidence.score)
 
@@ -349,16 +354,19 @@ class MukhaPresenter:
             for stage, durs in sorted(stage_map.items())
         )
 
-        # Device execution summary: strictly phase_name == "capability_execution" with device_type attribute
+        # Device execution summary: prefer worker_execution records if present, else capability_execution
+        worker_maruti = [r for r in maruti_records if r.phase_name == "worker_execution" and r.attributes.get("device_type")]
+        target_maruti = worker_maruti if worker_maruti else [r for r in maruti_records if r.phase_name == "capability_execution" and r.attributes.get("device_type")]
+
         device_map: dict[str, list[int]] = {}
         span_to_device: dict[str, str] = {}
         dev_confs: dict[str, list[float]] = {}
-        for r in maruti_records:
-            if r.phase_name == "capability_execution":
-                dev = r.attributes.get("device_type")
-                if dev:
-                    dev_str = str(dev).upper()
-                    device_map.setdefault(dev_str, []).append(r.duration_ns)
+        for r in target_maruti:
+            dev = r.attributes.get("device_type")
+            if dev:
+                dev_str = str(dev).upper()
+                device_map.setdefault(dev_str, []).append(r.duration_ns)
+                if r.span_id:
                     span_to_device[r.span_id] = dev_str
 
         for pr in pramana_records:

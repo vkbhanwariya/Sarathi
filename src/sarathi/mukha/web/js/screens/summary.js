@@ -53,6 +53,23 @@ export function renderSummary(summary) {
     if (elements.statWarningFiles) elements.statWarningFiles.textContent = summary.warning_files ?? "—";
     if (elements.statFailedFiles) elements.statFailedFiles.textContent = summary.failed_files ?? "—";
 
+    if (elements.statConfidence) {
+        if (typeof summary.avg_confidence === "number" && !isNaN(summary.avg_confidence)) {
+            const pct = (summary.avg_confidence * 100).toFixed(1);
+            elements.statConfidence.textContent = `${pct}%`;
+            elements.statConfidence.className = `stat-value ${
+                summary.avg_confidence >= 0.90
+                    ? "text-emerald"
+                    : summary.avg_confidence >= 0.75
+                    ? "text-cyan"
+                    : "text-amber"
+            }`;
+        } else {
+            elements.statConfidence.textContent = "—";
+            elements.statConfidence.className = "stat-value text-muted";
+        }
+    }
+
     // Output Artifacts Grid with Preview & Download Actions
     if (elements.artifactsGrid) {
         if (summary.artifacts && summary.artifacts.length > 0) {
@@ -76,6 +93,32 @@ export function renderSummary(summary) {
         }
     }
 
+    // Hardware Performance (CPU / GPU Breakdown)
+    if (elements.summaryDeviceTbody) {
+        if (summary.device_summaries && summary.device_summaries.length > 0) {
+            elements.summaryDeviceTbody.innerHTML = summary.device_summaries
+                .map((d) => {
+                    const isGpu = (d.device_type || "").toUpperCase().includes("GPU") || (d.device_type || "").toUpperCase().includes("CUDA");
+                    const devBadge = isGpu
+                        ? `<span class="badge badge-emerald">🟢 ${escapeHtml(d.device_type)}</span>`
+                        : `<span class="badge badge-indigo">💻 ${escapeHtml(d.device_type)}</span>`;
+                    const avgConfStr = typeof d.avg_confidence === "number" && !isNaN(d.avg_confidence)
+                        ? `<span class="${d.avg_confidence >= 0.9 ? 'text-emerald' : d.avg_confidence >= 0.75 ? 'text-cyan' : 'text-amber'}">${(d.avg_confidence * 100).toFixed(1)}%</span>`
+                        : "—";
+                    return `<tr>
+                        <td><strong>${devBadge}</strong></td>
+                        <td>${d.execution_count} units</td>
+                        <td>${formatDuration(d.avg_duration_ns || 0)}</td>
+                        <td>${formatDuration(d.p95_duration_ns || 0)}</td>
+                        <td><strong>${avgConfStr}</strong></td>
+                    </tr>`;
+                })
+                .join("");
+        } else {
+            elements.summaryDeviceTbody.innerHTML = '<tr class="empty-row"><td colspan="5">No hardware execution records.</td></tr>';
+        }
+    }
+
     // Stage Breakdown Table
     if (elements.summaryStagesTbody) {
         if (summary.stage_timings && summary.stage_timings.length > 0) {
@@ -87,6 +130,8 @@ export function renderSummary(summary) {
                     <td>${formatDuration(st.call_count > 0 ? Math.round(st.duration_ns / st.call_count) : 0)}</td>
                 </tr>`)
                 .join("");
+        } else {
+            elements.summaryStagesTbody.innerHTML = '<tr class="empty-row"><td colspan="4">No stage timings recorded.</td></tr>';
         }
     }
 }

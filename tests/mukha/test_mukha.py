@@ -734,3 +734,100 @@ class TestMukhaAuditCapabilityStatus:
         assert inspector.activity_logs[1][1] == "ERROR"
         assert inspector.activity_logs[1].severity == "ERROR"
         assert inspector.activity_logs[1].component == "kernel"
+
+    def test_build_summary_view_device_breakdown_and_confidence(self, tmp_path: Path) -> None:
+        """Proves build_summary_view aggregates worker_execution records and Pramana confidences by device."""
+        from sarathi.darpana import MarutiRecord, PramanaRecord
+        from sarathi.sankalpa import ConfidenceValue, InputRef, Request, Result
+
+        in_file = tmp_path / "test.png"
+        in_file.write_bytes(b"dummy")
+        req = Request(
+            request_id="req-ocr-sum",
+            requirement="ocr",
+            inputs=(
+                InputRef(input_id="inp-1", source_path=in_file, display_name="test.png", size_bytes=5),
+            ),
+        )
+
+        maruti_recs = [
+            MarutiRecord(
+                run_id="req-ocr-sum",
+                request_id="req-ocr-sum",
+                trace_id="tr-1",
+                span_id="sp-gpu-1",
+                phase_name="worker_execution",
+                component="shakti.ocr",
+                timestamp_utc="2026-09-07T00:00:01Z",
+                duration_ns=100_000_000,
+                outcome="success",
+                attributes={"device_type": "GPU", "worker_id": "w1", "page_number": 1},
+            ),
+            MarutiRecord(
+                run_id="req-ocr-sum",
+                request_id="req-ocr-sum",
+                trace_id="tr-1",
+                span_id="sp-cpu-1",
+                phase_name="worker_execution",
+                component="shakti.ocr",
+                timestamp_utc="2026-09-07T00:00:02Z",
+                duration_ns=200_000_000,
+                outcome="success",
+                attributes={"device_type": "CPU", "worker_id": "w2", "page_number": 2},
+            ),
+        ]
+
+        pramana_recs = [
+            PramanaRecord(
+                run_id="req-ocr-sum",
+                request_id="req-ocr-sum",
+                trace_id="tr-1",
+                span_id="sp-gpu-1",
+                capability_id="ocr",
+                stage="ocr",
+                timestamp_utc="2026-09-07T00:00:01Z",
+                subject_id="inp-1:p1",
+                confidence=ConfidenceValue(score=0.98, method="rapidocr", evidence={"source": "ocr"}),
+                attributes={"level": "page", "device_type": "GPU"},
+            ),
+            PramanaRecord(
+                run_id="req-ocr-sum",
+                request_id="req-ocr-sum",
+                trace_id="tr-1",
+                span_id="sp-cpu-1",
+                capability_id="ocr",
+                stage="ocr",
+                timestamp_utc="2026-09-07T00:00:02Z",
+                subject_id="inp-1:p2",
+                confidence=ConfidenceValue(score=0.92, method="rapidocr", evidence={"source": "ocr"}),
+                attributes={"level": "page", "device_type": "CPU"},
+            ),
+        ]
+
+        res = Result(data=None, artifacts=(), confidence=ConfidenceValue(score=0.95, method="aggregate", evidence={"source": "ocr"}))
+
+        summary = MukhaPresenter.build_summary_view(
+            run_id="req-ocr-sum",
+            status="SUCCESS",
+            wall_time_ns=300_000_000,
+            request=req,
+            result=res,
+            successful_files=1,
+            maruti_records=maruti_recs,
+            pramana_records=pramana_recs,
+        )
+
+        assert summary.avg_confidence == 0.95  # (0.98 + 0.92) / 2
+        assert len(summary.device_summaries) == 2
+
+        dev_map = {d.device_type: d for d in summary.device_summaries}
+        assert "GPU" in dev_map
+        assert "CPU" in dev_map
+
+        assert dev_map["GPU"].execution_count == 1
+        assert dev_map["GPU"].avg_duration_ns == 100_000_000
+        assert dev_map["GPU"].avg_confidence == 0.98
+
+        assert dev_map["CPU"].execution_count == 1
+        assert dev_map["CPU"].avg_duration_ns == 200_000_000
+        assert dev_map["CPU"].avg_confidence == 0.92

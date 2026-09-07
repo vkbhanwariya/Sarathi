@@ -76,7 +76,9 @@ export const elements = {
     statSuccessFiles: null,
     statWarningFiles: null,
     statFailedFiles: null,
+    statConfidence: null,
     artifactsGrid: null,
+    summaryDeviceTbody: null,
     summaryStagesTbody: null,
 
     // Inspector Elements
@@ -196,7 +198,9 @@ export function initDom() {
     elements.statSuccessFiles = document.getElementById("stat-success-files");
     elements.statWarningFiles = document.getElementById("stat-warning-files");
     elements.statFailedFiles = document.getElementById("stat-failed-files");
+    elements.statConfidence = document.getElementById("stat-confidence");
     elements.artifactsGrid = document.getElementById("artifacts-grid");
+    elements.summaryDeviceTbody = document.getElementById("summary-device-tbody");
     elements.summaryStagesTbody = document.getElementById("summary-stages-tbody");
 
     // Inspector

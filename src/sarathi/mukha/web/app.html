@@ -326,6 +326,10 @@
               <span class="stat-label">Failed / Quarantined</span>
               <span id="stat-failed-files" class="stat-value text-crimson">0</span>
             </div>
+            <div class="stat-card">
+              <span class="stat-label">Calculated Confidence</span>
+              <span id="stat-confidence" class="stat-value text-cyan">—</span>
+            </div>
           </div>
           <div class="panel">
             <div class="panel-header">
@@ -334,6 +338,29 @@
             <div class="panel-body">
               <div id="artifacts-grid" class="artifacts-grid">
                 <div class="empty-card" style="grid-column: 1/-1; text-align: center; padding: 24px; color: var(--text-muted);">No output artifacts generated.</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel" id="summary-hardware-panel">
+            <div class="panel-header">
+              <h3>🖥️ Hardware Performance (CPU / GPU Breakdown)</h3>
+            </div>
+            <div class="panel-body">
+              <div class="table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Hardware Device</th>
+                      <th>Executions / Units</th>
+                      <th>Avg Duration</th>
+                      <th>P95 Duration</th>
+                      <th>Avg Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody id="summary-device-tbody">
+                    <tr class="empty-row"><td colspan="5">No hardware execution records.</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

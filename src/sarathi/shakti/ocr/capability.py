@@ -72,20 +72,11 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
     "progress_callback",
     "hybrid_device",
 })
-
-_BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = frozenset({
-    "preprocess",
-    "deskew",
-    "clahe",
-    "lightweight",
-    "binarize",
-    "english_numbers_only",
-    "remove_stamps",
-    "inpaint_stamps",
-    "fallback_enabled",
-    "validation_enabled",
-    "hybrid_device",
-})
+_BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
+    "engine",
+    "lang",
+    "progress_callback",
+}
 
 
 class OCRCapability:
@@ -170,6 +161,8 @@ class OCRCapability:
                 ),
                 attributes={
                     "level": "page",
+                    "device_type": dev_t,
+                    "device_id": dev_i,
                     "page_number": page_idx,
                     "file_display_name": inp_ref.display_name,
                     "region_count": len(page_data.spans),
@@ -199,6 +192,8 @@ class OCRCapability:
                     ),
                     attributes={
                         "level": "region",
+                        "device_type": dev_t,
+                        "device_id": dev_i,
                         "region_id": f"p{page_idx}_line_{s_idx + 1}",
                         "page_number": page_idx,
                         "file_display_name": inp_ref.display_name,
