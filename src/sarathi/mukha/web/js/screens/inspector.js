@@ -289,6 +289,15 @@ export function initInspectorScreen() {
         });
     }
 
+    const btnExportDiag = document.getElementById("btn-export-diagnostics");
+    if (btnExportDiag) {
+        btnExportDiag.addEventListener("click", () => {
+            if (state.activeRunId) {
+                window.open(`/api/runs/${encodeURIComponent(state.activeRunId)}/diagnostics`, "_blank");
+            }
+        });
+    }
+
     if (elements.inspectorRegionFilter) {
         elements.inspectorRegionFilter.addEventListener("input", (e) => {
             state.regionSearchQuery = e.target.value;

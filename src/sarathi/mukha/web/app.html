@@ -381,6 +381,7 @@
                   <button class="log-pill" data-level="ERROR">ERROR</button>
                 </div>
                 <button id="btn-copy-logs" class="btn btn-outline btn-sm">📋 Copy</button>
+                <button id="btn-export-diagnostics" class="btn btn-outline btn-sm" title="Download sanitized JSON diagnostics">📦 Diagnostics</button>
               </div>
               <div id="inspector-logs" class="log-stream-box">
                 <div class="log-entry text-muted">[Ready] Mukha Inspector initialized.</div>
@@ -561,6 +562,12 @@
         <button id="btn-cancel-dialog-confirm" class="btn btn-danger">Yes, Cancel Run</button>
         <button id="btn-cancel-dialog-dismiss" class="btn btn-outline">Keep Running</button>
       </div>
+    </div>
+  </dialog>
+  <dialog id="command-palette-dialog" class="palette-dialog" aria-modal="true" aria-label="Command Palette">
+    <div class="palette-content">
+      <input type="text" id="palette-search-input" class="palette-search" placeholder="Type a command or jump to screen (F1-F5)..." autocomplete="off">
+      <div id="palette-command-list" class="palette-list"></div>
     </div>
   </dialog>
   <script type="module" src="/app.js"></script>

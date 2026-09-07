@@ -31,8 +31,29 @@ export async function confirmCancelRun() {
     }
 }
 
+let previousRunStatus = "IDLE";
+
+export function requestNotificationPermission() {
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission().catch(() => {});
+    }
+}
+
 export function renderMonitor(activeRun) {
     if (!activeRun) return;
+
+    if (previousRunStatus === "RUNNING" && (activeRun.status === "SUCCESS" || activeRun.status === "FAILED")) {
+        if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
+            try {
+                new Notification(`Sarathi Processing ${activeRun.status}`, {
+                    body: `Run ${activeRun.run_id || ""} finished in ${formatDuration(activeRun.elapsed_ns)}.`,
+                });
+            } catch (e) {
+                // Ignore browser notification dispatch errors
+            }
+        }
+    }
+    previousRunStatus = activeRun.status;
 
     state.activeRunId = activeRun.run_id;
     state.activeRunStatus = activeRun.status;

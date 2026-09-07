@@ -12,6 +12,7 @@ import { initInspectorScreen, loadInspector } from "./js/screens/inspector.js";
 import { initMonitorScreen, renderMonitor } from "./js/screens/monitor.js";
 import { initReviewScreen, loadReviewQueue } from "./js/screens/review.js";
 import { initSummaryScreen, renderSummary } from "./js/screens/summary.js";
+import { initCommandPalette, openCommandPalette } from "./js/palette.js";
 import { registerScreenCallback, state, switchScreen } from "./js/state.js";
 
 // Presentation View State Projection
@@ -108,6 +109,9 @@ function setupKeyboardShortcuts() {
         else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "h") {
             e.preventDefault();
             if (elements.btnOpenHistory) elements.btnOpenHistory.click();
+        } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
+            e.preventDefault();
+            openCommandPalette();
         } else if (e.key === "Escape") {
             if (elements.docPreviewDialog && elements.docPreviewDialog.open) {
                 elements.docPreviewDialog.close();
@@ -115,6 +119,8 @@ function setupKeyboardShortcuts() {
             if (elements.historyDrawer && elements.historyDrawer.classList.contains("open")) {
                 elements.historyDrawer.classList.remove("open");
             }
+            const pal = document.getElementById("command-palette-dialog");
+            if (pal && pal.open) pal.close();
         }
     });
 }
@@ -132,6 +138,7 @@ function init() {
     initReviewScreen();
     initSummaryScreen();
     initInspectorScreen();
+    initCommandPalette();
 
     // Navigation Tab Switching
     if (elements.navTabs) {

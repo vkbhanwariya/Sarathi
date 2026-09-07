@@ -122,3 +122,44 @@ def build_artifact_preview(mukha_app: Any, run_id: str, artifact_id: str) -> tup
         except ValueError:
             return 403, {"ok": False, "error": "Access to artifact outside authorized roots is denied."}
     return build_document_preview(str(target))
+
+
+def stream_confirmed_artifact(handler: Any, mukha_app: Any, run_id: str, artifact_id: str) -> None:
+    """Stream confirmed artifact file safely with containment and security headers."""
+    import urllib.parse
+    from http import HTTPStatus
+
+    art_ref = mukha_app.get_confirmed_artifact(run_id, artifact_id)
+    if art_ref is None or not art_ref.path or not art_ref.path.is_file():
+        handler.send_error(HTTPStatus.NOT_FOUND, "Confirmed artifact not found.")
+        return
+
+    target_file = art_ref.path.resolve()
+    out_root = mukha_app.output_root.resolve()
+    runtime_root = mukha_app.runtime_root.resolve()
+    try:
+        target_file.relative_to(out_root)
+    except ValueError:
+        try:
+            target_file.relative_to(runtime_root)
+        except ValueError:
+            handler.send_error(HTTPStatus.FORBIDDEN, "Access to file outside authorized roots is denied.")
+            return
+
+    mime_type = art_ref.media_type or mimetypes.guess_type(str(target_file))[0] or "application/octet-stream"
+    file_size = target_file.stat().st_size
+    handler.send_response(200)
+    handler.send_header("Content-Type", mime_type)
+    handler.send_header("Content-Length", str(file_size))
+    safe_ascii_name = target_file.name.replace('"', "").replace("\r", "").replace("\n", "")
+    encoded_name = urllib.parse.quote(target_file.name)
+    handler.send_header(
+        "Content-Disposition",
+        f'attachment; filename="{safe_ascii_name}"; filename*=UTF-8\'\'{encoded_name}',
+    )
+    handler._apply_security_headers(cache_control="no-store")
+    handler.end_headers()
+
+    with open(target_file, "rb") as f:
+        while chunk := f.read(65536):
+            handler.wfile.write(chunk)

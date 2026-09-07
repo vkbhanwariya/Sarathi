@@ -148,8 +148,8 @@ class OCRCapability:
             )
         )
 
-        p_conf = page_data.confidence if page_data.confidence is not None else 0.85
         span_confs = [s.confidence for s in page_data.spans if s.confidence is not None]
+        p_conf = (sum(span_confs) / len(span_confs)) if span_confs else 0.85
         min_c = min(span_confs) if span_confs else p_conf
         max_c = max(span_confs) if span_confs else p_conf
 

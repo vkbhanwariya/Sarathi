@@ -1232,3 +1232,61 @@ select:focus-visible,
         transition-duration: 0.01ms !important;
     }
 }
+
+@media (forced-colors: active) {
+    button, input, select, .nav-tab, .req-card, .badge {
+        forced-color-adjust: none;
+        border: 1px solid ButtonText !important;
+    }
+    button:focus-visible, .nav-tab:focus-visible {
+        outline: 2px solid Highlight !important;
+    }
+}
+
+/* Command Palette */
+.palette-dialog {
+    border: 1px solid var(--border-color);
+    background: rgba(15, 23, 42, 0.95);
+    border-radius: var(--radius-md);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    width: 90%;
+    max-width: 540px;
+    padding: 0;
+    color: var(--text-main);
+}
+.palette-content { padding: 12px; }
+.palette-search {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(8, 12, 20, 0.6);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 0.95rem;
+    outline: none;
+}
+.palette-search:focus { border-color: var(--accent-indigo); }
+.palette-list {
+    margin-top: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.palette-item {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-muted);
+}
+.palette-item:hover, .palette-item.active {
+    background: var(--accent-indigo);
+    color: #fff;
+}
+.palette-item.empty { text-align: center; padding: 20px; color: var(--text-muted); }
