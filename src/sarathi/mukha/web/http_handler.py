@@ -22,8 +22,13 @@ from typing import TYPE_CHECKING, Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
+from sarathi.mukha.state import ReviewIntent
 from sarathi.mukha.web.native_picker import NativePicker
-from sarathi.mukha.web.preview import build_document_preview
+from sarathi.mukha.web.preview import (
+    build_artifact_preview,
+    build_document_preview,
+    build_input_preview,
+)
 from sarathi.sankalpa import ExecutionProfile
 
 if TYPE_CHECKING:
@@ -209,6 +214,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", self._SECURITY_CSP)
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Cache-Control", cache_control)
 
     def _send_json(self, status: int, data: dict[str, Any]) -> None:
@@ -324,7 +330,21 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "items": list(items)})
             return
 
-        # 2d. GET /api/preview?path=...
+        # 2d. GET /api/inputs/<input_id>/preview
+        elif path.startswith("/api/inputs/") and path.endswith("/preview"):
+            parts = path.strip("/").split("/")
+            if len(parts) == 4 and parts[1] == "inputs" and parts[3] == "preview":
+                self._serve_input_preview(urllib.parse.unquote(parts[2]))
+                return
+
+        # 2e. GET /api/runs/<run_id>/artifacts/<artifact_id>/preview
+        elif path.startswith("/api/runs/") and "/artifacts/" in path and path.endswith("/preview"):
+            parts = path.strip("/").split("/")
+            if len(parts) == 6 and parts[1] == "runs" and parts[3] == "artifacts" and parts[5] == "preview":
+                self._serve_artifact_preview(parts[2], urllib.parse.unquote(parts[4]))
+                return
+
+        # 2f. GET /api/preview?path=...
         elif path == "/api/preview":
             query_params = urllib.parse.parse_qs(parsed_url.query)
             if "path" not in query_params or not query_params["path"][0].strip():
@@ -430,14 +450,27 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         # 3b. POST /api/review
         elif path == "/api/review":
             item_id = body.get("item_id")
-            action = body.get("action")
+            action = body.get("action_id") or body.get("action")
             if not isinstance(item_id, str) or not item_id.strip():
                 self._send_json(400, {"ok": False, "error": "item_id must be a non-empty string."})
                 return
-            if action not in ("accept", "dismiss", "edit"):
-                self._send_json(400, {"ok": False, "error": f"Invalid review action: '{action}'. Allowed: accept, dismiss, edit."})
+            if not isinstance(action, str) or not action.strip():
+                self._send_json(400, {"ok": False, "error": "action or action_id must be a non-empty string."})
                 return
-            self._send_json(200, {"ok": True, "action": action, "item_id": item_id})
+            act = action.strip()
+            act_mapped = "validate_edit" if act == "edit" else ("unresolved" if act == "dismiss" else act)
+            if act_mapped not in ("accept", "validate_edit", "retry", "unresolved"):
+                self._send_json(400, {"ok": False, "error": f"Invalid review action: '{action}'."})
+                return
+            intent = ReviewIntent(
+                item_id=item_id.strip(),
+                attempt_id=str(body.get("attempt_id") or "att-1"),
+                action_id=act_mapped,
+                proposed_value=str(body["proposed_value"]) if body.get("proposed_value") is not None else None,
+                expected_revision=int(body["expected_revision"]) if body.get("expected_revision") is not None else None,
+            )
+            applied = self.mukha_app.apply_review_intent(intent)
+            self._send_json(200, {"ok": True, "action": act_mapped, "item_id": intent.item_id, "applied": applied})
             return
 
         # 4. POST /api/runs
@@ -618,6 +651,16 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
     def _serve_document_preview(self, path_str: str) -> None:
         """Serve safe structured preview data for a candidate input document or output file."""
         status_code, payload = build_document_preview(path_str)
+        self._send_json(status_code, payload)
+
+    def _serve_input_preview(self, input_id: str) -> None:
+        """Serve structured preview for an authorized intake input ID."""
+        status_code, payload = build_input_preview(self.mukha_app, input_id)
+        self._send_json(status_code, payload)
+
+    def _serve_artifact_preview(self, run_id: str, artifact_id: str) -> None:
+        """Serve structured preview for a confirmed run artifact."""
+        status_code, payload = build_artifact_preview(self.mukha_app, run_id, artifact_id)
         self._send_json(status_code, payload)
 
     def _serve_confirmed_artifact(self, run_id: str, artifact_id: str) -> None:

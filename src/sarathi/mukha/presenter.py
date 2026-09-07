@@ -13,6 +13,7 @@ from typing import Any, Mapping, Sequence
 from sarathi.darpana import MarutiRecord, PramanaRecord
 from sarathi.kavacha import Kavacha
 from sarathi.mukha.state import (
+    ActivityLogView,
     ApplicationViewState,
     ArtifactOutcomeView,
     AvailableActionView,
@@ -24,6 +25,7 @@ from sarathi.mukha.state import (
     OperationView,
     PageConfidenceView,
     PreflightView,
+    ProgressState,
     RegionConfidenceView,
     ReviewItemView,
     RunSummaryView,
@@ -300,6 +302,7 @@ class MukhaPresenter:
         terminal_files = sum(
             1 for f in files if (f.status and f.status.upper() in _TERMINAL_STATUSES)
         )
+        progress = ProgressState.known(terminal_files, len(files)) if files else ProgressState.indeterminate()
 
         return RunViewState(
             run_id=run_id,
@@ -312,6 +315,7 @@ class MukhaPresenter:
             active_workers=tuple(active_workers),
             device_progress=tuple(device_progress),
             long_running=tuple(long_running),
+            progress=progress,
         )
 
     @staticmethod
@@ -470,11 +474,11 @@ class MukhaPresenter:
             else:
                 severity = "ERROR"
             logs.append(
-                (
-                    r.timestamp_utc,
-                    severity,
-                    r.component,
-                    f"Phase {r.phase_name} ({r.duration_ns / 1_000_000:.2f}ms)",
+                ActivityLogView(
+                    timestamp=r.timestamp_utc,
+                    severity=severity,
+                    component=r.component,
+                    message=f"Phase {r.phase_name} ({r.duration_ns / 1_000_000:.2f}ms)",
                 )
             )
             stage_map.setdefault(r.phase_name, []).append(r.duration_ns)

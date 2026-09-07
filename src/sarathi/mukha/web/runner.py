@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
-from sarathi.mukha.state import RunSummaryView
+from sarathi.mukha.state import ReviewIntent, RunSummaryView
 from sarathi.mukha.web.http_handler import (
     StartRunResponse,
     StartRunStatus,
@@ -71,11 +71,23 @@ class RunCoordinator:
         self._live_progress: dict[str, Any] = {}
         self._live_workers: dict[str, dict[str, Any]] = {}
         self._file_progress: dict[str, dict[str, Any]] = {}
+        self._review_intents: dict[str, ReviewIntent] = {}
 
     def is_busy(self) -> bool:
         """Return True if an interactive processing run is currently active on background worker thread."""
         with self._lock:
             return self._active_thread is not None and self._active_thread.is_alive()
+
+    def apply_review_intent(self, intent: ReviewIntent) -> bool:
+        """Apply and record a human review decision."""
+        with self._lock:
+            self._review_intents[intent.item_id] = intent
+            return True
+
+    def get_review_intents(self) -> dict[str, ReviewIntent]:
+        """Return a snapshot of applied review decisions."""
+        with self._lock:
+            return dict(self._review_intents)
 
     @property
     def last_result(self) -> Result | None:

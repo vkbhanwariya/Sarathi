@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 from sarathi.mukha.state import (
     ApplicationViewState,
     InspectorViewState,
+    ReviewIntent,
 )
 from sarathi.mukha.web.http_handler import (
     MukhaHTTPHandler,
@@ -154,6 +155,10 @@ class MukhaWebServer:
     def get_review_items(self, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
         """Retrieve pending review/exception items from run result warnings."""
         return extract_review_items(self._runner, run_id=run_id)
+
+    def apply_review_intent(self, intent: ReviewIntent) -> bool:
+        """Apply a human review decision to the coordinator."""
+        return self._runner.apply_review_intent(intent)
 
     def get_inspector_view(self, run_id: str) -> InspectorViewState | None:
         """Build InspectorViewState for the requested run ID from recorded facts."""

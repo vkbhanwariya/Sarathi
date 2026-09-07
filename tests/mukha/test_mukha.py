@@ -729,4 +729,8 @@ class TestMukhaAuditCapabilityStatus:
         )
 
         assert inspector.activity_logs[0][1] == "WARN"
+        assert inspector.activity_logs[0].severity == "WARN"
+        assert inspector.activity_logs[0].component == "kernel"
         assert inspector.activity_logs[1][1] == "ERROR"
+        assert inspector.activity_logs[1].severity == "ERROR"
+        assert inspector.activity_logs[1].component == "kernel"

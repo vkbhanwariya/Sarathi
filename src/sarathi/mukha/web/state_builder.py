@@ -46,19 +46,34 @@ def query_run_history(agni: Agni, limit: int = 50) -> tuple[Any, ...]:
 
 
 def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
-    """Retrieve pending review/exception items from run result warnings."""
+    """Retrieve pending review/exception items from run result warnings enriched with applied decisions."""
     res = runner.last_result
     if res is None or not res.warnings:
         return ()
+    intents = runner.get_review_intents() if hasattr(runner, "get_review_intents") else {}
     items = []
     for idx, w in enumerate(res.warnings, start=1):
+        item_id = f"rev-{idx}"
+        intent = intents.get(item_id)
+        ctx = dict(w.context) if w.context else {}
+        status = "pending"
+        applied_action = None
+        if intent is not None:
+            applied_action = intent.action_id
+            status = "resolved" if intent.action_id in ("accept", "unresolved", "dismiss") else "edited"
+            if intent.proposed_value:
+                ctx["output"] = intent.proposed_value
+
         items.append(
             {
-                "item_id": f"rev-{idx}",
+                "item_id": item_id,
+                "attempt_id": getattr(w, "span_id", "") or "att-1",
                 "code": w.code,
                 "message": w.message,
                 "stage": w.stage,
-                "context": dict(w.context) if w.context else {},
+                "status": status,
+                "applied_action": applied_action,
+                "context": ctx,
             }
         )
     return tuple(items)

@@ -93,3 +93,32 @@ def build_document_preview(path_str: str) -> tuple[int, dict[str, Any]]:
         "size": file_size,
         "extension": ext,
     }
+
+
+def build_input_preview(mukha_app: Any, input_id: str) -> tuple[int, dict[str, Any]]:
+    """Resolve authorized intake input by ID and build safe preview."""
+    target_path: Path | None = None
+    app_state = mukha_app.get_application_view_state()
+    for item in app_state.input_selection.items:
+        if item.input_id == input_id and item.source_path:
+            target_path = Path(item.source_path).resolve()
+            break
+    if target_path is None or not target_path.is_file():
+        return 404, {"ok": False, "error": f"Input '{input_id}' not found."}
+    return build_document_preview(str(target_path))
+
+
+def build_artifact_preview(mukha_app: Any, run_id: str, artifact_id: str) -> tuple[int, dict[str, Any]]:
+    """Resolve confirmed run artifact and verify containment before previewing."""
+    art_ref = mukha_app.get_confirmed_artifact(run_id, artifact_id)
+    if art_ref is None or not art_ref.path or not art_ref.path.is_file():
+        return 404, {"ok": False, "error": f"Artifact '{artifact_id}' not found."}
+    target = art_ref.path.resolve()
+    try:
+        target.relative_to(mukha_app.output_root.resolve())
+    except ValueError:
+        try:
+            target.relative_to(mukha_app.runtime_root.resolve())
+        except ValueError:
+            return 403, {"ok": False, "error": "Access to artifact outside authorized roots is denied."}
+    return build_document_preview(str(target))

@@ -107,6 +107,7 @@ class TestMukhaWebServerSecurityHeaders:
         headers = dict(response.getheaders())
         assert headers.get("X-Content-Type-Options") == "nosniff"
         assert headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        assert headers.get("X-Frame-Options") == "DENY"
         assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
         assert headers.get("Cache-Control") == "no-store"
         conn.close()
@@ -122,6 +123,7 @@ class TestMukhaWebServerSecurityHeaders:
         headers = dict(response.getheaders())
         assert headers.get("X-Content-Type-Options") == "nosniff"
         assert headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        assert headers.get("X-Frame-Options") == "DENY"
         assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
         assert headers.get("Cache-Control") == "no-cache"
         conn.close()

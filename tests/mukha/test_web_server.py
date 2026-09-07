@@ -673,3 +673,62 @@ def test_api_preview_traversal_rejected(web_server: MukhaWebServer) -> None:
     assert status == 400
     res = json.loads(data.decode("utf-8"))
     assert res["ok"] is False
+
+
+def test_api_review_intent_workflow(web_server: MukhaWebServer) -> None:
+    """POST /api/review records ReviewIntent with proposed values and reflects in review items."""
+    from sarathi.sankalpa import Result, WarningRecord
+
+    # Inject mock warning result
+    web_server.runner._last_result = Result(
+        data=None,
+        warnings=(
+            WarningRecord(code="UNCERTAIN_GLYPH", message="Suspicious character", stage="ocr", context={"source": "vkn", "output": "vkd"}),
+        ),
+    )
+
+    # 1. Verify pending review item
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
+    assert status == 200
+    items = json.loads(data.decode("utf-8"))["items"]
+    assert len(items) == 1
+    assert items[0]["item_id"] == "rev-1"
+    assert items[0]["status"] == "pending"
+
+    # 2. Submit ReviewIntent with proposed edit value
+    status_post, res_post = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {
+            "item_id": "rev-1",
+            "action_id": "validate_edit",
+            "proposed_value": "vkb",
+        },
+    )
+    assert status_post == 200
+    assert res_post["ok"] is True
+    assert res_post["action"] == "validate_edit"
+    assert res_post["applied"] is True
+
+    # 3. Query review items again to confirm persistent decision
+    status2, data2, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
+    assert status2 == 200
+    items2 = json.loads(data2.decode("utf-8"))["items"]
+    assert len(items2) == 1
+    assert items2[0]["status"] == "edited"
+    assert items2[0]["applied_action"] == "validate_edit"
+    assert items2[0]["context"]["output"] == "vkb"
+
+
+def test_scoped_input_and_artifact_preview(web_server: MukhaWebServer, tmp_path: Path) -> None:
+    """Scoped preview endpoints reject non-existent IDs and serve authorized content."""
+    # 404 for unknown input ID
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/inputs/nonexistent-id/preview")
+    assert status == 404
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is False
+
+    # 404 for unknown artifact ID
+    status_art, data_art, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run-mock/artifacts/art-mock/preview"
+    )
+    assert status_art == 404

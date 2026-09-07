@@ -177,6 +177,7 @@ class RunViewState:
     active_workers: tuple[WorkerPageView, ...] = ()
     device_progress: tuple[DeviceProgressView, ...] = ()
     long_running: tuple[OperationView, ...] = ()
+    progress: ProgressState | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,13 +277,27 @@ class RegionConfidenceView:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivityLogView:
+    """Typed structured activity log entry for inspector projection."""
+
+    timestamp: str
+    severity: str
+    component: str
+    message: str
+
+    def __getitem__(self, index: int) -> str:
+        """Support positional index access for backward compatibility with 4-tuple consumers."""
+        return (self.timestamp, self.severity, self.component, self.message)[index]
+
+
+@dataclass(frozen=True, slots=True)
 class InspectorViewState:
     """Detailed inspection presentation state."""
 
     run_id: str
     status: str
     elapsed_ns: int
-    activity_logs: tuple[tuple[str, str, str, str], ...] = ()
+    activity_logs: tuple[ActivityLogView, ...] = ()
     stage_timings: tuple[StageTimingView, ...] = ()
     device_summaries: tuple[DeviceSummaryView, ...] = ()
     confidence_distribution: tuple[tuple[str, int], ...] = ()
@@ -320,6 +335,17 @@ class ReviewItemView:
     device_type: str = ""
     elapsed_ns: int = 0
     available_actions: tuple[str, ...] = ("accept", "validate_edit", "retry", "unresolved")
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewIntent:
+    """Canonical human review intent submitted from Mukha presentation boundary."""
+
+    item_id: str
+    attempt_id: str
+    action_id: str
+    proposed_value: str | None = None
+    expected_revision: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

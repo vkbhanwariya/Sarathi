@@ -379,7 +379,7 @@
                     <td>${formatBytes(item.size_bytes)}</td>
                     <td>${badge}</td>
                     <td style="text-align: center;">
-                        <button class="btn btn-outline btn-sm btn-preview-file" data-path="${escapeHtml(pathVal)}" title="Preview Document">👁️</button>
+                        <button class="btn btn-outline btn-sm btn-preview-file" data-path="${escapeHtml(pathVal)}" data-input-id="${escapeHtml(item.input_id || '')}" data-name="${escapeHtml(item.display_name)}" title="Preview Document">👁️</button>
                         <button class="btn btn-outline btn-sm btn-remove-row" data-path="${escapeHtml(pathVal)}" title="Remove" style="color: var(--accent-crimson); margin-left: 4px;">✕</button>
                     </td>
                 </tr>`;
@@ -687,33 +687,21 @@
             elements.monitorElapsedTime.textContent = formatDuration(activeRun.elapsed_ns);
             elements.btnCancelRun.disabled = activeRun.status !== "RUNNING";
 
-            // Progress Bar
-            const total = activeRun.total_files || 1;
-            const done = activeRun.terminal_files || 0;
-            let pct = Math.min(100, Math.round((done / total) * 100));
-            if (activeRun.status === "RUNNING" && pct < 100 && activeRun.files && activeRun.files.length > 0) {
-                for (const f of activeRun.files) {
-                    const match = (f.current_stage || "").match(/Page (\d+)\/(\d+)/);
-                    if (match) {
-                        const curP = parseInt(match[1], 10);
-                        const totP = parseInt(match[2], 10);
-                        if (totP > 0) {
-                            const pageFraction = (curP - 0.5) / totP;
-                            const fileBasePct = ((f.ordinal - 1) / total) * 100;
-                            const fileSpanPct = (1 / total) * 100;
-                            pct = Math.min(95, Math.round(fileBasePct + pageFraction * fileSpanPct));
-                            break;
-                        }
-                    }
-                }
+            // Factual Progress Bar from Server State
+            let pct = 0;
+            if (activeRun.progress && activeRun.progress.percentage !== null && activeRun.progress.percentage !== undefined) {
+                pct = Math.round(activeRun.progress.percentage);
+            } else if (activeRun.total_files > 0) {
+                pct = Math.min(100, Math.round(((activeRun.terminal_files || 0) / activeRun.total_files) * 100));
             }
             elements.monitorProgressBar.style.width = `${pct}%`;
+            elements.monitorProgressBar.setAttribute("aria-valuenow", pct.toString());
 
             // Focus Stage
             if (activeRun.current_focus) {
                 elements.focusStageName.textContent = activeRun.current_focus.stage || "—";
                 elements.focusFileName.textContent = activeRun.current_focus.operation_name || "—";
-                elements.focusDeviceType.textContent = activeRun.current_focus.device_type || "CPU";
+                elements.focusDeviceType.textContent = activeRun.current_focus.device_type || "—";
                 elements.focusDuration.textContent = formatDuration(activeRun.current_focus.elapsed_ns);
             } else {
                 elements.focusStageName.textContent = "—";
@@ -736,7 +724,7 @@
             if (activeRun.device_progress && activeRun.device_progress.length > 0) {
                 elements.deviceThroughputTbody.innerHTML = activeRun.device_progress
                     .map((dp) => `<tr>
-                        <td><strong>${escapeHtml(dp.device_type)}</strong></td>
+                        <td><strong>${escapeHtml(dp.device_type || "—")}</strong></td>
                         <td>${dp.execution_count} units</td>
                         <td>${formatDuration(dp.total_duration_ns)}</td>
                         <td>${formatDuration(dp.avg_duration_ns)}</td>
@@ -751,7 +739,7 @@
                     .map((w) => {
                         const devBadge = (w.device_type === "GPU" || w.device_type === "NPU")
                             ? `<span class="badge badge-emerald">${escapeHtml(w.device_type)}</span>`
-                            : `<span class="badge">${escapeHtml(w.device_type || "CPU")}</span>`;
+                            : `<span class="badge">${escapeHtml(w.device_type || "—")}</span>`;
                         const pageText = w.page_number ? `<span class="badge badge-indigo">Page ${w.page_number}</span>` : "—";
                         return `<tr>
                             <td><strong>Worker ${escapeHtml(w.worker_id)}</strong></td>
@@ -883,7 +871,10 @@
             elements.docPreviewDialog.showModal();
         }
 
-        const res = await apiGet(`/api/preview?path=${encodeURIComponent(pathOrUrl)}`);
+        const endpoint = pathOrUrl.startsWith("/api/")
+            ? pathOrUrl
+            : `/api/preview?path=${encodeURIComponent(pathOrUrl)}`;
+        const res = await apiGet(endpoint);
         if (!res.ok) {
             elements.previewModalContent.innerHTML = `<div class="alert-box alert-amber">${escapeHtml(res.error || "Failed to load document preview.")}</div>`;
             return;
@@ -1008,17 +999,32 @@
         elements.reviewSourceText.textContent = item.context && item.context.source ? item.context.source : "(Source snippet unavailable)";
         elements.reviewOutputText.textContent = item.context && item.context.output ? item.context.output : (item.message || "—");
 
-        const conf = item.context && item.context.confidence !== undefined ? item.context.confidence : 0.75;
-        const pct = Math.round(conf * 100);
-        elements.reviewConfidenceText.textContent = `${pct}%`;
-        elements.reviewConfidenceFill.style.width = `${pct}%`;
-        elements.reviewConfidenceFill.style.background = pct >= 90 ? "var(--accent-emerald)" : (pct >= 75 ? "var(--accent-amber)" : "var(--accent-crimson)");
+        const conf = item.context && item.context.confidence !== undefined ? item.context.confidence : null;
+        if (conf !== null && conf !== undefined) {
+            const pct = Math.round(conf * 100);
+            elements.reviewConfidenceText.textContent = `${pct}%`;
+            elements.reviewConfidenceFill.style.width = `${pct}%`;
+            elements.reviewConfidenceFill.style.background = pct >= 90 ? "var(--accent-emerald)" : (pct >= 75 ? "var(--accent-amber)" : "var(--accent-crimson)");
+        } else {
+            elements.reviewConfidenceText.textContent = "—";
+            elements.reviewConfidenceFill.style.width = "0%";
+        }
     }
 
-    async function handleReviewAction(action) {
+    async function handleReviewAction(action, proposedValue = null) {
         if (!state.selectedReviewItem) return;
         const itemId = state.selectedReviewItem.item_id;
-        const res = await apiPost("/api/review", { item_id: itemId, action: action });
+        const attemptId = state.selectedReviewItem.attempt_id || "att-1";
+        const payload = {
+            item_id: itemId,
+            attempt_id: attemptId,
+            action_id: action,
+            action: action,
+        };
+        if (proposedValue !== null && proposedValue !== undefined) {
+            payload.proposed_value = proposedValue;
+        }
+        const res = await apiPost("/api/review", payload);
         if (res.ok) {
             loadReviewQueue();
         } else {
@@ -1155,8 +1161,11 @@
         const level = state.logFilterLevel || "ALL";
 
         const filtered = (state.allActivityLogs || []).filter((entry) => {
-            const [ts, comp, sev, msg] = entry;
-            if (level !== "ALL" && sev.toUpperCase() !== level) return false;
+            const ts = entry.timestamp !== undefined ? entry.timestamp : entry[0];
+            const sev = entry.severity !== undefined ? entry.severity : entry[1];
+            const comp = entry.component !== undefined ? entry.component : entry[2];
+            const msg = entry.message !== undefined ? entry.message : entry[3];
+            if (level !== "ALL" && (sev || "INFO").toUpperCase() !== level) return false;
             if (query && !`${ts} ${comp} ${msg}`.toLowerCase().includes(query)) return false;
             return true;
         });
@@ -1168,7 +1177,10 @@
 
         elements.inspectorLogs.innerHTML = filtered
             .map((entry) => {
-                const [ts, comp, sev, msg] = entry;
+                const ts = entry.timestamp !== undefined ? entry.timestamp : entry[0];
+                const sev = entry.severity !== undefined ? entry.severity : entry[1];
+                const comp = entry.component !== undefined ? entry.component : entry[2];
+                const msg = entry.message !== undefined ? entry.message : entry[3];
                 const sevUpper = (sev || "INFO").toUpperCase();
                 const sevClass = (sevUpper === "ERROR" || sevUpper === "FAILED")
                     ? "badge-crimson"
@@ -1322,8 +1334,12 @@
                 return;
             }
             const prevBtn = e.target.closest(".btn-preview-file");
-            if (prevBtn && prevBtn.dataset.path) {
-                openDocumentPreview(prevBtn.dataset.path, prevBtn.dataset.path.split(/[\\/]/).pop());
+            if (prevBtn) {
+                if (prevBtn.dataset.inputId) {
+                    openDocumentPreview(`/api/inputs/${encodeURIComponent(prevBtn.dataset.inputId)}/preview`, prevBtn.dataset.name || "Input Preview");
+                } else if (prevBtn.dataset.path) {
+                    openDocumentPreview(prevBtn.dataset.path, prevBtn.dataset.name || prevBtn.dataset.path.split(/[\\/]/).pop());
+                }
             }
         });
         elements.btnAddManualPath.addEventListener("click", handleAddManualPath);
@@ -1365,7 +1381,7 @@
             elements.artifactsGrid.addEventListener("click", (e) => {
                 const prevBtn = e.target.closest(".btn-preview-artifact");
                 if (prevBtn && prevBtn.dataset.runId && prevBtn.dataset.artId) {
-                    const artUrl = `/api/runs/${encodeURIComponent(prevBtn.dataset.runId)}/artifacts/${encodeURIComponent(prevBtn.dataset.artId)}`;
+                    const artUrl = `/api/runs/${encodeURIComponent(prevBtn.dataset.runId)}/artifacts/${encodeURIComponent(prevBtn.dataset.artId)}/preview`;
                     openDocumentPreview(artUrl, prevBtn.dataset.name);
                 }
             });
@@ -1387,7 +1403,7 @@
             elements.btnReviewEdit.addEventListener("click", () => {
                 const current = elements.reviewOutputText ? elements.reviewOutputText.textContent : "";
                 const val = prompt("Edit correction proposal:", current);
-                if (val !== null) handleReviewAction("edit");
+                if (val !== null) handleReviewAction("validate_edit", val);
             });
         }
 
