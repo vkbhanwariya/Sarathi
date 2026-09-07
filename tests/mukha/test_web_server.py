@@ -818,3 +818,98 @@ def test_get_run_summary_endpoint(web_server: MukhaWebServer) -> None:
     assert res["summary"]["run_id"] == mock_summary.run_id
     assert res["summary"]["status"] == "SUCCESS"
     assert res["summary"]["total_inputs"] == 2
+
+
+def test_preview_pdf_endpoints(web_server: MukhaWebServer, tmp_path: Path) -> None:
+    """Verify PDF preview, multi-page rendering, and raw streaming endpoints."""
+    import pymupdf
+
+    pdf_file = tmp_path / "test_doc.pdf"
+    doc = pymupdf.open()
+    page1 = doc.new_page(width=595, height=842)
+    page1.insert_text((50, 50), "Hello PDF Page 1", fontsize=14)
+    page2 = doc.new_page(width=595, height=842)
+    page2.insert_text((50, 50), "Hello PDF Page 2", fontsize=14)
+    doc.save(str(pdf_file))
+    doc.close()
+
+    # 1. Structured preview
+    status, data, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path={urllib.parse.quote(str(pdf_file))}"
+    )
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    assert res["type"] == "pdf"
+    assert res["page_count"] == 2
+    assert res["current_page"] == 1
+    assert "data:image/png;base64," in res["page_data_url"]
+    assert "Hello PDF Page 1" in res["page_text"]
+
+    # 2. Fetch Page 2
+    status_p2, data_p2, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview/pdf_page?path={urllib.parse.quote(str(pdf_file))}&page=2"
+    )
+    assert status_p2 == 200
+    res_p2 = json.loads(data_p2.decode("utf-8"))
+    assert res_p2["ok"] is True
+    assert res_p2["page_number"] == 2
+    assert "Hello PDF Page 2" in res_p2["page_text"]
+
+    # 3. Raw PDF stream
+    status_raw, bytes_raw, headers_raw = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview/raw?path={urllib.parse.quote(str(pdf_file))}"
+    )
+    assert status_raw == 200
+    assert "application/pdf" in headers_raw.get("Content-Type", "")
+    assert "inline" in headers_raw.get("Content-Disposition", "")
+    assert len(bytes_raw) == pdf_file.stat().st_size
+
+
+def test_preview_docx_endpoints(web_server: MukhaWebServer, tmp_path: Path) -> None:
+    """Verify Word (.docx) document structured preview and raw streaming."""
+    from sarathi.sankalpa import CanonicalDocument
+    from sarathi.shakti.docx_exporter import build_docx_payload
+
+    docx_file = tmp_path / "sample_word.docx"
+    doc_in = CanonicalDocument(
+        document_id="doc-w1",
+        source_input_id="inp-1",
+        text="Executive Summary Paragraph.\nSecond Body Paragraph with facts.",
+    )
+    payload = build_docx_payload(doc_in, "sample_word.docx")
+    docx_file.write_bytes(payload.content)
+
+    # 1. Structured preview
+    status, data, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path={urllib.parse.quote(str(docx_file))}"
+    )
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    assert res["type"] == "word"
+    assert res["total_paragraphs"] >= 2
+    assert any("Executive Summary" in p for p in res["paragraphs"])
+
+    # 2. Raw stream
+    status_raw, bytes_raw, headers_raw = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview/raw?path={urllib.parse.quote(str(docx_file))}"
+    )
+    assert status_raw == 200
+    assert "wordprocessingml" in headers_raw.get("Content-Type", "")
+    assert len(bytes_raw) == docx_file.stat().st_size
+
+
+def test_preview_txt_endpoints(web_server: MukhaWebServer, tmp_path: Path) -> None:
+    """Verify text file preview with multi-encoding support."""
+    txt_file = tmp_path / "sample_text.txt"
+    txt_file.write_text("Line 1: System Operational\nLine 2: Ready for production", encoding="utf-8")
+
+    status, data, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path={urllib.parse.quote(str(txt_file))}"
+    )
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    assert res["type"] == "text"
+    assert "System Operational" in res["content"]

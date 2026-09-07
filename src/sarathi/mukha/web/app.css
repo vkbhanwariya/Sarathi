@@ -1085,6 +1085,96 @@ input[type="text"]:focus, .form-select:focus {
     gap: 6px;
 }
 
+/* Document Preview Enhanced Components */
+.doc-preview-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.doc-preview-tabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 3px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+}
+
+.doc-preview-tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.doc-preview-tab-btn.active {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.doc-preview-tab-btn:hover:not(.active) {
+    color: var(--text-primary);
+}
+
+.doc-page-indicator {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.word-doc-sheet {
+    background: #ffffff;
+    color: #1e293b;
+    padding: 36px 40px;
+    border-radius: var(--radius-sm);
+    max-height: 560px;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Times New Roman", serif;
+    font-size: 14px;
+    line-height: 1.65;
+}
+
+.word-doc-sheet p {
+    margin-bottom: 12px;
+    text-align: justify;
+}
+
+.word-doc-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13px;
+}
+
+.word-doc-sheet th,
+.word-doc-sheet td {
+    border: 1px solid #cbd5e1;
+    padding: 8px 10px;
+    text-align: left;
+}
+
+.word-doc-sheet th {
+    background: #f1f5f9;
+    font-weight: 600;
+}
+
 /* Run History Drawer */
 .history-drawer {
     position: fixed;

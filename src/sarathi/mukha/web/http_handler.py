@@ -28,7 +28,9 @@ from sarathi.mukha.web.preview import (
     build_artifact_preview,
     build_document_preview,
     build_input_preview,
+    render_pdf_page,
     stream_confirmed_artifact,
+    stream_raw_document,
 )
 from sarathi.mukha.web.security import (
     _ALLOWED_LOOPBACK_HOSTNAMES,
@@ -83,7 +85,8 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
     MAX_BODY_SIZE: int = 1_048_576  # 1 MB strict limit
     _SECURITY_CSP: str = (
         "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        "img-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'self' blob:; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     )
 
     @property
@@ -259,28 +262,89 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "items": list(items)})
             return
 
-        # 2d. GET /api/inputs/<input_id>/preview
-        elif path.startswith("/api/inputs/") and path.endswith("/preview"):
+        # 2d. GET /api/inputs/<input_id>/preview or raw or pdf_page
+        elif path.startswith("/api/inputs/"):
             parts = path.strip("/").split("/")
-            if len(parts) == 4 and parts[1] == "inputs" and parts[3] == "preview":
-                self._serve_input_preview(urllib.parse.unquote(parts[2]))
-                return
+            if len(parts) == 4 and parts[1] == "inputs":
+                input_id = urllib.parse.unquote(parts[2])
+                action = parts[3]
+                if action == "preview":
+                    self._serve_input_preview(input_id)
+                    return
+                elif action == "raw":
+                    target = None
+                    if hasattr(self.mukha_app, "get_input_path"):
+                        target = self.mukha_app.get_input_path(input_id)
+                    if target is None and hasattr(self.mukha_app, "runner"):
+                        target = self.mukha_app.runner.get_input_path(input_id)
+                    if target and target.is_file():
+                        query_params = urllib.parse.parse_qs(parsed_url.query)
+                        stream_raw_document(self, target, download="download" in query_params)
+                    else:
+                        self.send_error(HTTPStatus.NOT_FOUND, "Input file not found.")
+                    return
+                elif action == "pdf_page":
+                    target = None
+                    if hasattr(self.mukha_app, "get_input_path"):
+                        target = self.mukha_app.get_input_path(input_id)
+                    if target is None and hasattr(self.mukha_app, "runner"):
+                        target = self.mukha_app.runner.get_input_path(input_id)
+                    if target and target.is_file():
+                        query_params = urllib.parse.parse_qs(parsed_url.query)
+                        try:
+                            page_num = int(query_params.get("page", ["1"])[0])
+                        except ValueError:
+                            page_num = 1
+                        code, payload = render_pdf_page(str(target), page_num)
+                        self._send_json(code, payload)
+                    else:
+                        self._send_json(404, {"ok": False, "error": "Input file not found."})
+                    return
 
-        # 2e. GET /api/runs/<run_id>/artifacts/<artifact_id>/preview
-        elif path.startswith("/api/runs/") and "/artifacts/" in path and path.endswith("/preview"):
+        # 2e. GET /api/runs/<run_id>/artifacts/<artifact_id>/preview or raw
+        elif path.startswith("/api/runs/") and "/artifacts/" in path and (path.endswith("/preview") or path.endswith("/raw")):
             parts = path.strip("/").split("/")
-            if len(parts) == 6 and parts[1] == "runs" and parts[3] == "artifacts" and parts[5] == "preview":
-                self._serve_artifact_preview(parts[2], urllib.parse.unquote(parts[4]))
-                return
+            if len(parts) == 6 and parts[1] == "runs" and parts[3] == "artifacts":
+                run_id = parts[2]
+                art_id = urllib.parse.unquote(parts[4])
+                action = parts[5]
+                if action == "preview":
+                    self._serve_artifact_preview(run_id, art_id)
+                    return
+                elif action == "raw":
+                    art_ref = self.mukha_app.get_confirmed_artifact(run_id, art_id)
+                    if art_ref and art_ref.path and art_ref.path.is_file():
+                        query_params = urllib.parse.parse_qs(parsed_url.query)
+                        stream_raw_document(self, art_ref.path, download="download" in query_params)
+                    else:
+                        self.send_error(HTTPStatus.NOT_FOUND, "Artifact not found.")
+                    return
 
-        # 2f. GET /api/preview?path=...
-        elif path == "/api/preview":
+        # 2f. GET /api/preview, /api/preview/raw, /api/preview/pdf_page
+        elif path.startswith("/api/preview"):
             query_params = urllib.parse.parse_qs(parsed_url.query)
-            if "path" not in query_params or not query_params["path"][0].strip():
+            path_val = query_params.get("path", [""])[0].strip()
+            if not path_val:
                 self._send_json(400, {"ok": False, "error": "Missing 'path' query parameter."})
                 return
-            self._serve_document_preview(query_params["path"][0].strip())
-            return
+            if path == "/api/preview/raw":
+                target = Path(path_val).resolve()
+                if not target.is_file() or (".." in path_val and ("../" in path_val or "..\\" in path_val)):
+                    self.send_error(HTTPStatus.NOT_FOUND, "Document file not found.")
+                    return
+                stream_raw_document(self, target, download="download" in query_params)
+                return
+            elif path == "/api/preview/pdf_page":
+                try:
+                    page_num = int(query_params.get("page", ["1"])[0])
+                except ValueError:
+                    page_num = 1
+                code, payload = render_pdf_page(path_val, page_num)
+                self._send_json(code, payload)
+                return
+            elif path == "/api/preview":
+                self._serve_document_preview(path_val)
+                return
 
         # 3. GET /api/runs/<run_id>/inspector
         elif path.startswith("/api/runs/") and path.endswith("/inspector"):
