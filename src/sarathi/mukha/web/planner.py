@@ -14,7 +14,6 @@ from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.web.security import _format_public_error
 from sarathi.sankalpa import CancellationToken, ExecutionProfile, Request
-from sarathi.shakti.darshana import identify_request
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
@@ -52,8 +51,7 @@ def preview_execution_plan(
             custom_options=dict(custom_options or {}),
         )
 
-        identified_req = identify_request(req)
-        plan = agni.manthan.resolve(identified_req)
+        plan = agni.manthan.resolve(req)
 
         # Collect planned stages
         stages: list[dict[str, str]] = [
@@ -70,7 +68,11 @@ def preview_execution_plan(
         # Collect hardware device inventory
         devices: list[dict[str, Any]] = []
         if hasattr(agni, "yantra") and agni.yantra is not None:
-            inv = getattr(agni.yantra, "device_inventory", None)
+            inv = None
+            if hasattr(agni.yantra, "device_inventory") and hasattr(agni.yantra.device_inventory, "devices") and isinstance(agni.yantra.device_inventory.devices, list):
+                inv = agni.yantra.device_inventory
+            elif hasattr(agni.yantra, "inventory"):
+                inv = agni.yantra.inventory
             if inv is not None and hasattr(inv, "devices"):
                 for d in inv.devices:
                     devices.append(
