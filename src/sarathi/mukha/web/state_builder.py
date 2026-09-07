@@ -48,6 +48,15 @@ def query_run_history(agni: Agni, limit: int = 50) -> tuple[Any, ...]:
 
 def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
     """Retrieve pending review/exception items from run result warnings enriched with applied decisions."""
+    active_or_last_run_id = getattr(runner, "_last_result_run_id", None)
+    if not active_or_last_run_id and runner.terminal_summary:
+        active_or_last_run_id = runner.terminal_summary.run_id
+    if not active_or_last_run_id and hasattr(runner, "_active_run_id"):
+        active_or_last_run_id = runner._active_run_id
+
+    if run_id and active_or_last_run_id and run_id != active_or_last_run_id:
+        return ()
+
     res = runner.last_result
     if res is None or not res.warnings:
         return ()
@@ -59,22 +68,32 @@ def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> t
         ctx = dict(w.context) if w.context else {}
         status = "pending"
         applied_action = None
+        draft_proposal = None
         if intent is not None:
             applied_action = intent.action_id
-            status = "resolved" if intent.action_id in ("accept", "unresolved", "dismiss") else "edited"
+            if intent.action_id == "accept":
+                status = "accepted"
+            elif intent.action_id == "unresolved":
+                status = "unresolved"
+            else:
+                status = "pending"
             if intent.proposed_value:
-                ctx["output"] = intent.proposed_value
+                draft_proposal = intent.proposed_value
+
+        attempt_id = getattr(w, "span_id", "") or (ctx.get("attempt_id", "") if ctx else "")
 
         items.append(
             {
                 "item_id": item_id,
-                "attempt_id": getattr(w, "span_id", "") or "att-1",
+                "attempt_id": attempt_id,
                 "code": w.code,
                 "message": w.message,
                 "stage": w.stage,
                 "status": status,
                 "applied_action": applied_action,
+                "draft_proposal": draft_proposal,
                 "context": ctx,
+                "available_actions": ("accept", "unresolved"),
             }
         )
     return tuple(items)

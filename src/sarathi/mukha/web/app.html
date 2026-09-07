@@ -302,12 +302,17 @@
               </table>
             </div>
             <div id="review-detail-card" class="panel hidden" style="margin-top: 16px; background: rgba(8, 12, 20, 0.7);">
-              <div class="panel-header">
-                <h3>Comparative Exception Inspector: <span id="review-active-item-title" class="code-text">—</span></h3>
+              <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <button id="btn-review-prev" class="btn btn-outline btn-sm" type="button" title="Previous exception">◀ Prev</button>
+                  <button id="btn-review-next" class="btn btn-outline btn-sm" type="button" title="Next exception">Next ▶</button>
+                  <h3>Comparative Exception Inspector: <span id="review-active-item-title" class="code-text">—</span></h3>
+                  <span id="review-status-badge" class="badge badge-amber">PENDING</span>
+                </div>
                 <div class="button-group">
-                  <button id="btn-review-accept" class="btn btn-primary btn-sm">✓ Accept</button>
-                  <button id="btn-review-edit" class="btn btn-secondary btn-sm">✎ Edit Correction</button>
-                  <button id="btn-review-dismiss" class="btn btn-outline btn-sm">✕ Dismiss</button>
+                  <button id="btn-review-accept" class="btn btn-primary btn-sm" type="button">✓ Accept</button>
+                  <button id="btn-review-edit" class="btn btn-secondary btn-sm" type="button">✎ Propose Edit</button>
+                  <button id="btn-review-dismiss" class="btn btn-outline btn-sm" type="button">⚠ Unresolved</button>
                 </div>
               </div>
               <div class="panel-body">
@@ -317,8 +322,22 @@
                     <div id="review-source-text" class="diff-content">Loading source snippet...</div>
                   </div>
                   <div class="review-diff-box">
-                    <span class="diff-title">Extracted / Converted Output</span>
+                    <span class="diff-title">Committed Output Text</span>
                     <div id="review-output-text" class="diff-content">Loading output snippet...</div>
+                    <div id="review-proposed-display" class="review-proposed-display hidden" style="margin-top: 8px; font-size: 0.82rem; color: #93c5fd;">
+                      Draft Proposal: <strong id="review-proposed-text">—</strong>
+                    </div>
+                  </div>
+                </div>
+                <div id="review-draft-box" class="review-draft-card hidden" style="margin-top: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.5);">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">Proposed Correction (Draft Only)</label>
+                  <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+                    <input type="text" id="review-draft-input" placeholder="Enter proposed replacement text..." style="flex: 1; padding: 6px 10px; font-size: 0.85rem; background: rgba(8, 12, 20, 0.8); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-main);">
+                    <button id="btn-review-save-draft" class="btn btn-secondary btn-sm" type="button">Save Draft</button>
+                    <button id="btn-review-cancel-draft" class="btn btn-outline btn-sm" type="button">Cancel</button>
+                  </div>
+                  <div class="text-muted" style="font-size: 0.78rem;">
+                    ℹ️ Draft proposals are saved for inspection. Automated output modification requires capability-level runtime validation.
                   </div>
                 </div>
                 <div class="confidence-meter">

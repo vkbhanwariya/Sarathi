@@ -65,6 +65,7 @@ class RunCoordinator:
         self._active_thread: threading.Thread | None = None
         self._active_start_ns: int = 0
         self._last_result: Result | None = None
+        self._last_result_run_id: str | None = None
         self._terminal_summary: RunSummaryView | None = None
         self._terminal_status: str | None = None
         self._confirmed_artifacts: dict[str, dict[str, ArtifactRef]] = {}
@@ -135,8 +136,51 @@ class RunCoordinator:
             return self._run_summaries.get(run_id)
 
     def apply_review_intent(self, intent: ReviewIntent) -> bool:
-        """Apply and record a human review decision."""
+        """Apply and record a human review decision, failing closed on invalid intents."""
         with self._lock:
+            # 1. Reject missing or whitespace-only identity
+            if not intent.item_id or not intent.item_id.strip():
+                return False
+            if not intent.attempt_id or not intent.attempt_id.strip():
+                return False
+
+            # 2. Reject unsupported review actions (validate_edit and retry lack runtime capability support)
+            if intent.action_id not in ("accept", "unresolved"):
+                return False
+
+            # 3. Enforce run scoping if run_id provided
+            if intent.run_id:
+                target_run_id = self._last_result_run_id or (self._terminal_summary.run_id if self._terminal_summary else None) or self._active_run_id
+                if target_run_id and intent.run_id != target_run_id:
+                    return False
+
+            # 4. Check that item exists in last_result warnings
+            if self._last_result is None or not self._last_result.warnings:
+                return False
+
+            matched_warning = None
+            for idx, w in enumerate(self._last_result.warnings, start=1):
+                if f"rev-{idx}" == intent.item_id:
+                    matched_warning = w
+                    break
+
+            if matched_warning is None:
+                return False
+
+            # 5. Check attempt matching if warning has span_id / attempt
+            expected_att = getattr(matched_warning, "span_id", "") or (matched_warning.context.get("attempt_id", "") if matched_warning.context else "")
+            if expected_att and intent.attempt_id != expected_att:
+                return False
+
+            # 6. Check state revision if expected_revision provided
+            if intent.expected_revision is not None and intent.expected_revision != self._state_revision:
+                return False
+
+            # 7. Check duplicate identical submission
+            existing = self._review_intents.get(intent.item_id)
+            if existing is not None and existing.action_id == intent.action_id and existing.proposed_value == intent.proposed_value:
+                return False
+
             self._review_intents[intent.item_id] = intent
             self._state_revision += 1
             return True
@@ -157,6 +201,7 @@ class RunCoordinator:
                 self._terminal_summary = None
                 self._terminal_status = None
                 self._last_result = None
+                self._last_result_run_id = None
             self._state_revision += 1
 
 
@@ -333,6 +378,7 @@ class RunCoordinator:
 
                     with self._lock:
                         self._last_result = result
+                        self._last_result_run_id = run_id
                         if result.metadata.get("output_dir"):
                             self._run_output_roots[run_id] = Path(result.metadata["output_dir"])
 

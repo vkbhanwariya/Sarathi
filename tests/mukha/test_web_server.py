@@ -592,27 +592,44 @@ def test_api_clear_history_and_cache_endpoints(web_server: MukhaWebServer) -> No
 
 
 def test_api_review_endpoints(web_server: MukhaWebServer) -> None:
-    """F37: GET and POST /api/review handle review items and actions cleanly."""
+    from sarathi.sankalpa import Result, WarningRecord
+
+    web_server.runner._last_result = Result(
+        data=None,
+        warnings=(
+            WarningRecord(code="UNCERTAIN_GLYPH", message="Suspicious character", stage="ocr", context={"source": "a", "output": "b", "attempt_id": "att-test-1"}),
+        ),
+    )
+
     # 1. GET /api/review
     status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
     assert status == 200
     data = json.loads(body.decode("utf-8"))
     assert data["ok"] is True
-    assert isinstance(data["items"], list)
+    assert len(data["items"]) == 1
+    assert data["items"][0]["attempt_id"] == "att-test-1"
 
-    # 2. POST /api/review with valid action
+    # 2. POST /api/review without attempt_id -> 400 (no fabricated att-1)
     status, resp = _http_post(
         f"http://127.0.0.1:{web_server.resolved_port}/api/review",
         {"item_id": "rev-1", "action": "accept"},
+    )
+    assert status == 400
+    assert resp["ok"] is False
+
+    # 3. POST /api/review with valid attempt_id and supported action 'accept'
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {"item_id": "rev-1", "attempt_id": "att-test-1", "action": "accept"},
     )
     assert status == 200
     assert resp["ok"] is True
     assert resp["action"] == "accept"
 
-    # 3. POST /api/review with invalid action -> 400
+    # 4. POST /api/review with invalid action -> 400
     status, resp = _http_post(
         f"http://127.0.0.1:{web_server.resolved_port}/api/review",
-        {"item_id": "rev-1", "action": "invalid_action"},
+        {"item_id": "rev-1", "attempt_id": "att-test-1", "action": "invalid_action"},
     )
     assert status == 400
     assert resp["ok"] is False
@@ -702,14 +719,14 @@ def test_api_preview_traversal_rejected(web_server: MukhaWebServer) -> None:
 
 
 def test_api_review_intent_workflow(web_server: MukhaWebServer) -> None:
-    """POST /api/review records ReviewIntent with proposed values and reflects in review items."""
+    """POST /api/review records ReviewIntent with truthful statuses without overwriting committed output."""
     from sarathi.sankalpa import Result, WarningRecord
 
     # Inject mock warning result
     web_server.runner._last_result = Result(
         data=None,
         warnings=(
-            WarningRecord(code="UNCERTAIN_GLYPH", message="Suspicious character", stage="ocr", context={"source": "vkn", "output": "vkd"}),
+            WarningRecord(code="UNCERTAIN_GLYPH", message="Suspicious character", stage="ocr", context={"source": "vkn", "output": "vkd", "attempt_id": "span-42"}),
         ),
     )
 
@@ -720,29 +737,44 @@ def test_api_review_intent_workflow(web_server: MukhaWebServer) -> None:
     assert len(items) == 1
     assert items[0]["item_id"] == "rev-1"
     assert items[0]["status"] == "pending"
+    assert items[0]["attempt_id"] == "span-42"
+    assert items[0]["available_actions"] == ["accept", "unresolved"]
 
-    # 2. Submit ReviewIntent with proposed edit value
-    status_post, res_post = _http_post(
+    # 2. Reject unsupported action validate_edit (capability validation not yet in runtime)
+    status_edit, res_edit = _http_post(
         f"http://127.0.0.1:{web_server.resolved_port}/api/review",
         {
             "item_id": "rev-1",
+            "attempt_id": "span-42",
             "action_id": "validate_edit",
             "proposed_value": "vkb",
         },
     )
+    assert status_edit == 400
+    assert res_edit["ok"] is False
+
+    # 3. Submit supported 'unresolved' action
+    status_post, res_post = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {
+            "item_id": "rev-1",
+            "attempt_id": "span-42",
+            "action_id": "unresolved",
+        },
+    )
     assert status_post == 200
     assert res_post["ok"] is True
-    assert res_post["action"] == "validate_edit"
+    assert res_post["action"] == "unresolved"
     assert res_post["applied"] is True
 
-    # 3. Query review items again to confirm persistent decision
+    # 4. Query review items again: status is 'unresolved', NOT 'resolved', and output is unaltered
     status2, data2, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
     assert status2 == 200
     items2 = json.loads(data2.decode("utf-8"))["items"]
     assert len(items2) == 1
-    assert items2[0]["status"] == "edited"
-    assert items2[0]["applied_action"] == "validate_edit"
-    assert items2[0]["context"]["output"] == "vkb"
+    assert items2[0]["status"] == "unresolved"
+    assert items2[0]["applied_action"] == "unresolved"
+    assert items2[0]["context"]["output"] == "vkd"
 
 
 def test_scoped_input_and_artifact_preview(web_server: MukhaWebServer, tmp_path: Path) -> None:

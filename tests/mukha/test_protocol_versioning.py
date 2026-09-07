@@ -58,11 +58,26 @@ def test_state_revision_monotonic_increment(web_server: MukhaWebServer) -> None:
     r0 = web_server.runner.state_revision
     assert r0 >= 1
 
+    from sarathi.sankalpa import Result, WarningRecord
+
+    web_server.runner._last_result = Result(
+        data=None,
+        warnings=(
+            WarningRecord(
+                code="UNCERTAIN_GLYPH",
+                message="Suspicious character",
+                stage="ocr",
+                context={"attempt_id": "att-ver-1"},
+            ),
+        ),
+    )
+
     # Applying a review intent must increment revision
     status_post, res_post = _http_post(
         f"http://127.0.0.1:{web_server.resolved_port}/api/review",
         {
-            "item_id": "rev-test-ver",
+            "item_id": "rev-1",
+            "attempt_id": "att-ver-1",
             "action_id": "accept",
         },
     )

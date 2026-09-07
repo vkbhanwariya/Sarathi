@@ -82,13 +82,22 @@ export const elements = {
     reviewQueueTbody: null,
     reviewDetailCard: null,
     reviewActiveItemTitle: null,
+    reviewStatusBadge: null,
     reviewSourceText: null,
     reviewOutputText: null,
+    reviewProposedDisplay: null,
+    reviewProposedText: null,
     reviewConfidenceFill: null,
     reviewConfidenceText: null,
+    btnReviewPrev: null,
+    btnReviewNext: null,
     btnReviewAccept: null,
     btnReviewEdit: null,
     btnReviewDismiss: null,
+    reviewDraftBox: null,
+    reviewDraftInput: null,
+    btnReviewSaveDraft: null,
+    btnReviewCancelDraft: null,
 
     // Summary Elements
     summaryHero: null,
@@ -245,13 +254,22 @@ export function initDom() {
     elements.reviewQueueTbody = document.getElementById("review-queue-tbody");
     elements.reviewDetailCard = document.getElementById("review-detail-card");
     elements.reviewActiveItemTitle = document.getElementById("review-active-item-title");
+    elements.reviewStatusBadge = document.getElementById("review-status-badge");
     elements.reviewSourceText = document.getElementById("review-source-text");
     elements.reviewOutputText = document.getElementById("review-output-text");
+    elements.reviewProposedDisplay = document.getElementById("review-proposed-display");
+    elements.reviewProposedText = document.getElementById("review-proposed-text");
     elements.reviewConfidenceFill = document.getElementById("review-confidence-fill");
     elements.reviewConfidenceText = document.getElementById("review-confidence-text");
+    elements.btnReviewPrev = document.getElementById("btn-review-prev");
+    elements.btnReviewNext = document.getElementById("btn-review-next");
     elements.btnReviewAccept = document.getElementById("btn-review-accept");
     elements.btnReviewEdit = document.getElementById("btn-review-edit");
     elements.btnReviewDismiss = document.getElementById("btn-review-dismiss");
+    elements.reviewDraftBox = document.getElementById("review-draft-box");
+    elements.reviewDraftInput = document.getElementById("review-draft-input");
+    elements.btnReviewSaveDraft = document.getElementById("btn-review-save-draft");
+    elements.btnReviewCancelDraft = document.getElementById("btn-review-cancel-draft");
 
     // Summary
     elements.summaryHero = document.getElementById("summary-hero");

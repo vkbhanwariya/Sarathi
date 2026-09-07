@@ -367,7 +367,9 @@ class ReviewItemView:
     confidence: float | None = None
     device_type: str = ""
     elapsed_ns: int = 0
-    available_actions: tuple[str, ...] = ("accept", "validate_edit", "retry", "unresolved")
+    status: str = "pending"
+    draft_proposal: str | None = None
+    available_actions: tuple[str, ...] = ("accept", "unresolved")
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,6 +379,7 @@ class ReviewIntent:
     item_id: str
     attempt_id: str
     action_id: str
+    run_id: str | None = None
     proposed_value: str | None = None
     expected_revision: int | None = None
 

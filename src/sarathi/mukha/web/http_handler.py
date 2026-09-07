@@ -497,26 +497,62 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         elif path == "/api/review":
             item_id = body.get("item_id")
             action = body.get("action_id") or body.get("action")
+            attempt_id = body.get("attempt_id")
+            run_id = body.get("run_id")
+
             if not isinstance(item_id, str) or not item_id.strip():
                 self._send_json(400, {"ok": False, "error": "item_id must be a non-empty string."})
                 return
             if not isinstance(action, str) or not action.strip():
                 self._send_json(400, {"ok": False, "error": "action or action_id must be a non-empty string."})
                 return
+            if not isinstance(attempt_id, str) or not attempt_id.strip():
+                self._send_json(400, {"ok": False, "error": "attempt_id must be a non-empty string."})
+                return
+            if run_id is not None and (not isinstance(run_id, str) or not run_id.strip()):
+                self._send_json(400, {"ok": False, "error": "run_id must be a non-empty string when provided."})
+                return
+
             act = action.strip()
-            act_mapped = "validate_edit" if act == "edit" else ("unresolved" if act == "dismiss" else act)
+            act_mapped = "validate_edit" if act == "edit" else ("unresolved" if act in ("dismiss", "unresolved") else act)
             if act_mapped not in ("accept", "validate_edit", "retry", "unresolved"):
                 self._send_json(400, {"ok": False, "error": f"Invalid review action: '{action}'."})
                 return
+
+            # Fail-closed check: validate_edit and retry lack runtime capability contracts
+            if act_mapped in ("validate_edit", "retry"):
+                self._send_json(400, {
+                    "ok": False,
+                    "error": f"Review action '{act_mapped}' is currently unsupported by runtime capability.",
+                })
+                return
+
+            expected_rev = None
+            if body.get("expected_revision") is not None:
+                try:
+                    expected_rev = int(body["expected_revision"])
+                except (ValueError, TypeError):
+                    self._send_json(400, {"ok": False, "error": "expected_revision must be an integer."})
+                    return
+
             intent = ReviewIntent(
                 item_id=item_id.strip(),
-                attempt_id=str(body.get("attempt_id") or "att-1"),
+                attempt_id=attempt_id.strip(),
                 action_id=act_mapped,
+                run_id=run_id.strip() if run_id else None,
                 proposed_value=str(body["proposed_value"]) if body.get("proposed_value") is not None else None,
-                expected_revision=int(body["expected_revision"]) if body.get("expected_revision") is not None else None,
+                expected_revision=expected_rev,
             )
             applied = self.mukha_app.apply_review_intent(intent)
-            self._send_json(200, {"ok": True, "action": act_mapped, "item_id": intent.item_id, "applied": applied})
+            if not applied:
+                self._send_json(400, {
+                    "ok": False,
+                    "error": "Review intent rejected: foreign run, stale attempt, duplicate submission, or invalid item.",
+                })
+                return
+
+            self._send_json(200, {"ok": True, "action": act_mapped, "item_id": intent.item_id, "applied": True})
+            return
         # 3c. POST /api/plan/preview
         elif path == "/api/plan/preview":
             raw_paths = body.get("paths")
