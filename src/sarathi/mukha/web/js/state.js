@@ -14,6 +14,8 @@ export const state = {
     isRecursive: true,
     activeRunId: null,
     activeRunStatus: "idle",
+    viewedRunId: null,
+    followLive: true,
     lastAutoNavigatedRunId: null,
     lastState: null,
     lastRevision: 0,
@@ -33,7 +35,29 @@ export const state = {
     regionSearchQuery: "",
     allRegionConfidence: [],
     screenChangeCallbacks: {},
+    draftActionParams: {},
+    requestSeq: 0,
+    summaryRequestSeq: 0,
+    inspectorRequestSeq: 0,
 };
+
+if (typeof window !== "undefined") {
+    window.sarathiState = state;
+}
+
+export function getDraftParam(actionId, paramId, defaultValue) {
+    if (state.draftActionParams[actionId] && state.draftActionParams[actionId][paramId] !== undefined) {
+        return state.draftActionParams[actionId][paramId];
+    }
+    return defaultValue;
+}
+
+export function setDraftParam(actionId, paramId, value) {
+    if (!state.draftActionParams[actionId]) {
+        state.draftActionParams[actionId] = {};
+    }
+    state.draftActionParams[actionId][paramId] = value;
+}
 
 export function registerScreenCallback(screenId, callback) {
     state.screenChangeCallbacks[screenId] = callback;

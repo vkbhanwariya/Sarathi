@@ -6,7 +6,7 @@ import { apiPost, pollState } from "../api.js";
 import { elements, hideError, showError } from "../dom.js";
 import { escapeHtml, formatBytes } from "../formatters.js";
 import { openDocumentPreview } from "../preview.js";
-import { state, switchScreen } from "../state.js";
+import { getDraftParam, setDraftParam, state, switchScreen } from "../state.js";
 
 export function updateClearSelectedButton() {
     if (!elements.btnClearSelected) return;
@@ -203,30 +203,113 @@ export function renderPreflight(preflight) {
     }
 }
 
+export function buildRequestPayload() {
+    const customOpts = {};
+    let profile = "instant";
+
+    const act = (state.availableActions || []).find((a) => a.action_id === state.currentRequirement);
+    if (act && act.parameters) {
+        act.parameters.forEach((p) => {
+            const draftVal = getDraftParam(act.action_id, p.parameter_id, p.default_value);
+            if (p.kind === "select") {
+                if (p.parameter_id === "profile") {
+                    profile = draftVal || "instant";
+                } else if (draftVal !== undefined && draftVal !== "") {
+                    customOpts[p.parameter_id] = draftVal;
+                }
+            } else if (p.kind === "toggle") {
+                customOpts[p.parameter_id] = Boolean(draftVal);
+            }
+        });
+    }
+
+    if (state.currentRequirement === "ocr" && profile === "custom") {
+        customOpts.engine = "rapidocr";
+    }
+
+    return {
+        paths: state.selectedPaths,
+        requirement: state.currentRequirement,
+        profile: profile,
+        recursive: state.isRecursive,
+        custom_options: customOpts,
+    };
+}
+
 export function renderAvailableActions(actions) {
-    if (!elements.requirementGrid || !actions || actions.length === 0) return;
+    if (!elements.requirementGrid) return;
+    if (!actions || actions.length === 0) {
+        state.availableActions = [];
+        elements.requirementGrid.innerHTML = '<div class="text-muted" style="padding: 12px;">No processing capabilities available.</div>';
+        if (elements.actionParamsContainer) {
+            elements.actionParamsContainer.classList.add("hidden");
+            elements.actionParamsContainer.innerHTML = "";
+        }
+        if (elements.btnStartRun) elements.btnStartRun.disabled = true;
+        return;
+    }
     state.availableActions = actions;
 
-    const cardsHtml = actions
-        .map((act) => {
-            const isActive = act.action_id === state.currentRequirement;
-            const isDisabled = !act.is_enabled;
-            const statusBadge = act.is_enabled
-                ? '<span class="req-status badge badge-emerald">Ready</span>'
-                : `<span class="req-status badge badge-amber" title="${escapeHtml(act.disabled_reason || "Unavailable")}">Unavailable</span>`;
-            return `
-                <button type="button" class="req-card ${isActive ? "selected active" : ""} ${isDisabled ? "disabled" : ""}" data-req="${escapeHtml(act.action_id)}" ${isDisabled ? "disabled" : ""}>
-                    <div class="req-title">${escapeHtml(act.label)}</div>
-                    <div class="req-desc">${escapeHtml(act.description || "")}</div>
-                    ${statusBadge}
-                </button>
-            `;
-        })
-        .join("");
+    // Check if the current action is still available
+    let activeAction = actions.find((a) => a.action_id === state.currentRequirement);
+    if (!activeAction || !activeAction.is_enabled) {
+        const firstEnabled = actions.find((a) => a.is_enabled);
+        if (firstEnabled) {
+            state.currentRequirement = firstEnabled.action_id;
+            activeAction = firstEnabled;
+        }
+    }
 
-    elements.requirementGrid.innerHTML = cardsHtml;
+    // Check if DOM cards need full replacement or just in-place update
+    const existingCards = elements.requirementGrid.querySelectorAll(".req-card");
+    const existingIds = Array.from(existingCards).map((c) => c.dataset.req).join(",");
+    const newIds = actions.map((a) => a.action_id).join(",");
 
-    const activeAction = actions.find((a) => a.action_id === state.currentRequirement) || actions[0];
+    if (existingIds === newIds && existingCards.length > 0) {
+        // In-place update to preserve elements and focus
+        actions.forEach((act) => {
+            const card = elements.requirementGrid.querySelector(`.req-card[data-req="${act.action_id}"]`);
+            if (card) {
+                const isActive = act.action_id === state.currentRequirement;
+                const isDisabled = !act.is_enabled;
+                card.classList.toggle("selected", isActive);
+                card.classList.toggle("active", isActive);
+                card.classList.toggle("disabled", isDisabled);
+                card.disabled = isDisabled;
+                const badge = card.querySelector(".req-status");
+                if (badge) {
+                    if (act.is_enabled) {
+                        badge.className = "req-status badge badge-emerald";
+                        badge.textContent = "Ready";
+                        badge.title = "";
+                    } else {
+                        badge.className = "req-status badge badge-amber";
+                        badge.textContent = "Unavailable";
+                        badge.title = act.disabled_reason || "Unavailable";
+                    }
+                }
+            }
+        });
+    } else {
+        const cardsHtml = actions
+            .map((act) => {
+                const isActive = act.action_id === state.currentRequirement;
+                const isDisabled = !act.is_enabled;
+                const statusBadge = act.is_enabled
+                    ? '<span class="req-status badge badge-emerald">Ready</span>'
+                    : `<span class="req-status badge badge-amber" title="${escapeHtml(act.disabled_reason || "Unavailable")}">Unavailable</span>`;
+                return `
+                    <button type="button" class="req-card ${isActive ? "selected active" : ""} ${isDisabled ? "disabled" : ""}" data-req="${escapeHtml(act.action_id)}" ${isDisabled ? "disabled" : ""}>
+                        <div class="req-title">${escapeHtml(act.label)}</div>
+                        <div class="req-desc">${escapeHtml(act.description || "")}</div>
+                        ${statusBadge}
+                    </button>
+                `;
+            })
+            .join("");
+        elements.requirementGrid.innerHTML = cardsHtml;
+    }
+
     if (activeAction) {
         renderActionParameters(activeAction);
     }
@@ -240,24 +323,32 @@ export function renderActionParameters(action) {
         return;
     }
 
+    const activeElId = document.activeElement ? document.activeElement.id : null;
     elements.actionParamsContainer.classList.remove("hidden");
 
     const selects = action.parameters.filter((p) => p.kind === "select");
     const toggles = action.parameters.filter((p) => p.kind === "toggle");
 
+    let hasInvalidParam = false;
     let html = "";
     if (selects.length > 0) {
         html += selects
             .map((p) => {
+                const draftVal = getDraftParam(action.action_id, p.parameter_id, p.default_value);
+                const isOptionValid = (p.options || []).some(([val]) => val === draftVal);
+                if (!isOptionValid && draftVal !== undefined && draftVal !== null) {
+                    hasInvalidParam = true;
+                }
                 const optsHtml = (p.options || [])
-                    .map(([val, text]) => `<option value="${escapeHtml(val)}" ${val === p.default_value ? "selected" : ""}>${escapeHtml(text)}</option>`)
+                    .map(([val, text]) => `<option value="${escapeHtml(val)}" ${val === draftVal ? "selected" : ""}>${escapeHtml(text)}</option>`)
                     .join("");
                 return `
                     <div class="form-row" style="margin-bottom: 8px;">
                         <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">${escapeHtml(p.display_name)}</label>
-                        <select class="form-select action-param-select" data-param="${escapeHtml(p.parameter_id)}" id="param-${escapeHtml(p.parameter_id)}">
+                        <select class="form-select action-param-select ${!isOptionValid ? "is-invalid" : ""}" data-param="${escapeHtml(p.parameter_id)}" id="param-${escapeHtml(p.parameter_id)}">
                             ${optsHtml}
                         </select>
+                        ${!isOptionValid ? `<div class="text-danger" style="font-size: 0.78rem; margin-top: 2px;">Selected option "${escapeHtml(draftVal)}" is no longer available.</div>` : ""}
                     </div>
                 `;
             })
@@ -265,14 +356,18 @@ export function renderActionParameters(action) {
     }
 
     if (toggles.length > 0) {
-        const isProfileCustom = !selects.some((p) => p.parameter_id === "profile") || (document.getElementById("param-profile") && document.getElementById("param-profile").value === "custom");
+        const currentProfile = getDraftParam(action.action_id, "profile", "instant");
+        const isProfileCustom = !selects.some((p) => p.parameter_id === "profile") || currentProfile === "custom";
         const togglesHtml = toggles
-            .map((t) => `
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" class="action-param-toggle" data-param="${escapeHtml(t.parameter_id)}" id="param-${escapeHtml(t.parameter_id)}" ${t.default_value ? "checked" : ""}>
-                    <span>${escapeHtml(t.display_name)}</span>
-                </label>
-            `)
+            .map((t) => {
+                const draftVal = Boolean(getDraftParam(action.action_id, t.parameter_id, t.default_value));
+                return `
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="action-param-toggle" data-param="${escapeHtml(t.parameter_id)}" id="param-${escapeHtml(t.parameter_id)}" ${draftVal ? "checked" : ""}>
+                        <span>${escapeHtml(t.display_name)}</span>
+                    </label>
+                `;
+            })
             .join("");
 
         html += `
@@ -287,51 +382,24 @@ export function renderActionParameters(action) {
 
     elements.actionParamsContainer.innerHTML = html;
 
-    const profileSelect = document.getElementById("param-profile");
-    const togglesGroup = document.getElementById("dynamic-toggles-group");
-    if (profileSelect && togglesGroup) {
-        profileSelect.addEventListener("change", (e) => {
-            state.currentProfile = e.target.value;
-            togglesGroup.classList.toggle("hidden", e.target.value !== "custom");
-            previewPlan();
-        });
+    if (activeElId) {
+        const el = document.getElementById(activeElId);
+        if (el) el.focus();
     }
 
-    elements.actionParamsContainer.addEventListener("change", () => {
-        previewPlan();
-    });
+    if (hasInvalidParam && elements.btnStartRun) {
+        elements.btnStartRun.disabled = true;
+    }
 }
 
 export async function previewPlan() {
     if (state.selectedPaths.length === 0 || !elements.preflightPlanPreview) return;
 
-    const customOpts = {};
-    let profile = "instant";
+    const reqSeq = ++state.requestSeq;
+    const payload = buildRequestPayload();
 
-    if (elements.actionParamsContainer) {
-        const selects = elements.actionParamsContainer.querySelectorAll(".action-param-select");
-        selects.forEach((s) => {
-            const p = s.dataset.param;
-            if (p === "profile") {
-                profile = s.value;
-            } else {
-                customOpts[p] = s.value;
-            }
-        });
-
-        const toggles = elements.actionParamsContainer.querySelectorAll(".action-param-toggle");
-        toggles.forEach((t) => {
-            customOpts[t.dataset.param] = t.checked;
-        });
-    }
-
-    const res = await apiPost("/api/plan/preview", {
-        paths: state.selectedPaths,
-        requirement: state.currentRequirement,
-        profile: profile,
-        recursive: state.isRecursive,
-        custom_options: customOpts,
-    });
+    const res = await apiPost("/api/plan/preview", payload);
+    if (reqSeq !== state.requestSeq) return;
 
     if (res.ok && res.stages) {
         elements.preflightPlanPreview.classList.remove("hidden");
@@ -360,43 +428,14 @@ export async function handleStartRun() {
     elements.btnStartRun.disabled = true;
     hideError();
 
-    const customOpts = {};
-    let profile = "instant";
-
-    if (elements.actionParamsContainer) {
-        const selects = elements.actionParamsContainer.querySelectorAll(".action-param-select");
-        selects.forEach((s) => {
-            const p = s.dataset.param;
-            if (p === "profile") {
-                profile = s.value;
-            } else {
-                customOpts[p] = s.value;
-            }
-        });
-
-        const toggles = elements.actionParamsContainer.querySelectorAll(".action-param-toggle");
-        toggles.forEach((t) => {
-            customOpts[t.dataset.param] = t.checked;
-        });
-    }
-
-    if (state.currentRequirement === "ocr" && profile === "custom") {
-        customOpts.engine = "rapidocr";
-    }
-
-    const payload = {
-        paths: state.selectedPaths,
-        requirement: state.currentRequirement,
-        profile: profile,
-        recursive: state.isRecursive,
-        custom_options: customOpts,
-    };
-
+    const payload = buildRequestPayload();
     const res = await apiPost("/api/runs", payload);
 
     if (res.ok && res.run_id) {
         state.activeRunId = res.run_id;
         state.activeRunStatus = "RUNNING";
+        state.viewedRunId = res.run_id;
+        state.followLive = true;
         state.lastAutoNavigatedRunId = null;
         if (elements.focusStageName) elements.focusStageName.textContent = "—";
         if (elements.focusFileName) elements.focusFileName.textContent = "—";
@@ -427,6 +466,31 @@ export function initHomeScreen() {
         elements.chkRecursive.addEventListener("change", (e) => {
             state.isRecursive = e.target.checked;
             refreshIntake();
+        });
+    }
+
+    if (elements.actionParamsContainer) {
+        elements.actionParamsContainer.addEventListener("change", (e) => {
+            const select = e.target.closest(".action-param-select");
+            if (select) {
+                const paramId = select.dataset.param;
+                setDraftParam(state.currentRequirement, paramId, select.value);
+                if (paramId === "profile") {
+                    state.currentProfile = select.value;
+                    const togglesGroup = document.getElementById("dynamic-toggles-group");
+                    if (togglesGroup) togglesGroup.classList.toggle("hidden", select.value !== "custom");
+                }
+                previewPlan();
+                return;
+            }
+
+            const toggle = e.target.closest(".action-param-toggle");
+            if (toggle) {
+                const paramId = toggle.dataset.param;
+                setDraftParam(state.currentRequirement, paramId, toggle.checked);
+                previewPlan();
+                return;
+            }
         });
     }
 

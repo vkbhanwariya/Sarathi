@@ -6,7 +6,8 @@
  */
 
 import { initSSE, pollState } from "./js/api.js";
-import { elements, hideError, initDom } from "./js/dom.js";
+import { elements, hideError, initDom, renderProgressBar } from "./js/dom.js";
+import { formatStatus } from "./js/formatters.js";
 import { initHomeScreen, renderAvailableActions } from "./js/screens/home.js";
 import { initInspectorScreen, loadInspector } from "./js/screens/inspector.js";
 import { initMonitorScreen, renderMonitor } from "./js/screens/monitor.js";
@@ -22,50 +23,23 @@ function updatePresentation(appState) {
 
     // Header Status Dot & Label
     if (elements.systemStatusDot && elements.systemStatusText) {
-        const curStatus = (state.activeRunStatus || "idle").toUpperCase();
-        if (curStatus === "RUNNING") {
-            elements.systemStatusDot.className = "status-dot running";
-            elements.systemStatusText.textContent = "Processing...";
-        } else if (curStatus === "FAILED") {
-            elements.systemStatusDot.className = "status-dot error";
-            elements.systemStatusText.textContent = "Failed";
-        } else if (curStatus === "CANCELLED") {
-            elements.systemStatusDot.className = "status-dot warning";
-            elements.systemStatusText.textContent = "Cancelled";
-        } else {
-            elements.systemStatusDot.className = "status-dot online";
-            elements.systemStatusText.textContent = "Ready";
-        }
+        const curStatus = state.activeRunStatus || (appState.active_run ? appState.active_run.status : "idle");
+        const statusInfo = formatStatus(curStatus);
+        elements.systemStatusDot.className = statusInfo.dotClass;
+        elements.systemStatusText.textContent = statusInfo.label;
     }
 
     // Top-Level Global Progress Bar
     if (elements.topProgressContainer) {
         const activeRun = appState.active_run;
         if (activeRun && activeRun.status === "RUNNING") {
-            elements.topProgressContainer.classList.remove("hidden");
-            let pct = 0;
-            if (activeRun.progress && activeRun.progress.percentage !== null && activeRun.progress.percentage !== undefined) {
-                pct = Math.round(activeRun.progress.percentage);
-            } else if (activeRun.total_files > 0) {
-                pct = Math.min(100, Math.round(((activeRun.terminal_files || 0) / activeRun.total_files) * 100));
-            }
-            if (elements.topProgressBar) {
-                elements.topProgressBar.style.width = `${pct}%`;
-                elements.topProgressBar.setAttribute("aria-valuenow", pct.toString());
-            }
-            if (elements.topProgressPct) {
-                elements.topProgressPct.textContent = `${pct}%`;
-            }
-            if (elements.topProgressStage) {
-                const stageText = activeRun.current_focus && activeRun.current_focus.stage
-                    ? `${activeRun.current_focus.stage}${activeRun.current_focus.operation_name ? ' — ' + activeRun.current_focus.operation_name : ''}`
-                    : "Processing documents...";
-                elements.topProgressStage.textContent = stageText;
-            }
+            const stageText = activeRun.current_focus && activeRun.current_focus.stage
+                ? `${activeRun.current_focus.stage}${activeRun.current_focus.operation_name ? ' — ' + activeRun.current_focus.operation_name : ''}`
+                : "Processing documents...";
+            const progState = activeRun.progress || { kind: "known", completed: activeRun.terminal_files || 0, total: activeRun.total_files || 0 };
+            renderProgressBar(elements.topProgressContainer, elements.topProgressBar, elements.topProgressStage, elements.topProgressPct, progState, { stageText });
         } else if (activeRun && (activeRun.status === "SUCCESS" || activeRun.status === "PARTIAL")) {
-            if (elements.topProgressBar) elements.topProgressBar.style.width = "100%";
-            if (elements.topProgressPct) elements.topProgressPct.textContent = "100%";
-            if (elements.topProgressStage) elements.topProgressStage.textContent = `Completed (${activeRun.status})`;
+            renderProgressBar(elements.topProgressContainer, elements.topProgressBar, elements.topProgressStage, elements.topProgressPct, { kind: "known", percentage: 100 }, { stageText: `Completed (${activeRun.status})` });
             setTimeout(() => {
                 if (elements.topProgressContainer && (!state.activeRunStatus || state.activeRunStatus !== "RUNNING")) {
                     elements.topProgressContainer.classList.add("hidden");
@@ -77,27 +51,8 @@ function updatePresentation(appState) {
     }
 
     // Dynamic Capability & Available Actions Synchronization
-    if (appState.available_actions && appState.available_actions.length > 0) {
-        renderAvailableActions(appState.available_actions);
-        appState.available_actions.forEach((act) => {
-            const card = document.querySelector(`.req-card[data-req="${act.action_id}"]`);
-            if (card) {
-                card.disabled = !act.is_enabled;
-                card.classList.toggle("disabled", !act.is_enabled);
-                const badge = card.querySelector(".req-status");
-                if (badge) {
-                    if (act.is_enabled) {
-                        badge.className = "req-status badge badge-emerald";
-                        badge.textContent = "Ready";
-                        badge.title = "";
-                    } else {
-                        badge.className = "req-status badge badge-amber";
-                        badge.textContent = "Unavailable";
-                        badge.title = act.disabled_reason || "Unavailable";
-                    }
-                }
-            }
-        });
+    if (appState.available_actions !== undefined) {
+        renderAvailableActions(appState.available_actions || []);
     }
 
     // Aarambha Startup Overlay
@@ -115,21 +70,26 @@ function updatePresentation(appState) {
     // Pravritti Monitor Updates
     const activeRun = appState.active_run;
     if (activeRun) {
+        state.activeRunId = activeRun.run_id;
+        state.activeRunStatus = activeRun.status;
         renderMonitor(activeRun);
     }
 
-    // Auto Navigation to Samapti Summary upon Run Completion
+    // Auto Navigation to Samapti Summary upon Run Completion (strictly when followLive is active)
     const summary = appState.terminal_summary;
     if (summary) {
-        renderSummary(summary);
-        if (state.lastAutoNavigatedRunId !== summary.run_id && state.currentScreen === "monitor") {
+        if (state.followLive) {
+            renderSummary(summary);
+        }
+        if (state.followLive && state.lastAutoNavigatedRunId !== summary.run_id && state.currentScreen === "monitor") {
             state.lastAutoNavigatedRunId = summary.run_id;
+            state.viewedRunId = summary.run_id;
             switchScreen("summary");
         }
     }
 
-    // Live Inspector updates if currently viewing Nirikshana
-    if (state.currentScreen === "inspector" && state.activeRunId) {
+    // Live Inspector updates if currently viewing Nirikshana and following live
+    if (state.currentScreen === "inspector" && (state.followLive || !state.viewedRunId)) {
         loadInspector();
     }
 }

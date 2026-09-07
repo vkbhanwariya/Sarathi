@@ -3,8 +3,8 @@
  */
 
 import { apiPost } from "../api.js";
-import { elements, hideError, showError } from "../dom.js";
-import { escapeHtml, formatDuration } from "../formatters.js";
+import { elements, hideError, renderProgressBar, showError } from "../dom.js";
+import { escapeHtml, formatDuration, formatStatus } from "../formatters.js";
 import { state } from "../state.js";
 
 export function handleCancelRun() {
@@ -22,6 +22,10 @@ export async function confirmCancelRun() {
     }
     if (!state.activeRunId) return;
     if (elements.btnCancelRun) elements.btnCancelRun.disabled = true;
+    if (elements.monitorStatusBadge) {
+        elements.monitorStatusBadge.textContent = "Cancellation requested";
+        elements.monitorStatusBadge.className = "badge badge-amber";
+    }
     hideError();
 
     const res = await apiPost(`/api/runs/${encodeURIComponent(state.activeRunId)}/cancel`);
@@ -58,21 +62,27 @@ export function renderMonitor(activeRun) {
     state.activeRunId = activeRun.run_id;
     state.activeRunStatus = activeRun.status;
     if (elements.monitorRunId) elements.monitorRunId.textContent = activeRun.run_id;
-    if (elements.monitorStatusBadge) elements.monitorStatusBadge.textContent = activeRun.status;
+    if (elements.monitorStatusBadge) {
+        if (activeRun.status === "CANCELLED") {
+            elements.monitorStatusBadge.textContent = "Run cancelled";
+            elements.monitorStatusBadge.className = "badge badge-amber";
+        } else {
+            const st = formatStatus(activeRun.status);
+            elements.monitorStatusBadge.textContent = st.label;
+            elements.monitorStatusBadge.className = st.className;
+        }
+    }
     if (elements.monitorElapsedTime) elements.monitorElapsedTime.textContent = formatDuration(activeRun.elapsed_ns);
     if (elements.btnCancelRun) elements.btnCancelRun.disabled = activeRun.status !== "RUNNING";
 
     // Factual Progress Bar from Server State
-    let pct = 0;
-    if (activeRun.progress && activeRun.progress.percentage !== null && activeRun.progress.percentage !== undefined) {
-        pct = Math.round(activeRun.progress.percentage);
-    } else if (activeRun.total_files > 0) {
-        pct = Math.min(100, Math.round(((activeRun.terminal_files || 0) / activeRun.total_files) * 100));
-    }
-    if (elements.monitorProgressBar) {
-        elements.monitorProgressBar.style.width = `${pct}%`;
-        elements.monitorProgressBar.setAttribute("aria-valuenow", pct.toString());
-    }
+    const progState = activeRun.progress || {
+        kind: "known",
+        completed: activeRun.terminal_files || 0,
+        total: activeRun.total_files || 0,
+        percentage: (activeRun.total_files > 0 ? ((activeRun.terminal_files || 0) / activeRun.total_files) * 100 : 0)
+    };
+    renderProgressBar(elements.monitorProgressContainer, elements.monitorProgressBar, null, null, progState);
 
     // Focus Stage
     if (activeRun.current_focus) {

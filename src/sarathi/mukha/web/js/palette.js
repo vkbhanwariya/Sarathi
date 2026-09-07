@@ -23,8 +23,9 @@ const COMMANDS = [
         id: "act-export-diag",
         label: "Action: Export Run Diagnostics (JSON)",
         action: () => {
-            if (state.activeRunId) {
-                window.open(`/api/runs/${encodeURIComponent(state.activeRunId)}/diagnostics`, "_blank");
+            const runId = state.viewedRunId || state.activeRunId;
+            if (runId) {
+                window.open(`/api/runs/${encodeURIComponent(runId)}/diagnostics`, "_blank");
             }
         },
     },

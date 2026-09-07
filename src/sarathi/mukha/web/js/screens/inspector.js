@@ -4,20 +4,33 @@
 
 import { apiGet, apiPost } from "../api.js";
 import { elements } from "../dom.js";
-import { escapeHtml, formatDuration } from "../formatters.js";
+import { escapeHtml, formatDuration, formatStatus } from "../formatters.js";
 import { state, switchScreen } from "../state.js";
 import { loadRunSummary } from "./summary.js";
 
 export async function loadInspector() {
-    if (!state.activeRunId) {
+    const targetRunId = state.viewedRunId || state.activeRunId;
+    if (!targetRunId) {
         if (elements.inspectorLogs) {
             elements.inspectorLogs.innerHTML = '<div class="log-entry text-muted">[Ready] No active or recent run to inspect.</div>';
         }
         return;
     }
 
-    const res = await apiGet(`/api/runs/${encodeURIComponent(state.activeRunId)}/inspector`);
-    if (!res.ok || !res.inspector) return;
+    const seq = ++state.inspectorRequestSeq;
+    if (elements.inspectorLogs) {
+        elements.inspectorLogs.innerHTML = `<div class="log-entry text-muted">[Loading] Fetching telemetry records for ${escapeHtml(targetRunId)}...</div>`;
+    }
+
+    const res = await apiGet(`/api/runs/${encodeURIComponent(targetRunId)}/inspector`);
+    if (seq !== state.inspectorRequestSeq) return;
+
+    if (!res.ok || !res.inspector) {
+        if (elements.inspectorLogs) {
+            elements.inspectorLogs.innerHTML = `<div class="log-entry text-danger">[Unavailable] Telemetry details unavailable for ${escapeHtml(targetRunId)}.</div>`;
+        }
+        return;
+    }
 
     const insp = res.inspector;
 
@@ -99,7 +112,7 @@ export async function loadInspector() {
         elements.statTessImproved.textContent = fallbacks.length;
     }
     if (elements.statTessIntercepted) {
-        elements.statTessIntercepted.textContent = fallbacks.length > 0 ? fallbacks.length : "0";
+        elements.statTessIntercepted.textContent = "—";
     }
     if (elements.statTessGain) {
         if (fallbacks.length > 0) {
@@ -279,9 +292,8 @@ export async function toggleHistoryDrawer(forceState) {
         if (res.ok && res.history && res.history.length > 0) {
             elements.historyListContainer.innerHTML = res.history
                 .map((h) => {
-                    let stBadge = '<span class="badge badge-emerald">SUCCESS</span>';
-                    if (h.status === "PARTIAL") stBadge = '<span class="badge badge-amber">PARTIAL</span>';
-                    else if (h.status === "FAILED") stBadge = '<span class="badge badge-crimson">FAILED</span>';
+                    const st = formatStatus(h.status);
+                    const stBadge = `<span class="${st.className}">${escapeHtml(h.status || st.label)}</span>`;
 
                     return `
                         <div class="history-card" data-run-id="${escapeHtml(h.run_id)}">
@@ -362,8 +374,9 @@ export function initInspectorScreen() {
     const btnExportDiag = document.getElementById("btn-export-diagnostics");
     if (btnExportDiag) {
         btnExportDiag.addEventListener("click", () => {
-            if (state.activeRunId) {
-                window.open(`/api/runs/${encodeURIComponent(state.activeRunId)}/diagnostics`, "_blank");
+            const targetRunId = state.viewedRunId || state.activeRunId;
+            if (targetRunId) {
+                window.open(`/api/runs/${encodeURIComponent(targetRunId)}/diagnostics`, "_blank");
             }
         });
     }
@@ -399,7 +412,8 @@ export function initInspectorScreen() {
 
             if (btnResult && btnResult.dataset.runId) {
                 const runId = btnResult.dataset.runId;
-                state.activeRunId = runId;
+                state.viewedRunId = runId;
+                state.followLive = false;
                 toggleHistoryDrawer(false);
                 loadRunSummary(runId);
                 return;
@@ -407,7 +421,8 @@ export function initInspectorScreen() {
 
             if (btnTelemetry && btnTelemetry.dataset.runId) {
                 const runId = btnTelemetry.dataset.runId;
-                state.activeRunId = runId;
+                state.viewedRunId = runId;
+                state.followLive = false;
                 toggleHistoryDrawer(false);
                 switchScreen("inspector");
                 loadInspector();
@@ -416,7 +431,8 @@ export function initInspectorScreen() {
 
             if (card && card.dataset.runId) {
                 const runId = card.dataset.runId;
-                state.activeRunId = runId;
+                state.viewedRunId = runId;
+                state.followLive = false;
                 toggleHistoryDrawer(false);
                 loadRunSummary(runId);
             }

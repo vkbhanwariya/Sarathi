@@ -185,6 +185,7 @@ export function initDom() {
     elements.monitorStatusBadge = document.getElementById("monitor-status-badge");
     elements.monitorElapsedTime = document.getElementById("monitor-elapsed-time");
     elements.monitorProgressBar = document.getElementById("monitor-progress-bar");
+    elements.monitorProgressContainer = elements.monitorProgressBar ? elements.monitorProgressBar.closest(".progress-bar-container") : null;
     elements.btnCancelRun = document.getElementById("btn-cancel-run");
     elements.longRunningAlert = document.getElementById("long-running-alert");
     elements.longRunningDesc = document.getElementById("long-running-desc");
@@ -295,5 +296,63 @@ export function showError(msg) {
 export function hideError() {
     if (elements.errorBanner) {
         elements.errorBanner.classList.add("hidden");
+    }
+}
+
+export function renderProgressBar(containerEl, barEl, stageEl, pctEl, progressState, options = {}) {
+    if (!containerEl) return;
+    const kind = progressState ? (progressState.kind || "known") : "unavailable";
+
+    if (kind === "indeterminate") {
+        containerEl.classList.remove("hidden");
+        containerEl.classList.add("indeterminate");
+        containerEl.removeAttribute("aria-valuenow");
+        containerEl.setAttribute("aria-busy", "true");
+        if (barEl) {
+            barEl.style.width = "100%";
+        }
+        if (pctEl) {
+            pctEl.textContent = "";
+        }
+        if (stageEl && options.stageText) {
+            stageEl.textContent = options.stageText;
+        }
+    } else if (kind === "known") {
+        containerEl.classList.remove("hidden");
+        containerEl.classList.remove("indeterminate");
+        containerEl.removeAttribute("aria-busy");
+
+        let pct = 0;
+        if (progressState.percentage !== null && progressState.percentage !== undefined) {
+            pct = Math.round(progressState.percentage);
+        } else if (progressState.total > 0) {
+            pct = Math.min(100, Math.round(((progressState.completed || 0) / progressState.total) * 100));
+        }
+
+        containerEl.setAttribute("aria-valuenow", String(pct));
+        if (barEl) {
+            barEl.style.width = `${pct}%`;
+            barEl.setAttribute("aria-valuenow", String(pct));
+        }
+        if (pctEl) {
+            pctEl.textContent = `${pct}%`;
+        }
+        if (stageEl && options.stageText) {
+            stageEl.textContent = options.stageText;
+        }
+    } else {
+        containerEl.classList.remove("indeterminate");
+        containerEl.removeAttribute("aria-busy");
+        containerEl.removeAttribute("aria-valuenow");
+        if (barEl) {
+            barEl.style.width = "0%";
+            barEl.removeAttribute("aria-valuenow");
+        }
+        if (pctEl) {
+            pctEl.textContent = options.showUnavailableText ? "—" : "";
+        }
+        if (stageEl && options.stageText) {
+            stageEl.textContent = options.stageText;
+        }
     }
 }

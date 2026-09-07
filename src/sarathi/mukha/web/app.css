@@ -1431,6 +1431,17 @@ select:focus-visible,
     opacity: 0.9;
 }
 
+.top-progress-container.indeterminate .top-progress-bar {
+    width: 40% !important;
+    animation: indeterminate-slide 1.5s infinite ease-in-out;
+}
+
+@keyframes indeterminate-slide {
+    0% { left: -40%; width: 40%; }
+    50% { left: 30%; width: 50%; }
+    100% { left: 100%; width: 40%; }
+}
+
 .top-progress-info {
     position: relative;
     z-index: 2;

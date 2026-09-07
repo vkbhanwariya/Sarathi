@@ -10,8 +10,9 @@ import { state, switchScreen } from "../state.js";
 import { toggleHistoryDrawer } from "./inspector.js";
 
 export async function handleOpenOutputFolder() {
-    if (!state.activeRunId) return;
-    const res = await apiPost(`/api/runs/${encodeURIComponent(state.activeRunId)}/reveal`);
+    const targetId = state.viewedRunId || state.activeRunId;
+    if (!targetId) return;
+    const res = await apiPost(`/api/runs/${encodeURIComponent(targetId)}/reveal`);
     if (!res.ok) {
         showError(res.error || "Failed to reveal output folder.");
     }
@@ -19,9 +20,14 @@ export async function handleOpenOutputFolder() {
 
 export async function loadRunSummary(runId) {
     if (!runId) return;
+    const seq = ++state.summaryRequestSeq;
+    state.viewedRunId = runId;
+    if (runId !== state.activeRunId) {
+        state.followLive = false;
+    }
     const res = await apiGet(`/api/runs/${encodeURIComponent(runId)}/summary`);
+    if (seq !== state.summaryRequestSeq) return;
     if (res.ok && res.summary) {
-        state.activeRunId = runId;
         renderSummary(res.summary);
         switchScreen("summary");
     } else {
@@ -31,10 +37,10 @@ export async function loadRunSummary(runId) {
 
 export function renderSummary(summary) {
     if (!summary) return;
-    state.activeRunId = summary.run_id;
+    state.viewedRunId = summary.run_id;
 
     const isSuccess = summary.status === "SUCCESS";
-    const isWarning = summary.status === "WARNING" || summary.status === "PARTIAL";
+    const isWarning = summary.status === "WARNING" || summary.status === "PARTIAL" || summary.status === "CANCELLED";
 
     if (elements.summaryStatusBadge) {
         elements.summaryStatusBadge.textContent = summary.status;
@@ -44,20 +50,28 @@ export function renderSummary(summary) {
     }
 
     if (elements.summaryHero) {
-        elements.summaryHero.className = `summary-hero status-${summary.status.toLowerCase()}`;
+        elements.summaryHero.className = `summary-hero status-${(summary.status || "failed").toLowerCase()}`;
     }
 
     if (elements.summaryTitle) {
-        elements.summaryTitle.textContent =
-            isSuccess
-                ? "Run Completed Successfully"
-                : isWarning
-                ? "Run Completed with Warnings"
-                : `Run Failed (${summary.status})`;
+        if (summary.status === "SUCCESS") {
+            elements.summaryTitle.textContent = "Run Completed Successfully";
+        } else if (summary.status === "PARTIAL" || summary.status === "WARNING") {
+            elements.summaryTitle.textContent = "Run Completed with Warnings";
+        } else if (summary.status === "CANCELLED") {
+            elements.summaryTitle.textContent = "Run Cancelled";
+        } else if (summary.status === "QUARANTINED") {
+            elements.summaryTitle.textContent = "Run Quarantined";
+        } else {
+            elements.summaryTitle.textContent = `Run Failed (${summary.status || "FAILED"})`;
+        }
     }
 
     if (elements.summaryRunMeta) {
-        elements.summaryRunMeta.textContent = `Run ID: ${summary.run_id} | Total Wall Time: ${formatDuration(summary.wall_time_ns)}`;
+        const wallTime = summary.wall_time_ns !== undefined && summary.wall_time_ns !== null
+            ? formatDuration(summary.wall_time_ns)
+            : "—";
+        elements.summaryRunMeta.textContent = `Run ID: ${summary.run_id} | Total Wall Time: ${wallTime}`;
     }
 
     const failures = summary.failures || [];
