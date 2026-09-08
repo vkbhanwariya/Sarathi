@@ -161,9 +161,16 @@ export function renderSummary(summary) {
     if (elements.artifactsGrid) {
         if (summary.artifacts && summary.artifacts.length > 0) {
             elements.artifactsGrid.innerHTML = summary.artifacts
-                .map((art) => `
+                .map((art) => {
+                    const extMatch = (art.display_name || "").match(/\.([0-9a-z]+)$/i);
+                    const ext = extMatch ? extMatch[1].toLowerCase() : "file";
+                    const extClass = ["docx", "xlsx", "parquet", "pdf"].includes(ext) ? ext : "";
+                    return `
                     <div class="artifact-card">
-                        <div class="artifact-title">${escapeHtml(art.display_name)}</div>
+                        <div class="artifact-top">
+                            <span class="artifact-ext-badge ${extClass}">${escapeHtml(ext.slice(0, 4))}</span>
+                            <div class="artifact-title">${escapeHtml(art.display_name)}</div>
+                        </div>
                         <div class="artifact-meta">
                             <span>Role: <strong>${escapeHtml(art.role)}</strong></span>
                             <span>${formatBytes(art.size_bytes)}</span>
@@ -173,7 +180,8 @@ export function renderSummary(summary) {
                             <a class="btn btn-outline btn-sm" href="/api/runs/${encodeURIComponent(summary.run_id)}/artifacts/${encodeURIComponent(art.artifact_id)}" download="${escapeHtml(art.display_name)}">⬇ Download</a>
                         </div>
                     </div>
-                `)
+                `;
+                })
                 .join("");
         } else {
             elements.artifactsGrid.innerHTML = '<div class="empty-card" style="grid-column: 1/-1; text-align: center; padding: 24px; color: var(--text-muted);">No output artifacts generated.</div>';

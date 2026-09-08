@@ -19,6 +19,7 @@ export const elements = {
     topProgressPct: null,
 
     // Home Elements
+    dropZone: null,
     btnBrowseFiles: null,
     btnBrowseFolder: null,
     btnClearSelected: null,
@@ -59,6 +60,7 @@ export const elements = {
     btnStartRun: null,
 
     // Monitor Elements
+    monitorPipelineStepper: null,
     monitorRunId: null,
     monitorStatusBadge: null,
     monitorElapsedTime: null,
@@ -190,6 +192,7 @@ export function initDom() {
     elements.topProgressPct = document.getElementById("top-progress-pct");
 
     // Home
+    elements.dropZone = document.getElementById("drop-zone");
     elements.btnBrowseFiles = document.getElementById("btn-browse-files");
     elements.btnBrowseFolder = document.getElementById("btn-browse-folder");
     elements.btnClearSelected = document.getElementById("btn-clear-selected");
@@ -230,6 +233,7 @@ export function initDom() {
     elements.btnStartRun = document.getElementById("btn-start-run");
 
     // Monitor
+    elements.monitorPipelineStepper = document.getElementById("monitor-pipeline-stepper");
     elements.monitorRunId = document.getElementById("monitor-run-id");
     elements.monitorStatusBadge = document.getElementById("monitor-status-badge");
     elements.monitorElapsedTime = document.getElementById("monitor-elapsed-time");

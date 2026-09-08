@@ -423,6 +423,16 @@ export function renderAvailableActions(actions) {
     const existingIds = Array.from(existingCards).map((c) => c.dataset.req).join(",");
     const newIds = actions.map((a) => a.action_id).join(",");
 
+function getActionIcon(actionId) {
+    const id = (actionId || "").toLowerCase();
+    if (id.includes("native") || id.includes("read")) return "📄";
+    if (id.includes("ocr")) return "🔍";
+    if (id.includes("font")) return "🔤";
+    if (id.includes("translat")) return "🌐";
+    if (id.includes("bank") || id.includes("statement")) return "🏦";
+    return "⚡";
+}
+
     if (existingIds === newIds && existingCards.length > 0) {
         // In-place update to preserve elements and focus
         actions.forEach((act) => {
@@ -456,11 +466,15 @@ export function renderAvailableActions(actions) {
                 const statusBadge = act.is_enabled
                     ? '<span class="req-status badge badge-emerald">Ready</span>'
                     : `<span class="req-status badge badge-amber" title="${escapeHtml(act.disabled_reason || "Unavailable")}">Unavailable</span>`;
+                const icon = getActionIcon(act.action_id);
                 return `
                     <button type="button" class="req-card ${isActive ? "selected active" : ""} ${isDisabled ? "disabled" : ""}" data-req="${escapeHtml(act.action_id)}" ${isDisabled ? "disabled" : ""}>
+                        <div class="req-card-header">
+                            <span class="req-icon">${icon}</span>
+                            ${statusBadge}
+                        </div>
                         <div class="req-title">${escapeHtml(act.label)}</div>
                         <div class="req-desc">${escapeHtml(act.description || "")}</div>
-                        ${statusBadge}
                     </button>
                 `;
             })
@@ -617,7 +631,65 @@ export async function handleStartRun() {
     }
 }
 
+export function initDropZone() {
+    if (!elements.dropZone) return;
+
+    elements.dropZone.addEventListener("click", () => {
+        handleBrowseFiles();
+    });
+
+    elements.dropZone.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleBrowseFiles();
+        }
+    });
+
+    elements.dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "copy";
+        elements.dropZone.classList.add("drag-over");
+    });
+
+    elements.dropZone.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        elements.dropZone.classList.remove("drag-over");
+    });
+
+    elements.dropZone.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        elements.dropZone.classList.remove("drag-over");
+
+        const droppedPaths = [];
+        const textData = e.dataTransfer.getData("text/plain");
+        if (textData && textData.trim()) {
+            const lines = textData.split(/[\r\n]+/).map((l) => l.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+            droppedPaths.push(...lines);
+        }
+
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            for (let i = 0; i < e.dataTransfer.files.length; i++) {
+                const file = e.dataTransfer.files[i];
+                if (file.path) {
+                    droppedPaths.push(file.path);
+                }
+            }
+        }
+
+        if (droppedPaths.length > 0) {
+            hideError();
+            await addSelectedPaths(droppedPaths);
+        } else {
+            handleBrowseFiles();
+        }
+    });
+}
+
 export function initHomeScreen() {
+    initDropZone();
     if (elements.btnBrowseFiles) elements.btnBrowseFiles.addEventListener("click", handleBrowseFiles);
     if (elements.btnBrowseFolder) elements.btnBrowseFolder.addEventListener("click", handleBrowseFolder);
     if (elements.btnAddManualPath) elements.btnAddManualPath.addEventListener("click", handleAddManualPath);

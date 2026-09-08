@@ -48,6 +48,68 @@ export function requestNotificationPermission() {
     }
 }
 
+export function updatePipelineStepper(activeRun) {
+    if (!elements.monitorPipelineStepper) return;
+
+    const steps = elements.monitorPipelineStepper.querySelectorAll(".stepper-step");
+    const connectors = elements.monitorPipelineStepper.querySelectorAll(".stepper-connector");
+
+    if (!activeRun || activeRun.status === "IDLE") {
+        steps.forEach((s) => s.classList.remove("active", "completed"));
+        connectors.forEach((c) => c.classList.remove("completed"));
+        return;
+    }
+
+    if (activeRun.status === "SUCCESS") {
+        steps.forEach((s) => {
+            s.classList.remove("active");
+            s.classList.add("completed");
+        });
+        connectors.forEach((c) => c.classList.add("completed"));
+        return;
+    }
+
+    const currentStage = (activeRun.current_focus && activeRun.current_focus.stage
+        ? activeRun.current_focus.stage.toLowerCase()
+        : "");
+
+    let activeIndex = 0;
+    if (currentStage.includes("export") || currentStage.includes("commit") || currentStage.includes("write") || currentStage.includes("final")) {
+        activeIndex = 3;
+    } else if (currentStage.includes("ocr") || currentStage.includes("translat") || currentStage.includes("exec") || currentStage.includes("run") || currentStage.includes("convert") || currentStage.includes("extract")) {
+        activeIndex = 2;
+    } else if (currentStage.includes("pre") || currentStage.includes("part") || currentStage.includes("parse") || currentStage.includes("clean") || currentStage.includes("norm")) {
+        activeIndex = 1;
+    } else if (currentStage.includes("intake") || currentStage.includes("plan") || currentStage.includes("scan")) {
+        activeIndex = 0;
+    } else if (activeRun.status === "RUNNING") {
+        const pct = (activeRun.total_files > 0 ? (activeRun.terminal_files || 0) / activeRun.total_files : 0);
+        if (pct >= 0.8) activeIndex = 3;
+        else if (pct >= 0.2) activeIndex = 2;
+        else activeIndex = 1;
+    }
+
+    steps.forEach((step, idx) => {
+        if (idx < activeIndex) {
+            step.classList.remove("active");
+            step.classList.add("completed");
+        } else if (idx === activeIndex) {
+            step.classList.remove("completed");
+            step.classList.add("active");
+        } else {
+            step.classList.remove("active", "completed");
+        }
+    });
+
+    connectors.forEach((conn, idx) => {
+        if (idx < activeIndex) {
+            conn.classList.add("completed");
+        } else {
+            conn.classList.remove("completed");
+        }
+    });
+}
+
 export function renderMonitor(activeRun) {
     if (!activeRun) return;
 
@@ -88,6 +150,7 @@ export function renderMonitor(activeRun) {
         percentage: (activeRun.total_files > 0 ? ((activeRun.terminal_files || 0) / activeRun.total_files) * 100 : 0)
     };
     renderProgressBar(elements.monitorProgressContainer, elements.monitorProgressBar, null, null, progState);
+    updatePipelineStepper(activeRun);
 
     // Focus Stage
     if (activeRun.current_focus) {
