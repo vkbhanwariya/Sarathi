@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from playwright.sync_api import Page, expect
 
 from sarathi.mukha.web import MukhaWebServer
+
+pytestmark = [pytest.mark.browser]
 
 
 def test_active_run_id_not_overwritten_by_historical_summary(app_page: Page, web_server: MukhaWebServer) -> None:

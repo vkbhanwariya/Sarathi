@@ -7,9 +7,57 @@ on:
     branches: [main]
 
 jobs:
-  validate:
+  lint:
+    name: Lint & Compilation
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Bytecode compilation check
+        run: uv run python -m compileall -q src tests tools scripts
+
+      - name: Ruff lint check
+        run: uv run ruff check .
+
+  architecture:
+    name: Architecture Boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Architecture tests (manifest & import linter)
+        run: uv run --group dev pytest -q -m architecture
+
+  test:
+    name: Unit & Integration Tests
+    needs: [lint]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,20 +74,31 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --group dev
 
-      - name: Bytecode compilation check
-        run: uv run python -m compileall -q src tests tools
+      - name: Run deterministic test suite
+        run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture"
 
-      - name: Ruff lint check
-        run: uv run ruff check .
+  browser:
+    name: Browser Tests
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Architecture manifest validation
-        run: uv run python -m tools.architecture.validate_manifest
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
 
-      - name: Import Linter check
-        run: uv run lint-imports
+      - name: Set up Python 3.13
+        run: uv python install 3.13
 
-      - name: Architecture tests (fast fail)
-        run: uv run --group dev pytest -q -m architecture
+      - name: Install dev dependencies
+        run: uv sync --group dev
 
-      - name: Run full test suite
-        run: uv run --group dev --all-extras pytest -q
+      - name: Install Playwright browsers
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run browser test suite
+        run: uv run --group dev pytest -q -m browser

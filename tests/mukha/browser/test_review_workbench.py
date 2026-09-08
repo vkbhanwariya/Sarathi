@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from playwright.sync_api import Page, expect
+
+pytestmark = [pytest.mark.browser]
 
 
 def _make_review_items() -> list[dict]:

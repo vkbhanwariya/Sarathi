@@ -6,12 +6,9 @@ host/origin validation, native file picker execution, and confirmed artifact str
 
 from __future__ import annotations
 
-import importlib.resources
 import json
 import mimetypes
 import re
-import socket
-import time
 import urllib.parse
 from dataclasses import dataclass
 from enum import StrEnum
@@ -22,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
-from sarathi.mukha.state import ReviewIntent
 from sarathi.mukha.web.native_picker import NativePicker
 from sarathi.mukha.web.preview import (
     build_artifact_preview,
@@ -495,63 +491,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
 
         # 3b. POST /api/review
         elif path == "/api/review":
-            item_id = body.get("item_id")
-            action = body.get("action_id") or body.get("action")
-            attempt_id = body.get("attempt_id")
-            run_id = body.get("run_id")
+            from sarathi.mukha.web.review_handler import handle_review_post
 
-            if not isinstance(item_id, str) or not item_id.strip():
-                self._send_json(400, {"ok": False, "error": "item_id must be a non-empty string."})
-                return
-            if not isinstance(action, str) or not action.strip():
-                self._send_json(400, {"ok": False, "error": "action or action_id must be a non-empty string."})
-                return
-            if not isinstance(attempt_id, str) or not attempt_id.strip():
-                self._send_json(400, {"ok": False, "error": "attempt_id must be a non-empty string."})
-                return
-            if run_id is not None and (not isinstance(run_id, str) or not run_id.strip()):
-                self._send_json(400, {"ok": False, "error": "run_id must be a non-empty string when provided."})
-                return
-
-            act = action.strip()
-            act_mapped = "validate_edit" if act == "edit" else ("unresolved" if act in ("dismiss", "unresolved") else act)
-            if act_mapped not in ("accept", "validate_edit", "retry", "unresolved"):
-                self._send_json(400, {"ok": False, "error": f"Invalid review action: '{action}'."})
-                return
-
-            # Fail-closed check: validate_edit and retry lack runtime capability contracts
-            if act_mapped in ("validate_edit", "retry"):
-                self._send_json(400, {
-                    "ok": False,
-                    "error": f"Review action '{act_mapped}' is currently unsupported by runtime capability.",
-                })
-                return
-
-            expected_rev = None
-            if body.get("expected_revision") is not None:
-                try:
-                    expected_rev = int(body["expected_revision"])
-                except (ValueError, TypeError):
-                    self._send_json(400, {"ok": False, "error": "expected_revision must be an integer."})
-                    return
-
-            intent = ReviewIntent(
-                item_id=item_id.strip(),
-                attempt_id=attempt_id.strip(),
-                action_id=act_mapped,
-                run_id=run_id.strip() if run_id else None,
-                proposed_value=str(body["proposed_value"]) if body.get("proposed_value") is not None else None,
-                expected_revision=expected_rev,
-            )
-            applied = self.mukha_app.apply_review_intent(intent)
-            if not applied:
-                self._send_json(400, {
-                    "ok": False,
-                    "error": "Review intent rejected: foreign run, stale attempt, duplicate submission, or invalid item.",
-                })
-                return
-
-            self._send_json(200, {"ok": True, "action": act_mapped, "item_id": intent.item_id, "applied": True})
+            handle_review_post(self, body)
             return
         # 3c. POST /api/plan/preview
         elif path == "/api/plan/preview":
@@ -696,92 +638,21 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
 
     def _serve_static_resource(self, filename: str, content_type: str) -> None:
         """Serve packaged static asset using importlib.resources."""
-        try:
-            pkg = importlib.resources.files("sarathi.mukha.web")
-            resource = pkg.joinpath(filename)
-            content = resource.read_bytes()
-        except Exception:
-            local_path = Path(__file__).parent / filename
-            if not local_path.is_file():
-                self.send_error(HTTPStatus.NOT_FOUND, f"Static resource {filename} missing.")
-                return
-            content = local_path.read_bytes()
+        from sarathi.mukha.web.static_handler import serve_static_resource
 
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(content)))
-        self._apply_security_headers(cache_control="no-cache")
-        self.end_headers()
-        self.wfile.write(content)
+        serve_static_resource(self, filename, content_type)
 
     def _serve_asset_resource(self, filename: str, content_type: str) -> None:
         """Serve packaged asset resource from sarathi.mukha.web.assets or disk."""
-        try:
-            pkg = importlib.resources.files("sarathi.mukha.web.assets")
-            resource = pkg.joinpath(filename)
-            content = resource.read_bytes()
-        except Exception:
-            local_path = Path(__file__).parent / "assets" / filename
-            if not local_path.is_file():
-                self.send_error(HTTPStatus.NOT_FOUND, f"Asset {filename} not found.")
-                return
-            content = local_path.read_bytes()
+        from sarathi.mukha.web.static_handler import serve_asset_resource
 
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(content)))
-        self._apply_security_headers(cache_control="public, max-age=3600")
-        self.end_headers()
-        self.wfile.write(content)
+        serve_asset_resource(self, filename, content_type)
 
     def _serve_sse_stream(self) -> None:
         """Stream real-time presentation state and progress events over Server-Sent Events (SSE)."""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache, no-transform")
-        self.send_header("Connection", "keep-alive")
-        self.send_header("X-Accel-Buffering", "no")
-        self._apply_security_headers(cache_control="no-cache")
-        self.end_headers()
+        from sarathi.mukha.web.static_handler import serve_sse_stream
 
-        last_revision: int = -1
-        last_serialized: str | None = None
-        last_ping = time.time()
-
-        try:
-            while not getattr(self.server, "_shutting_down", False):
-                now = time.time()
-                runner_rev = getattr(getattr(self.mukha_app, "runner", None), "state_revision", None)
-                app_state = self.mukha_app.get_application_view_state()
-                is_running = bool(app_state.active_run and app_state.active_run.status == "RUNNING")
-
-                if runner_rev is None or runner_rev != last_revision or is_running:
-                    serialized = json.dumps(
-                        {
-                            "ok": True,
-                            "schema_version": app_state.schema_version,
-                            "state_revision": app_state.state_revision,
-                            "state": _serialize_dataclass(app_state),
-                        },
-                        ensure_ascii=False,
-                    )
-                    if serialized != last_serialized or runner_rev != last_revision:
-                        last_serialized = serialized
-                        last_revision = app_state.state_revision if runner_rev is not None else -1
-                        payload = f"event: state\ndata: {serialized}\n\n".encode("utf-8")
-                        self.wfile.write(payload)
-                        self.wfile.flush()
-
-                if now - last_ping >= 15.0:
-                    last_ping = now
-                    self.wfile.write(b"event: ping\ndata: {}\n\n")
-                    self.wfile.flush()
-
-                time.sleep(0.5 if is_running else 1.5)
-        except (ConnectionResetError, BrokenPipeError, socket.error, OSError):
-            return
-        except Exception:
-            return
+        serve_sse_stream(self)
 
     def _serve_document_preview(self, path_str: str) -> None:
         """Serve safe structured preview data for a candidate input document or output file."""

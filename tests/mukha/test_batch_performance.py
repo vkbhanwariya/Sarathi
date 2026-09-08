@@ -20,6 +20,8 @@ from sarathi.mukha.state import (
 )
 from sarathi.mukha.web.http_handler import _serialize_dataclass
 
+pytestmark = [pytest.mark.performance]
+
 
 def _create_synthetic_batch(base_dir: Path, count: int) -> list[Path]:
     """Create a synthetic batch of valid test PDF files."""

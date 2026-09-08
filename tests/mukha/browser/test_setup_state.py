@@ -6,9 +6,12 @@ and parameter stability against telemetry and navigation updates.
 
 from __future__ import annotations
 
+import pytest
 from playwright.sync_api import Page, expect
 
 from sarathi.mukha.web import MukhaWebServer
+
+pytestmark = [pytest.mark.browser]
 
 
 def test_app_loads_and_displays_home_screen(app_page: Page) -> None:

@@ -6,7 +6,10 @@ panel scroll isolation, responsive breakpoint at 768px, and touch target sizing.
 
 from __future__ import annotations
 
+import pytest
 from playwright.sync_api import Page, expect
+
+pytestmark = [pytest.mark.browser]
 
 
 def test_header_height_and_tokens(app_page: Page) -> None:

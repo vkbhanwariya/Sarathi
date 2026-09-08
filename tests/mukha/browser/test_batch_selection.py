@@ -7,7 +7,10 @@ and keyboard-accessible issue explanations across batch boundaries (0, 1, 10, 11
 
 from __future__ import annotations
 
+import pytest
 from playwright.sync_api import Page, expect
+
+pytestmark = [pytest.mark.browser]
 
 
 def _make_synthetic_items(count: int, issues_ratio: float = 0.0) -> list[dict]:

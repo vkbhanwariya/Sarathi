@@ -6,7 +6,10 @@ ARIA progress attributes, and accurate cancellation messages.
 
 from __future__ import annotations
 
+import pytest
 from playwright.sync_api import Page, expect
+
+pytestmark = [pytest.mark.browser]
 
 
 def test_top_progress_role_and_aria_attributes(app_page: Page) -> None:
