@@ -1,6 +1,6 @@
 # Sarathi V2 — Shakti — Plugin & Capability Specification
 
-**Specification Updated:** 05-09-2026, 11:22 PM IST (Asia/Kolkata)
+**Specification Updated:** 08-09-2026, 11:55 PM IST (Asia/Kolkata)
 
 This file owns shared plugin rules, **PluginProvider** integration contracts, **Darshana — Identify**, capability readiness architecture, operator enablement policies, and capability specification routing. Capability-local behavior lives only in its owning file.
 
@@ -237,8 +237,13 @@ The core does not identify PDFs, bank statements, scans, or other domain types.
 
 | Capability | Canonical local specification | Owning Provider |
 |---|---|---|
+| **Darshana — Identify** | Defined in Section 7 of this specification | `DarshanaProvider` |
 | **Shruti — Read / Native Extraction** | [Native Extraction Specification](Sarathi_V2_Native_Extraction_Spec.md) | `NativeExtractionProvider` |
 | **OCR** | [OCR Specification](Sarathi_V2_OCR_Spec.md) | `OCRProvider` |
 | **Roopa — Convert / Font Conversion** | [Font Conversion Specification](Sarathi_V2_Font_Conversion_Spec.md) | `FontConversionProvider` |
 | **Translation** | [Translation Specification](Sarathi_V2_Translation_Spec.md) | `TranslationProvider` |
 | **Bank Statement Consolidation** | [Bank Statement Consolidation Specification](Sarathi_V2_Bank_Statement_Spec.md) | `BankStatementsProvider` |
+| **Mistral Cloud (OCR & Translation)** | Defined in Section 3.1 of this specification | `MistralProvider` |
+| **Google Gemini (OCR & Translation)** | Defined in Section 3.2 of this specification | `GeminiProvider` |
+| **Microsoft Azure (Layout OCR & Translation)** | Defined in Section 3.3 of this specification | `AzureProvider` |
+| **Bhashini Indic AI (OCR & Translation)** | Defined in Section 3.4 of this specification | `BhashiniProvider` |

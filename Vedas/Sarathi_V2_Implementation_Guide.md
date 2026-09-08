@@ -1,6 +1,6 @@
 # Sarathi V2 — Implementation Guide
 
-**Specification Updated:** 08-09-2026, 02:00 PM IST (Asia/Kolkata)
+**Specification Updated:** 08-09-2026, 11:55 PM IST (Asia/Kolkata)
 
 
 This file contains the detailed canonical specification for implementation order, physical structure, wiring, testing, dependencies, and architecture status.
@@ -220,11 +220,31 @@ Sarathi/
 │       │       ├── app.css
 │       │       ├── app.html
 │       │       ├── app.js
+│       │       ├── comparison.py
+│       │       ├── diagnostics.py
 │       │       ├── http_handler.py
 │       │       ├── native_picker.py
+│       │       ├── planner.py
+│       │       ├── preview.py
+│       │       ├── review_handler.py
 │       │       ├── runner.py
+│       │       ├── security.py
 │       │       ├── server.py
-│       │       └── state_builder.py
+│       │       ├── state_builder.py
+│       │       ├── static_handler.py
+│       │       ├── assets/
+│       │       └── js/
+│       │           ├── dom.js
+│       │           ├── formatters.js
+│       │           ├── palette.js
+│       │           ├── preview.js
+│       │           ├── state.js
+│       │           └── screens/
+│       │               ├── home.js
+│       │               ├── inspector.js
+│       │               ├── monitor.js
+│       │               ├── review.js
+│       │               └── summary.js
 │       ├── smriti/
 │       │   ├── key.py
 │       │   ├── memory.py
@@ -377,7 +397,6 @@ Sarathi/
 │   ├── architecture/
 │   ├── bank_statements/
 │   ├── cancellation/
-│   ├── capabilities/
 │   ├── configuration/
 │   ├── contracts/
 │   ├── dosh/
@@ -840,6 +859,22 @@ Before a new dependency is locked, verify target Python/Windows compatibility, b
   - `sarathi.mukha.web`
 - Declarative architectural governance enforced via `Vedas/architecture.manifest.json`, `Vedas/architecture.manifest.schema.json`, canonical validator `tests/architecture/manifest_validator.py`, `import-linter` contracts, and AST-level fitness tests (`tests/architecture/`).
 - 100% backward compatibility maintained via root package re-exports (`__all__`).
+
+**Test Suite Hardening, Bottleneck Elimination & Canonical Re-Homing (Completed 08-09-2026):**
+- Dissolved `tests/capabilities/` and `tests/kernel/` into single-owner canonical domain packages (`tests/nabhi/`, `tests/bank_statements/`, `tests/translation/`, `tests/font_conversion/`, `tests/smriti/`, `tests/configuration/`).
+- Reduced Mukha test execution latency by over 70% with `poll_interval=0.05` server shutdown and reactive condition polling.
+- Consolidated duplicate bank deduplication, DOCX fidelity, and Akshara golden suites; added canonical cancellation hardening.
+
+**Cloud Document Intelligence & Multimodal Capability Suite (Completed 08-09-2026):**
+- Integrated `shakti.mistral`, `shakti.gemini`, `shakti.azure`, and `shakti.bhashini` plugins via zero-leak direct HTTP REST clients.
+- Multi-tier standardized cloud confidence quantification (word/span, page, document) and live Darpana `PramanaRecord` telemetry.
+- Enforced Kavacha security gating (`SecurityDeclaration`) rejecting unauthorized external processing.
+
+**Mukha UI/API Remediation & Truthful Telemetry (Completed 08-09-2026):**
+- Aligned Mukha presentation models (`WARNING` and `PARTIAL` terminal statuses, schema-compliant run history).
+- Added `/pdf_page` and `/raw` routes for document/artifact viewing, `?download=1` diagnostics query, and uniform JSON error responses.
+- Hardened runner lifecycle and frontend hydration state (`isHydrated`, active run scoping, safe cancel confirmation).
+- Enforced truthful telemetry across all capabilities, eliminating synthetic confidence defaults (`avg_confidence=1.0`).
 
 **Anubhava — Validated Experience Data** is locked as a capability-owned TOML convention. It has no Python module, runtime service, plugin, or database. A capability creates its file only after validated/approved reusable knowledge exists; autonomous learning and automatic promotion are not active paths.
 

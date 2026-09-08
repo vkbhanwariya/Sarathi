@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 08-09-2026, 03:45 PM IST (Asia/Kolkata)
+**README Updated:** 08-09-2026, 11:55 PM IST (Asia/Kolkata)
 
 
 Sarathi V2 is a local, plugin-first document intelligence system for
@@ -105,7 +105,7 @@ contracts.
 | [Core Runtime Specification](Vedas/Sarathi_V2_Core_Runtime_Spec.md) | **Agni --- Runtime Bootstrap**, **Sankalpa --- Canonical Contracts**, **Nabhi --- Core Kernel**, canonical Input/Output lifecycle, **Pravaha --- Dynamic Pipeline Engine**, quarantine, and **Yantra --- Resource & Execution Manager** |
 | [Shared Services Specification](Vedas/Sarathi_V2_Shared_Services_Spec.md) | **Darpana --- Telemetry & Tracing**, **Smriti --- Cache & Runtime State**, **Anubhava --- Validated Experience Data**, **Mukha --- Console & Presentation**, **Sutra --- Configuration**, **Kavacha --- Security & Privacy**, and **Dosh --- Error System** |
 | [Mukha Screen Specification](Vedas/Sarathi_V2_Mukha_Screen_Spec.md) | Screens, progress visibility, file/page/worker presentation, review, summaries, typed UI state, synchronization, and acceptance rules |
-| [Shakti Plugin & Capability Specification](Vedas/Sarathi_V2_Plugin_Capability_Spec.md) | Shared plugin rules, **Darshana --- Identify**, and capability-document routing |
+| [Shakti Plugin & Capability Specification](Vedas/Sarathi_V2_Plugin_Capability_Spec.md) | Shared plugin rules, **Darshana --- Identify**, built-in provider catalog (including Mistral, Gemini, Azure, Bhashini cloud capabilities), and capability-document routing |
 | [Native Extraction Specification](Vedas/Sarathi_V2_Native_Extraction_Spec.md) | **Shruti --- Read / Native Extraction** local detection, readers, quality gate, provenance, dependencies, and tests |
 | [OCR Specification](Vedas/Sarathi_V2_OCR_Spec.md) | OCR-local engines, fixed profiles, preprocessing, fallback, page evidence, dependencies, and tests |
 | [Font Conversion Specification](Vedas/Sarathi_V2_Font_Conversion_Spec.md) | **Roopa --- Convert / Font Conversion** local detection, mapping, protection, normalization, data, dependencies, and tests |
@@ -225,6 +225,12 @@ Sarathi operates as a local-first, privacy-preserving document intelligence runt
   - All cloud providers communicate via lightweight direct REST clients (`httpx`), completely eliminating vendor telemetry SDKs and runtime bloat.
   - Strict Kavacha policy enforcement: each provider declares explicit `SecurityDeclaration(network_access=True, external_processing=True, required_secrets=...)`, rejected by default unless explicitly permitted in operator configuration.
   - Lossless canonical synthesis into `CanonicalDocument`, `PageData`, `TextSpan`, and `TableData` with automated `.txt` and formatted `.docx` artifact export.
+- **Mukha UI/API Wiring Remediation, State Hydration & Runner Lifecycle**:
+  - Remediated Mukha presentation models: added `WARNING` and `PARTIAL` to `_TERMINAL_STATUSES`, mapped run history to canonical schema, scoped review items to active run, and added Tesseract 5 fallback readiness checks.
+  - Remediated Mukha HTTP transport: added `/pdf_page` and `/raw` routes across intake and artifact endpoints, supported `?download=1` on diagnostics bundles, and ensured uniform JSON error formatting across all `/api/*` endpoints.
+  - Hardened runner lifecycle: cleared review intents on run start, reset `started_ns` across file and stage transitions, and cleared live worker references on completion.
+  - Frontend reactive state: added `isHydrated` tracking, dynamic review badge binding, strict eligible-item filtering for "Start" button, safe cancel confirmation, null-safe confidence rendering, and separate accuracy reporting.
+  - Enforced truthful telemetry and eliminated synthetic metric defaults across font conversion, native extraction, translation, and cloud OCR plugins.
 
 ### [2.1.2] - 2026-09-08
 

@@ -1,6 +1,6 @@
 # Sarathi V2 — Mukha Screen Specification
 
-**Document Updated:** 07-09-2026, 10:16 PM IST (Asia/Kolkata)
+**Document Updated:** 08-09-2026, 11:55 PM IST (Asia/Kolkata)
 **Status:** Canonical detailed specification referenced by the main
 [Sarathi V2 README](../README.md).
 
@@ -87,15 +87,20 @@ Mukha Local Web communicates over a loopback HTTP/1.1 service bound strictly to 
 | `/api/plan/preview` | `POST` | Previews planned execution stages and hardware devices before run execution |
 | `/api/browse/files`, `/api/browse/folder` | `POST` | Opens controlled native Windows file/folder picker dialog (`native_picker.py`) |
 | `/api/intake` | `POST` | Ingests and inspects input paths, verifies boundary security, and caches intake items |
-| `/api/inputs/<id>/preview` | `GET` | Generates rendered HTML/Markdown/Image preview for an intake input document |
+| `/api/inputs/<id>/preview` | `GET` | Generates rendered HTML/Markdown preview for an intake input document |
+| `/api/inputs/<id>/raw` | `GET` | Streams raw intake input document bytes |
+| `/api/inputs/<id>/pdf_page` | `GET` | Renders a single PDF page image for intake document preview (`?page=<n>`) |
 | `/api/history` | `GET` | Retrieves terminal run history from Darpana store with optional limit query |
 | `/api/runs/<id>/summary` | `GET` | Retrieves persisted terminal `RunSummaryView` for historical inspection |
 | `/api/runs/<id>/reveal` | `POST` | Reveals run output folder in File Explorer in foreground via Win32 COM |
 | `/api/review` | `GET`, `POST` | Retrieves or applies corrections to pending exception review items |
 | `/api/runs/<id>/artifacts/<aid>` | `GET` | Securely streams committed output artifact with traversal and MIME verification |
-| `/api/runs/<id>/artifacts/<aid>/preview` | `GET` | Generates rendered HTML/Markdown/Image preview for a committed artifact |
+| `/api/runs/<id>/artifacts/<aid>/preview` | `GET` | Generates rendered HTML/Markdown preview for a committed artifact |
+| `/api/runs/<id>/artifacts/<aid>/raw` | `GET` | Streams raw committed artifact file bytes |
+| `/api/runs/<id>/artifacts/<aid>/pdf_page` | `GET` | Renders a single PDF page image for committed artifact (`?page=<n>`) |
+| `/api/preview`, `/api/preview/raw`, `/api/preview/pdf_page` | `GET` | Generates safe preview or streams raw/page bytes for validated arbitrary document path |
 | `/api/runs/<id>/inspector` | `GET` | Retrieves detailed `InspectorViewState` containing Maruti and Pramana records |
-| `/api/runs/<id>/diagnostics` | `GET` | Generates downloadable sanitized diagnostic JSON bundle |
+| `/api/runs/<id>/diagnostics` | `GET` | Generates downloadable sanitized diagnostic JSON bundle (supports `?download=1` attachment) |
 | `/api/runs/compare` | `GET` | Computes comparative metrics and duration deltas between two runs |
 
 ## 3. Presentation Architecture & Screen Model
@@ -135,7 +140,7 @@ All five screens share one compact shell.
 
 Shell rules:
 
-- Header shows only factual status: `STARTING`, `READY`, `RUNNING`, `REVIEW`, `SUCCESS`, `PARTIAL`, `FAILED`, `CANCELLED`, or `QUARANTINED`.
+- Header shows only factual status: `STARTING`, `READY`, `RUNNING`, `REVIEW`, `SUCCESS`, `PARTIAL`, `WARNING`, `FAILED`, `CANCELLED`, or `QUARANTINED`.
 - Run elapsed is sourced from Maruti's monotonic run span.
 - Security indicator shows the effective Kavacha policy, not a generic “secure” claim.
 - Footer displays currently available bindings; unavailable actions are omitted or disabled with a reason.
