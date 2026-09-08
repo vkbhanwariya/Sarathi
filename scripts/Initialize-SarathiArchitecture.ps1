@@ -164,7 +164,7 @@ $directories = @(
     'tests/font_conversion',
     'tests/intake',
     'tests/integration',
-    'tests/kernel',
+    'tests/nabhi',
     'tests/mukha',
     'tests/native_extraction',
     'tests/ocr',

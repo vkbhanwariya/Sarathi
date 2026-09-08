@@ -86,33 +86,33 @@ Inspect `git diff --name-only` and group changed files by canonical owner:
 
 - **Sankalpa (`src/sarathi/sankalpa/*`):**
   - Start with: `uv run --group dev pytest -q tests/sankalpa`
-  - If runtime execution affected: add `tests/kernel tests/yantra tests/agni`
+  - If runtime execution affected: add `tests/nabhi tests/yantra tests/agni`
   - If consumed by specific capability: add only that capability's tests (e.g. `tests/ocr` or `tests/translation`).
 - **Yantra (`src/sarathi/yantra/*`):**
   - Start with: `uv run --group dev pytest -q tests/yantra`
-  - If execution behavior changed: add `tests/kernel`
+  - If execution behavior changed: add `tests/nabhi`
   - If OCR hardware binding changed: `uv run --group dev --extra ocr pytest -q tests/ocr tests/yantra`
   - If Translation hardware binding changed: `uv run --group dev --extra translation pytest -q tests/translation tests/yantra`
   - Do not run Bank/Font tests unless execution contract changed.
-- **Pravaha / Manthan / Kernel (`src/sarathi/nabhi/pravaha/*`, `src/sarathi/nabhi/manthan.py`):**
-  - Run: `uv run --group dev pytest -q tests/kernel`
-  - Add the smallest capability integration test for affected path (e.g. OCR continuation → `tests/kernel` + OCR continuation/E2E; font_conversion resume_self → `tests/kernel` + font_conversion E2E).
+- **Pravaha / Manthan / Nabhi (`src/sarathi/nabhi/pravaha/*`, `src/sarathi/nabhi/manthan.py`):**
+  - Run: `uv run --group dev pytest -q tests/nabhi`
+  - Add the smallest capability integration test for affected path (e.g. OCR continuation → `tests/nabhi` + OCR continuation/E2E; font_conversion resume_self → `tests/nabhi` + font_conversion E2E).
   - Do not run unrelated document-domain suites.
 - **Prana / Agni (`src/sarathi/nabhi/prana.py`, `src/sarathi/agni/*`):**
-  - Run: `uv run --group dev pytest -q tests/agni tests/kernel`
+  - Run: `uv run --group dev pytest -q tests/agni tests/nabhi`
   - Add `tests/yantra` only if lifecycle/resource execution changed.
 - **Smriti (`src/sarathi/smriti/*`):**
   - Run: `uv run --group dev pytest -q tests/smriti`
-  - For cache-key/serialization changes: add `uv run --group dev pytest -q tests/kernel -k "cache or smriti"`
+  - For cache-key/serialization changes: add `uv run --group dev pytest -q tests/nabhi -k "cache or smriti"`
   - Add capability suite only if cached canonical type is directly affected.
 - **Artifact Boundary (`src/sarathi/nabhi/artifacts/*`):**
-  - Run: `uv run --group dev pytest -q tests/kernel -k "artifact"` and dedicated artifact tests.
+  - Run: `uv run --group dev pytest -q tests/nabhi -k "artifact"` and dedicated artifact tests.
 - **OCR (`src/sarathi/shakti/ocr/*`):**
   - Progressive testing: `uv run --group dev --extra ocr pytest -q tests/ocr/<direct_test_file>.py` then `tests/ocr`.
-  - Add `tests/kernel` only if continuation, profile propagation, Yantra binding, or runtime behavior changed.
+  - Add `tests/nabhi` only if continuation, profile propagation, Yantra binding, or runtime behavior changed.
 - **Translation (`src/sarathi/shakti/translation/*`):**
   - Progressive testing: `uv run --group dev --extra translation pytest -q tests/translation/<direct_test_file>.py` then `tests/translation`.
-  - Add `tests/kernel` only for handoff, resume, profile, execution binding, or Result contract changes.
+  - Add `tests/nabhi` only for handoff, resume, profile, execution binding, or Result contract changes.
 - **Font Conversion (`src/sarathi/shakti/font_conversion/*`):**
   - Run: `uv run --group dev pytest -q tests/font_conversion`.
   - Add DOCX exporter tests if formatting/output changed; add kernel tests only for continuation/resume changes.
@@ -136,7 +136,7 @@ Inspect `git diff --name-only` and group changed files by canonical owner:
 - **Exact Selection First:** Prefer exact test cases or keyword expressions over whole directories:
   - Exact test: `uv run --group dev pytest -q tests/yantra/test_allocation.py::TestResourceAllocation::test_preferred_device_allocated_first`
   - Keyword filter: `uv run --group dev pytest -q tests/yantra/test_allocation.py -k "spillover or capacity"`
-  - Kernel filter: `uv run --group dev pytest -q tests/kernel -k "resume_self"`
+  - Kernel filter: `uv run --group dev pytest -q tests/nabhi -k "resume_self"`
 - **Strict Progression Order:**
   `single failing test` → `related test file` → `subsystem suite` → `affected integration tests` → `full suite only when required`
 - **Failure Expansion Rule:** If a focused test fails:
