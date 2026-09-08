@@ -40,6 +40,14 @@ def _http_post(url: str, data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         return err.code, json.loads(body)
 
 
+def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 2.0) -> None:
+    deadline = time.time() + max_seconds
+    while time.time() < deadline:
+        if not web_server.is_busy():
+            return
+        time.sleep(0.01)
+
+
 class TestProgressFidelity:
     """Verify factual per-file tracking, worker timings, and zero false metrics."""
 
@@ -258,7 +266,7 @@ class TestProgressFidelity:
             )
             assert status == 200
             run_id = data["run_id"]
-            time.sleep(0.5)
+            _wait_for_idle(web_server)
 
             # Artifact must be accessible via get_confirmed_artifact
             resolved_ref = web_server.get_confirmed_artifact(run_id, "art-real-001")
@@ -282,7 +290,7 @@ class TestProgressFidelity:
             )
             assert status == 200
             run_id = data["run_id"]
-            time.sleep(0.5)
+            _wait_for_idle(web_server)
 
             # Try to cancel the finished run
             status, cancel_data = _http_post(
@@ -401,7 +409,7 @@ class TestProgressFidelity:
             assert files[1]["display_name"] == "invoice.txt"
 
             finish_evt.set()
-            time.sleep(0.5)
+            _wait_for_idle(web_server)
 
             # Summary must show both successful
             _, final_state = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
@@ -436,7 +444,7 @@ class TestProgressFidelity:
                 data={"paths": [str(f1)], "requirement": "read_native"},
             )
             assert status == 200
-            time.sleep(0.5)
+            _wait_for_idle(web_server)
 
             _, state_resp = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
             summary = state_resp["state"]["terminal_summary"]

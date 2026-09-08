@@ -1,4 +1,4 @@
-"""Comprehensive unit tests for Agni - Runtime Bootstrap and Composition Root."""
+﻿"""Comprehensive unit tests for Agni - Runtime Bootstrap and Composition Root."""
 
 import os
 from pathlib import Path
@@ -578,3 +578,27 @@ class TestAgniBootstrap:
             assert agni.smriti is not None
             assert agni.smriti._policy.ttl_seconds == 42
             assert agni.smriti._policy.max_entries_l1 == 5
+
+    def test_agni_rejects_custom_capability_without_registered_plugin(self) -> None:
+        """Verify Agni does not invent synthetic PluginInfo and rejects unowned capabilities with VALIDATION_FAILED."""
+        class FakeCustomCapability:
+            @property
+            def declaration(self) -> CapabilityDeclaration:
+                return CapabilityDeclaration(
+                    capability_id="unregistered_cap",
+                    plugin_id="unknown.plugin",
+                    version="1.0.0",
+                    supported_profiles=(ExecutionProfile.INSTANT,),
+                )
+
+            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+                return Result(data="fake")
+
+        fake_cap = FakeCustomCapability()
+
+        with pytest.raises(DoshError) as exc_info:
+            Agni(capabilities={"unregistered_cap": fake_cap})
+
+        assert exc_info.value.code == FailureCode.VALIDATION_FAILED
+        assert "unknown.plugin" in str(exc_info.value.message)
+        assert "owning plugin 'unknown.plugin' is not registered in Kosh" in str(exc_info.value.message)

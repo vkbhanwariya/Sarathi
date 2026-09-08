@@ -53,6 +53,15 @@ def _http_post(url: str, data: dict[str, Any], headers: dict[str, str] | None = 
         return 500, {"error": str(e)}
 
 
+def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 3.0) -> None:
+    """Poll until the server runner finishes background execution."""
+    deadline = time.time() + max_seconds
+    while time.time() < deadline:
+        if not web_server.is_busy():
+            return
+        time.sleep(0.01)
+
+
 class TestMukhaWebServerSecurityAndStatic:
     """Verify loopback binding, security headers, and static asset serving."""
 
@@ -191,7 +200,7 @@ class TestMukhaWebServerAPI:
         assert run_id
 
         # Wait briefly for run completion
-        time.sleep(0.5)
+        _wait_for_idle(web_server)
 
         # 2. Check state projection
         status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
@@ -236,8 +245,7 @@ class TestMukhaWebServerAPI:
         )
         assert status == 200
         run_id = data["run_id"]
-
-        time.sleep(0.6)
+        _wait_for_idle(web_server)
 
         status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
         assert status == 200
@@ -287,7 +295,7 @@ class TestMukhaWebServerAPI:
         )
         assert status == 200
         run_id = data["run_id"]
-        time.sleep(0.6)
+        _wait_for_idle(web_server)
 
         maruti, pramana = web_server._get_run_telemetry(run_id)
         for r in maruti:
@@ -384,7 +392,7 @@ class TestMukhaWebServerAPI:
             )
             assert status == 200
             assert data["ok"] is True
-            time.sleep(0.5)
+            _wait_for_idle(web_server)
 
         assert len(captured_request) == 1
         assert captured_request[0].custom_options.get("lang") == "devanagari"

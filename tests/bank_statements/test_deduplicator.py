@@ -1,10 +1,13 @@
-"""Consolidated unit and invariant tests for bank statement deduplication and ordering."""
+﻿"""Consolidated unit and invariant tests for bank statement deduplication and ordering."""
 
 from __future__ import annotations
 
+import io
 from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
+
+import polars as pl
 
 from sarathi.sankalpa import (
     CanonicalDocument,
@@ -15,7 +18,10 @@ from sarathi.sankalpa import (
     TableData,
 )
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
-from sarathi.shakti.bank_statements.consolidator import consolidate_statements
+from sarathi.shakti.bank_statements.consolidator import (
+    build_parquet_artifact,
+    consolidate_statements,
+)
 from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
@@ -466,3 +472,79 @@ def test_consolidate_statements_flattens_and_sorts_chronologically() -> None:
     assert res.transactions[1].description == "Jan 3 Early Tx"
     assert res.transactions[2].description == "Jan 3 Late Tx"
     assert res.transactions[3].description == "Jan 5 Tx"
+
+
+def test_cross_statement_deduplication_and_exports() -> None:
+    """Test that transactions appearing in two overlapping statement files are deduplicated in consolidation and exports."""
+    ident = create_account_identity("HDFC Bank", "5010022334455")
+
+    # Common transaction present in both January and February statements
+    overlap_tx = Transaction(
+        transaction_date=date(2026, 1, 31),
+        description="Salary Credit Corp",
+        bank_name="HDFC Bank",
+        credit=Decimal("50000.00"),
+        running_balance=Decimal("65000.00"),
+        account_identity=ident,
+        sequence_id=10,
+    )
+
+    stmt1_tx = Transaction(
+        transaction_date=date(2026, 1, 15),
+        description="Groceries Store",
+        bank_name="HDFC Bank",
+        debit=Decimal("2500.00"),
+        running_balance=Decimal("15000.00"),
+        account_identity=ident,
+        sequence_id=5,
+    )
+
+    stmt2_tx = Transaction(
+        transaction_date=date(2026, 2, 5),
+        description="Internet Bill",
+        bank_name="HDFC Bank",
+        debit=Decimal("1000.00"),
+        running_balance=Decimal("64000.00"),
+        account_identity=ident,
+        sequence_id=1,
+    )
+
+    stmt1 = BankStatement(
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        transactions=(stmt1_tx, overlap_tx),
+        statement_id="stmt_jan",
+    )
+
+    stmt2 = BankStatement(
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        transactions=(overlap_tx, stmt2_tx),
+        statement_id="stmt_feb",
+    )
+
+    consolidation = consolidate_statements([stmt1, stmt2])
+
+    # 1. Deduplication across statements: 3 unique transactions instead of 4
+    assert len(consolidation.transactions) == 3
+    assert consolidation.total_transactions == 3
+    assert consolidation.total_credit == Decimal("50000.00")
+    assert consolidation.total_debit == Decimal("3500.00")
+
+    # Issue recorded for cross-statement duplicate
+    dup_issues = [i for i in consolidation.issues if i.code == "CROSS_STATEMENT_DUPLICATE"]
+    assert len(dup_issues) == 1
+
+    # 2. Chronological ordering
+    assert consolidation.transactions[0].description == "Groceries Store"
+    assert consolidation.transactions[1].description == "Salary Credit Corp"
+    assert consolidation.transactions[2].description == "Internet Bill"
+
+    # 3. Parquet export strictly reflects canonical sequence
+    parquet_art = build_parquet_artifact(consolidation)
+    df = pl.read_parquet(io.BytesIO(parquet_art.content))
+    assert len(df) == 3
+    assert df["description"].to_list() == ["Groceries Store", "Salary Credit Corp", "Internet Bill"]
+    assert df["credit"].to_list()[1] == Decimal("50000.00")

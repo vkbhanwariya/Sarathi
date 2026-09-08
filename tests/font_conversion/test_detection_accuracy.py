@@ -1,4 +1,4 @@
-"""Tests for Legacy Font Detection Accuracy, Hints, and Schema Validation."""
+﻿"""Tests for Legacy Font Detection Accuracy, Hints, and Schema Validation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import pytest
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.font_conversion.detector import (
+    LegacyFontDetector,
     _validate_and_compile_profile,
     decide_run_profile,
     load_font_profiles,
@@ -164,3 +165,13 @@ def test_rank_profiles_negative_signatures_penalize() -> None:
     assert kruti_cand is not None
     assert len(kruti_cand.negative_signatures) > 0
     assert kruti_cand.score < 0
+
+
+def test_devlys_detection_with_hint() -> None:
+    """Verify LegacyFontDetector matches DevLys profile when hint is provided."""
+    detector = LegacyFontDetector()
+    sample_text = "LVsV cSad vksj Hkkjr ljdkj"  # Has legacy Remington signatures
+
+    prof_id, conf = detector.detect(sample_text, font_hint="DevLys 010")
+    assert prof_id == "devlys010"
+    assert conf > 0.5

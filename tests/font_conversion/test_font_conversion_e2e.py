@@ -1,7 +1,10 @@
-"""End-to-End Operational Acceptance Test for Roopa Font Conversion."""
+﻿"""End-to-End Operational Acceptance Test for Roopa Font Conversion."""
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import pytest
+
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana
@@ -259,3 +262,115 @@ def test_canonical_and_docx_conversion_parity() -> None:
     docx_run_decision = decide_run_profile(run_font=effective_font, run_text=test_text, doc_profile="krutidev010")
     assert docx_run_decision.decision == span_decision.decision
     assert docx_run_decision.profile == span_decision.profile
+
+
+def test_font_conversion_batch_multi_document(tmp_path: Path) -> None:
+    """Batch of CanonicalDocuments converts each document and creates distinct artifacts."""
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    # Kruti Dev text containing signature digraphs: [kkuk vkuk fdrkc (खाना आना किताब)
+    kruti_text = "[kkuk vkuk fdrkc"
+    doc1 = CanonicalDocument(
+        document_id="doc-1",
+        source_input_id="inp-1",
+        text=kruti_text,
+    )
+    doc2 = CanonicalDocument(
+        document_id="doc-2",
+        source_input_id="inp-2",
+        text=kruti_text,
+    )
+
+    ctx = ExecutionContext(run_id="r1", request_id="req1", trace_id="t1", span_id="s1")
+    req = Request(
+        request_id="req1",
+        requirement="font_conversion",
+        inputs=(
+            InputRef("inp-1", tmp_path / "f1.txt", "f1.txt", 10),
+            InputRef("inp-2", tmp_path / "f2.txt", "f2.txt", 10),
+        ),
+    )
+    res = cap.execute(req, ctx, prior_result=Result(data=(doc1, doc2), provenance=()))
+    assert isinstance(res.data, tuple)
+    assert len(res.data) == 2
+    assert len(res.artifact_payloads) == 4
+    # Verify collision-free artifact names
+    names = [p.intent.name for p in res.artifact_payloads]
+    assert len(names) == len(set(names))
+    assert "f1_converted.txt" in names
+    assert "f1_converted.docx" in names
+    assert "f2_converted.txt" in names
+    assert "f2_converted.docx" in names
+
+
+def test_missing_target_font_profile_raises_dosh_error() -> None:
+    """Verify convert_to_legacy rejects unknown target profile without fallback."""
+    from sarathi.dosh import DoshError
+    from sarathi.shakti.font_conversion.converter import FontConverter
+
+    converter = FontConverter()
+    with pytest.raises(DoshError) as exc_info:
+        converter.convert_to_legacy("मानक हिंदी", target_profile_id="non_existent_font_profile")
+    assert "Requested target font profile is not supported or loaded" in exc_info.value.message
+
+
+def test_font_conversion_preserves_page_spans() -> None:
+    """Verify FontConversionCapability preserves PageData.spans."""
+    from sarathi.sankalpa import PageData, TextSpan
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    span = TextSpan(
+        text="Sample",
+        confidence=0.98,
+        bounding_box=(1.0, 2.0, 3.0, 4.0),
+    )
+    page = PageData(page_number=1, text="LVsV cSad", spans=(span,))
+    doc = CanonicalDocument(
+        document_id="doc_font_spans",
+        source_input_id="in_font",
+        text="LVsV cSad",
+        pages=(page,),
+    )
+
+    req = Request(
+        request_id="r1",
+        requirement="font_conversion",
+        inputs=(InputRef("in_font", Path("f.txt"), "f.txt", 10),),
+    )
+    ctx = ExecutionContext("run1", "r1", "tr1", "sp1")
+    prior = Result(data=doc)
+
+    res = cap.execute(request=req, context=ctx, prior_result=prior)
+    assert isinstance(res.data, CanonicalDocument)
+    assert len(res.data.pages) == 1
+    assert len(res.data.pages[0].spans) == 1
+    assert res.data.pages[0].spans[0].bounding_box == (1.0, 2.0, 3.0, 4.0)
+
+
+def test_legacy_to_legacy_preserves_detected_profile_decoding() -> None:
+    """Verify legacy-to-legacy font conversion decodes source legacy before encoding to target legacy."""
+    from types import MappingProxyType
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    doc = CanonicalDocument(
+        document_id="doc_devlys",
+        source_input_id="in_devlys",
+        text="LVsV cSad vksj Hkkjr ljdkj",
+    )
+    req = Request(
+        request_id="r_l2l",
+        requirement="font_conversion",
+        inputs=(InputRef("in_devlys", Path("devlys.txt"), "devlys.txt", 20),),
+        metadata=MappingProxyType({"font": "DevLys 010"}),
+        custom_options=MappingProxyType({"font_mode": "to_krutidev"}),
+    )
+    ctx = ExecutionContext("run_l2l", "r_l2l", "tr_l2l", "sp_l2l")
+    prior = Result(data=doc)
+
+    res = cap.execute(request=req, context=ctx, prior_result=prior)
+    assert isinstance(res.data, CanonicalDocument)
+    assert res.data.text != ""
+    assert res.provenance[-1].evidence["profile_id"] == "devlys010"

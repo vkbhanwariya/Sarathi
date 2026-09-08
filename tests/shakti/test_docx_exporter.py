@@ -1,4 +1,4 @@
-"""Focused positive and adversarial tests for the canonical DOCX exporter."""
+﻿"""Focused positive and adversarial tests for the canonical DOCX exporter."""
 
 import io
 import xml.etree.ElementTree as ET
@@ -7,8 +7,9 @@ import zipfile
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import CanonicalDocument, TableData
+from sarathi.sankalpa import CanonicalDocument, PageData, TableData
 from sarathi.shakti.docx_exporter import (
+    _W_NS,
     build_docx_payload,
     segment_text_by_script,
     transform_docx_artifact,
@@ -512,3 +513,63 @@ def test_docx_exporter_autonomous_no_font_conversion_import() -> None:
     adj = get_font_size_adjustment(anchor_font="Kruti Dev 010", target_font="Nirmala UI")
     assert adj.scale == 0.75
     assert normalize_font_size(16.0, anchor_font="Kruti Dev 010", target_font="Nirmala UI") == 12.0
+
+
+def test_build_docx_payload_does_not_duplicate_tables() -> None:
+    """Verify tables present in both doc.pages and doc.tables are exported only once into DOCX."""
+    tbl = TableData(
+        name="Financial Summary",
+        headers=("Item", "Amount"),
+        rows=(("Revenue", "1000"), ("Expense", "500")),
+    )
+    page = PageData(page_number=1, text="Page 1 Content", tables=(tbl,))
+    doc = CanonicalDocument(
+        document_id="doc_tbl_dedup",
+        source_input_id="in_tbl",
+        text="Page 1 Content",
+        pages=(page,),
+        tables=(tbl,),
+    )
+
+    payload = build_docx_payload(doc, filename="output.docx")
+    assert payload.intent.name == "output.docx"
+
+    with zipfile.ZipFile(io.BytesIO(payload.content)) as zf:
+        doc_xml = zf.read("word/document.xml")
+        root = ET.fromstring(doc_xml)
+        tbl_elems = root.findall(f".//{{{_W_NS}}}tbl")
+        assert len(tbl_elems) == 1
+
+
+def test_transform_docx_merges_adjacent_runs_across_word_boundaries() -> None:
+    """Verify transform_docx_artifact merges adjacent runs with identical formatting."""
+    p_xml = (
+        f'<w:p xmlns:w="{_W_NS}">'
+        f'<w:r><w:rPr><w:b/></w:rPr><w:t>Kruti</w:t></w:r>'
+        f'<w:r><w:rPr><w:b/></w:rPr><w:t>Dev</w:t></w:r>'
+        f'</w:p>'
+    )
+    doc_xml = (
+        f'<?xml version="1.0" encoding="UTF-8"?>'
+        f'<w:document xmlns:w="{_W_NS}"><w:body>{p_xml}</w:body></w:document>'
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", doc_xml.encode("utf-8"))
+
+    def mock_converter(text: str) -> str:
+        return text.replace("KrutiDev", "Devanagari")
+
+    res = transform_docx_artifact(
+        input_bytes=buf.getvalue(),
+        converter_fn=mock_converter,
+        filename="transformed.docx",
+    )
+
+    with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+        out_xml = zf.read("word/document.xml")
+        root = ET.fromstring(out_xml)
+        t_elems = root.findall(f".//{{{_W_NS}}}t")
+        full_text = "".join(t.text for t in t_elems if t.text)
+        assert "Devanagari" in full_text

@@ -1,4 +1,4 @@
-"""Unit tests for Sutra — Configuration."""
+﻿"""Unit tests for Sutra — Configuration."""
 
 import tomllib
 from pathlib import Path
@@ -233,3 +233,19 @@ output_root = "Output"
         assert set(sutra_module.__all__) == expected
         for name in expected:
             assert hasattr(sutra_module, name)
+
+
+def test_get_canonical_data_root_respects_env_var(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify get_canonical_data_root resolves custom directory when SARATHI_DATA_DIR is set."""
+    from sarathi.sutra.settings import get_canonical_data_root
+
+    custom_data = tmp_path / "custom_data_dir"
+    custom_data.mkdir()
+
+    monkeypatch.setenv("SARATHI_DATA_DIR", str(custom_data))
+    assert get_canonical_data_root() == custom_data.resolve()
+
+    monkeypatch.delenv("SARATHI_DATA_DIR", raising=False)
+    # Default should resolve to repository or packaged data directory
+    default_root = get_canonical_data_root()
+    assert default_root.name == "data"

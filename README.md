@@ -1,6 +1,7 @@
 # Sarathi V2
 
-**README Updated:** 08-09-2026, 01:25 PM IST (Asia/Kolkata)
+**README Updated:** 08-09-2026, 02:00 PM IST (Asia/Kolkata)
+
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and
@@ -219,7 +220,13 @@ Sarathi operates as a local-first, privacy-preserving document intelligence runt
   - *Phase 3 (CI Decoupling & Modularization)*: Decoupled GitHub Actions CI workflow into parallel isolated jobs (`lint`, `architecture`, `test`, `browser`); modularized `ocr/capability.py` and `mukha/web/http_handler.py` under the strict 30 KB limit.
   - *Phase 4 (Structural Deduplication)*: Dismantled obsolete `tests/kernel/` in favor of canonical `tests/nabhi/`; consolidated duplicate bank deduplication tests into single canonical `tests/bank_statements/test_deduplicator.py`; enforced affirmative invariant test naming across all test suites.
   - *Phase 5 (Critical Defect Regressions)*: Added rigorous regression coverage for critical defects: layout-preserving OCR continuation hand-off, recursive prerequisite profile validation in `Manthan`, UI "Process Documents" button disabling with 0 eligible inputs in `home.js`, and `avg_confidence=None` anti-fabrication for uncomputed/non-applicable confidence metrics.
+- **Test Suite Consolidation, Bottleneck Elimination & Canonical Re-Homing**:
+  - *Stale Test Remediation*: Corrected stale OCR tests (`LAYOUT_PRESERVING` profile assertion and positive execution verification replacing negative rejection tests).
+  - *Server Teardown Bottleneck Elimination*: Implemented `poll_interval=0.05` in `_MukhaHTTPServer.serve_forever()` reducing shutdown time from 500ms to 50ms, and replaced blind sleeps with reactive condition polling in Mukha tests (reducing test execution time by over 70%).
+  - *Duplicate & Ad-Hoc Suite Consolidation*: Merged duplicate test files (`test_cross_statement_dedup.py` into `test_deduplicator.py`, `test_docx_fidelity.py` into `test_docx_exporter.py`, `test_akshara_remediation.py` into `test_akshara_golden.py`), and replaced ad-hoc `test_t15_hardening.py` with canonical `test_cancellation_hardening.py`.
+  - *Canonical Domain Re-Homing*: Dissolved non-canonical `tests/capabilities/` and partitioned miscellaneous cross-domain files (`test_pipeline_continuation_integrity.py`, `test_runtime_bootstrap_integrity.py`, `test_font_and_translation_integrity.py`, `test_bootstrap_*.py`) into their true single-owner domain test packages (`tests/agni/`, `tests/bank_statements/`, `tests/translation/`, `tests/font_conversion/`, `tests/smriti/`, `tests/configuration/`).
 - **Canonical Cleanliness & Anti-Drift Governance**: Relocated root manifest validator to canonical `tests/architecture/manifest_validator.py`, eliminated non-canonical `tools/` root folder, updated CI compileall paths, and codified Rule 13 ("Strict Governance — Zero Architectural Drift & Explicit Approval for New Files/Folders") in `AGENTS.md`.
+
 
 ### [2.1.1] - 2026-09-07
 

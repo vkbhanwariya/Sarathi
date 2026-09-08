@@ -1,3 +1,8 @@
+from pathlib import Path
+
+import pytest
+
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.translation.engine import (
     _CANONICAL_TRANSLATION_DATA_DIR,
     _load_translation_anubhava,
@@ -45,3 +50,32 @@ def test_domain_glossaries_loaded_from_directory() -> None:
     assert terms_en_hi["Anticipatory Bail"] == "अग्रिम जमानत"
     assert "अग्रिम जमानत" in terms_hi_en
     assert terms_hi_en["अग्रिम जमानत"] == "Anticipatory Bail"
+
+
+def test_translation_glossary_missing_file_preserves_baseline(tmp_path: Path) -> None:
+    """Missing glossary.yaml should safely return empty dictionary."""
+    store = GlossaryStore(glossary_dir=tmp_path)
+    assert store.get_terms(direction="hi-en") == {}  # type: ignore[arg-type]
+
+
+def test_translation_glossary_malformed_yaml_fails_deterministically(tmp_path: Path) -> None:
+    """Malformed glossary.yaml must raise DoshError(INVALID_CONFIGURATION)."""
+    bad_yaml = tmp_path / "glossary.yaml"
+    bad_yaml.write_text("this: is: [invalid: yaml: syntax: {", encoding="utf-8")
+
+    with pytest.raises(DoshError) as exc_info:
+        GlossaryStore(glossary_dir=tmp_path)
+
+    assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION
+    assert "Failed to parse translation glossary" in exc_info.value.message
+
+
+def test_translation_glossary_non_list_entries_fails_deterministically(tmp_path: Path) -> None:
+    """Glossary with invalid entries field must raise DoshError(INVALID_CONFIGURATION)."""
+    bad_yaml = tmp_path / "glossary.yaml"
+    bad_yaml.write_text("entries: 'not-a-list'\n", encoding="utf-8")
+
+    with pytest.raises(DoshError) as exc_info:
+        GlossaryStore(glossary_dir=tmp_path)
+
+    assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION

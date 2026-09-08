@@ -1,11 +1,13 @@
-"""Tests for Retained Safe Run History, Privacy Guarantees, Reopening, and Storage Isolation."""
+﻿"""Tests for Retained Safe Run History, Privacy Guarantees, Reopening, and Storage Isolation."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from sarathi.agni import Agni
-from sarathi.darpana import Darpana, TerminalRunSummary
+from sarathi.darpana import Darpana, TerminalRunHistoryStore, TerminalRunSummary
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     InputRef,
     Request,
@@ -284,3 +286,84 @@ def test_darpana_clear_history_jsonl_and_sqlite(tmp_path: Path) -> None:
     assert len(darpana_sqlite.query_run_history()) == 1
     assert darpana_sqlite.clear_history() is True
     assert len(darpana_sqlite.query_run_history()) == 0
+
+
+def test_history_path_rejects_absolute_and_traversal_paths(tmp_path: Path) -> None:
+    """Proves Agni rejects absolute telemetry.history_path and traversal escaping Runtime/Telemetry."""
+    rt_dir = tmp_path / "Runtime"
+    out_dir = tmp_path / "Output"
+
+    # Case 1: Absolute path rejected
+    abs_settings = Settings(
+        data={
+            "telemetry": {
+                "history_enabled": True,
+                "history_path": (tmp_path / "abs_history.jsonl").as_posix(),
+            }
+        }
+    )
+    with pytest.raises(DoshError) as exc_info:
+        Agni(settings=abs_settings, runtime_root=rt_dir, output_root=out_dir)
+    assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION
+    assert "absolute path" in exc_info.value.message
+
+    # Case 2: Traversal escaping Runtime/Telemetry rejected
+    traversal_settings = Settings(
+        data={
+            "telemetry": {
+                "history_enabled": True,
+                "history_path": "../escaped_history.jsonl",
+            }
+        }
+    )
+    with pytest.raises(DoshError) as exc_info2:
+        Agni(settings=traversal_settings, runtime_root=rt_dir, output_root=out_dir)
+    assert exc_info2.value.code is FailureCode.INVALID_CONFIGURATION
+    assert "escapes" in exc_info2.value.message
+
+
+def test_jsonl_history_bounded_tail_with_oversized_existing_file(tmp_path: Path) -> None:
+    """Proves JSONL save and query handle oversized pre-existing files without unbounded accumulation."""
+    jsonl_path = tmp_path / "oversized_history.jsonl"
+
+    seed_lines = []
+    for i in range(50):
+        entry = {
+            "run_id": f"run-old-{i:03d}",
+            "request_id": f"req-old-{i:03d}",
+            "requirement": "read_native",
+            "profile": "instant",
+            "status": "completed",
+            "start_time_utc": "2026-09-02T12:00:00Z",
+            "completed_at_utc": f"2026-09-02T12:00:{i:02d}Z",
+            "duration_ms": 100,
+            "artifact_count": 0,
+            "warning_count": 0,
+            "has_masked_identity": False,
+        }
+        seed_lines.append(json.dumps(entry))
+    jsonl_path.write_text("\n".join(seed_lines) + "\n", encoding="utf-8")
+
+    store = TerminalRunHistoryStore(jsonl_path, format="jsonl", max_records=5)
+
+    new_summary = TerminalRunSummary(
+        run_id="run-new-001",
+        request_id="req-new-001",
+        requirement="read_native",
+        profile="instant",
+        status="completed",
+        start_time_utc="2026-09-02T12:00:00Z",
+        completed_at_utc="2026-09-02T12:01:00Z",
+        duration_ms=100,
+        artifact_count=0,
+        warning_count=0,
+    )
+    assert store.save(new_summary) is True
+
+    remaining_lines = [ln.strip() for ln in jsonl_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(remaining_lines) == 5
+    assert "run-new-001" in remaining_lines[-1]
+
+    queried = store.query(limit=3)
+    assert len(queried) == 3
+    assert queried[0].run_id == "run-new-001"

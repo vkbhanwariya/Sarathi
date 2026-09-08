@@ -1,4 +1,4 @@
-"""Tests for Contract 1: Truthful and Privacy-Safe Cache Key Identity."""
+﻿"""Tests for Contract 1: Truthful and Privacy-Safe Cache Key Identity."""
 
 from pathlib import Path
 
@@ -253,3 +253,23 @@ def test_table_cell_type_collision_resistance() -> None:
         tables=(TableData(name="t1", headers=("col1",), rows=(("1",),)),),
     )
     assert _hash_canonical_document(doc_int) != _hash_canonical_document(doc_str)
+
+
+def test_input_fingerprint_streams_file_bytes(tmp_path: Path) -> None:
+    """compute_input_fingerprint computes true SHA-256 over file contents."""
+    file1 = tmp_path / "file1.txt"
+    file1.write_bytes(b"Sarathi Content A")
+    inp1 = InputRef("i1", file1, "file1.txt", len(b"Sarathi Content A"))
+
+    file2 = tmp_path / "file2.txt"
+    file2.write_bytes(b"Sarathi Content B")
+    inp2 = InputRef("i2", file2, "file2.txt", len(b"Sarathi Content B"))
+
+    fp1 = compute_input_fingerprint((inp1,))
+    fp2 = compute_input_fingerprint((inp2,))
+    assert fp1 != fp2
+
+    # Changing content changes fingerprint
+    file1.write_bytes(b"Sarathi Content A Modified")
+    fp1_mod = compute_input_fingerprint((inp1,))
+    assert fp1 != fp1_mod

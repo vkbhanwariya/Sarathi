@@ -108,7 +108,7 @@ def _create_scanned_pdf(text: str, path: Path) -> Path:
     return path
 
 
-class TestOCRPhase1Instant:
+class TestOCRDeclarations:
     def test_plugin_and_capability_declarations(self) -> None:
         assert OCR_PLUGIN.plugin_id == "shakti.ocr"
         assert "ocr" in OCR_PLUGIN.capabilities
@@ -118,6 +118,7 @@ class TestOCRPhase1Instant:
         assert OCR_DECLARATION.supported_profiles == (
             ExecutionProfile.INSTANT,
             ExecutionProfile.ACCURATE,
+            ExecutionProfile.LAYOUT_PRESERVING,
             ExecutionProfile.CUSTOM,
         )
 

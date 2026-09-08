@@ -50,6 +50,10 @@ class _MukhaHTTPServer(ThreadingHTTPServer):
             return
         super().handle_error(request, client_address)
 
+    def serve_forever(self, poll_interval: float = 0.05) -> None:
+        """Serve requests continuously with 50ms polling interval for rapid teardown."""
+        super().serve_forever(poll_interval=poll_interval)
+
 
 class MukhaWebServer:
     """Thin, loopback-only presentation server managing interactive Mukha web dashboard."""

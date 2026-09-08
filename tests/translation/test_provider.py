@@ -1,4 +1,4 @@
-"""Unit tests for Shakti TranslationProvider (R05, R06)."""
+﻿"""Unit tests for Shakti TranslationProvider (R05, R06)."""
 
 from __future__ import annotations
 
@@ -103,3 +103,32 @@ def test_provider_readiness_ready_when_all_assets_and_packages_present(tmp_path:
         assert res.ready
         assert res.status == ReadinessStatus.READY
         assert "IndicTrans2 CTranslate2" in res.reason
+
+
+def test_translation_engine_error_does_not_leak_paths(tmp_path: Path) -> None:
+    """Verify missing model assets error message does not leak local filesystem paths."""
+    import pytest
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text('{"models": {"hi-en": {"path": "hi-en"}}}', encoding="utf-8")
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    model_dir = models_dir / "hi-en"
+    model_dir.mkdir()
+    # spm.model is intentionally missing
+
+    engine = CTranslate2TranslationEngine(data_root=tmp_path)
+    try:
+        backend = engine._ensure_backend()
+    except DoshError as exc:
+        if exc.code is FailureCode.DEPENDENCY_UNAVAILABLE:
+            pytest.skip("Translation dependencies (ctranslate2, sentencepiece) are not installed.")
+        raise
+    with pytest.raises(DoshError) as exc_info:
+        backend.translate_sentences(["नमस्ते"], TranslationDirection.HI_TO_EN)
+    err_msg = exc_info.value.message
+    assert str(tmp_path) not in err_msg
+    assert "Model assets for translation direction 'hi-en' are missing or incomplete." == err_msg

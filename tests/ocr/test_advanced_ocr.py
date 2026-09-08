@@ -340,8 +340,8 @@ def test_tesseract_adapter_handles_none_stdout_without_strip_error(monkeypatch: 
     assert exc_info.value.code == FailureCode.EXECUTION_FAILED
 
 
-def test_deferred_layout_preserving_profile_rejected_safely(tmp_path: Path) -> None:
-    """Verify LAYOUT_PRESERVING is rejected as UNSUPPORTED until layout models are proven."""
+def test_layout_preserving_profile_executes_successfully(tmp_path: Path) -> None:
+    """Verify LAYOUT_PRESERVING is officially resolved by Manthan and executed with coordinate retention."""
     img_path = tmp_path / "table.png"
     _create_clean_image(img_path)
 
@@ -357,17 +357,17 @@ def test_deferred_layout_preserving_profile_rejected_safely(tmp_path: Path) -> N
         profile=ExecutionProfile.LAYOUT_PRESERVING,
     )
 
-    # 1. Rejection at Manthan resolution
-    with pytest.raises(DoshError) as exc_info:
-        manthan.resolve(req)
-    assert exc_info.value.code == FailureCode.UNSUPPORTED
+    # 1. Successful resolution at Manthan
+    plan = manthan.resolve(req)
+    assert plan.capability_ids == ("ocr",)
 
-    # 2. Rejection at direct capability execution
+    # 2. Successful execution preserving bounding boxes and coordinates
     cap = OCRCapability()
     ctx = ExecutionContext("run-lay", "req-lay-1", "t-lay", "s-lay")
-    with pytest.raises(DoshError) as exc_exec:
-        cap.execute(req, ctx)
-    assert exc_exec.value.code == FailureCode.UNSUPPORTED
+    res = cap.execute(req, ctx)
+    assert res.data is not None
+    assert len(res.data.pages) >= 1
+    assert "OFFICIAL GOVERNMENT" in res.data.text
 
 
 def test_custom_profile_validation_rejects_unsupported_engine(tmp_path: Path) -> None:

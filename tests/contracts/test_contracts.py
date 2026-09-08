@@ -1,4 +1,4 @@
-"""Comprehensive unit tests for Sankalpa — Canonical Contracts."""
+﻿"""Comprehensive unit tests for Sankalpa — Canonical Contracts."""
 
 from pathlib import Path
 
@@ -880,3 +880,23 @@ class TestCapabilityProtocol:
         assert not isinstance("not_a_capability", Capability)
         assert not isinstance(123, Capability)
         assert not isinstance(None, Capability)
+
+
+def test_request_preserve_partial_strict_bool_validation(tmp_path: Path) -> None:
+    """Request.preserve_partial must reject non-boolean inputs with TypeError."""
+    dummy_file = tmp_path / "doc.txt"
+    dummy_file.write_text("dummy", encoding="utf-8")
+    inp = InputRef("inp-1", dummy_file, "doc.txt", 5)
+
+    # Valid bools
+    req_true = Request("req-1", "read_native", inputs=(inp,), preserve_partial=True)
+    assert req_true.preserve_partial is True
+
+    req_false = Request("req-2", "read_native", inputs=(inp,), preserve_partial=False)
+    assert req_false.preserve_partial is False
+
+    # Invalid non-bools
+    for invalid in (1, 0, "true", "false", None, [True]):
+        with pytest.raises(TypeError) as exc_info:
+            Request("req-bad", "read_native", inputs=(inp,), preserve_partial=invalid)  # type: ignore[arg-type]
+        assert "preserve_partial must be a bool" in str(exc_info.value)

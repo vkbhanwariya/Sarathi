@@ -1,5 +1,8 @@
-"""Tests for Language Detection and Legacy Font Handoff."""
+﻿"""Tests for Language Detection and Legacy Font Handoff."""
 
+import pytest
+
+from sarathi.dosh import DoshError
 from sarathi.shakti.translation.detector import LanguageDetector
 from sarathi.shakti.translation.models import Language, TranslationDirection
 
@@ -30,3 +33,18 @@ def test_legacy_font_detection_triggers_handoff() -> None:
     # Standard English and Unicode Hindi are NOT legacy font
     assert detector.is_legacy_font("Standard English Document") is False
     assert detector.is_legacy_font("मानक हिंदी दस्तावेज़") is False
+
+
+def test_translation_unknown_language_raises_dosh_error() -> None:
+    """Verify LanguageDetector rejects unknown language and unsupported directions."""
+    detector = LanguageDetector()
+
+    # Unknown language text without explicit direction must raise DoshError
+    with pytest.raises(DoshError) as exc_info:
+        detector.resolve_direction("12345 !@#$%")
+    assert "Unable to detect language from input text" in exc_info.value.message
+
+    # Invalid requested direction must raise DoshError
+    with pytest.raises(DoshError) as exc_info2:
+        detector.resolve_direction("Hello world", requested_direction="es-fr")
+    assert "Unsupported or invalid translation direction" in exc_info2.value.message

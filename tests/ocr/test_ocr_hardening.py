@@ -4,11 +4,10 @@ Tests all requirements from the hardening specification:
 1. Instant profile purity and no hidden fallback
 2. Accurate profile preprocessed coordinate crop alignment & validation outcomes
 3. Custom profile pass coherence and rejection of unsupported options
-4. Layout Preserving strict unsupport
-5. Concurrency bounding by allocated device capacity
-6. Thread-safe concurrent engine inference without OpenVINO Infer Request collisions
-7. Native extraction escalation safety (PDF only, no DOCX/0-byte escalation)
-8. Strengthened OCR preflight/readiness check
+4. Concurrency bounding by allocated device capacity
+5. Thread-safe concurrent engine inference without OpenVINO Infer Request collisions
+6. Native extraction escalation safety (PDF only, no DOCX/0-byte escalation)
+7. Strengthened OCR preflight/readiness check
 """
 
 from __future__ import annotations
