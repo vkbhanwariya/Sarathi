@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 07-09-2026, 10:16 PM IST (Asia/Kolkata)
+**README Updated:** 08-09-2026, 01:25 PM IST (Asia/Kolkata)
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and
@@ -209,6 +209,17 @@ Sarathi operates as a local-first, privacy-preserving document intelligence runt
 ------------------------------------------------------------------------
 
 ## 10. Release History (Changelog)
+
+### [2.1.2] - 2026-09-08
+
+- **Mukha UI Design System & Tokens (Phase 6)**: Curated minimal design tokens in `app.css` (compact 32px toolbars, 12-13px typography, subtle gradients, and unified status indicators); improved density, contrast, and visual rhythm across all 6 dashboard screens.
+- **Test Suite Audit & CI Hardening (Phases 1-5)**:
+  - *Phase 1 (CI & Lint Unblock)*: Resolved all ruff linting errors across tests; established explicit pytest marks (`unit`, `integration`, `architecture`, `browser`) in `pyproject.toml`.
+  - *Phase 2 (False-Success Tests)*: Remediated false-success tests (fixed cooperative cancellation UI interception in `runner.js`, resolved stale async run summary in `test_runs_e2e.py`, aligned JS tests with canonical `buildRequestPayload()`, replaced MagicMock with factual `DeviceInfo` dataclasses in Yantra tests, correctly classified mock-based translation tests as integration).
+  - *Phase 3 (CI Decoupling & Modularization)*: Decoupled GitHub Actions CI workflow into parallel isolated jobs (`lint`, `architecture`, `test`, `browser`); modularized `ocr/capability.py` and `mukha/web/http_handler.py` under the strict 30 KB limit.
+  - *Phase 4 (Structural Deduplication)*: Dismantled obsolete `tests/kernel/` in favor of canonical `tests/nabhi/`; consolidated duplicate bank deduplication tests into single canonical `tests/bank_statements/test_deduplicator.py`; enforced affirmative invariant test naming across all test suites.
+  - *Phase 5 (Critical Defect Regressions)*: Added rigorous regression coverage for critical defects: layout-preserving OCR continuation hand-off, recursive prerequisite profile validation in `Manthan`, UI "Process Documents" button disabling with 0 eligible inputs in `home.js`, and `avg_confidence=None` anti-fabrication for uncomputed/non-applicable confidence metrics.
+- **Canonical Cleanliness & Anti-Drift Governance**: Relocated root manifest validator to canonical `tests/architecture/manifest_validator.py`, eliminated non-canonical `tools/` root folder, updated CI compileall paths, and codified Rule 13 ("Strict Governance — Zero Architectural Drift & Explicit Approval for New Files/Folders") in `AGENTS.md`.
 
 ### [2.1.1] - 2026-09-07
 

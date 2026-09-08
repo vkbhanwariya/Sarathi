@@ -1,6 +1,6 @@
 # Sarathi V2 — Implementation Guide
 
-**Specification Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
+**Specification Updated:** 08-09-2026, 01:25 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for implementation order, physical structure, wiring, testing, dependencies, and architecture status.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -355,7 +355,7 @@ Sarathi/
 │   ├── font_conversion/
 │   ├── intake/
 │   ├── integration/
-│   ├── kernel/
+│   ├── nabhi/
 │   ├── mukha/
 │   ├── native_extraction/
 │   ├── ocr/
@@ -465,6 +465,13 @@ This is the single authoritative map for Python-file ownership. Capability secti
 - `mukha/web/runner.py` — background run thread execution, progress observation, and cancellation supervision.
 - `mukha/web/state_builder.py` — presentation projection builder transforming Agni runtime state into web DTOs.
 - `mukha/web/http_handler.py` — HTTP/1.1 REST & SSE request handler serving UI assets and endpoints (`/api/state`, `/api/events`, `/api/run`, `/api/cancel`, `/api/action`, `/api/browse`, `/api/history`, `/api/review`, `/api/artifact`).
+- `mukha/web/review_handler.py` — review API route dispatcher for diff reviews, user decisions, and manual overrides.
+- `mukha/web/static_handler.py` — static web asset resolution, MIME-type streaming, and client cache headers for dashboard UI.
+- `mukha/web/preview.py` — document artifact preview generator transforming canonical outputs to HTML/text preview representations.
+- `mukha/web/comparison.py` — side-by-side structured diff comparison generator for reviews.
+- `mukha/web/diagnostics.py` — diagnostic endpoint helper inspecting active runtime thread, queue, and system telemetry state.
+- `mukha/web/planner.py` — UI requirement plan projection and capability route visualizer.
+- `mukha/web/security.py` — loopback host validation, CORS origin verification, and security headers enforcement.
 - `mukha/web/native_picker.py` — controlled native Windows file and folder picker dialog integration.
 
 ### Smriti — Cache & Runtime State
@@ -545,6 +552,7 @@ Capability `plugin.py` and `provider.py` files are thin boundaries: declaration,
 - `shakti/ocr/plugin.py` — plugin registration and capability declaration metadata.
 - `shakti/ocr/provider.py` — `OCRProvider` constructing executable capability and auditing dependency readiness.
 - `shakti/ocr/capability.py` — executable OCR capability and input/prior-result integration.
+- `shakti/ocr/telemetry.py` — factual line-level and page-level confidence aggregation, weak-unit detection, and OCR telemetry record generation.
 - `shakti/ocr/typography.py` — line-height font size inference and Devanagari/English font standardization.
 - `shakti/ocr/engine/` — modular OCR execution engine subpackage:
   - `coordinator.py`: High-level engine coordinator managing inference execution, device fallback, and memory release.
@@ -781,7 +789,7 @@ Before a new dependency is locked, verify target Python/Windows compatibility, b
   - `sarathi.agni`
   - `sarathi.nabhi.pravaha`
   - `sarathi.mukha.web`
-- Declarative architectural governance enforced via `Vedas/architecture.manifest.json`, `import-linter` contracts, and AST-level fitness tests (`tests/architecture/`).
+- Declarative architectural governance enforced via `Vedas/architecture.manifest.json`, `Vedas/architecture.manifest.schema.json`, canonical validator `tests/architecture/manifest_validator.py`, `import-linter` contracts, and AST-level fitness tests (`tests/architecture/`).
 - 100% backward compatibility maintained via root package re-exports (`__all__`).
 
 **Anubhava — Validated Experience Data** is locked as a capability-owned TOML convention. It has no Python module, runtime service, plugin, or database. A capability creates its file only after validated/approved reusable knowledge exists; autonomous learning and automatic promotion are not active paths.

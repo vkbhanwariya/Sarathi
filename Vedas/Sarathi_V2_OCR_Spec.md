@@ -1,6 +1,6 @@
 # Sarathi V2 — OCR — Optical Character Recognition Specification
 
-**Specification Updated:** 06-09-2026, 10:30 PM IST (Asia/Kolkata)
+**Specification Updated:** 08-09-2026, 01:25 PM IST (Asia/Kolkata)
 
 Scope: OCR engines, processing profiles, preprocessing, fallback, page-level
 output evidence, dependencies, capability data, and acceptance behavior.
@@ -60,9 +60,10 @@ validated; invalid combinations are rejected with a reason.
 
 ### Layout Preserving
 
-- architecturally defined profile for region and reading-order retention;
-- table/position evidence where supported;
-- engine binding remains deferred until layout-corpus benchmark verification (rejected as unsupported at runtime until verified).
+- supported by canonical OCR capability to enable continuation hand-off from native extraction while retaining spatial bounding boxes, line coordinates, and reading order;
+- extracts line/box-level positional data within canonical page evidence;
+- RapidOCR + OpenVINO extracts text bounding boxes with geometry and line segmentation;
+- table and multi-column spatial coordinates are retained across continuation and presentation boundaries.
 
 ### Custom
 

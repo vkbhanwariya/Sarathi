@@ -1,6 +1,6 @@
 # Sarathi V2 — Core Runtime Specification
 
-**Specification Updated:** 06-09-2026, 09:45 PM IST (Asia/Kolkata)
+**Specification Updated:** 08-09-2026, 01:25 PM IST (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Agni, Sankalpa, Nabhi, Pravaha, and Yantra.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -209,6 +209,11 @@ Document + User Requirement + Available Capabilities
 
 It uses declared capability information and runtime availability. It
 does not contain OCR-specific or bank-specific branches.
+
+Invariants:
+- Performs topological dependency sorting across all required capabilities.
+- Enforces recursive prerequisite profile validation: when a request specifies an `ExecutionProfile`, `Manthan` verifies that every transitive prerequisite capability in the dependency chain officially supports that profile. If any dependency does not support the profile, it fails fast with `FailureCode.UNSUPPORTED` rather than executing an incompatible capability chain.
+- Rejects circular dependencies and self-prerequisites deterministically.
 
 ### Pravaha --- Dynamic Pipeline Engine
 
