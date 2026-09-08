@@ -39,37 +39,80 @@ def test_active_run_id_not_overwritten_by_historical_summary(app_page: Page, web
 
 
 def test_cancel_always_targets_active_run(app_page: Page) -> None:
-    """Verify that cancellation targets state.activeRunId even when viewedRunId is different."""
-    target_id = app_page.evaluate(
+    """Verify that clicking Cancel sends a POST request targeting state.activeRunId, not viewedRunId."""
+    intercepted_requests: list[str] = []
+
+    def handle_route(route: any) -> None:
+        intercepted_requests.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+
+    app_page.route("**/api/runs/**/cancel", handle_route)
+
+    # Set active run to run-active-999, but view historical run-history-111
+    app_page.evaluate(
         """() => {
             const state = window.sarathiState;
-            state.activeRunId = "active-run-999";
-            state.viewedRunId = "historical-run-111";
-            // Return activeRunId which cancel button should target
-            return state.activeRunId;
+            state.activeRunId = "run-active-999";
+            state.activeRunStatus = "RUNNING";
+            state.viewedRunId = "run-history-111";
+
+            const btn = document.getElementById("btn-cancel-run");
+            if (btn) btn.disabled = false;
         }"""
     )
-    assert target_id == "active-run-999"
+
+    # Switch to monitor screen where cancel button resides
+    app_page.click(".nav-tab[data-screen='monitor']")
+    expect(app_page.locator("#screen-monitor")).to_have_class("screen-view active")
+
+    # Click cancel button
+    app_page.click("#btn-cancel-run")
+
+    # If confirmation dialog appears, confirm it
+    confirm_btn = app_page.locator("#btn-cancel-dialog-confirm")
+    if confirm_btn.is_visible():
+        confirm_btn.click()
+
+    app_page.wait_for_timeout(300)
+
+    # Assert that an HTTP request was dispatched to /api/runs/run-active-999/cancel
+    assert len(intercepted_requests) == 1
+    assert "run-active-999/cancel" in intercepted_requests[0]
+    assert "run-history-111" not in intercepted_requests[0]
 
 
 def test_stale_summary_responses_discarded(app_page: Page) -> None:
-    """Verify that sequence tracking protects viewedRunId from out-of-order async responses."""
-    result = app_page.evaluate(
-        """() => {
-            const state = window.sarathiState;
-            state.summaryRequestSeq = 1;
-            state.viewedRunId = "run-a";
+    """Verify that loadRunSummary sequence tracking drops delayed out-of-order responses."""
 
-            // Advance sequence as if run-b was requested next
-            state.summaryRequestSeq = 2;
-            state.viewedRunId = "run-b";
+    def handle_summary_route(route: any) -> None:
+        req_url = route.request.url
+        if "run-a" in req_url:
+            time.sleep(0.4)
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body='{"ok": true, "summary": {"run_id": "run-a", "status": "SUCCESS"}}',
+            )
+        else:
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body='{"ok": true, "summary": {"run_id": "run-b", "status": "SUCCESS"}}',
+            )
 
-            // Simulate delayed response arriving for seq 1
-            const arrivingSeq = 1;
-            if (arrivingSeq === state.summaryRequestSeq) {
-                state.viewedRunId = "run-a";
-            }
-            return state.viewedRunId;
+    app_page.route("**/api/runs/**/summary", handle_summary_route)
+
+    # Invoke production loadRunSummary for run-a then run-b
+    app_page.evaluate(
+        """async () => {
+            const { loadRunSummary } = await import("/js/screens/summary.js");
+            loadRunSummary("run-a");
+            loadRunSummary("run-b");
         }"""
     )
-    assert result == "run-b"
+
+    app_page.wait_for_timeout(600)
+
+    # The active viewedRunId must remain run-b, not clobbered by delayed run-a
+    viewed_id = app_page.evaluate("() => window.sarathiState ? window.sarathiState.viewedRunId : null")
+    assert viewed_id == "run-b"

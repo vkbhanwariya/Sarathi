@@ -1,4 +1,4 @@
-"""End-to-End Operational Acceptance Test for Translation Capability."""
+"""Integration test for Translation pipeline composition using deterministic test backend."""
 
 from pathlib import Path
 from typing import Any
@@ -31,7 +31,7 @@ def hindi_sample_file(tmp_path: Path) -> Path:
     return p
 
 
-def test_e2e_translation_pipeline(tmp_path: Path, hindi_sample_file: Path, test_backend: Any) -> None:
+def test_translation_pipeline_with_deterministic_backend(tmp_path: Path, hindi_sample_file: Path, test_backend: Any) -> None:
     runtime_dir = tmp_path / "Runtime"
     output_dir = tmp_path / "Output"
     darpana = Darpana(capacity=200)

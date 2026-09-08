@@ -117,24 +117,9 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     profile_select.select_option("accurate")
 
     payload = app_page.evaluate(
-        """() => {
-            // Import and evaluate buildRequestPayload from home screen module
-            const state = window.sarathiState;
-            const customOpts = {};
-            let profile = "instant";
-            const act = (state.availableActions || []).find((a) => a.action_id === state.currentRequirement);
-            if (act && act.parameters) {
-                act.parameters.forEach((p) => {
-                    const draftVal = state.draftActionParams[act.action_id] ? state.draftActionParams[act.action_id][p.parameter_id] : p.default_value;
-                    if (p.kind === "select") {
-                        if (p.parameter_id === "profile") profile = draftVal || "instant";
-                        else if (draftVal !== undefined && draftVal !== "") customOpts[p.parameter_id] = draftVal;
-                    } else if (p.kind === "toggle") {
-                        customOpts[p.parameter_id] = Boolean(draftVal);
-                    }
-                });
-            }
-            return { requirement: state.currentRequirement, profile, customOpts };
+        """async () => {
+            const { buildRequestPayload } = await import("/js/screens/home.js");
+            return buildRequestPayload();
         }"""
     )
     assert payload["requirement"] == "ocr"

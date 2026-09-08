@@ -9,7 +9,8 @@ from unittest.mock import MagicMock
 
 from sarathi.mukha.web.planner import preview_execution_plan
 from sarathi.mukha.web.server import MukhaWebServer
-from sarathi.sankalpa import ExecutionProfile
+from sarathi.sankalpa import DeviceType, ExecutionProfile
+from sarathi.yantra.devices import DeviceInfo
 
 
 def test_preview_execution_plan_no_inputs() -> None:
@@ -45,12 +46,8 @@ def test_preview_execution_plan_mock_success(tmp_path: Path) -> None:
     mock_cap.name = "Native Text Extraction"
     mock_agni.kosh.get_capability.return_value = mock_cap
 
-    mock_device = MagicMock()
-    mock_device.device_type = "cpu"
-    mock_device.device_id = "cpu:0"
-    mock_device.is_available = True
-    mock_device.is_preferred = True
-    mock_agni.yantra.device_inventory.devices = [mock_device]
+    concrete_device = DeviceInfo(device_id="cpu:0", device_type=DeviceType.CPU, capacity=4)
+    mock_agni.yantra.device_inventory.devices = [concrete_device]
 
     res = preview_execution_plan(
         agni=mock_agni,
