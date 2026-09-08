@@ -847,22 +847,22 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "charset-normalizer", specifier = ">=3.5.1" },
-    { name = "ctranslate2", marker = "extra == 'translation'", specifier = ">=4.5.0" },
-    { name = "httpx", marker = "extra == 'cloud'", specifier = ">=0.28.0" },
+    { name = "ctranslate2", marker = "extra == 'translation'", specifier = ">=4.8.0" },
+    { name = "httpx", marker = "extra == 'cloud'", specifier = ">=0.28.1" },
     { name = "numpy", marker = "extra == 'ocr'", specifier = ">=2.0.0" },
     { name = "opencv-python-headless", marker = "extra == 'ocr'", specifier = ">=4.8.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
-    { name = "openvino", marker = "extra == 'ocr'", specifier = ">=2025.0.0" },
-    { name = "pillow", marker = "extra == 'ocr'", specifier = ">=11.0.0" },
+    { name = "openvino", marker = "extra == 'ocr'", specifier = ">=2026.3.0" },
+    { name = "pillow", marker = "extra == 'ocr'", specifier = ">=12.0.0" },
     { name = "polars", specifier = ">=1.44.1" },
     { name = "pymupdf", specifier = ">=1.28.2" },
     { name = "pytesseract", marker = "extra == 'ocr'", specifier = ">=0.3.13" },
     { name = "python-calamine", specifier = ">=0.8.2" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "rapidocr", marker = "extra == 'ocr'", specifier = ">=3.9.0" },
-    { name = "regex", marker = "extra == 'font-conversion'", specifier = ">=2024.11.6" },
-    { name = "regex", marker = "extra == 'translation'", specifier = ">=2024.11.6" },
-    { name = "sentencepiece", marker = "extra == 'translation'", specifier = ">=0.2.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "rapidocr", marker = "extra == 'ocr'", specifier = ">=3.9.2" },
+    { name = "regex", marker = "extra == 'font-conversion'", specifier = ">=2026.9.3" },
+    { name = "regex", marker = "extra == 'translation'", specifier = ">=2026.9.3" },
+    { name = "sentencepiece", marker = "extra == 'translation'", specifier = ">=0.2.2" },
     { name = "xlrd", specifier = ">=2.0.2" },
 ]
 provides-extras = ["ocr", "translation", "font-conversion", "cloud"]
@@ -870,10 +870,10 @@ provides-extras = ["ocr", "translation", "font-conversion", "cloud"]
 [package.metadata.requires-dev]
 dev = [
     { name = "import-linter", specifier = ">=2.15" },
-    { name = "jsonschema", specifier = ">=4.20.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pytest-playwright", specifier = ">=0.7.0" },
-    { name = "ruff", specifier = ">=0.9.0" },
+    { name = "pytest-playwright", specifier = ">=0.9.0" },
+    { name = "ruff", specifier = ">=0.16.0" },
 ]
 
 [[package]]

@@ -10,7 +10,7 @@ dependencies = [
     "polars>=1.44.1",
     "pymupdf>=1.28.2",
     "python-calamine>=0.8.2",
-    "pyyaml>=6.0.2",
+    "pyyaml>=6.0.3",
     "xlrd>=2.0.2",
 ]
 
@@ -22,35 +22,35 @@ sarathi = "sarathi.__main__:main"
 ocr = [
     "numpy>=2.0.0",
     "opencv-python-headless>=4.8.0",
-    "openvino>=2025.0.0",
-    "pillow>=11.0.0",
+    "openvino>=2026.3.0",
+    "pillow>=12.0.0",
     "pytesseract>=0.3.13",
-    "rapidocr>=3.9.0",
+    "rapidocr>=3.9.2",
 ]
 translation = [
-    "ctranslate2>=4.5.0",
-    "regex>=2024.11.6",
-    "sentencepiece>=0.2.0",
+    "ctranslate2>=4.8.0",
+    "regex>=2026.9.3",
+    "sentencepiece>=0.2.2",
 ]
 font_conversion = [
-    "regex>=2024.11.6",
+    "regex>=2026.9.3",
 ]
 cloud = [
-    "httpx>=0.28.0",
+    "httpx>=0.28.1",
 ]
 
 
 [build-system]
-requires = ["uv_build>=0.12.7,<0.13"]
+requires = ["uv_build>=0.12.10,<0.13"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
     "import-linter>=2.15",
-    "jsonschema>=4.20.0",
+    "jsonschema>=4.26.0",
     "pytest>=9.1.1",
-    "pytest-playwright>=0.7.0",
-    "ruff>=0.9.0",
+    "pytest-playwright>=0.9.0",
+    "ruff>=0.16.0",
 ]
 
 [tool.pytest.ini_options]
@@ -106,6 +106,7 @@ modules = [
     "sarathi.shakti.font_conversion",
     "sarathi.shakti.native_extraction",
     "sarathi.shakti.ocr",
+    "sarathi.shakti.statutory",
     "sarathi.shakti.translation",
     "sarathi.shakti.mistral",
     "sarathi.shakti.gemini",
@@ -123,6 +124,7 @@ forbidden_modules = [
     "sarathi.shakti.font_conversion",
     "sarathi.shakti.native_extraction",
     "sarathi.shakti.ocr",
+    "sarathi.shakti.statutory",
     "sarathi.shakti.translation",
     "sarathi.shakti.mistral",
     "sarathi.shakti.gemini",
@@ -143,6 +145,7 @@ forbidden_modules = [
     "sarathi.shakti.font_conversion",
     "sarathi.shakti.native_extraction",
     "sarathi.shakti.ocr",
+    "sarathi.shakti.statutory",
     "sarathi.shakti.translation",
     "sarathi.shakti.mistral",
     "sarathi.shakti.gemini",

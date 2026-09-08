@@ -204,6 +204,9 @@ def build_rapidocr_instance(
 
     patch_rapidocr_openvino_device()
 
+    rec_batch_num = 16 if target_device == "CPU" else 32
+    box_thresh = 0.55
+
     if engine_key == "devanagari":
         params: dict[str, Any] = {
             "Det.engine_type": EngineType.OPENVINO,
@@ -211,12 +214,14 @@ def build_rapidocr_instance(
             "Det.ocr_version": OCRVersion.PPOCRV5,
             "Det.model_type": ModelType.MOBILE,
             "Det.model_path": verified_paths["det"],
+            "Det.box_thresh": box_thresh,
             "Rec.engine_type": EngineType.OPENVINO,
             "Rec.device": target_device,
             "Rec.ocr_version": OCRVersion.PPOCRV5,
             "Rec.model_type": ModelType.MOBILE,
             "Rec.lang_type": LangRec.DEVANAGARI,
             "Rec.model_path": verified_paths[rec_key],
+            "Rec.rec_batch_num": rec_batch_num,
             "Cls.engine_type": EngineType.OPENVINO,
             "Cls.device": target_device,
             "Cls.model_path": verified_paths["cls"],
@@ -229,11 +234,13 @@ def build_rapidocr_instance(
             "Det.ocr_version": OCRVersion.PPOCRV5,
             "Det.model_type": ModelType.MOBILE,
             "Det.model_path": verified_paths["det"],
+            "Det.box_thresh": box_thresh,
             "Rec.engine_type": EngineType.OPENVINO,
             "Rec.device": target_device,
             "Rec.ocr_version": OCRVersion.PPOCRV6,
             "Rec.model_type": ModelType.SMALL,
             "Rec.model_path": verified_paths[rec_key],
+            "Rec.rec_batch_num": rec_batch_num,
             "Cls.engine_type": EngineType.OPENVINO,
             "Cls.device": target_device,
             "Cls.model_path": verified_paths["cls"],
@@ -246,11 +253,13 @@ def build_rapidocr_instance(
             "Det.ocr_version": OCRVersion.PPOCRV5,
             "Det.model_type": ModelType.MOBILE,
             "Det.model_path": verified_paths["det"],
+            "Det.box_thresh": box_thresh,
             "Rec.engine_type": EngineType.OPENVINO,
             "Rec.device": target_device,
             "Rec.ocr_version": OCRVersion.PPOCRV5,
             "Rec.model_type": ModelType.MOBILE,
             "Rec.model_path": verified_paths[rec_key],
+            "Rec.rec_batch_num": rec_batch_num,
             "Cls.engine_type": EngineType.OPENVINO,
             "Cls.device": target_device,
             "Cls.model_path": verified_paths["cls"],

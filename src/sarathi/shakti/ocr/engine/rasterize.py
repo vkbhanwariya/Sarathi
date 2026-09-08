@@ -21,7 +21,7 @@ def iter_images_from_bytes(data: bytes, dpi: int = 150) -> Iterator[Any]:
         try:
             for page in doc:
                 pix = page.get_pixmap(dpi=dpi)
-                yield Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                yield Image.frombuffer("RGB", (pix.width, pix.height), pix.samples, "raw", "RGB", 0, 1)
         finally:
             doc.close()
         return
