@@ -11,6 +11,7 @@ from sarathi.sankalpa import PluginProvider
 from sarathi.shakti.bank_statements.provider import BankStatementsProvider
 from sarathi.shakti.darshana.provider import DarshanaProvider
 from sarathi.shakti.font_conversion.provider import FontConversionProvider
+from sarathi.shakti.mistral.provider import MistralProvider
 from sarathi.shakti.native_extraction.provider import NativeExtractionProvider
 from sarathi.shakti.ocr.provider import OCRProvider
 from sarathi.shakti.translation.provider import TranslationProvider
@@ -22,6 +23,7 @@ BUILTIN_PLUGIN_PROVIDERS: tuple[PluginProvider, ...] = (
     BankStatementsProvider(),
     FontConversionProvider(),
     TranslationProvider(),
+    MistralProvider(),
 )
 
 __all__ = [
@@ -29,6 +31,7 @@ __all__ = [
     "BankStatementsProvider",
     "DarshanaProvider",
     "FontConversionProvider",
+    "MistralProvider",
     "NativeExtractionProvider",
     "OCRProvider",
     "TranslationProvider",

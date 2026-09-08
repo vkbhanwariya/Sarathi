@@ -116,9 +116,11 @@
         "sarathi.shakti.font_conversion",
         "sarathi.shakti.native_extraction",
         "sarathi.shakti.ocr",
-        "sarathi.shakti.translation"
+        "sarathi.shakti.translation",
+        "sarathi.shakti.mistral"
       ],
       "mutually_independent": true
+
     }
   },
   "exceptions": [

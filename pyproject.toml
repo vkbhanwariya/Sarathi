@@ -35,6 +35,10 @@ translation = [
 font_conversion = [
     "regex>=2024.11.6",
 ]
+cloud = [
+    "httpx>=0.28.0",
+]
+
 
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13"]
@@ -103,6 +107,7 @@ modules = [
     "sarathi.shakti.native_extraction",
     "sarathi.shakti.ocr",
     "sarathi.shakti.translation",
+    "sarathi.shakti.mistral",
 ]
 
 [[tool.importlinter.contracts]]

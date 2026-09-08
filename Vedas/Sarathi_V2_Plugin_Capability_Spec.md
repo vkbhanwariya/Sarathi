@@ -94,10 +94,23 @@ BUILTIN_PLUGIN_PROVIDERS: tuple[PluginProvider, ...] = (
     BankStatementsProvider(),
     FontConversionProvider(),
     TranslationProvider(),
+    MistralProvider(),
 )
 ```
 
 Additive plugins may be supplied to the composition root via `Agni(extra_plugin_providers=...)`.
+
+### 3.1 Mistral AI Cloud Plugin (`sarathi.shakti.mistral`)
+
+The Mistral AI plugin provides cloud-based OCR (`mistral-ocr-latest`) and Translation (`mistral-large-latest`) capabilities via direct HTTP REST calls:
+- **Capabilities:**
+  - `mistral_ocr`: Cloud OCR supporting document markdown, layout bounding boxes, and tabular extraction into canonical `PageData` and `TableData`.
+  - `mistral_translation`: Cloud-based high-accuracy multilingual document translation into canonical `CanonicalDocument`.
+- **Security & Privacy (Kavacha Gating):**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("MISTRAL_API_KEY",))`.
+  Enforced by **Kavacha** before any network call. If operator configuration does not permit `allow_network_access` or `allow_external_processing`, requests fail fast with `FailureCode.SECURITY_DENIED`.
+- **Zero-Leak Transport:**
+  Direct REST client (`httpx` with `urllib` fallback) without vendor SDK telemetry. HTTP 401/429/5xx status codes and error responses sanitize raw tokens, file paths, and private payloads.
 
 ---
 

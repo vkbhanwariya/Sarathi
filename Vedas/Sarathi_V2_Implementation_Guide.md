@@ -323,6 +323,13 @@ Sarathi/
 │               ├── row_classifier.py
 │               ├── table_locator.py
 │               └── validator.py
+│           └── mistral/
+│               ├── __init__.py
+│               ├── client.py
+│               ├── ocr.py
+│               ├── plugin.py
+│               ├── provider.py
+│               └── translation.py
 │
 ├── data/
 │   ├── banks/
@@ -607,6 +614,11 @@ Capability `plugin.py` and `provider.py` files are thin boundaries: declaration,
 - `shakti/bank_statements/validator.py` — transaction invariants, Decimal financial continuity, opening/closing/EOD/source-total reconciliation, and inversion evidence.
 - `shakti/bank_statements/deduplicator.py` — overlap candidate evaluation and evidence-based duplicate decisions while retaining provenance.
 - `shakti/bank_statements/consolidator.py` — multi-account grouping, safe chronology, cross-statement deduplication within accounts, and lossless Parquet/XLSX export.
+- `shakti/mistral/plugin.py` — Mistral AI plugin declaration (mistral_ocr, mistral_translation) with explicit Kavacha SecurityDeclaration.
+- `shakti/mistral/client.py` — zero-leak REST client over httpx mapping HTTP errors without exposing private credentials or content.
+- `shakti/mistral/ocr.py` — Mistral Cloud OCR capability (mistral-ocr-latest) generating canonical CanonicalDocument and TXT/DOCX artifacts.
+- `shakti/mistral/translation.py` — Mistral Cloud Translation capability (mistral-large-latest) preserving canonical structures and exporting TXT/DOCX artifacts.
+- `shakti/mistral/provider.py` — canonical MistralProvider satisfying PluginProvider protocol.
 
 ------------------------------------------------------------------------
 

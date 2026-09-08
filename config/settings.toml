@@ -24,3 +24,10 @@ history_path = "history.jsonl"
 detect_accelerators = true
 gpu_capacity_per_device = 4
 ocr_hybrid_page_threshold = 8
+
+# [mistral]
+# To enable Mistral AI Cloud capabilities, configure security above:
+# allow_network_access = true, allow_external_processing = true, allowed_secrets = ["MISTRAL_API_KEY"]
+# model_ocr = "mistral-ocr-latest"
+# model_translation = "mistral-large-latest"
+# timeout_seconds = 60

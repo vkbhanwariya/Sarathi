@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 08-09-2026, 02:00 PM IST (Asia/Kolkata)
+**README Updated:** 08-09-2026, 02:25 PM IST (Asia/Kolkata)
 
 
 Sarathi V2 is a local, plugin-first document intelligence system for
@@ -210,6 +210,14 @@ Sarathi operates as a local-first, privacy-preserving document intelligence runt
 ------------------------------------------------------------------------
 
 ## 10. Release History (Changelog)
+
+### [2.1.3] - 2026-09-08
+
+- **Mistral AI Cloud OCR & Translation Plugin (`shakti.mistral`)**:
+  - Added dedicated, isolated Shakti plugin providing Cloud OCR (`mistral-ocr-latest`) and Translation (`mistral-large-latest`).
+  - Direct REST client transport using `httpx` with `urllib` fallback, guaranteeing zero vendor telemetry leakage and no SDK footprint.
+  - Strict **Kavacha Security Gating**: Enforces reviewable `SecurityDeclaration(network_access=True, external_processing=True)` rejected by default unless explicitly allowed by operator configuration.
+  - Full canonical response synthesis into `CanonicalDocument`, `PageData`, `TextSpan`, and `TableData` with automated `.txt` and formatted `.docx` artifact export.
 
 ### [2.1.2] - 2026-09-08
 
