@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
-from sarathi.sankalpa import Request
+from sarathi.sankalpa import ExecutionProfile, Request
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,17 +114,18 @@ class Manthan:
                         ),
                     )
 
-        planned_ids = self._topological_sort(capability.capability_id)
+        planned_ids = self._topological_sort(capability.capability_id, request.profile)
 
         return CapabilityPlan(
             request_id=request.request_id,
             capability_ids=planned_ids,
         )
 
-    def _topological_sort(self, root_id: str) -> tuple[str, ...]:
+    def _topological_sort(self, root_id: str, profile: ExecutionProfile | None = None) -> tuple[str, ...]:
         """Perform recursive topological sort resolving all transitive prerequisites.
 
-        Detects and rejects cycles (A -> B -> A) and self-prerequisites (A -> A),
+        Detects and rejects cycles (A -> B -> A), self-prerequisites (A -> A),
+        and prerequisite capabilities lacking support for the requested execution profile,
         while safely pruning redundant transitive dependencies.
         """
         order: list[str] = []
@@ -147,6 +148,16 @@ class Manthan:
                 raise DoshError(
                     code=FailureCode.UNSUPPORTED,
                     message=f"Prerequisite capability '{cap_id}' required by '{parent}' is not registered.",
+                )
+
+            if profile is not None and profile not in cap.supported_profiles:
+                parent = visiting[-1] if visiting else root_id
+                raise DoshError(
+                    code=FailureCode.UNSUPPORTED,
+                    message=(
+                        f"Prerequisite capability '{cap_id}' required by '{parent}' does not support "
+                        f"requested execution profile '{profile.value}'."
+                    ),
                 )
 
             if cap_id in cap.prerequisites:

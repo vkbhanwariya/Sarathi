@@ -886,3 +886,26 @@ class TestMukhaAuditCapabilityStatus:
         assert dev_map["CPU"].execution_count == 1
         assert dev_map["CPU"].avg_duration_ns == 200_000_000
         assert dev_map["CPU"].avg_confidence == 0.92
+
+    def test_mukha_preserves_none_confidence_without_fabrication(self) -> None:
+        """Verify Mukha presenter preserves avg_confidence=None without fabricating 0.0 or 1.0."""
+        req = Request(
+            request_id="req-no-conf",
+            requirement="read_native",
+            inputs=(InputRef("inp-1", Path("doc.pdf"), "doc.pdf", 1024),),
+        )
+        res = Result(data=None, artifacts=(), confidence=None)
+
+        summary = MukhaPresenter.build_summary_view(
+            run_id="req-no-conf",
+            status="SUCCESS",
+            wall_time_ns=50_000_000,
+            request=req,
+            result=res,
+            successful_files=1,
+            maruti_records=(),
+            pramana_records=(),
+        )
+
+        assert summary.avg_confidence is None
+        assert format_confidence(summary.avg_confidence) == "-"

@@ -666,3 +666,64 @@ def test_pipeline_continuation_with_cached_handoff(tmp_path: Path) -> None:
     assert "native_cold" not in execution_order
     assert "ocr" in execution_order
     assert res.data.text == "OCR Recovered Text"
+
+
+def test_native_layout_preserving_handoff_to_ocr_continuation(tmp_path: Path) -> None:
+    """Verify Native Extraction with layout_preserving profile hands off to OCR continuation preserving profile."""
+    from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION as NATIVE_DECL
+    from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION as OCR_DECL
+
+    input_file = tmp_path / "scanned_layout.pdf"
+    input_file.write_bytes(b"%PDF-1.4 dummy scanned content")
+
+    recorded_ocr_profile: list[ExecutionProfile] = []
+
+    class MockNativeLayoutCap:
+        def __init__(self) -> None:
+            self.declaration = NATIVE_DECL
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            # Native extraction detects sparse/scanned page and hands off to OCR
+            doc = CanonicalDocument(
+                document_id="doc-native-layout",
+                source_input_id=request.inputs[0].input_id,
+                text="",
+                pages=(PageData(page_number=1, text="", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc, next_requirement="ocr")
+
+    class MockOCRLayoutCap:
+        def __init__(self) -> None:
+            self.declaration = OCR_DECL
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            recorded_ocr_profile.append(context.profile)
+            doc = CanonicalDocument(
+                document_id="doc-ocr-layout",
+                source_input_id=request.inputs[0].input_id,
+                text="OCR Layout-Preserved Content",
+                pages=(PageData(page_number=1, text="OCR Layout-Preserved Content", tables=()),),
+                tables=(),
+            )
+            return Result(data=doc)
+
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        capabilities={
+            "read_native": MockNativeLayoutCap(),
+            "ocr": MockOCRLayoutCap(),
+        },
+    )
+
+    req = Request(
+        request_id="req-layout-preserving",
+        requirement="read_native",
+        inputs=(InputRef("inp-layout", input_file, "scanned_layout.pdf", 32),),
+        profile=ExecutionProfile.LAYOUT_PRESERVING,
+    )
+
+    res = agni.execute(req)
+    assert res.data.text == "OCR Layout-Preserved Content"
+    assert recorded_ocr_profile == [ExecutionProfile.LAYOUT_PRESERVING]

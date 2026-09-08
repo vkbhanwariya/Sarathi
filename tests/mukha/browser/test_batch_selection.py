@@ -40,6 +40,43 @@ def test_batch_boundary_0_files(app_page: Page) -> None:
     tbody = app_page.locator("#selected-inputs-tbody")
     expect(tbody).to_contain_text("No documents selected")
     expect(app_page.locator("#input-grouped-summary")).to_have_class("grouped-summary-card hidden")
+    expect(app_page.locator("#btn-start-run")).to_be_disabled()
+
+
+def test_batch_zero_eligible_inputs_disables_start_button(app_page: Page) -> None:
+    """When documents are selected but eligible_count is 0, Start Document Processing button must be disabled."""
+    items = [
+        {
+            "input_id": "inp_bad1",
+            "source_path": "E:/Docs/encrypted.pdf",
+            "display_name": "encrypted.pdf",
+            "size_bytes": 2048,
+            "is_eligible": False,
+            "issue_reason": "Encrypted PDF file",
+        },
+        {
+            "input_id": "inp_bad2",
+            "source_path": "E:/Docs/empty.txt",
+            "display_name": "empty.txt",
+            "size_bytes": 0,
+            "is_eligible": False,
+            "issue_reason": "Zero-byte file",
+        },
+    ]
+    app_page.evaluate(
+        """async (items) => {
+            const mod = await import("/js/screens/home.js");
+            mod.renderInputsTable(items);
+            mod.renderPreflight({
+                eligible_count: 0,
+                issue_count: 2,
+                issues: [["encrypted.pdf", "Encrypted PDF file"], ["empty.txt", "Zero-byte file"]],
+            });
+        }""",
+        items,
+    )
+    btn_start = app_page.locator("#btn-start-run")
+    expect(btn_start).to_be_disabled()
 
 
 def test_batch_boundary_1_file(app_page: Page) -> None:

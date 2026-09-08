@@ -25,9 +25,9 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     version="1.0.0",
     display_name="Optical Character Recognition (OCR)",
     supported_profiles=(
-
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
+        ExecutionProfile.LAYOUT_PRESERVING,
         ExecutionProfile.CUSTOM,
     ),
     device_requirement=DeviceRequirement(

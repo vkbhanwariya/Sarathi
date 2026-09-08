@@ -120,9 +120,14 @@ export async function refreshIntake() {
         if (elements.inputCountsBadge) {
             elements.inputCountsBadge.textContent = `${filteredItems.length} files (${formatBytes(totalSize)})`;
         }
-        renderPreflight(res.preflight || { eligible_count: filteredItems.length, issue_count: 0, issues: [] });
+        const preflightData = res.preflight || {
+            eligible_count: filteredItems.filter((i) => i.is_eligible !== false).length,
+            issue_count: 0,
+            issues: [],
+        };
+        renderPreflight(preflightData);
         if (elements.btnStartRun) {
-            elements.btnStartRun.disabled = filteredItems.length === 0;
+            elements.btnStartRun.disabled = filteredItems.length === 0 || preflightData.eligible_count === 0;
         }
         previewPlan();
     } else if (res.error) {
@@ -324,6 +329,9 @@ export function renderInputsTable(items, inputSelection) {
 export function renderPreflight(preflight) {
     if (!elements.preflightSummary) return;
     elements.preflightSummary.textContent = `${preflight.eligible_count} eligible, ${preflight.issue_count} issues`;
+    if (elements.btnStartRun && preflight.eligible_count === 0) {
+        elements.btnStartRun.disabled = true;
+    }
     if (elements.preflightIssues) {
         if (preflight.issues && preflight.issues.length > 0) {
             elements.preflightIssues.classList.remove("hidden");

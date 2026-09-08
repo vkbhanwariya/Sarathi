@@ -381,3 +381,59 @@ class TestManthanResolver:
             manthan.resolve(req)
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
         assert "Self-prerequisite detected" in exc_info.value.message
+
+    def test_recursive_prerequisite_profile_mismatch_raises_unsupported(self) -> None:
+        """When a parent capability supports a profile but a transitive prerequisite does not, fail-fast with UNSUPPORTED."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="profile.plugin",
+            name="Profile Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_child", "cap_parent"),
+        )
+        registry.register_plugin(p)
+
+        # Child only supports INSTANT
+        child_cap = CapabilityDeclaration(
+            "cap_child",
+            "profile.plugin",
+            "1.0.0",
+            (ExecutionProfile.INSTANT,),
+        )
+        # Parent supports both INSTANT and ACCURATE
+        parent_cap = CapabilityDeclaration(
+            "cap_parent",
+            "profile.plugin",
+            "1.0.0",
+            (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
+            prerequisites=("cap_child",),
+        )
+        registry.register_capability(child_cap)
+        registry.register_capability(parent_cap)
+
+        manthan = Manthan(registry)
+
+        # 1. Successful resolution when profile matches both (INSTANT)
+        req_instant = Request(
+            request_id="req-ok",
+            requirement="cap_parent",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+            profile=ExecutionProfile.INSTANT,
+        )
+        plan_instant = manthan.resolve(req_instant)
+        assert plan_instant.capability_ids == ("cap_child", "cap_parent")
+
+        # 2. Rejection when requested profile is unsupported by recursive prerequisite
+        req_accurate = Request(
+            request_id="req-fail",
+            requirement="cap_parent",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+            profile=ExecutionProfile.ACCURATE,
+        )
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req_accurate)
+
+        err = exc_info.value
+        assert err.code is FailureCode.UNSUPPORTED
+        assert "Prerequisite capability 'cap_child' required by 'cap_parent' does not support requested execution profile 'accurate'" in err.message
