@@ -27,7 +27,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Bytecode compilation check
-        run: uv run python -m compileall -q src tests tools scripts
+        run: uv run python -m compileall -q src tests scripts
 
       - name: Ruff lint check
         run: uv run ruff check .

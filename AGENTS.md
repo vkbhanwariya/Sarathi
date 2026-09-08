@@ -30,6 +30,7 @@ You are implementing Sarathi. `AGENTS.md`, the current `README.md`, and only the
 10. **No Fake Success:** Never report or return `SUCCESS`, `COMPLETED`, `READY`, `VALID`, or equivalent unless the required operation actually completed and required validation passed. A capability existing on disk, a function returning, or an artifact path created is not proof of success. Partial, skipped, degraded, fallback, unverified, failed, cancelled, quarantined, or uncommitted work must never be promoted to success. If a required stage fails, the overall operation fails.
 11. **Stop & Report:** Stop and report genuine missing prerequisites, contracts, dependencies, or blockers instead of inventing data, default behavior, or another architectural layer. If discovery alters approved scope, get re-approval.
 12. **Final Core Drift Check, Commit & Push:** Before completion, verify: one canonical owner remains, no alternate execution paths exist, contracts and implementation agree, registration and wiring are complete, callers use canonical owner, round-trips preserve semantics, lifecycle is singular, no stale code remains, and terminal success is factually proven. Commit one coherent milestone, push immediately when available, and report: purpose, commit hash, branch pushed, files changed, wiring affected, and tests executed.
+13. **Strict Governance — Zero Architectural Drift & Explicit Approval for New Files/Folders:** Never introduce new files or directories outside approved canonical architecture without explicit user approval. If modularization, refactoring, tooling, or remediation suggests introducing a new file or directory, stop and ask the user specifically before creating it.
 
 
 ## Operational Optimization (Tokens & Limits)
@@ -45,6 +46,7 @@ You are implementing Sarathi. `AGENTS.md`, the current `README.md`, and only the
 Before touching code, present a plan covering:
 - Objective and canonical owner;
 - Every file expected to change, and why;
+- Explicit specification of any proposed new file or folder (requires explicit user approval);
 - Exact fix/behavior per file;
 - Affected functions, classes, contracts, registrations, and call paths;
 - Impact on other modules and compatibility/behavioral risks;

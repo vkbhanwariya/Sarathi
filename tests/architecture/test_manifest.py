@@ -7,7 +7,7 @@ import json
 import jsonschema
 import pytest
 
-from tools.architecture.validate_manifest import get_repo_root, validate_manifest
+from tests.architecture.manifest_validator import get_repo_root, validate_manifest
 
 
 @pytest.mark.architecture

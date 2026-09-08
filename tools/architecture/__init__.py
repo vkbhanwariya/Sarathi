@@ -1,1 +1,0 @@
-"""Sarathi architecture tooling package."""
