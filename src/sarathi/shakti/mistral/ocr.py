@@ -85,9 +85,11 @@ class MistralOCRCapability:
         self,
         client: MistralClient | None = None,
         declaration: CapabilityDeclaration = MISTRAL_OCR_DECLARATION,
+        darpana: Any | None = None,
     ) -> None:
         self.declaration = declaration
         self._client = client or MistralClient()
+        self._darpana = darpana
 
     def execute(
         self,
@@ -169,13 +171,85 @@ class MistralOCRCapability:
                 # Attempt to extract tables from page markdown
                 tables = _extract_markdown_tables(p_text)
 
+                # Compute page-level confidence matrix from spans
+                span_confs = [s.confidence for s in spans if s.confidence is not None]
+                page_meta: dict[str, Any] = {}
+                page_avg_conf: float | None = round(sum(span_confs) / len(span_confs), 4) if span_confs else None
+                min_c: float | None = round(min(span_confs), 4) if span_confs else None
+                max_c: float | None = round(max(span_confs), 4) if span_confs else None
+
+                if page_avg_conf is not None:
+                    page_meta["confidence"] = page_avg_conf
+                    page_meta["min_confidence"] = min_c
+                    page_meta["max_confidence"] = max_c
+                    page_meta["confidence_count"] = len(span_confs)
+
                 page_data = PageData(
                     page_number=p_idx,
                     text=p_text,
                     spans=tuple(spans),
                     tables=tuple(tables),
+                    metadata=page_meta,
                 )
                 pages.append(page_data)
+
+                # Emit Pramana telemetry if Darpana is wired
+                if self._darpana is not None:
+                    from datetime import datetime, timezone
+                    from sarathi.darpana import PramanaRecord
+
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    page_evidence = {"model": model, "provider": "mistral"}
+                    self._darpana.record_pramana(
+                        PramanaRecord(
+                            run_id=context.run_id,
+                            request_id=context.request_id,
+                            trace_id=context.trace_id,
+                            span_id=context.span_id,
+                            capability_id="mistral_ocr",
+                            stage="ocr",
+                            timestamp_utc=now_iso,
+                            subject_id=f"{inp.input_id}:p{p_idx}",
+                            confidence=ConfidenceValue(
+                                score=page_avg_conf,
+                                method="mistral_mean",
+                                evidence=page_evidence,
+                            ) if page_avg_conf is not None else None,
+                            attributes={
+                                "level": "page",
+                                "page_number": p_idx,
+                                "file_display_name": inp.display_name,
+                                "region_count": len(spans),
+                                "min_confidence": min_c,
+                                "max_confidence": max_c,
+                            },
+                        )
+                    )
+                    for s_idx, span in enumerate(spans[:30]):
+                        if span.confidence is not None:
+                            self._darpana.record_pramana(
+                                PramanaRecord(
+                                    run_id=context.run_id,
+                                    request_id=context.request_id,
+                                    trace_id=context.trace_id,
+                                    span_id=context.span_id,
+                                    capability_id="mistral_ocr",
+                                    stage="ocr",
+                                    timestamp_utc=now_iso,
+                                    subject_id=f"{inp.input_id}:p{p_idx}:s{s_idx}",
+                                    confidence=ConfidenceValue(
+                                        score=round(span.confidence, 4),
+                                        method="mistral_block",
+                                        evidence=page_evidence,
+                                    ),
+                                    attributes={
+                                        "level": "region",
+                                        "page_number": p_idx,
+                                        "region_index": s_idx,
+                                        "confidence_score": round(span.confidence, 4),
+                                    },
+                                )
+                            )
 
             doc_text = "\n\n".join(full_text_parts).strip()
             doc = CanonicalDocument(
@@ -208,6 +282,28 @@ class MistralOCRCapability:
 
         output_data = all_docs[0] if len(all_docs) == 1 else tuple(all_docs)
 
+        # Aggregate overall measured confidence across all pages
+        all_confs = [
+            s.confidence
+            for doc in all_docs
+            for p in doc.pages
+            for s in p.spans
+            if s.confidence is not None
+        ]
+        overall_confidence: ConfidenceValue | None = None
+        if all_confs:
+            overall_confidence = ConfidenceValue(
+                score=round(sum(all_confs) / len(all_confs), 4),
+                method="mistral_mean",
+                evidence={
+                    "model": model,
+                    "provider": "mistral",
+                    "sample_count": len(all_confs),
+                    "min_confidence": round(min(all_confs), 4),
+                    "max_confidence": round(max(all_confs), 4),
+                },
+            )
+
         provenance = (
             ProvenanceRecord(
                 capability_id="mistral_ocr",
@@ -219,4 +315,5 @@ class MistralOCRCapability:
             data=output_data,
             artifact_payloads=tuple(all_payloads),
             provenance=provenance,
+            confidence=overall_confidence,
         )

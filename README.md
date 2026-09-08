@@ -1,6 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 08-09-2026, 02:25 PM IST (Asia/Kolkata)
+**README Updated:** 08-09-2026, 03:45 PM IST (Asia/Kolkata)
 
 
 Sarathi V2 is a local, plugin-first document intelligence system for
@@ -213,11 +213,18 @@ Sarathi operates as a local-first, privacy-preserving document intelligence runt
 
 ### [2.1.3] - 2026-09-08
 
-- **Mistral AI Cloud OCR & Translation Plugin (`shakti.mistral`)**:
-  - Added dedicated, isolated Shakti plugin providing Cloud OCR (`mistral-ocr-latest`) and Translation (`mistral-large-latest`).
-  - Direct REST client transport using `httpx` with `urllib` fallback, guaranteeing zero vendor telemetry leakage and no SDK footprint.
-  - Strict **Kavacha Security Gating**: Enforces reviewable `SecurityDeclaration(network_access=True, external_processing=True)` rejected by default unless explicitly allowed by operator configuration.
-  - Full canonical response synthesis into `CanonicalDocument`, `PageData`, `TextSpan`, and `TableData` with automated `.txt` and formatted `.docx` artifact export.
+- **Cloud Document Intelligence & Multimodal Capability Suite**:
+  - **Mistral AI Plugin (`shakti.mistral`)**: Dedicated, isolated Shakti plugin providing Cloud OCR (`mistral-ocr-latest`) with document markdown, layout bounding boxes, and tabular extraction, plus multilingual Translation (`mistral-large-latest`).
+  - **Google Gemini Plugin (`shakti.gemini`)**: Multimodal vision OCR (`gemini-2.5-flash`) and neural translation via direct Google Generative Language REST APIs without heavy vendor SDK dependencies.
+  - **Microsoft Azure Plugin (`shakti.azure`)**: Azure AI Document Intelligence layout OCR (`documentModels/prebuilt-layout`) extracting word-level confidences, polygon spans, paragraphs, and tables, plus direct Azure AI Translator REST integration.
+  - **Bhashini Indic AI Plugin (`shakti.bhashini`)**: Government of India National Language Translation Mission pipeline integrating Chitrakshar OCR (22 scheduled Indian languages) and IndicTrans2 NMT via zero-leak direct HTTP inference calls.
+- **Standardized Cloud Confidence Matrix & Pramana Telemetry**:
+  - Multi-tier confidence quantification across all 4 cloud OCR providers: span/word-level polygons, page-level (`min_confidence`, `max_confidence`, `confidence` stored in `PageData.metadata`), and document-level aggregate (`ConfidenceValue(score, method="<provider>_mean")` on `Result.confidence`).
+  - Live telemetry integration emitting `PramanaRecord` events to the Darpana bus for real-time visualization in Mukha UI.
+- **Zero-Leak Direct REST Transport & Kavacha Security Gating**:
+  - All cloud providers communicate via lightweight direct REST clients (`httpx`), completely eliminating vendor telemetry SDKs and runtime bloat.
+  - Strict Kavacha policy enforcement: each provider declares explicit `SecurityDeclaration(network_access=True, external_processing=True, required_secrets=...)`, rejected by default unless explicitly permitted in operator configuration.
+  - Lossless canonical synthesis into `CanonicalDocument`, `PageData`, `TextSpan`, and `TableData` with automated `.txt` and formatted `.docx` artifact export.
 
 ### [2.1.2] - 2026-09-08
 

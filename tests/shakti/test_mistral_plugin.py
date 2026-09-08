@@ -265,6 +265,45 @@ class TestMistralOCRCapability:
         assert any(n.endswith("_mistral_ocr.txt") for n in art_names)
         assert any(n.endswith("_mistral_ocr.docx") for n in art_names)
 
+        # Confidence matrix verification
+        assert result.confidence is not None
+        assert result.confidence.score == round((0.98 + 0.95) / 2, 4)
+        assert result.confidence.method == "mistral_mean"
+        assert doc.pages[0].metadata["confidence"] == round((0.98 + 0.95) / 2, 4)
+        assert doc.pages[0].metadata["min_confidence"] == 0.95
+        assert doc.pages[0].metadata["max_confidence"] == 0.98
+
+    def test_ocr_records_pramana_telemetry(self, tmp_path: Path) -> None:
+        img_file = tmp_path / "scan.png"
+        img_file.write_bytes(b"\x89PNG\r\n\x1a\nFakePngData")
+
+        mock_response = {
+            "pages": [
+                {
+                    "markdown": "Page text",
+                    "blocks": [
+                        {"text": "Page text", "bbox": [0.0, 0.0, 50.0, 10.0], "confidence": 0.92},
+                    ],
+                }
+            ]
+        }
+        mock_client = MagicMock(spec=MistralClient)
+        mock_client.process_ocr.return_value = mock_response
+        mock_darpana = MagicMock()
+
+        cap = MistralOCRCapability(client=mock_client, darpana=mock_darpana)
+        req = Request(
+            request_id="req-pramana",
+            requirement="mistral_ocr",
+            inputs=(InputRef("inp-1", img_file, "scan.png", 50),),
+        )
+        ctx = ExecutionContext("run-p", "req-pramana", "tr-p", "sp-p")
+        result = cap.execute(req, ctx)
+
+        assert result.confidence is not None
+        assert result.confidence.score == 0.92
+        assert mock_darpana.record_pramana.call_count >= 1
+
     def test_ocr_observes_cancellation_token(self, tmp_path: Path) -> None:
         token = CancellationToken()
         token.cancel()

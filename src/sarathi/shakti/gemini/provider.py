@@ -1,4 +1,4 @@
-"""Provider implementation for Shakti Mistral AI Plugin."""
+"""Provider implementation for Shakti Google Gemini Plugin."""
 
 from __future__ import annotations
 
@@ -13,31 +13,31 @@ from sarathi.sankalpa import (
     PluginServices,
     ReadinessStatus,
 )
-from sarathi.shakti.mistral.client import MistralClient
-from sarathi.shakti.mistral.ocr import MistralOCRCapability
-from sarathi.shakti.mistral.plugin import (
-    MISTRAL_OCR_DECLARATION,
-    MISTRAL_TRANSLATION_DECLARATION,
+from sarathi.shakti.gemini.client import GeminiClient
+from sarathi.shakti.gemini.ocr import GeminiOCRCapability
+from sarathi.shakti.gemini.plugin import (
+    GEMINI_OCR_DECLARATION,
+    GEMINI_TRANSLATION_DECLARATION,
     PLUGIN_INFO,
 )
-from sarathi.shakti.mistral.translation import MistralTranslationCapability
+from sarathi.shakti.gemini.translation import GeminiTranslationCapability
 
 
-def _build_client(services: PluginServices | None) -> MistralClient:
+def _build_client(services: PluginServices | None) -> GeminiClient:
     api_key = None
-    base_url = "https://api.mistral.ai/v1"
+    base_url = "https://generativelanguage.googleapis.com/v1beta"
     timeout_sec = 60.0
     if services is not None and getattr(services, "settings", None) is not None:
-        sec = services.settings.get_section("mistral")
+        sec = services.settings.get_section("gemini")
         if sec:
             api_key = sec.get("api_key")
             base_url = sec.get("base_url", base_url)
             timeout_sec = float(sec.get("timeout_seconds", timeout_sec))
-    return MistralClient(api_key=api_key, base_url=base_url, timeout_seconds=timeout_sec)
+    return GeminiClient(api_key=api_key, base_url=base_url, timeout_seconds=timeout_sec)
 
 
-class MistralProvider(PluginProvider):
-    """Canonical provider for Shakti Mistral AI Cloud capabilities."""
+class GeminiProvider(PluginProvider):
+    """Canonical provider for Shakti Google Gemini Cloud capabilities."""
 
     @property
     def plugin_info(self) -> PluginInfo:
@@ -45,13 +45,13 @@ class MistralProvider(PluginProvider):
 
     @property
     def declarations(self) -> tuple[CapabilityDeclaration, ...]:
-        return (MISTRAL_OCR_DECLARATION, MISTRAL_TRANSLATION_DECLARATION)
+        return (GEMINI_OCR_DECLARATION, GEMINI_TRANSLATION_DECLARATION)
 
     def create_capabilities(self, services: PluginServices) -> Mapping[str, Capability]:
         client = _build_client(services)
         return {
-            "mistral_ocr": MistralOCRCapability(client=client, darpana=services.darpana),
-            "mistral_translation": MistralTranslationCapability(client=client),
+            "gemini_ocr": GeminiOCRCapability(client=client, darpana=services.darpana),
+            "gemini_translation": GeminiTranslationCapability(client=client),
         }
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:
@@ -60,17 +60,15 @@ class MistralProvider(PluginProvider):
             ready_res = CapabilityReadiness(
                 ready=True,
                 status=ReadinessStatus.READY,
-                reason="Mistral API key configured and cloud client ready.",
+                reason="Google Gemini API key configured and cloud client ready.",
             )
         else:
             ready_res = CapabilityReadiness(
                 ready=False,
                 status=ReadinessStatus.DEPENDENCY_UNAVAILABLE,
-                reason="MISTRAL_API_KEY environment variable is not configured.",
+                reason="Google Gemini API key is missing. Set GEMINI_API_KEY environment variable.",
             )
-
         return {
-            "mistral_ocr": ready_res,
-            "mistral_translation": ready_res,
+            "gemini_ocr": ready_res,
+            "gemini_translation": ready_res,
         }
-

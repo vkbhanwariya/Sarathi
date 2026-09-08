@@ -95,6 +95,9 @@ BUILTIN_PLUGIN_PROVIDERS: tuple[PluginProvider, ...] = (
     FontConversionProvider(),
     TranslationProvider(),
     MistralProvider(),
+    GeminiProvider(),
+    AzureProvider(),
+    BhashiniProvider(),
 )
 ```
 
@@ -111,6 +114,49 @@ The Mistral AI plugin provides cloud-based OCR (`mistral-ocr-latest`) and Transl
   Enforced by **Kavacha** before any network call. If operator configuration does not permit `allow_network_access` or `allow_external_processing`, requests fail fast with `FailureCode.SECURITY_DENIED`.
 - **Zero-Leak Transport:**
   Direct REST client (`httpx` with `urllib` fallback) without vendor SDK telemetry. HTTP 401/429/5xx status codes and error responses sanitize raw tokens, file paths, and private payloads.
+
+### 3.2 Google Gemini Cloud Plugin (`sarathi.shakti.gemini`)
+
+The Google Gemini plugin provides multimodal cloud OCR (`gemini-2.5-flash`) and Translation capabilities via Google's REST API:
+- **Capabilities:**
+  - `gemini_ocr`: Multimodal vision OCR generating structured page content, tables, and document layout into canonical `PageData` and `TableData`.
+  - `gemini_translation`: Multilingual document translation preserving canonical layout and structure.
+- **Security & Privacy (Kavacha Gating):**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("GEMINI_API_KEY",))`.
+- **Zero-Leak Transport:**
+  Direct REST client via `httpx` to Google Generative Language endpoints without google-genai telemetry SDKs.
+
+### 3.3 Microsoft Azure Cloud Plugin (`sarathi.shakti.azure`)
+
+The Microsoft Azure plugin provides Azure AI Document Intelligence layout OCR (`documentModels/prebuilt-layout`) and Azure AI Translator REST capabilities:
+- **Capabilities:**
+  - `azure_ocr`: Prebuilt layout document intelligence extracting word-level confidences, polygon spans, paragraphs, and tables into canonical `PageData` and `TableData`.
+  - `azure_translation`: Direct Azure Translator API multilingual document translation.
+- **Security & Privacy (Kavacha Gating):**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("AZURE_API_KEY", "AZURE_ENDPOINT"))`.
+- **Zero-Leak Transport:**
+  Direct REST client via `httpx` targeting customer-configured regional cognitive endpoints without heavy Azure SDKs.
+
+### 3.4 Bhashini Cloud Plugin (`sarathi.shakti.bhashini`)
+
+The Bhashini plugin integrates Government of India's National Language Translation Mission (AI4Bharat) pipeline services:
+- **Capabilities:**
+  - `bhashini_ocr`: Chitrakshar Indic OCR supporting 22 scheduled Indian languages, complex Devnagari and regional scripts into canonical `PageData`.
+  - `bhashini_translation`: IndicTrans2 neural machine translation across all official Indian languages and English.
+- **Security & Privacy (Kavacha Gating):**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("BHASHINI_API_KEY", "BHASHINI_INFERENCE_KEY", "BHASHINI_USER_ID"))`.
+- **Zero-Leak Transport:**
+  Direct REST client via `httpx` targeting MeitY/ULCA pipeline and compute inference endpoints.
+
+### 3.5 Standardized Cloud Confidence Matrix & Pramana Telemetry
+
+All cloud OCR providers (`mistral_ocr`, `gemini_ocr`, `azure_ocr`, `bhashini_ocr`) conform to Sarathi's canonical verification matrix:
+1. **Multi-Tier Confidence Values:**
+   - Word/span level: bounding polygon and token confidence where supported by provider API.
+   - Page level: `min_confidence`, `max_confidence`, `confidence` (mean) recorded in `PageData.metadata`.
+   - Document level: aggregate `ConfidenceValue(score, method="<provider>_mean")` attached to the top-level `Result.confidence`.
+2. **Darpana Telemetry Integration:**
+   - Emits `PramanaRecord` to the telemetry bus containing `overall_score`, `page_count`, `min_confidence`, `max_confidence`, and latency metrics for UI presentation in Mukha.
 
 ---
 

@@ -11,9 +11,17 @@ max_retries = 0
 
 [security]
 allow_pii_access = true
-allow_network_access = false
-allow_external_processing = false
-allowed_secrets = []
+allow_network_access = true
+allow_external_processing = true
+allowed_secrets = [
+    "AZURE_API_KEY",
+    "AZURE_ENDPOINT",
+    "BHASHINI_API_KEY",
+    "BHASHINI_INFERENCE_KEY",
+    "BHASHINI_USER_ID",
+    "GEMINI_API_KEY",
+    "MISTRAL_API_KEY",
+]
 
 [telemetry]
 history_enabled = false
@@ -25,9 +33,19 @@ detect_accelerators = true
 gpu_capacity_per_device = 4
 ocr_hybrid_page_threshold = 8
 
-# [mistral]
-# To enable Mistral AI Cloud capabilities, configure security above:
-# allow_network_access = true, allow_external_processing = true, allowed_secrets = ["MISTRAL_API_KEY"]
-# model_ocr = "mistral-ocr-latest"
-# model_translation = "mistral-large-latest"
-# timeout_seconds = 60
+[mistral]
+model_ocr = "mistral-ocr-latest"
+model_translation = "mistral-large-latest"
+timeout_seconds = 60
+
+[gemini]
+model_ocr = "gemini-2.5-flash"
+model_translation = "gemini-2.5-flash"
+timeout_seconds = 60
+
+[azure]
+api_version = "2024-11-30"
+timeout_seconds = 60
+
+[bhashini]
+timeout_seconds = 60

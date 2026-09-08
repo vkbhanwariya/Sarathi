@@ -117,10 +117,12 @@
         "sarathi.shakti.native_extraction",
         "sarathi.shakti.ocr",
         "sarathi.shakti.translation",
-        "sarathi.shakti.mistral"
+        "sarathi.shakti.mistral",
+        "sarathi.shakti.gemini",
+        "sarathi.shakti.azure",
+        "sarathi.shakti.bhashini"
       ],
       "mutually_independent": true
-
     }
   },
   "exceptions": [

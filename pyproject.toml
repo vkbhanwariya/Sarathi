@@ -108,6 +108,9 @@ modules = [
     "sarathi.shakti.ocr",
     "sarathi.shakti.translation",
     "sarathi.shakti.mistral",
+    "sarathi.shakti.gemini",
+    "sarathi.shakti.azure",
+    "sarathi.shakti.bhashini",
 ]
 
 [[tool.importlinter.contracts]]
@@ -121,6 +124,10 @@ forbidden_modules = [
     "sarathi.shakti.native_extraction",
     "sarathi.shakti.ocr",
     "sarathi.shakti.translation",
+    "sarathi.shakti.mistral",
+    "sarathi.shakti.gemini",
+    "sarathi.shakti.azure",
+    "sarathi.shakti.bhashini",
 ]
 ignore_imports = [
     "sarathi.nabhi.dvara -> sarathi.shakti.providers",
@@ -137,5 +144,9 @@ forbidden_modules = [
     "sarathi.shakti.native_extraction",
     "sarathi.shakti.ocr",
     "sarathi.shakti.translation",
+    "sarathi.shakti.mistral",
+    "sarathi.shakti.gemini",
+    "sarathi.shakti.azure",
+    "sarathi.shakti.bhashini",
     "sarathi.shakti.providers",
 ]

@@ -323,7 +323,28 @@ Sarathi/
 │               ├── row_classifier.py
 │               ├── table_locator.py
 │               └── validator.py
-│           └── mistral/
+│           ├── mistral/
+│           │   ├── __init__.py
+│           │   ├── client.py
+│           │   ├── ocr.py
+│           │   ├── plugin.py
+│           │   ├── provider.py
+│           │   └── translation.py
+│           ├── gemini/
+│           │   ├── __init__.py
+│           │   ├── client.py
+│           │   ├── ocr.py
+│           │   ├── plugin.py
+│           │   ├── provider.py
+│           │   └── translation.py
+│           ├── azure/
+│           │   ├── __init__.py
+│           │   ├── client.py
+│           │   ├── ocr.py
+│           │   ├── plugin.py
+│           │   ├── provider.py
+│           │   └── translation.py
+│           └── bhashini/
 │               ├── __init__.py
 │               ├── client.py
 │               ├── ocr.py
@@ -619,6 +640,21 @@ Capability `plugin.py` and `provider.py` files are thin boundaries: declaration,
 - `shakti/mistral/ocr.py` — Mistral Cloud OCR capability (mistral-ocr-latest) generating canonical CanonicalDocument and TXT/DOCX artifacts.
 - `shakti/mistral/translation.py` — Mistral Cloud Translation capability (mistral-large-latest) preserving canonical structures and exporting TXT/DOCX artifacts.
 - `shakti/mistral/provider.py` — canonical MistralProvider satisfying PluginProvider protocol.
+- `shakti/gemini/plugin.py` — Google Gemini plugin declaration (gemini_ocr, gemini_translation) with Kavacha SecurityDeclaration.
+- `shakti/gemini/client.py` — zero-leak Gemini REST client over httpx for multimodal vision and translation.
+- `shakti/gemini/ocr.py` — Google Gemini Cloud OCR capability (gemini-2.5-flash) generating canonical CanonicalDocument and TXT/DOCX artifacts.
+- `shakti/gemini/translation.py` — Google Gemini Cloud Translation capability preserving canonical layout and structures.
+- `shakti/gemini/provider.py` — canonical GeminiProvider satisfying PluginProvider protocol.
+- `shakti/azure/plugin.py` — Microsoft Azure plugin declaration (azure_ocr, azure_translation) with Kavacha SecurityDeclaration.
+- `shakti/azure/client.py` — zero-leak Azure Document Intelligence & Translator REST client over httpx.
+- `shakti/azure/ocr.py` — Azure AI Document Intelligence layout OCR capability generating canonical CanonicalDocument and TXT/DOCX artifacts.
+- `shakti/azure/translation.py` — Azure AI Translator capability preserving canonical structures.
+- `shakti/azure/provider.py` — canonical AzureProvider satisfying PluginProvider protocol.
+- `shakti/bhashini/plugin.py` — Bhashini plugin declaration (bhashini_ocr, bhashini_translation) with Kavacha SecurityDeclaration.
+- `shakti/bhashini/client.py` — zero-leak MeitY/AI4Bharat Bhashini REST client over httpx for Chitrakshar OCR and IndicTrans2 NMT.
+- `shakti/bhashini/ocr.py` — Bhashini Chitrakshar OCR capability for 22 Indian scheduled languages generating canonical CanonicalDocument and TXT/DOCX artifacts.
+- `shakti/bhashini/translation.py` — Bhashini IndicTrans2 capability for cross-Indian-language and English neural machine translation.
+- `shakti/bhashini/provider.py` — canonical BhashiniProvider satisfying PluginProvider protocol.
 
 ------------------------------------------------------------------------
 
