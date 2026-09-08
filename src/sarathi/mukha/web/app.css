@@ -1613,7 +1613,7 @@ select:focus-visible,
     }
 
     .nav-tab {
-        min-height: 36px;
+        min-height: 38px;
         padding: 6px 12px;
         flex-shrink: 0;
     }

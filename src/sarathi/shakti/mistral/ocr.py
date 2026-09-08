@@ -196,6 +196,7 @@ class MistralOCRCapability:
                 # Emit Pramana telemetry if Darpana is wired
                 if self._darpana is not None:
                     from datetime import datetime, timezone
+
                     from sarathi.darpana import PramanaRecord
 
                     now_iso = datetime.now(timezone.utc).isoformat()

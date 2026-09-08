@@ -6,9 +6,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-pytest.importorskip("ctranslate2")
-pytest.importorskip("sentencepiece")
-
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
@@ -28,6 +25,25 @@ from sarathi.shakti.translation.models import (
 )
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION as TRANSLATION_DECL
 from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
+
+try:
+    import ctranslate2
+
+    _has_ctranslate2 = hasattr(ctranslate2, "Translator")
+except ImportError:
+    _has_ctranslate2 = False
+
+try:
+    import sentencepiece  # noqa: F401
+
+    _has_sentencepiece = True
+except ImportError:
+    _has_sentencepiece = False
+
+pytestmark = pytest.mark.skipif(
+    not (_has_ctranslate2 and _has_sentencepiece),
+    reason="ctranslate2.Translator or sentencepiece not available",
+)
 
 
 class TestTranslationDeviceBinding:

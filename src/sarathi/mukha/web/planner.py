@@ -68,7 +68,13 @@ def preview_execution_plan(
             cap = agni.kosh.get_capability(cid)
             cname = cap.name if cap and hasattr(cap, "name") else cid
             stages.append({"stage_id": cid, "name": f"Execution: {cname} (Yantra)"})
-        stages.append({"stage_id": "artifacts", "name": "Artifact Commitment & Smriti Persistence"})
+        has_smriti = bool(hasattr(agni, "smriti") and agni.smriti is not None)
+        artifact_stage_name = (
+            "Artifact Commitment & Smriti Persistence"
+            if has_smriti
+            else "Artifact Commitment"
+        )
+        stages.append({"stage_id": "artifacts", "name": artifact_stage_name})
 
         # Collect hardware device inventory
         devices: list[dict[str, Any]] = []
@@ -80,12 +86,15 @@ def preview_execution_plan(
                 inv = agni.yantra.inventory
             if inv is not None and hasattr(inv, "devices"):
                 for d in inv.devices:
+                    dev_type_val = d.device_type.value if hasattr(d.device_type, "value") else str(d.device_type)
                     devices.append(
                         {
-                            "device_type": str(d.device_type),
+                            "device_type": str(dev_type_val),
                             "device_id": str(d.device_id),
-                            "is_available": bool(getattr(d, "is_available", True)),
-                            "is_preferred": bool(getattr(d, "is_preferred", False)),
+                            "capacity": d.capacity,
+                            "memory_bytes": d.memory_bytes,
+                            "supported_backends": list(d.supported_backends or ()),
+                            "is_available": d.capacity > 0,
                         }
                     )
 

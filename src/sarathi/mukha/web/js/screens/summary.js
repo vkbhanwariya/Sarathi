@@ -13,8 +13,8 @@ export async function handleOpenOutputFolder() {
     const targetId = state.viewedRunId || state.activeRunId;
     if (!targetId) return;
     const res = await apiPost(`/api/runs/${encodeURIComponent(targetId)}/reveal`);
-    if (!res.ok) {
-        showError(res.error || "Failed to reveal output folder.");
+    if (!res.ok || res.revealed !== true) {
+        showError(res.error || "Failed to reveal output folder or directory does not exist.");
     }
 }
 
@@ -140,6 +140,23 @@ export function renderSummary(summary) {
         }
     }
 
+    if (elements.statAccuracy) {
+        if (typeof summary.accuracy === "number" && !isNaN(summary.accuracy)) {
+            const pct = (summary.accuracy * 100).toFixed(1);
+            elements.statAccuracy.textContent = `${pct}%`;
+            elements.statAccuracy.className = `stat-value ${
+                summary.accuracy >= 0.90
+                    ? "text-emerald"
+                    : summary.accuracy >= 0.75
+                    ? "text-cyan"
+                    : "text-amber"
+            }`;
+        } else {
+            elements.statAccuracy.textContent = "—";
+            elements.statAccuracy.className = "stat-value text-muted";
+        }
+    }
+
     // Output Artifacts Grid with Preview & Download Actions
     if (elements.artifactsGrid) {
         if (summary.artifacts && summary.artifacts.length > 0) {
@@ -178,8 +195,8 @@ export function renderSummary(summary) {
                     return `<tr>
                         <td><strong>${devBadge}</strong></td>
                         <td>${d.execution_count} units</td>
-                        <td>${formatDuration(d.avg_duration_ns || 0)}</td>
-                        <td>${formatDuration(d.p95_duration_ns || 0)}</td>
+                        <td>${formatDuration(d.avg_duration_ns)}</td>
+                        <td>${formatDuration(d.p95_duration_ns)}</td>
                         <td><strong>${avgConfStr}</strong></td>
                     </tr>`;
                 })

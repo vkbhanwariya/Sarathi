@@ -43,6 +43,7 @@ export const state = {
     inputPagination: { page: 1, pageSize: 10 },
     inputSelectionScope: "page",
     showAllInputsTable: false,
+    isHydrated: false,
 };
 
 if (typeof window !== "undefined") {

@@ -45,7 +45,7 @@ export function initPreviewDialog() {
     }
 }
 
-export async function openDocumentPreview(pathOrUrl, displayName, fallbackPath = null) {
+export async function openDocumentPreview(pathOrUrl, displayName) {
     const dlg = elements.docPreviewDialog || document.getElementById("doc-preview-dialog");
     if (!dlg || !elements.previewModalContent) return;
     elements.previewModalTitle.textContent = displayName || "Document Preview";
@@ -60,13 +60,6 @@ export async function openDocumentPreview(pathOrUrl, displayName, fallbackPath =
         ? pathOrUrl
         : `/api/preview?path=${encodeURIComponent(pathOrUrl)}`;
     let res = await apiGet(endpoint);
-    if (!res.ok && fallbackPath) {
-        const fallbackEndpoint = `/api/preview?path=${encodeURIComponent(fallbackPath)}`;
-        const fbRes = await apiGet(fallbackEndpoint);
-        if (fbRes.ok) {
-            res = fbRes;
-        }
-    }
     if (!res.ok) {
         elements.previewModalContent.innerHTML = `
             <div class="alert-box alert-amber">${escapeHtml(res.error || "Failed to load document preview.")}</div>
@@ -93,7 +86,7 @@ export async function openDocumentPreview(pathOrUrl, displayName, fallbackPath =
         pageEndpoint = (p) => endpoint.replace("/preview", `/pdf_page?page=${p}`);
     } else if (endpoint.includes("/api/runs/") && endpoint.includes("/artifacts/")) {
         rawUrl = endpoint.replace("/preview", "/raw");
-        pageEndpoint = (p) => `/api/preview/pdf_page?path=${encodeURIComponent(res.raw_path || "")}&page=${p}`;
+        pageEndpoint = (p) => endpoint.replace("/preview", `/pdf_page?page=${p}`);
     } else {
         const targetPath = res.raw_path || pathOrUrl;
         rawUrl = `/api/preview/raw?path=${encodeURIComponent(targetPath)}`;

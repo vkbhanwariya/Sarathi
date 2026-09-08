@@ -111,8 +111,14 @@ export async function loadInspector() {
     if (elements.statTessImproved) {
         elements.statTessImproved.textContent = fallbacks.length;
     }
+    if (elements.badgeTesseractStatus) {
+        const tessFact = (insp.system_facts || []).find((f) => f[0] === "Tesseract 5 Fallback");
+        const isAvail = tessFact ? tessFact[1] === "Available" : false;
+        elements.badgeTesseractStatus.textContent = isAvail ? "Available" : "Unavailable";
+        elements.badgeTesseractStatus.className = isAvail ? "badge badge-emerald" : "badge badge-neutral";
+    }
     if (elements.statTessIntercepted) {
-        elements.statTessIntercepted.textContent = "—";
+        elements.statTessIntercepted.textContent = fallbacks.length;
     }
     if (elements.statTessGain) {
         if (fallbacks.length > 0) {
@@ -133,16 +139,22 @@ export async function loadInspector() {
         if (fallbacks.length > 0) {
             elements.inspectorFallbackTbody.innerHTML = fallbacks
                 .map((f) => {
-                    const origPct = (f.original_confidence * 100).toFixed(1);
-                    const impPct = (f.improved_confidence * 100).toFixed(1);
-                    const gainPct = (f.confidence_gain * 100).toFixed(1);
+                    const origPct = typeof f.original_confidence === "number" && !isNaN(f.original_confidence)
+                        ? `${(f.original_confidence * 100).toFixed(1)}%`
+                        : "—";
+                    const impPct = typeof f.improved_confidence === "number" && !isNaN(f.improved_confidence)
+                        ? `${(f.improved_confidence * 100).toFixed(1)}%`
+                        : "—";
+                    const gainPct = typeof f.confidence_gain === "number" && !isNaN(f.confidence_gain)
+                        ? `+${(f.confidence_gain * 100).toFixed(1)}%`
+                        : "—";
                     return `<tr>
                         <td><strong class="code-text">${escapeHtml(f.region_id)}</strong></td>
                         <td>${escapeHtml(f.file_display_name)}</td>
                         <td>Page ${f.page_number}</td>
-                        <td><span class="badge badge-amber">${origPct}%</span></td>
-                        <td><span class="badge badge-emerald">${impPct}%</span></td>
-                        <td><strong class="text-emerald">+${gainPct}%</strong></td>
+                        <td><span class="badge badge-amber">${origPct}</span></td>
+                        <td><span class="badge badge-emerald">${impPct}</span></td>
+                        <td><strong class="text-emerald">${gainPct}</strong></td>
                         <td><span class="badge badge-indigo">${escapeHtml(f.fallback_engine || "Tesseract 5")}</span></td>
                     </tr>`;
                 })
@@ -157,20 +169,27 @@ export async function loadInspector() {
         if (insp.page_confidence && insp.page_confidence.length > 0) {
             elements.inspectorPageConfTbody.innerHTML = insp.page_confidence
                 .map((pc) => {
-                    const pct = (pc.confidence_score * 100).toFixed(1);
-                    const confClass = pc.confidence_score >= 0.90
-                        ? "badge-emerald"
-                        : (pc.confidence_score >= 0.75 ? "badge-cyan" : "badge-amber");
+                    const hasConf = pc.confidence_score !== null && pc.confidence_score !== undefined;
+                    const pct = hasConf ? `${(pc.confidence_score * 100).toFixed(1)}%` : "—";
+                    const confClass = hasConf
+                        ? (pc.confidence_score >= 0.90
+                            ? "badge-emerald"
+                            : (pc.confidence_score >= 0.75 ? "badge-cyan" : "badge-amber"))
+                        : "badge-slate";
+                    const minPct = pc.min_confidence !== null && pc.min_confidence !== undefined
+                        ? `${(pc.min_confidence * 100).toFixed(1)}%` : "—";
+                    const maxPct = pc.max_confidence !== null && pc.max_confidence !== undefined
+                        ? `${(pc.max_confidence * 100).toFixed(1)}%` : "—";
                     const statusBadge = pc.review_recommended
                         ? '<span class="badge badge-amber">REVIEW</span>'
                         : '<span class="badge badge-emerald">OK</span>';
                     return `<tr>
                         <td><strong>${escapeHtml(pc.file_display_name)}</strong></td>
                         <td>Page ${pc.page_number}</td>
-                        <td><span class="badge ${confClass}">${pct}%</span></td>
+                        <td><span class="badge ${confClass}">${pct}</span></td>
                         <td>${pc.region_count}</td>
-                        <td>${(pc.min_confidence * 100).toFixed(1)}%</td>
-                        <td>${(pc.max_confidence * 100).toFixed(1)}%</td>
+                        <td>${minPct}</td>
+                        <td>${maxPct}</td>
                         <td>${statusBadge}</td>
                     </tr>`;
                 })
@@ -251,17 +270,20 @@ export function renderFilteredRegions() {
 
     elements.inspectorRegionConfTbody.innerHTML = filtered
         .map((rc) => {
-            const pct = (rc.confidence_score * 100).toFixed(1);
-            const confClass = rc.confidence_score >= 0.90
-                ? "badge-emerald"
-                : (rc.confidence_score >= 0.75 ? "badge-cyan" : "badge-amber");
+            const hasConf = rc.confidence_score !== null && rc.confidence_score !== undefined;
+            const pct = hasConf ? `${(rc.confidence_score * 100).toFixed(1)}%` : "—";
+            const confClass = hasConf
+                ? (rc.confidence_score >= 0.90
+                    ? "badge-emerald"
+                    : (rc.confidence_score >= 0.75 ? "badge-cyan" : "badge-amber"))
+                : "badge-slate";
 
             let statusBadge = rc.review_recommended
                 ? '<span class="badge badge-amber">REVIEW</span>'
                 : '<span class="badge badge-emerald">OK</span>';
             if (rc.confidence_gain !== undefined && rc.confidence_gain !== null && rc.confidence_gain > 0) {
                 const gainPct = (rc.confidence_gain * 100).toFixed(1);
-                statusBadge = `<span class="badge badge-emerald" title="Tesseract recovered +${gainPct}%">IMPROVED (+${gainPct}%)</span>`;
+                statusBadge = `<span class="badge badge-emerald" title="Tesseract delta +${gainPct}%">DELTA (+${gainPct}%)</span>`;
             }
 
             let methodBadge = escapeHtml(rc.method);
@@ -274,7 +296,7 @@ export function renderFilteredRegions() {
                 <td>${escapeHtml(rc.file_display_name)}</td>
                 <td>P${rc.page_number}</td>
                 <td><span class="badge badge-indigo">${escapeHtml(rc.region_type)}</span></td>
-                <td><span class="badge ${confClass}">${pct}%</span></td>
+                <td><span class="badge ${confClass}">${pct}</span></td>
                 <td>${methodBadge}</td>
                 <td>${statusBadge}</td>
             </tr>`;
@@ -376,7 +398,12 @@ export function initInspectorScreen() {
         btnExportDiag.addEventListener("click", () => {
             const targetRunId = state.viewedRunId || state.activeRunId;
             if (targetRunId) {
-                window.open(`/api/runs/${encodeURIComponent(targetRunId)}/diagnostics`, "_blank");
+                const link = document.createElement("a");
+                link.href = `/api/runs/${encodeURIComponent(targetRunId)}/diagnostics?download=1`;
+                link.download = `diagnostics_${targetRunId}.json`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
             }
         });
     }
@@ -445,7 +472,7 @@ async function handleClearHistory() {
         return;
     }
     const res = await apiPost("/api/history/clear");
-    if (res.ok) {
+    if (res.ok && res.cleared === true) {
         if (elements.historyListContainer) {
             elements.historyListContainer.innerHTML = '<div class="text-muted" style="text-align: center; padding: 20px;">No previous terminal runs found.</div>';
         }
@@ -457,7 +484,7 @@ async function handleClearHistory() {
             }, 4000);
         }
     } else {
-        alert("Failed to clear history: " + (res.error || "Unknown error"));
+        alert("Failed to clear history: " + (res.error || "Operation was not completed."));
     }
 }
 

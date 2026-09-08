@@ -29,9 +29,14 @@ export async function confirmCancelRun() {
     hideError();
 
     const res = await apiPost(`/api/runs/${encodeURIComponent(state.activeRunId)}/cancel`);
-    if (!res.ok) {
-        showError(res.error || "Failed to cancel run.");
+    if (!res.ok || res.cancelled !== true) {
+        showError(res.error || "Run cancellation could not be applied or run was no longer active.");
         if (elements.btnCancelRun) elements.btnCancelRun.disabled = false;
+        if (elements.monitorStatusBadge) {
+            const st = formatStatus(state.activeRunStatus);
+            elements.monitorStatusBadge.textContent = st.label;
+            elements.monitorStatusBadge.className = st.className;
+        }
     }
 }
 

@@ -17,9 +17,37 @@ import { initCommandPalette, openCommandPalette } from "./js/palette.js";
 import { closeDocumentPreview, initPreviewDialog } from "./js/preview.js";
 import { registerScreenCallback, state, switchScreen } from "./js/state.js";
 
-// Presentation View State Projection
 function updatePresentation(appState) {
     if (!appState) return;
+
+    // Initial Hydration from canonical backend state on browser reload
+    if (!state.isHydrated) {
+        if (appState.requirement) {
+            state.currentRequirement = appState.requirement;
+        }
+        if (appState.terminal_summary && appState.terminal_summary.run_id) {
+            state.viewedRunId = appState.terminal_summary.run_id;
+        }
+        if (appState.active_run && appState.active_run.run_id) {
+            state.activeRunId = appState.active_run.run_id;
+            state.activeRunStatus = appState.active_run.status;
+        }
+        if (appState.active_run && appState.active_run.status === "RUNNING") {
+            switchScreen("monitor");
+        } else if (appState.current_screen && appState.current_screen !== "home") {
+            switchScreen(appState.current_screen);
+        } else if (appState.terminal_summary && !appState.active_run) {
+            switchScreen("summary");
+        }
+        state.isHydrated = true;
+    }
+
+    // Header Review Queue Pending Badge
+    if (elements.headerReviewBadge) {
+        const reviewCount = (appState.review_queue || []).length;
+        elements.headerReviewBadge.textContent = reviewCount > 0 ? `${reviewCount} Pending` : "";
+        elements.headerReviewBadge.classList.toggle("hidden", reviewCount === 0);
+    }
 
     // Header Status Dot & Label
     if (elements.systemStatusDot && elements.systemStatusText) {

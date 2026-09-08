@@ -20,6 +20,8 @@ export function formatStatus(status) {
             return { label: "Review Needed", className: "badge badge-amber", dotClass: "status-dot warning" };
         case "SUCCESS":
             return { label: "Success", className: "badge badge-emerald", dotClass: "status-dot online" };
+        case "COMPLETED":
+            return { label: "Completed", className: "badge badge-emerald", dotClass: "status-dot online" };
         case "PARTIAL":
         case "WARNING":
             return { label: "Partial / Warnings", className: "badge badge-amber", dotClass: "status-dot warning" };

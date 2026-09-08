@@ -437,3 +437,12 @@ class TestManthanResolver:
         err = exc_info.value
         assert err.code is FailureCode.UNSUPPORTED
         assert "Prerequisite capability 'cap_child' required by 'cap_parent' does not support requested execution profile 'accurate'" in err.message
+
+
+def test_capability_plan_rejects_duplicate_stage_ids() -> None:
+    """Invariant: CapabilityPlan strictly prohibits duplicate capability stage identifiers."""
+    with pytest.raises(ValueError, match="Duplicate capability stage 'ocr' in CapabilityPlan is prohibited."):
+        CapabilityPlan(
+            request_id="req-dup-test",
+            capability_ids=("read_native", "ocr", "ocr"),
+        )

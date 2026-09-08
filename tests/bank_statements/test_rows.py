@@ -97,6 +97,7 @@ def test_classify_row_with_integer_amount() -> None:
 def test_bank_statement_continuation_row_strictly_table_scoped() -> None:
     """Verify continuation row in Table 2 does not leak onto preceding transaction of Table 1."""
     from pathlib import Path
+
     from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
     from sarathi.shakti.bank_statements.capability import BankStatementCapability
     from sarathi.shakti.bank_statements.models import BankStatementConsolidationResult
@@ -149,6 +150,7 @@ class TestBankStatementsBatchIntegrity:
     def test_bank_statement_table_headers_used_directly(self, tmp_path) -> None:
         """TableData.headers is parsed as primary transaction header row."""
         from decimal import Decimal
+
         from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request, Result, TableData
         from sarathi.shakti.bank_statements.capability import BankStatementCapability
         from sarathi.shakti.bank_statements.models import BankStatementConsolidationResult
@@ -184,6 +186,7 @@ class TestBankStatementsBatchIntegrity:
     def test_bank_statement_multi_document_consolidation(self, tmp_path) -> None:
         """Multiple CanonicalDocuments are consolidated in stable chronological order."""
         from decimal import Decimal
+
         from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
         from sarathi.shakti.bank_statements.capability import BankStatementCapability
         from sarathi.shakti.bank_statements.models import BankStatementConsolidationResult
@@ -231,6 +234,7 @@ class TestBankStatementsBatchIntegrity:
     def test_ambiguous_amount_direction_yields_validation_issue(self, tmp_path) -> None:
         """Ambiguous Amount direction produces validation issue and is omitted from transactions."""
         from decimal import Decimal
+
         from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
         from sarathi.shakti.bank_statements.capability import BankStatementCapability
         from sarathi.shakti.bank_statements.models import BankStatementConsolidationResult, ValidationStatus

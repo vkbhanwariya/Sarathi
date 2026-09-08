@@ -18,8 +18,10 @@ from sarathi.mukha.state import (
     InputItemView,
     InputSelectionView,
     InspectorViewState,
+    ReviewItemView,
     WorkerPageView,
 )
+from sarathi.sankalpa import ExecutionProfile
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
@@ -40,9 +42,34 @@ def get_run_telemetry(
 
 
 def query_run_history(agni: Agni, limit: int = 50) -> tuple[Any, ...]:
-    """Retrieve recent terminal run summaries from Darpana telemetry history."""
+    """Retrieve recent terminal run summaries from Darpana telemetry history, mapped to canonical view schema."""
     if hasattr(agni, "darpana") and agni.darpana is not None:
-        return agni.darpana.query_run_history(limit=limit)
+        records = agni.darpana.query_run_history(limit=limit)
+        projected = []
+        for h in records:
+            stat = getattr(h, "status", "completed")
+            stat_upper = stat.upper() if isinstance(stat, str) else "COMPLETED"
+            stat_mapped = "SUCCESS" if stat_upper == "COMPLETED" else stat_upper
+            dur_ms = getattr(h, "duration_ms", 0) or 0
+            art_cnt = getattr(h, "artifact_count", 0) or 0
+            projected.append(
+                {
+                    "run_id": getattr(h, "run_id", ""),
+                    "request_id": getattr(h, "request_id", ""),
+                    "requirement": getattr(h, "requirement", ""),
+                    "profile": getattr(h, "profile", ""),
+                    "status": stat_mapped,
+                    "start_time_utc": getattr(h, "start_time_utc", ""),
+                    "completed_at_utc": getattr(h, "completed_at_utc", ""),
+                    "duration_ms": dur_ms,
+                    "wall_time_ns": dur_ms * 1_000_000,
+                    "artifact_count": art_cnt,
+                    "total_inputs": art_cnt,
+                    "warning_count": getattr(h, "warning_count", 0) or 0,
+                    "output_dir": getattr(h, "output_dir", None),
+                }
+            )
+        return tuple(projected)
     return ()
 
 
@@ -65,6 +92,13 @@ def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> t
     for idx, w in enumerate(res.warnings, start=1):
         item_id = f"rev-{idx}"
         intent = intents.get(item_id)
+        if (
+            intent is not None
+            and getattr(intent, "run_id", None)
+            and active_or_last_run_id
+            and intent.run_id != active_or_last_run_id
+        ):
+            intent = None
         ctx = dict(w.context) if w.context else {}
         status = "pending"
         applied_action = None
@@ -80,7 +114,11 @@ def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> t
             if intent.proposed_value:
                 draft_proposal = intent.proposed_value
 
-        attempt_id = getattr(w, "span_id", "") or (ctx.get("attempt_id", "") if ctx else "")
+        attempt_id = (
+            getattr(w, "span_id", "")
+            or (ctx.get("attempt_id", "") if ctx else "")
+            or f"att-{active_or_last_run_id or 'run'}-{idx}"
+        )
 
         items.append(
             {
@@ -121,11 +159,15 @@ def build_inspector_view(
     now_ns = time.perf_counter_ns()
     elapsed_ns = max(0, now_ns - start_ns) if start_ns > 0 else 0
 
+    import shutil
+
+    tess_avail = bool(shutil.which("tesseract"))
     system_facts = (
         ("Loopback Host", host),
         ("Port", str(port)),
         ("Runtime Root", str(agni.runtime_root)),
         ("Output Root", str(agni.output_root)),
+        ("Tesseract 5 Fallback", "Available" if tess_avail else "Unavailable"),
     )
 
     return MukhaPresenter.build_inspector_view(
@@ -139,20 +181,34 @@ def build_inspector_view(
     )
 
 
-def _build_action_parameters(act_id: str) -> tuple[ActionParameterView, ...]:
-    """Provide declarative configuration parameters for each capability."""
+def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParameterView, ...]:
+    """Provide declarative configuration parameters for each capability derived from contracts."""
     if act_id == "ocr":
+        if decl is not None and hasattr(decl, "supported_profiles") and decl.supported_profiles:
+            prof_labels = {
+                ExecutionProfile.INSTANT: "Instant (Highest Throughput)",
+                ExecutionProfile.ACCURATE: "Accurate (Quality Verification)",
+                ExecutionProfile.LAYOUT_PRESERVING: "Layout Preserving (Spatial Coordinates)",
+                ExecutionProfile.CUSTOM: "Custom Configuration",
+            }
+            prof_opts = tuple(
+                (p.value, prof_labels.get(p, p.value.replace("_", " ").title()))
+                for p in decl.supported_profiles
+            )
+        else:
+            prof_opts = (
+                ("instant", "Instant (Highest Throughput)"),
+                ("accurate", "Accurate (Quality Verification)"),
+                ("layout_preserving", "Layout Preserving (Spatial Coordinates)"),
+                ("custom", "Custom Configuration"),
+            )
         return (
             ActionParameterView(
                 parameter_id="profile",
                 display_name="Execution Profile",
                 kind="select",
                 default_value="instant",
-                options=(
-                    ("instant", "Instant (Highest Throughput)"),
-                    ("accurate", "Accurate (Quality Verification)"),
-                    ("custom", "Custom Configuration"),
-                ),
+                options=prof_opts,
             ),
             ActionParameterView(
                 parameter_id="lang",
@@ -209,19 +265,28 @@ def _build_action_parameters(act_id: str) -> tuple[ActionParameterView, ...]:
             ),
         )
     if act_id == "font_conversion":
+        supported_fonts = (
+            decl.metadata.get("supported_fonts")
+            if decl is not None and getattr(decl, "metadata", None)
+            else None
+        )
+        if supported_fonts:
+            source_font_options = (("", "Auto-Detect Source Font"),) + tuple(supported_fonts)
+        else:
+            source_font_options = (
+                ("", "Auto-Detect Source Font"),
+                ("krutidev010", "KrutiDev 010 / DevLys"),
+                ("chanakya010", "Chanakya"),
+                ("shusha010", "Shusha"),
+                ("shivaji010", "Shivaji"),
+            )
         return (
             ActionParameterView(
                 parameter_id="source_font",
                 display_name="Source Font Hint",
                 kind="select",
                 default_value="",
-                options=(
-                    ("", "Auto-Detect Source Font"),
-                    ("krutidev010", "KrutiDev 010 / DevLys"),
-                    ("chanakya010", "Chanakya"),
-                    ("shusha010", "Shusha"),
-                    ("shivaji010", "Shivaji"),
-                ),
+                options=source_font_options,
             ),
             ActionParameterView(
                 parameter_id="font_mode",
@@ -417,7 +482,7 @@ def build_application_view_state(
         is_avail, reason = caps_status.get(act_id, (False, "Unavailable"))
         enabled = is_avail and (act_id in registered_caps)
         disabled_reason = None if enabled else reason
-        params = _build_action_parameters(act_id)
+        params = _build_action_parameters(act_id, decl=decl)
         available_actions.append(
             AvailableActionView(
                 action_id=act_id,
@@ -455,12 +520,32 @@ def build_application_view_state(
     current_screen = "monitor" if active_run_id and is_alive else ("summary" if last_summary else "home")
     inspector_view = build_inspector_view(agni, runner, active_run_id, host, port) if active_run_id else None
 
+    review_queue: tuple[ReviewItemView, ...] = ()
+    review_items = extract_review_items(runner, run_id=active_run_id)
+    if review_items:
+        review_queue = tuple(
+            ReviewItemView(
+                item_id=it["item_id"],
+                attempt_id=it["attempt_id"],
+                file_display_name=it.get("context", {}).get("source_file", "Document"),
+                stage=it.get("stage", "Review"),
+                source_text=it.get("context", {}).get("source_text", ""),
+                output_text=it.get("draft_proposal") or it.get("context", {}).get("output_text", ""),
+                issue_reason=it.get("message", "Validation issue"),
+                status=it.get("status", "pending"),
+                draft_proposal=it.get("draft_proposal"),
+                available_actions=it.get("available_actions", ("accept", "unresolved")),
+            )
+            for it in review_items
+        )
+
     return ApplicationViewState(
         current_screen=current_screen,
         requirement=active_req.requirement if active_req else "read_native",
         policy_label="Local only",
         input_selection=input_sel,
         active_run=active_run_view,
+        review_queue=review_queue,
         terminal_summary=last_summary,
         inspector=inspector_view,
         available_actions=tuple(available_actions),

@@ -27,6 +27,7 @@ from sarathi.nabhi.quarantine import (
 from sarathi.sankalpa import (
     Capability,
     ExecutionContext,
+    ExecutionProfile,
     Request,
     Result,
     WarningRecord,
@@ -177,11 +178,18 @@ def execute_pipeline(
             if smriti is not None:
                 from sarathi.darpana import MarutiRecord
 
+                cap_asset_ver = str(
+                    getattr(cap, "asset_version", "")
+                    or getattr(cap.declaration, "asset_version", "")
+                    or (cap.declaration.metadata.get("asset_version", "") if cap.declaration.metadata else "")
+                    or ""
+                )
                 cache_key = compute_cache_key(
                     current_request,
                     cap.declaration.capability_id,
                     cap.declaration.version,
                     prior_result=prior_result,
+                    asset_version=cap_asset_ver,
                 )
                 t_start_ns = time.perf_counter_ns()
                 cached_result, cache_tier = smriti.get_with_tier(cache_key)
@@ -433,12 +441,22 @@ def execute_pipeline(
             else current_plan.capability_ids[executed_stage_idx + 1 :]
         )
 
-        # Resolve next plan for next_req_id through Manthan
+        # Resolve next plan for next_req_id through Manthan with compatible profile
+        next_cap_decl = manthan.registry.get_capability(next_req_id)
+        effective_profile = current_request.profile
+        if next_cap_decl is not None and effective_profile not in next_cap_decl.supported_profiles:
+            if ExecutionProfile.ACCURATE in next_cap_decl.supported_profiles:
+                effective_profile = ExecutionProfile.ACCURATE
+            elif ExecutionProfile.INSTANT in next_cap_decl.supported_profiles:
+                effective_profile = ExecutionProfile.INSTANT
+            elif next_cap_decl.supported_profiles:
+                effective_profile = next_cap_decl.supported_profiles[0]
+
         current_request = Request(
             request_id=current_request.request_id,
             requirement=next_req_id,
             inputs=current_request.inputs,
-            profile=current_request.profile,
+            profile=effective_profile,
             custom_options=current_request.custom_options,
             output_root=current_request.output_root,
             preserve_partial=current_request.preserve_partial,
@@ -452,7 +470,12 @@ def execute_pipeline(
             cid for cid in next_plan.capability_ids if cid not in completed_capability_ids
         )
 
+        combined_stages: list[str] = []
+        for s in unexecuted_next_stages + resuming_stages:
+            if s not in combined_stages:
+                combined_stages.append(s)
+
         current_plan = CapabilityPlan(
             request_id=request.request_id,
-            capability_ids=unexecuted_next_stages + resuming_stages,
+            capability_ids=tuple(combined_stages),
         )

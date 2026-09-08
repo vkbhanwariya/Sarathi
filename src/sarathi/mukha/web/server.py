@@ -17,6 +17,7 @@ from sarathi.mukha.state import (
     ApplicationViewState,
     InspectorViewState,
     ReviewIntent,
+    RunSummaryView,
 )
 from sarathi.mukha.web.http_handler import (
     MukhaHTTPHandler,
@@ -157,8 +158,33 @@ class MukhaWebServer:
         return self._runner.get_input_path(input_id)
 
     def get_run_summary(self, run_id: str) -> Any | None:
-        """Look up full terminal run summary by run ID."""
-        return self._runner.get_run_summary(run_id)
+        """Look up full terminal run summary by run ID, falling back to Darpana persistence."""
+        summary = self._runner.get_run_summary(run_id)
+        if summary is not None:
+            return summary
+        if hasattr(self._agni, "darpana") and self._agni.darpana is not None:
+            term_summary = self._agni.darpana.get_run_summary(run_id)
+            if term_summary is not None:
+                stat = term_summary.status.upper()
+                if stat == "COMPLETED":
+                    stat = "SUCCESS"
+                total_in = max(1, term_summary.artifact_count) if stat == "SUCCESS" else term_summary.artifact_count
+                succ_files = term_summary.artifact_count if stat == "SUCCESS" else 0
+                fail_files = 1 if stat == "FAILED" else 0
+                return RunSummaryView(
+                    run_id=term_summary.run_id,
+                    status=stat,
+                    wall_time_ns=term_summary.duration_ms * 1_000_000,
+                    total_inputs=total_in,
+                    successful_files=succ_files,
+                    warning_files=term_summary.warning_count,
+                    failed_files=fail_files,
+                    quarantined_count=0,
+                    retry_count=0,
+                    warnings=tuple(f"Execution warning {i+1}" for i in range(term_summary.warning_count)) if term_summary.warning_count else (),
+                    failures=("Execution failed." if stat == "FAILED" else ()),
+                )
+        return None
 
     def get_run_history(self, limit: int = 50) -> tuple[Any, ...]:
         """Retrieve recent terminal run summaries from Darpana telemetry history."""

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -113,7 +112,7 @@ class BhashiniOCRCapability:
 
             extracted_text = ""
             pipeline_resp = response_json.get("pipelineResponse", [])
-            confidence_score = 0.92
+            confidence_score: float | None = None
 
             if pipeline_resp:
                 out_list = pipeline_resp[0].get("output", [])
@@ -137,7 +136,7 @@ class BhashiniOCRCapability:
                 "confidence": confidence_score,
                 "min_confidence": confidence_score,
                 "max_confidence": confidence_score,
-                "confidence_count": len(spans),
+                "confidence_count": len(spans) if confidence_score is not None else 0,
             }
 
             page_data = PageData(
@@ -150,10 +149,16 @@ class BhashiniOCRCapability:
 
             if self._darpana is not None:
                 from datetime import datetime, timezone
+
                 from sarathi.darpana import PramanaRecord
 
                 now_iso = datetime.now(timezone.utc).isoformat()
-                page_evidence = {"provider": "bhashini", "engine": "chitrakshar"}
+                page_evidence = {
+                    "score_kind": "raw_engine",
+                    "calibrated": False,
+                    "provider": "bhashini",
+                    "engine": "chitrakshar",
+                }
                 self._darpana.record_pramana(
                     PramanaRecord(
                         run_id=context.run_id,
@@ -168,7 +173,7 @@ class BhashiniOCRCapability:
                             score=confidence_score,
                             method="bhashini_confidence",
                             evidence=page_evidence,
-                        ),
+                        ) if confidence_score is not None else None,
                         attributes={
                             "level": "page",
                             "page_number": 1,
@@ -209,15 +214,26 @@ class BhashiniOCRCapability:
 
         output_data = all_docs[0] if len(all_docs) == 1 else tuple(all_docs)
 
-        overall_confidence: ConfidenceValue = ConfidenceValue(
-            score=confidence_score,
-            method="bhashini_mean",
-            evidence={
-                "provider": "bhashini",
-                "engine": "chitrakshar",
-                "sample_count": len(all_docs),
-            },
-        )
+        all_confs = [
+            s.confidence
+            for doc in all_docs
+            for p in doc.pages
+            for s in p.spans
+            if s.confidence is not None
+        ]
+        overall_confidence: ConfidenceValue | None = None
+        if all_confs:
+            overall_confidence = ConfidenceValue(
+                score=round(sum(all_confs) / len(all_confs), 4),
+                method="bhashini_mean",
+                evidence={
+                    "score_kind": "raw_engine",
+                    "calibrated": False,
+                    "provider": "bhashini",
+                    "engine": "chitrakshar",
+                    "sample_count": len(all_docs),
+                },
+            )
 
         provenance = (
             ProvenanceRecord(

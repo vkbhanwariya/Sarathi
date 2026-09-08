@@ -138,7 +138,7 @@ class GeminiOCRCapability:
 
             candidates = response_json.get("candidates", [])
             extracted_text = ""
-            confidence_score = 0.95
+            confidence_score: float | None = None
 
             if candidates:
                 cand = candidates[0]
@@ -164,7 +164,7 @@ class GeminiOCRCapability:
                 "confidence": confidence_score,
                 "min_confidence": confidence_score,
                 "max_confidence": confidence_score,
-                "confidence_count": len(spans),
+                "confidence_count": len(spans) if confidence_score is not None else 0,
             }
 
             page_data = PageData(
@@ -178,10 +178,16 @@ class GeminiOCRCapability:
             # Telemetry to Darpana
             if self._darpana is not None:
                 from datetime import datetime, timezone
+
                 from sarathi.darpana import PramanaRecord
 
                 now_iso = datetime.now(timezone.utc).isoformat()
-                page_evidence = {"model": model, "provider": "gemini"}
+                page_evidence = {
+                    "score_kind": "raw_engine",
+                    "calibrated": False,
+                    "model": model,
+                    "provider": "gemini",
+                }
                 self._darpana.record_pramana(
                     PramanaRecord(
                         run_id=context.run_id,
@@ -196,7 +202,7 @@ class GeminiOCRCapability:
                             score=confidence_score,
                             method="gemini_logprob",
                             evidence=page_evidence,
-                        ),
+                        ) if confidence_score is not None else None,
                         attributes={
                             "level": "page",
                             "page_number": 1,

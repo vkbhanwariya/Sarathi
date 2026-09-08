@@ -7,7 +7,6 @@ and maps translated text into CanonicalDocument and TXT/DOCX artifacts.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -16,6 +15,7 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ExecutionContext,
+    InputRef,
     PageData,
     ProvenanceRecord,
     Request,

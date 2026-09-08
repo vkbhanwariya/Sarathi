@@ -305,6 +305,7 @@ def test_request_id_with_spaces_succeeds_end_to_end(tmp_path: Path) -> None:
 def test_cancellation_bypasses_retry_in_pravaha() -> None:
     """Triggered cancellation token immediately raises error before retry execution."""
     from unittest.mock import MagicMock
+
     from sarathi.nabhi.kosh import Kosh
     from sarathi.nabhi.manthan import Manthan
     from sarathi.nabhi.pravaha import Pravaha

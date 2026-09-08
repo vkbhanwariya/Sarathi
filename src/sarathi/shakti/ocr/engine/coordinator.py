@@ -314,6 +314,8 @@ class RapidOCREngine:
                                             "fallback_applied": True,
                                             "fallback_engine": "tesseract5",
                                             "original_confidence": span.confidence,
+                                            "replacement_confidence": tess_conf,
+                                            "raw_confidence_score_delta": gain,
                                             "confidence_gain": gain,
                                         },
                                     )
@@ -348,7 +350,7 @@ class RapidOCREngine:
         elif target_lang in V6_LANGS:
             model_label = "PP-OCRv6"
         else:
-            model_label = self._model_labels.get(cache_key, self._model_labels.get(f"en:{target_device}", "PP-OCRv5"))
+            model_label = self._model_labels.get(cache_key) or self._model_labels.get(f"en:{target_device}") or "unknown"
 
         page_confidence: ConfidenceValue | None = None
         if conf_scores and not has_invalid_confidence and len(conf_scores) == len(spans):
@@ -407,6 +409,7 @@ class RapidOCREngine:
             "fallback_improved_count": fallback_improved_count,
             "fallback_applied": fallback_applied,
             "fallback_total_gain": round(fallback_total_gain, 4),
+            "raw_confidence_score_delta": round(fallback_total_gain, 4),
         }
         if fallback_applied or fallback_required:
             metadata["fallback_engine"] = "tesseract5"
@@ -414,6 +417,8 @@ class RapidOCREngine:
             metadata["confidence"] = page_confidence.score
 
         evidence_dict: dict[str, Any] = {
+            "score_kind": "raw_engine",
+            "calibrated": False,
             "engine": "rapidocr",
             "backend": "openvino",
             "device": target_device,
@@ -431,6 +436,7 @@ class RapidOCREngine:
             evidence_dict["fallback_improved_count"] = fallback_improved_count
             evidence_dict["fallback_intercepted_count"] = fallback_intercepted_count
             evidence_dict["fallback_total_gain"] = round(fallback_total_gain, 4)
+            evidence_dict["raw_confidence_score_delta"] = round(fallback_total_gain, 4)
         elif fallback_required:
             evidence_dict["fallback_engine"] = "tesseract5"
             evidence_dict["fallback_intercepted_count"] = fallback_intercepted_count

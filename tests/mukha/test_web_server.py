@@ -643,6 +643,39 @@ def test_api_review_endpoints(web_server: MukhaWebServer) -> None:
     assert resp["ok"] is False
 
 
+def test_warning_without_context_attempt_id_generates_actionable_review_item(web_server: MukhaWebServer) -> None:
+    """Warnings without span_id or context attempt_id receive deterministic attempt_id and can be accepted."""
+    from sarathi.sankalpa import Result, WarningRecord
+
+    web_server.runner._last_result = Result(
+        data=None,
+        warnings=(
+            WarningRecord(code="GENERIC_WARN", message="General warning without context", stage="native_extraction"),
+        ),
+    )
+    web_server.runner._last_result_run_id = "run-test-det"
+
+    # GET /api/review should produce a non-empty attempt_id
+    status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["ok"] is True
+    assert len(data["items"]) == 1
+    item = data["items"][0]
+    assert item["item_id"] == "rev-1"
+    assert item["attempt_id"] != ""
+    assert item["attempt_id"].startswith("att-")
+
+    # POST /api/review with the generated attempt_id must succeed
+    status, resp = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {"item_id": item["item_id"], "attempt_id": item["attempt_id"], "action": "accept"},
+    )
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["action"] == "accept"
+
+
 def test_api_payload_validation_rejects_malformed(web_server: MukhaWebServer) -> None:
     """F36: POST /api/runs and /api/intake reject malformed types with 400 Bad Request."""
     # Non-boolean recursive
@@ -668,6 +701,22 @@ def test_api_payload_validation_rejects_malformed(web_server: MukhaWebServer) ->
     )
     assert status == 400
     assert resp["ok"] is False
+
+    # Plan preview with invalid profile -> 400 (no silent fallback to instant)
+    status_prev_prof, resp_prev_prof = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/plan/preview",
+        {"paths": ["valid.pdf"], "profile": "invalid_profile_name"},
+    )
+    assert status_prev_prof == 400
+    assert resp_prev_prof["ok"] is False
+
+    # Plan preview with non-boolean recursive -> 400 (no silent string coercion)
+    status_prev_rec, resp_prev_rec = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/plan/preview",
+        {"paths": ["valid.pdf"], "recursive": "false_as_string"},
+    )
+    assert status_prev_rec == 400
+    assert resp_prev_rec["ok"] is False
 
 
 def test_static_assets_serving(web_server: MukhaWebServer) -> None:
@@ -719,11 +768,17 @@ def test_api_preview_text_and_tabular(web_server: MukhaWebServer, tmp_path: Path
 
 
 def test_api_preview_traversal_rejected(web_server: MukhaWebServer) -> None:
-    """GET /api/preview rejects directory traversal attempts."""
+    """GET /api/preview rejects directory traversal attempts and sensitive system paths."""
     status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path=../../etc/passwd")
     assert status == 400
     res = json.loads(data.decode("utf-8"))
     assert res["ok"] is False
+
+    # Direct system path -> 403 Forbidden
+    status_sys, data_sys, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/preview?path=/etc/shadow")
+    assert status_sys == 403
+    res_sys = json.loads(data_sys.decode("utf-8"))
+    assert res_sys["ok"] is False
 
 
 def test_api_review_intent_workflow(web_server: MukhaWebServer) -> None:
@@ -953,3 +1008,79 @@ def test_preview_txt_endpoints(web_server: MukhaWebServer, tmp_path: Path) -> No
     assert res["ok"] is True
     assert res["type"] == "text"
     assert "System Operational" in res["content"]
+
+
+def test_persisted_run_summary_reopening_across_restarts(web_server: MukhaWebServer) -> None:
+    """Historical run summary must be reconstructed from Darpana when runner has no in-memory summary."""
+    from sarathi.darpana.history import TerminalRunSummary
+
+    run_id = "run_hist123456"
+    term = TerminalRunSummary(
+        run_id=run_id,
+        request_id=run_id,
+        requirement="read_native",
+        profile="instant",
+        status="completed",
+        start_time_utc="2026-09-08T10:00:00.000000Z",
+        completed_at_utc="2026-09-08T10:00:05.000000Z",
+        duration_ms=5000,
+        artifact_count=3,
+        warning_count=1,
+    )
+    web_server.agni.darpana.record_run_summary(term)
+
+    # In-memory runner summary is cleared (simulating fresh server restart)
+    web_server.runner.clear_history()
+
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/summary")
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    summary = res["summary"]
+    assert summary["run_id"] == run_id
+    assert summary["status"] == "SUCCESS"
+    assert summary["wall_time_ns"] == 5_000_000_000
+    assert summary["total_inputs"] >= 1
+    assert summary["warning_files"] == 1
+
+
+def test_history_query_canonical_schema(web_server: MukhaWebServer) -> None:
+    """GET /api/history must supply status, total_inputs, and wall_time_ns required by history drawer."""
+    from sarathi.darpana.history import TerminalRunSummary
+
+    run_id = "run_histschema1"
+    term = TerminalRunSummary(
+        run_id=run_id,
+        request_id=run_id,
+        requirement="ocr",
+        profile="accurate",
+        status="completed",
+        start_time_utc="2026-09-08T11:00:00.000000Z",
+        completed_at_utc="2026-09-08T11:00:02.000000Z",
+        duration_ms=2000,
+        artifact_count=4,
+        warning_count=0,
+    )
+    web_server.agni.darpana.record_run_summary(term)
+
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/history?limit=10")
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    items = [h for h in res["history"] if h["run_id"] == run_id]
+    assert len(items) == 1
+    item = items[0]
+    assert item["status"] == "SUCCESS"
+    assert item["total_inputs"] == 4
+    assert item["wall_time_ns"] == 2_000_000_000
+    assert item["duration_ms"] == 2000
+
+
+def test_consistent_json_error_for_unknown_api_endpoints(web_server: MukhaWebServer) -> None:
+    """Unmatched /api/* routes must return structured JSON errors rather than HTML error pages."""
+    status, data, headers = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/nonexistent_resource")
+    assert status == 404
+    assert "application/json" in headers.get("Content-Type", "")
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is False
+    assert "error" in res

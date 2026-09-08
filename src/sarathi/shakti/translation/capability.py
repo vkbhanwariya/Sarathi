@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping
@@ -66,6 +67,7 @@ class TranslationCapability:
         context: ExecutionContext,
         doc: CanonicalDocument,
         naming_inp: InputRef,
+        duration_ns: int | None = None,
     ) -> None:
         """Record worker execution performance and page/region quality telemetry in Darpana."""
         if self._darpana is None:
@@ -73,33 +75,33 @@ class TranslationCapability:
         from datetime import datetime, timezone
 
         from sarathi.darpana import MarutiRecord, PramanaRecord
-        from sarathi.sankalpa import ConfidenceValue
 
         now_iso = datetime.now(timezone.utc).isoformat()
         dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
         dev_i = str(context.execution_binding.device_id) if context.execution_binding else "0"
         pages = doc.pages or ()
 
-        self._darpana.record_maruti(
-            MarutiRecord(
-                run_id=context.run_id,
-                request_id=context.request_id,
-                trace_id=context.trace_id,
-                span_id=context.span_id,
-                phase_name="worker_execution",
-                component="shakti.translation",
-                timestamp_utc=now_iso,
-                duration_ns=1_000_000,
-                outcome="success",
-                attributes={
-                    "worker_id": f"{dev_t.lower()}-worker-{dev_i}",
-                    "device_type": dev_t,
-                    "device_id": dev_i,
-                    "pages_processed": max(1, len(pages)),
-                    "file_display_name": naming_inp.display_name,
-                },
+        if duration_ns is not None:
+            self._darpana.record_maruti(
+                MarutiRecord(
+                    run_id=context.run_id,
+                    request_id=context.request_id,
+                    trace_id=context.trace_id,
+                    span_id=context.span_id,
+                    phase_name="worker_execution",
+                    component="shakti.translation",
+                    timestamp_utc=now_iso,
+                    duration_ns=duration_ns,
+                    outcome="success",
+                    attributes={
+                        "worker_id": f"{dev_t.lower()}-worker-{dev_i}",
+                        "device_type": dev_t,
+                        "device_id": dev_i,
+                        "pages_processed": max(1, len(pages)),
+                        "file_display_name": naming_inp.display_name,
+                    },
+                )
             )
-        )
         for p in pages:
             self._darpana.record_pramana(
                 PramanaRecord(
@@ -111,19 +113,14 @@ class TranslationCapability:
                     stage="translation",
                     timestamp_utc=now_iso,
                     subject_id=f"{doc.document_id}:p{p.page_number}",
-                    confidence=ConfidenceValue(
-                        score=1.0,
-                        method="neural_translation",
-                        evidence={"review_recommended": False},
-                    ),
+                    confidence=None,
                     attributes={
                         "level": "page",
                         "page_number": p.page_number,
                         "file_display_name": naming_inp.display_name,
                         "region_count": len(p.spans),
-                        "min_confidence": 1.0,
-                        "max_confidence": 1.0,
-                        "review_recommended": False,
+                        "min_confidence": None,
+                        "max_confidence": None,
                     },
                 )
             )
@@ -138,18 +135,13 @@ class TranslationCapability:
                         stage="translation",
                         timestamp_utc=now_iso,
                         subject_id=f"{doc.document_id}:p{p.page_number}:s{s_idx}",
-                        confidence=ConfidenceValue(
-                            score=1.0,
-                            method="neural_translation",
-                            evidence={"review_recommended": False},
-                        ),
+                        confidence=None,
                         attributes={
                             "level": "region",
                             "region_id": f"p{p.page_number}_span_{s_idx + 1}",
                             "page_number": p.page_number,
                             "file_display_name": naming_inp.display_name,
                             "region_type": "text",
-                            "review_recommended": False,
                         },
                     )
                 )
@@ -268,6 +260,7 @@ class TranslationCapability:
                 else nullcontext()
             )
             with scope:
+                t_trans_start = time.perf_counter_ns()
                 translation_cache: dict[str, TranslationResult] = {}
 
                 def _trans_text(raw: str) -> str:
@@ -289,6 +282,7 @@ class TranslationCapability:
                     target_lang=tgt_lang,
                     target_script=tgt_script,
                 )
+                trans_dur_ns = max(0, time.perf_counter_ns() - t_trans_start)
 
                 primary_res = translation_cache.get(doc.text) or (
                     next(iter(translation_cache.values())) if translation_cache else None
@@ -331,7 +325,7 @@ class TranslationCapability:
                     display_name=doc.document_id,
                     size_bytes=0,
                 )
-                self._record_telemetry(context, translated_doc, naming_inp)
+                self._record_telemetry(context, translated_doc, naming_inp, duration_ns=trans_dur_ns)
 
                 suffix = f"_{idx + 1}" if len(docs) > 1 else ""
                 txt_payload = ArtifactPayload(

@@ -25,7 +25,12 @@ const COMMANDS = [
         action: () => {
             const runId = state.viewedRunId || state.activeRunId;
             if (runId) {
-                window.open(`/api/runs/${encodeURIComponent(runId)}/diagnostics`, "_blank");
+                const link = document.createElement("a");
+                link.href = `/api/runs/${encodeURIComponent(runId)}/diagnostics?download=1`;
+                link.download = `diagnostics_${runId}.json`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
             }
         },
     },

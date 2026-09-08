@@ -29,12 +29,9 @@ from sarathi.sankalpa import (
     InputRef,
     PageData,
     PluginProvider,
-    PluginServices,
     ReadinessStatus,
     Request,
     Result,
-    TableData,
-    TextSpan,
 )
 from sarathi.shakti.mistral import (
     MISTRAL_OCR_DECLARATION,

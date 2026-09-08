@@ -10,9 +10,22 @@ from __future__ import annotations
 import re
 import urllib.parse
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from sarathi.dosh import DoshError
+from sarathi.sankalpa import ExecutionProfile
+
+__all__ = [
+    "_ALLOWED_LOOPBACK_HOSTNAMES",
+    "_format_public_error",
+    "_is_authorized_loopback_host",
+    "_is_authorized_loopback_origin",
+    "_is_safe_preview_path",
+    "_parse_run_request_payload",
+    "_sanitize_message",
+    "_serialize_dataclass",
+]
 
 # Path sanitization patterns: quoted paths, UNC paths, Windows drive paths, Unix paths
 _QUOTED_PATH_PATTERN = re.compile(r"""(?P<q>['"])(?:[A-Za-z]:[\\/]|\\\\|/)[^'"]*(?P=q)""")
@@ -118,3 +131,71 @@ def _serialize_dataclass(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {k: _serialize_dataclass(v) for k, v in obj.items()}
     return str(obj)
+
+
+def _is_safe_preview_path(path_str: str) -> tuple[bool, str | None]:
+    """Verify that a path is safe from directory traversal and sensitive system directories."""
+    if not path_str or not path_str.strip():
+        return False, "Missing 'path' query parameter."
+    if ".." in path_str and ("../" in path_str or "..\\" in path_str):
+        return False, "Directory traversal detected."
+
+    try:
+        resolved = Path(path_str).resolve()
+    except Exception:
+        return False, "Invalid file path."
+
+    # Check filename against sensitive system files
+    fname = resolved.name.lower()
+    if fname in (".env", "id_rsa", "id_ed25519", "sam", "system", "security", "shadow", "passwd", "hosts"):
+        return False, "Access to sensitive files is forbidden."
+
+    # Check path parts against forbidden OS root directories
+    resolved_parts = [p.lower() for p in resolved.parts]
+    forbidden_dirs = {"windows", "system32", "etc", "proc", "sys", "dev", ".ssh"}
+    for part in resolved_parts:
+        clean_part = part.rstrip(":\\/")
+        if clean_part in forbidden_dirs or part in forbidden_dirs:
+            return False, "Access to system paths is forbidden."
+
+    return True, None
+
+
+def _parse_run_request_payload(
+    body: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Parse and strictly validate run and plan preview request payloads."""
+    raw_paths = body.get("paths")
+    requirement = body.get("requirement", "read_native")
+    profile_str = body.get("profile", "instant")
+
+    if not isinstance(body.get("recursive", True), bool):
+        return None, "'recursive' must be a boolean."
+    recursive = bool(body.get("recursive", True))
+
+    if "custom_options" in body and body["custom_options"] is not None and not isinstance(body["custom_options"], dict):
+        return None, "'custom_options' must be an object or null."
+    custom_options = body.get("custom_options")
+
+    if not isinstance(raw_paths, list) or not raw_paths or not all(isinstance(p, str) and p.strip() for p in raw_paths):
+        return None, "No input paths provided."
+
+    if not isinstance(requirement, str) or not requirement.strip():
+        return None, "requirement must be a non-empty string."
+
+    if not isinstance(profile_str, str) or not profile_str.strip():
+        return None, "profile must be a non-empty string."
+
+    try:
+        prof = ExecutionProfile.from_string(profile_str)
+    except ValueError:
+        return None, f"Invalid profile: {profile_str}"
+
+    paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
+    return {
+        "paths": paths,
+        "requirement": requirement.strip(),
+        "profile": prof,
+        "recursive": recursive,
+        "custom_options": custom_options,
+    }, None

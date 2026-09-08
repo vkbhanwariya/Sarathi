@@ -149,8 +149,8 @@ class RunCoordinator:
                 return False
 
             # 3. Enforce run scoping if run_id provided
+            target_run_id = self._last_result_run_id or (self._terminal_summary.run_id if self._terminal_summary else None) or self._active_run_id
             if intent.run_id:
-                target_run_id = self._last_result_run_id or (self._terminal_summary.run_id if self._terminal_summary else None) or self._active_run_id
                 if target_run_id and intent.run_id != target_run_id:
                     return False
 
@@ -168,8 +168,12 @@ class RunCoordinator:
                 return False
 
             # 5. Check attempt matching if warning has span_id / attempt
-            expected_att = getattr(matched_warning, "span_id", "") or (matched_warning.context.get("attempt_id", "") if matched_warning.context else "")
-            if expected_att and intent.attempt_id != expected_att:
+            expected_att = (
+                getattr(matched_warning, "span_id", "")
+                or (matched_warning.context.get("attempt_id", "") if matched_warning.context else "")
+                or f"att-{target_run_id or 'run'}-{idx}"
+            )
+            if intent.attempt_id != expected_att:
                 return False
 
             # 6. Check state revision if expected_revision provided
@@ -288,10 +292,11 @@ class RunCoordinator:
                 if inp.source_path:
                     self._input_path_registry[inp.input_id] = Path(inp.source_path).resolve()
 
-            # Reset live progress tracking for active run
+            # Reset live progress tracking and ephemeral review intents for active run
             self._live_progress = {}
             self._live_workers = {}
             self._file_progress = {}
+            self._review_intents.clear()
 
             def _on_progress(
                 file_display_name: str,
@@ -307,7 +312,12 @@ class RunCoordinator:
                     now = time.perf_counter_ns()
                     dev = device_type or ""
                     existing_w = self._live_workers.get(str(worker_id))
-                    w_start = existing_w.get("started_ns", now) if existing_w else now
+                    is_same = (
+                        existing_w is not None
+                        and existing_w.get("stage") == stage
+                        and existing_w.get("file_display_name") == file_display_name
+                    )
+                    w_start = existing_w["started_ns"] if is_same else now
                     w_info = {
                         "worker_id": str(worker_id),
                         "file_display_name": file_display_name,
@@ -559,6 +569,7 @@ class RunCoordinator:
                                 pramana_records=pramana_recs,
                             )
                             self._run_summaries[run_id] = self._terminal_summary
+                        self._live_workers.clear()
                         self._state_revision += 1
 
             self._active_thread = threading.Thread(

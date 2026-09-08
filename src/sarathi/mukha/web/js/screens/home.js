@@ -113,23 +113,35 @@ export async function refreshIntake() {
         const rawItems = res.input_selection.items || [];
         const filteredItems = rawItems.filter((i) => !state.excludedPaths.has(i.source_path || i.display_name));
         state.intakeItems = filteredItems;
-        state.selectedPaths = filteredItems.map((i) => i.source_path || i.display_name);
+
+        const eligibleItems = filteredItems.filter((i) => i.is_eligible !== false);
+        const ineligibleItems = filteredItems.filter((i) => i.is_eligible === false);
+        state.selectedPaths = eligibleItems.map((i) => i.source_path || i.display_name);
 
         renderInputsTable(filteredItems, res.input_selection);
         const totalSize = filteredItems.reduce((acc, it) => acc + (it.size_bytes || 0), 0);
         if (elements.inputCountsBadge) {
             elements.inputCountsBadge.textContent = `${filteredItems.length} files (${formatBytes(totalSize)})`;
         }
-        const preflightData = res.preflight || {
-            eligible_count: filteredItems.filter((i) => i.is_eligible !== false).length,
-            issue_count: 0,
-            issues: [],
+        const issues = ineligibleItems.map((i) => [
+            i.display_name || i.source_path,
+            i.ineligible_reason || "Ineligible input format or path",
+        ]);
+        const preflightData = {
+            eligible_count: eligibleItems.length,
+            issue_count: ineligibleItems.length,
+            issues: issues,
         };
         renderPreflight(preflightData);
         if (elements.btnStartRun) {
-            elements.btnStartRun.disabled = filteredItems.length === 0 || preflightData.eligible_count === 0;
+            elements.btnStartRun.disabled = eligibleItems.length === 0;
         }
-        previewPlan();
+        if (eligibleItems.length > 0) {
+            previewPlan();
+        } else if (elements.preflightPlanPreview) {
+            elements.preflightPlanPreview.classList.add("hidden");
+            elements.preflightPlanPreview.innerHTML = "";
+        }
     } else if (res.error) {
         showError(res.error);
     }
@@ -336,7 +348,11 @@ export function renderPreflight(preflight) {
         if (preflight.issues && preflight.issues.length > 0) {
             elements.preflightIssues.classList.remove("hidden");
             elements.preflightIssues.innerHTML = preflight.issues
-                .map(([name, reason]) => `<div>⚠ <strong>${escapeHtml(name)}</strong>: ${escapeHtml(reason)}</div>`)
+                .map((issue) => {
+                    const name = Array.isArray(issue) ? issue[0] : (issue.name || issue.path || "Input");
+                    const reason = Array.isArray(issue) ? issue[1] : (issue.reason || "Ineligible input");
+                    return `<div>⚠ <strong>${escapeHtml(name)}</strong>: ${escapeHtml(reason)}</div>`;
+                })
                 .join("");
         } else {
             elements.preflightIssues.classList.add("hidden");
@@ -558,9 +574,19 @@ export async function previewPlan() {
                 ${devHtml ? `<div style="font-size: 0.75rem; color: var(--text-muted);">DEVICES: ${devHtml}</div>` : ''}
             </div>
         `;
+        if (elements.btnStartRun && state.selectedPaths.length > 0) {
+            elements.btnStartRun.disabled = false;
+        }
     } else {
-        elements.preflightPlanPreview.classList.add("hidden");
-        elements.preflightPlanPreview.innerHTML = "";
+        elements.preflightPlanPreview.classList.remove("hidden");
+        elements.preflightPlanPreview.innerHTML = `
+            <div style="margin-top: 8px; padding: 8px 12px; background: rgba(239, 68, 68, 0.12); border: 1px solid var(--accent-crimson); border-radius: var(--radius-sm); font-size: 0.8rem; color: var(--text-primary);">
+                ⚠️ <strong>Planning Error:</strong> ${escapeHtml(res.error || "Cannot resolve execution plan with selected configuration.")}
+            </div>
+        `;
+        if (elements.btnStartRun) {
+            elements.btnStartRun.disabled = true;
+        }
     }
 }
 
@@ -792,10 +818,9 @@ export function initHomeScreen() {
             const btnPreview = e.target.closest(".btn-preview-file");
             if (btnPreview) {
                 const inputId = btnPreview.dataset.inputId;
-                const pathVal = btnPreview.dataset.path;
                 const name = btnPreview.dataset.name;
-                const target = inputId ? `/api/inputs/${encodeURIComponent(inputId)}/preview` : pathVal;
-                if (target) openDocumentPreview(target, name, pathVal);
+                const target = inputId ? `/api/inputs/${encodeURIComponent(inputId)}/preview` : null;
+                if (target) openDocumentPreview(target, name);
             }
         });
     }

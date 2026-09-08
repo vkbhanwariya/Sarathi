@@ -272,10 +272,10 @@ class PageConfidenceView:
 
     file_display_name: str
     page_number: int
-    confidence_score: float
-    region_count: int
-    min_confidence: float
-    max_confidence: float
+    confidence_score: float | None = None
+    region_count: int = 0
+    min_confidence: float | None = None
+    max_confidence: float | None = None
     review_recommended: bool = False
 
 
@@ -286,18 +286,19 @@ class RegionConfidenceView:
     region_id: str
     file_display_name: str
     page_number: int
-    confidence_score: float
-    region_type: str
-    method: str
+    confidence_score: float | None = None
+    region_type: str = "text"
+    method: str = "direct"
     review_recommended: bool = False
     original_confidence: float | None = None
     confidence_gain: float | None = None
+    raw_confidence_score_delta: float | None = None
     fallback_engine: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class FallbackImprovementView:
-    """Factual telemetry of bounding-box quality improvement by fallback engine (e.g. Tesseract 5)."""
+    """Factual telemetry of bounding-box quality delta by fallback engine (e.g. Tesseract 5)."""
 
     region_id: str
     file_display_name: str
@@ -306,6 +307,7 @@ class FallbackImprovementView:
     improved_confidence: float
     confidence_gain: float
     fallback_engine: str = "Tesseract 5"
+    raw_confidence_score_delta: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

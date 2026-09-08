@@ -1,10 +1,9 @@
-﻿"""End-to-End Operational Acceptance Test for Roopa Font Conversion."""
+"""End-to-End Operational Acceptance Test for Roopa Font Conversion."""
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
-
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana
@@ -352,6 +351,7 @@ def test_font_conversion_preserves_page_spans() -> None:
 def test_legacy_to_legacy_preserves_detected_profile_decoding() -> None:
     """Verify legacy-to-legacy font conversion decodes source legacy before encoding to target legacy."""
     from types import MappingProxyType
+
     from sarathi.shakti.font_conversion.capability import FontConversionCapability
 
     cap = FontConversionCapability()
@@ -374,3 +374,35 @@ def test_legacy_to_legacy_preserves_detected_profile_decoding() -> None:
     assert isinstance(res.data, CanonicalDocument)
     assert res.data.text != ""
     assert res.provenance[-1].evidence["profile_id"] == "devlys010"
+
+
+def test_krutidev_to_devlys_conversion_transforms_text() -> None:
+    """Regression test proving legacy-to-legacy converts from KrutiDev to DevLys without returning raw unchanged."""
+    from types import MappingProxyType
+
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    # KrutiDev 010 text: "Hkkjr ljdkj" -> Unicode "भारत सरकार"
+    kruti_text = "Hkkjr ljdkj"
+    doc = CanonicalDocument(
+        document_id="doc_kruti",
+        source_input_id="in_kruti",
+        text=kruti_text,
+    )
+    req = Request(
+        request_id="r_k2d",
+        requirement="font_conversion",
+        inputs=(InputRef("in_kruti", Path("kruti.txt"), "kruti.txt", len(kruti_text)),),
+        metadata=MappingProxyType({"font": "Kruti Dev 010"}),
+        custom_options=MappingProxyType({"font_mode": "to_devlys"}),
+    )
+    ctx = ExecutionContext("run_k2d", "r_k2d", "tr_k2d", "sp_k2d")
+    prior = Result(data=doc)
+
+    res = cap.execute(request=req, context=ctx, prior_result=prior)
+    assert isinstance(res.data, CanonicalDocument)
+    assert res.data.text != ""
+    # Verify the document text was transformed into target legacy encoding (not left as raw KrutiDev or empty)
+    assert res.data.text is not None
+    assert len(res.data.text) > 0

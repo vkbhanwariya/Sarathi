@@ -89,11 +89,13 @@ class OCRCapability:
         data_root: Path | None = None,
         yantra: Yantra | None = None,
         darpana: Darpana | None = None,
+        settings: Any | None = None,
     ) -> None:
         self.declaration: CapabilityDeclaration = declaration
         self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine(data_root=data_root)
         self._yantra: Yantra | None = yantra
         self._darpana: Darpana | None = darpana
+        self._settings: Any | None = settings
 
     def _record_page_telemetry(
         self,
@@ -272,13 +274,16 @@ class OCRCapability:
 
         if can_parallelize:
             hybrid_threshold = 8
-            try:
-                from sarathi.sutra import load_settings
+            if self._settings is not None and hasattr(self._settings, "hardware_ocr_hybrid_page_threshold"):
+                hybrid_threshold = self._settings.hardware_ocr_hybrid_page_threshold
+            else:
+                try:
+                    from sarathi.sutra import load_settings
 
-                settings = load_settings()
-                hybrid_threshold = settings.hardware_ocr_hybrid_page_threshold
-            except Exception:
-                hybrid_threshold = 8
+                    settings = load_settings()
+                    hybrid_threshold = settings.hardware_ocr_hybrid_page_threshold
+                except Exception:
+                    hybrid_threshold = 8
 
             custom_opts = request.custom_options or {}
             use_hybrid = (
@@ -515,6 +520,8 @@ class OCRCapability:
             if prov.stage == "ocr" and bool(prov.evidence) and prov.evidence.get("model")
         }
         evidence_dict: dict[str, Any] = {
+            "score_kind": "raw_engine",
+            "calibrated": False,
             "engine": "rapidocr",
             "backend": "openvino",
             "page_count": len(scores),
@@ -523,8 +530,6 @@ class OCRCapability:
             evidence_dict["model"] = next(iter(page_models))
         elif page_models:
             evidence_dict["models"] = sorted(str(m) for m in page_models)
-        else:
-            evidence_dict["model"] = "PP-OCRv5"
 
         overall_confidence: ConfidenceValue | None = (
             ConfidenceValue(

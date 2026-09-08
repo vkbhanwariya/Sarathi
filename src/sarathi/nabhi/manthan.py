@@ -36,10 +36,15 @@ class CapabilityPlan:
             raise ValueError("capability_ids cannot be empty.")
 
         cleaned_ids: list[str] = []
+        seen_ids: set[str] = set()
         for i, cid in enumerate(self.capability_ids):
             if not isinstance(cid, str) or not cid.strip():
                 raise ValueError(f"capability_ids[{i}] must be a non-empty string.")
-            cleaned_ids.append(cid.strip())
+            s_cid = cid.strip()
+            if s_cid in seen_ids:
+                raise ValueError(f"Duplicate capability stage '{s_cid}' in CapabilityPlan is prohibited.")
+            seen_ids.add(s_cid)
+            cleaned_ids.append(s_cid)
 
         object.__setattr__(self, "capability_ids", tuple(cleaned_ids))
 

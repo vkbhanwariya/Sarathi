@@ -15,7 +15,7 @@ from enum import StrEnum
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
@@ -33,10 +33,11 @@ from sarathi.mukha.web.security import (
     _format_public_error,
     _is_authorized_loopback_host,
     _is_authorized_loopback_origin,
+    _is_safe_preview_path,
+    _parse_run_request_payload,
     _sanitize_message,
     _serialize_dataclass,
 )
-from sarathi.sankalpa import ExecutionProfile
 
 if TYPE_CHECKING:
     from sarathi.mukha.web.server import MukhaWebServer
@@ -129,7 +130,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Cache-Control", cache_control)
 
-    def _send_json(self, status: int, data: dict[str, Any]) -> None:
+    def _send_json(self, status: int, data: dict[str, Any], headers: Mapping[str, str] | None = None) -> None:
         """Send a structured JSON response."""
         try:
             body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -140,6 +141,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if headers:
+            for k, v in headers.items():
+                self.send_header(k, v)
         self._apply_security_headers(cache_control="no-store")
         self.end_headers()
         self.wfile.write(body)
@@ -277,7 +281,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                         query_params = urllib.parse.parse_qs(parsed_url.query)
                         stream_raw_document(self, target, download="download" in query_params)
                     else:
-                        self.send_error(HTTPStatus.NOT_FOUND, "Input file not found.")
+                        self._send_json(404, {"ok": False, "error": "Input file not found."})
                     return
                 elif action == "pdf_page":
                     target = None
@@ -297,8 +301,8 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                         self._send_json(404, {"ok": False, "error": "Input file not found."})
                     return
 
-        # 2e. GET /api/runs/<run_id>/artifacts/<artifact_id>/preview or raw
-        elif path.startswith("/api/runs/") and "/artifacts/" in path and (path.endswith("/preview") or path.endswith("/raw")):
+        # 2e. GET /api/runs/<run_id>/artifacts/<artifact_id>/preview, raw, or pdf_page
+        elif path.startswith("/api/runs/") and "/artifacts/" in path and (path.endswith("/preview") or path.endswith("/raw") or path.endswith("/pdf_page")):
             parts = path.strip("/").split("/")
             if len(parts) == 6 and parts[1] == "runs" and parts[3] == "artifacts":
                 run_id = parts[2]
@@ -313,7 +317,20 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                         query_params = urllib.parse.parse_qs(parsed_url.query)
                         stream_raw_document(self, art_ref.path, download="download" in query_params)
                     else:
-                        self.send_error(HTTPStatus.NOT_FOUND, "Artifact not found.")
+                        self._send_json(404, {"ok": False, "error": "Artifact not found."})
+                    return
+                elif action == "pdf_page":
+                    art_ref = self.mukha_app.get_confirmed_artifact(run_id, art_id)
+                    if art_ref and art_ref.path and art_ref.path.is_file():
+                        query_params = urllib.parse.parse_qs(parsed_url.query)
+                        try:
+                            page_num = int(query_params.get("page", ["1"])[0])
+                        except ValueError:
+                            page_num = 1
+                        code, payload = render_pdf_page(str(art_ref.path), page_num)
+                        self._send_json(code, payload)
+                    else:
+                        self._send_json(404, {"ok": False, "error": "Artifact not found."})
                     return
 
         # 2f. GET /api/preview, /api/preview/raw, /api/preview/pdf_page
@@ -323,9 +340,13 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             if not path_val:
                 self._send_json(400, {"ok": False, "error": "Missing 'path' query parameter."})
                 return
+            safe, err_msg = _is_safe_preview_path(path_val)
+            if not safe:
+                self._send_json(400 if "traversal" in (err_msg or "") else 403, {"ok": False, "error": err_msg})
+                return
             if path == "/api/preview/raw":
                 target = Path(path_val).resolve()
-                if not target.is_file() or (".." in path_val and ("../" in path_val or "..\\" in path_val)):
+                if not target.is_file():
                     self.send_error(HTTPStatus.NOT_FOUND, "Document file not found.")
                     return
                 stream_raw_document(self, target, download="download" in query_params)
@@ -348,11 +369,11 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[1] == "runs" and parts[3] == "inspector":
                 run_id = parts[2]
                 if not _SAFE_ID_PATTERN.match(run_id):
-                    self.send_error(HTTPStatus.BAD_REQUEST, "Invalid run identifier.")
+                    self._send_json(400, {"ok": False, "error": "Invalid run identifier."})
                     return
                 inspector = self.mukha_app.get_inspector_view(run_id)
                 if inspector is None:
-                    self.send_error(HTTPStatus.NOT_FOUND, "Run not found.")
+                    self._send_json(404, {"ok": False, "error": "Run not found."})
                     return
                 self._send_json(200, {"ok": True, "inspector": _serialize_dataclass(inspector)})
                 return
@@ -363,7 +384,7 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[1] == "runs" and parts[3] == "diagnostics":
                 run_id = parts[2]
                 if not _SAFE_ID_PATTERN.match(run_id):
-                    self.send_error(HTTPStatus.BAD_REQUEST, "Invalid run identifier.")
+                    self._send_json(400, {"ok": False, "error": "Invalid run identifier."})
                     return
                 from sarathi.mukha.web.diagnostics import export_run_diagnostics
 
@@ -373,7 +394,11 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                     host=self.headers.get("Host", "127.0.0.1"),
                     port=self.mukha_app.resolved_port,
                 )
-                self._send_json(200, diag)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                headers = {}
+                if "download" in query_params:
+                    headers["Content-Disposition"] = f'attachment; filename="diagnostics_{run_id}.json"'
+                self._send_json(200, diag, headers=headers)
                 return
 
         # 3c. GET /api/runs/<run_id>/summary
@@ -382,11 +407,11 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[1] == "runs" and parts[3] == "summary":
                 run_id = parts[2]
                 if not _SAFE_ID_PATTERN.match(run_id):
-                    self.send_error(HTTPStatus.BAD_REQUEST, "Invalid run identifier.")
+                    self._send_json(400, {"ok": False, "error": "Invalid run identifier."})
                     return
                 summary = self.mukha_app.get_run_summary(run_id)
                 if summary is None:
-                    self.send_error(HTTPStatus.NOT_FOUND, "Run summary not found.")
+                    self._send_json(404, {"ok": False, "error": "Run summary not found."})
                     return
                 self._send_json(200, {"ok": True, "summary": _serialize_dataclass(summary)})
                 return
@@ -408,18 +433,21 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(200, cmp_res)
             return
 
-        # 4. GET /api/runs/<run_id>/artifacts/<artifact_id>
+        # 3e. GET /api/runs/<run_id>/artifacts/<artifact_id> (download confirmed artifact)
         elif path.startswith("/api/runs/") and "/artifacts/" in path:
             parts = path.strip("/").split("/")
             if len(parts) == 5 and parts[1] == "runs" and parts[3] == "artifacts":
                 run_id = parts[2]
                 artifact_id = urllib.parse.unquote(parts[4])
                 if not _SAFE_ID_PATTERN.match(run_id) or ".." in artifact_id or "/" in artifact_id or "\\" in artifact_id:
-                    self.send_error(HTTPStatus.BAD_REQUEST, "Invalid run or artifact identifier.")
+                    self._send_json(400, {"ok": False, "error": "Invalid run or artifact identifier."})
                     return
                 self._serve_confirmed_artifact(run_id, artifact_id)
                 return
 
+        if path.startswith("/api/"):
+            self._send_json(404, {"ok": False, "error": "API resource not found."})
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Resource not found.")
 
     def do_POST(self) -> None:
@@ -497,67 +525,36 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             return
         # 3c. POST /api/plan/preview
         elif path == "/api/plan/preview":
-            raw_paths = body.get("paths")
-            requirement = body.get("requirement", "read_native")
-            profile_str = body.get("profile", "instant")
-            recursive = bool(body.get("recursive", True))
-            custom_options = body.get("custom_options")
-
-            if not isinstance(raw_paths, list) or not raw_paths:
-                self._send_json(400, {"ok": False, "error": "No input paths provided."})
+            parsed_intent, err = _parse_run_request_payload(body)
+            if err is not None or parsed_intent is None:
+                self._send_json(400, {"ok": False, "error": err or "Invalid preview payload."})
                 return
 
-            try:
-                prof = ExecutionProfile.from_string(profile_str) if isinstance(profile_str, str) else ExecutionProfile.INSTANT
-            except ValueError:
-                prof = ExecutionProfile.INSTANT
-
-            paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
             from sarathi.mukha.web.planner import preview_execution_plan
 
             res = preview_execution_plan(
                 agni=self.mukha_app.agni,
-                paths=paths,
-                requirement=requirement,
-                profile=prof,
-                recursive=recursive,
-                custom_options=custom_options,
+                paths=parsed_intent["paths"],
+                requirement=parsed_intent["requirement"],
+                profile=parsed_intent["profile"],
+                recursive=parsed_intent["recursive"],
+                custom_options=parsed_intent["custom_options"],
             )
             self._send_json(200 if res.get("ok") else 400, res)
             return
 
         # 4. POST /api/runs
         elif path == "/api/runs":
-            raw_paths = body.get("paths")
-            requirement = body.get("requirement", "read_native")
-            profile_str = body.get("profile", "instant")
-            if not isinstance(body.get("recursive", True), bool):
-                self._send_json(400, {"ok": False, "error": "'recursive' must be a boolean."})
-                return
-            recursive = bool(body.get("recursive", True))
-
-            if "custom_options" in body and body["custom_options"] is not None and not isinstance(body["custom_options"], dict):
-                self._send_json(400, {"ok": False, "error": "'custom_options' must be an object or null."})
-                return
-            custom_options = body.get("custom_options")
-
-            if not isinstance(raw_paths, list) or not raw_paths or not all(isinstance(p, str) and p.strip() for p in raw_paths):
-                self._send_json(400, {"ok": False, "error": "No input paths provided."})
+            parsed_intent, err = _parse_run_request_payload(body)
+            if err is not None or parsed_intent is None:
+                self._send_json(400, {"ok": False, "error": err or "Invalid run payload."})
                 return
 
-            if not isinstance(requirement, str) or not requirement.strip():
-                self._send_json(400, {"ok": False, "error": "requirement must be a non-empty string."})
-                return
-
-            if not isinstance(profile_str, str) or not profile_str.strip():
-                self._send_json(400, {"ok": False, "error": "profile must be a non-empty string."})
-                return
-
-            try:
-                prof = ExecutionProfile.from_string(profile_str)
-            except ValueError:
-                self._send_json(400, {"ok": False, "error": f"Invalid profile: {profile_str}"})
-                return
+            paths = parsed_intent["paths"]
+            requirement = parsed_intent["requirement"]
+            prof = parsed_intent["profile"]
+            recursive = parsed_intent["recursive"]
+            custom_options = parsed_intent["custom_options"]
 
             # Validate requirement availability before dispatching
             caps_status = MukhaPresenter.audit_capability_status(agni=self.mukha_app.agni)
@@ -570,7 +567,6 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            paths = [Path(p) for p in raw_paths if isinstance(p, str) and p.strip()]
             try:
                 resp = self.mukha_app.start_run(
                     paths=paths,
@@ -634,6 +630,9 @@ class MukhaHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "cleared_entries": count})
             return
 
+        if path.startswith("/api/"):
+            self._send_json(404, {"ok": False, "error": "API endpoint not found."})
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Endpoint not found.")
 
     def _serve_static_resource(self, filename: str, content_type: str) -> None:

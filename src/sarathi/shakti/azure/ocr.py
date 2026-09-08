@@ -154,7 +154,7 @@ class AzureOCRCapability:
 
                 for w in page_words:
                     w_text = w.get("content", "")
-                    w_conf = float(w.get("confidence", 0.95))
+                    w_conf = float(w["confidence"]) if "confidence" in w and isinstance(w["confidence"], (int, float)) else None
                     polygon = w.get("polygon", [])
                     bbox = None
                     if len(polygon) >= 8:
@@ -169,9 +169,9 @@ class AzureOCRCapability:
                         )
                     )
 
-                page_avg_conf = round(sum(word_confs) / len(word_confs), 4) if word_confs else 0.95
-                min_c = round(min(word_confs), 4) if word_confs else page_avg_conf
-                max_c = round(max(word_confs), 4) if word_confs else page_avg_conf
+                page_avg_conf = round(sum(word_confs) / len(word_confs), 4) if word_confs else None
+                min_c = round(min(word_confs), 4) if word_confs else None
+                max_c = round(max(word_confs), 4) if word_confs else None
 
                 page_meta = {
                     "confidence": page_avg_conf,
@@ -191,13 +191,19 @@ class AzureOCRCapability:
                 )
                 pages.append(page_data)
 
-                # Emit Pramana telemetry to Darpana
+                # Emit Pramana telemetry if Darpana is wired
                 if self._darpana is not None:
                     from datetime import datetime, timezone
+
                     from sarathi.darpana import PramanaRecord
 
                     now_iso = datetime.now(timezone.utc).isoformat()
-                    page_evidence = {"provider": "azure", "service": "document_intelligence"}
+                    page_evidence = {
+                        "score_kind": "raw_engine",
+                        "calibrated": False,
+                        "provider": "azure",
+                        "service": "document_intelligence",
+                    }
                     self._darpana.record_pramana(
                         PramanaRecord(
                             run_id=context.run_id,
@@ -212,7 +218,7 @@ class AzureOCRCapability:
                                 score=page_avg_conf,
                                 method="azure_word_mean",
                                 evidence=page_evidence,
-                            ),
+                            ) if page_avg_conf is not None else None,
                             attributes={
                                 "level": "page",
                                 "page_number": p_idx,

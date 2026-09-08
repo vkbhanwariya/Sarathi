@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
@@ -188,6 +189,7 @@ class FontConversionCapability:
                     else nullcontext()
                 )
                 with scope:
+                    t_conv_start = time.perf_counter_ns()
                     # 1. Detect legacy font profile
                     opts, meta = request.custom_options or {}, request.metadata or {}
                     font_hint = opts.get("source_font") or opts.get("font") or meta.get("font")
@@ -214,7 +216,8 @@ class FontConversionCapability:
                         if cands and cands[0].score >= 2.0:
                             p0 = self._profiles.get(cands[0].profile_id)
                             if p0 and p0.family in ("krutidev", "devlys"):
-                                detected_profile, conf = "krutidev010", 0.9
+                                detected_profile = "krutidev010"
+                                conf = min(1.0, 0.5 + len(cands[0].positive_signatures) * 0.1)
 
                     target_profile = (
                         ("krutidev010" if target_mode == "to_krutidev" else "devlys010")
@@ -278,28 +281,23 @@ class FontConversionCapability:
                             text_conv_cache[cache_key] = res
                             return res
 
-                        # If target is legacy and text contains Devanagari, convert from Unicode
+                        # If target is legacy and text contains Devanagari, convert directly from Unicode
                         if is_to_legacy:
                             has_dev = any("\u0900" <= c <= "\u097f" for c in raw)
-                            if not has_dev:
-                                return raw
-                            active_profile = target_profile
-                            metrics.runs_converted += 1
-                            profiles_used.add(active_profile)
-                            prot, c_spans = self._protector.protect(
-                                raw,
-                                protect_devanagari=False,
-                                is_explicit_legacy=False,
-                            )
-                            total_spans_count += len(c_spans)
-                            c_raw = self._converter.convert_to_legacy(prot, target_profile_id=active_profile)
-                            restored = self._protector.restore(c_raw, c_spans)
-                            return restored
-
-                        if is_to_legacy and detected_profile:
-                            active_profile = target_profile
-                            inter = self._converter.convert(raw, profile_id=detected_profile)
-                            return self._converter.convert_to_legacy(inter, target_profile_id=active_profile)
+                            if has_dev:
+                                active_profile = target_profile
+                                metrics.runs_converted += 1
+                                profiles_used.add(active_profile)
+                                prot, c_spans = self._protector.protect(
+                                    raw,
+                                    protect_devanagari=False,
+                                    is_explicit_legacy=False,
+                                )
+                                total_spans_count += len(c_spans)
+                                c_raw = self._converter.convert_to_legacy(prot, target_profile_id=active_profile)
+                                restored = self._protector.restore(c_raw, c_spans)
+                                text_conv_cache[cache_key] = restored
+                                return restored
 
                         # Eliminate document-level profile leakage
                         decision = decide_run_profile(
@@ -489,7 +487,8 @@ class FontConversionCapability:
                         size_bytes=0,
                     )
 
-                    emit_conversion_telemetry(self._darpana, context, converted_doc, naming_inp, conf)
+                    conv_dur_ns = max(0, time.perf_counter_ns() - t_conv_start)
+                    emit_conversion_telemetry(self._darpana, context, converted_doc, naming_inp, conf, dur_ns=conv_dur_ns)
 
                     txt_artifact_name = format_artifact_filename(
                         naming_inp,
@@ -591,8 +590,10 @@ class FontConversionCapability:
             if 0.0 < c_score <= 1.0 and all_provs[0].evidence.get("profile_id"):
                 final_conf = ConfidenceValue(
                     score=round(c_score, 4),
-                    method="roopa_coverage_weighted",
+                    method="legacy_font_heuristic",
                     evidence={
+                        "score_kind": "heuristic",
+                        "calibrated": False,
                         "profile_id": str(all_provs[0].evidence["profile_id"]),
                         "runs_converted": all_provs[0].evidence.get("runs_converted", 0),
                         "runs_scanned": all_provs[0].evidence.get("runs_scanned", 0),

@@ -109,6 +109,7 @@ class NativeExtractionCapability:
         inp: Any,
         doc: CanonicalDocument,
         dur_ns: int,
+        is_usable: bool = True,
     ) -> None:
         """Record fine-grained worker performance and page/region quality telemetry in Darpana."""
         if self._darpana is None:
@@ -116,7 +117,6 @@ class NativeExtractionCapability:
         from datetime import datetime, timezone
 
         from sarathi.darpana import MarutiRecord, PramanaRecord
-        from sarathi.sankalpa import ConfidenceValue
 
         now_iso = datetime.now(timezone.utc).isoformat()
         dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
@@ -144,6 +144,10 @@ class NativeExtractionCapability:
             )
         )
 
+        # Do not emit quality observations unless document is usable
+        if not is_usable:
+            return
+
         for p in (doc.pages or ()):
             self._darpana.record_pramana(
                 PramanaRecord(
@@ -155,19 +159,14 @@ class NativeExtractionCapability:
                     stage="read_native",
                     timestamp_utc=now_iso,
                     subject_id=f"{doc.document_id}:p{p.page_number}",
-                    confidence=ConfidenceValue(
-                        score=1.0,
-                        method="native_digital",
-                        evidence={"review_recommended": False},
-                    ),
+                    confidence=None,
                     attributes={
                         "level": "page",
                         "page_number": p.page_number,
                         "file_display_name": inp.display_name,
                         "region_count": len(p.spans) + len(p.tables),
-                        "min_confidence": 1.0,
-                        "max_confidence": 1.0,
-                        "review_recommended": False,
+                        "min_confidence": None,
+                        "max_confidence": None,
                     },
                 )
             )
@@ -182,18 +181,13 @@ class NativeExtractionCapability:
                         stage="read_native",
                         timestamp_utc=now_iso,
                         subject_id=f"{doc.document_id}:p{p.page_number}:s{s_idx}",
-                        confidence=ConfidenceValue(
-                            score=1.0,
-                            method="native_digital",
-                            evidence={"review_recommended": False},
-                        ),
+                        confidence=None,
                         attributes={
                             "level": "region",
                             "region_id": f"p{p.page_number}_span_{s_idx + 1}",
                             "page_number": p.page_number,
                             "file_display_name": inp.display_name,
                             "region_type": "text",
-                            "review_recommended": False,
                         },
                     )
                 )
@@ -289,9 +283,9 @@ class NativeExtractionCapability:
                 extracted_docs.append(doc)
                 all_provenance.extend(provs)
                 all_warnings.extend(warns)
-                self._record_telemetry(context, inp, doc, dur)
 
-                if not _has_usable_content(doc):
+                usable = _has_usable_content(doc)
+                if not usable:
                     # Empty native content -> escalate to OCR only for OCR-capable format (PDF)
                     if fmt == DetectedFormat.PDF:
                         needs_ocr = True
@@ -310,6 +304,8 @@ class NativeExtractionCapability:
                                 stage="read_native",
                             )
                         )
+
+                self._record_telemetry(context, inp, doc, dur, is_usable=usable)
 
             except DoshError:
                 raise

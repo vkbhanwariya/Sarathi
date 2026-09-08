@@ -286,6 +286,7 @@ export function initDom() {
     elements.statWarningFiles = document.getElementById("stat-warning-files");
     elements.statFailedFiles = document.getElementById("stat-failed-files");
     elements.statConfidence = document.getElementById("stat-confidence");
+    elements.statAccuracy = document.getElementById("stat-accuracy");
     elements.artifactsGrid = document.getElementById("artifacts-grid");
     elements.summaryDeviceTbody = document.getElementById("summary-device-tbody");
     elements.summaryStagesTbody = document.getElementById("summary-stages-tbody");
@@ -309,6 +310,7 @@ export function initDom() {
     elements.statConfCrit = document.getElementById("stat-conf-crit");
     elements.systemFactsTbody = document.getElementById("system-facts-tbody");
     elements.inspectorFallbackTbody = document.getElementById("inspector-fallback-tbody");
+    elements.badgeTesseractStatus = document.getElementById("badge-tesseract-status");
     elements.statTessIntercepted = document.getElementById("stat-tess-intercepted");
     elements.statTessImproved = document.getElementById("stat-tess-improved");
     elements.statTessGain = document.getElementById("stat-tess-gain");

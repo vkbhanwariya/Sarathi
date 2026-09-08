@@ -38,9 +38,9 @@ from sarathi.mukha.state import (
 )
 from sarathi.sankalpa import ArtifactRef, InputRef, Request, Result
 
-# Operations running for 5 or more seconds are promoted to the long-running section
+# Operations >= 5s promoted to long-running
 _FIVE_SECONDS_NS = 5_000_000_000
-_TERMINAL_STATUSES = {"SUCCESS", "COMPLETED", "FAILED", "CANCELLED", "QUARANTINED"}
+_TERMINAL_STATUSES = {"SUCCESS", "COMPLETED", "FAILED", "CANCELLED", "QUARANTINED", "WARNING", "PARTIAL"}
 
 
 def format_duration_ns(duration_ns: int | None) -> str:
@@ -604,24 +604,26 @@ class MukhaPresenter:
 
             if level == "page" or (pr.attributes.get("page_number") is not None and level != "region"):
                 key = (file_name, p_num)
-                eff_score = score if score is not None else 1.0
-                min_c = float(pr.attributes.get("min_confidence", eff_score))
-                max_c = float(pr.attributes.get("max_confidence", eff_score))
-                r_cnt = int(pr.attributes.get("region_count", 1))
+                eff_score = round(score, 4) if score is not None else None
+                min_attr = pr.attributes.get("min_confidence")
+                max_attr = pr.attributes.get("max_confidence")
+                min_c = round(float(min_attr), 4) if min_attr is not None else eff_score
+                max_c = round(float(max_attr), 4) if max_attr is not None else eff_score
+                r_cnt = int(pr.attributes.get("region_count", 0))
                 rev = bool(pr.attributes.get("review_recommended", False))
                 if not rev and pr.confidence is not None and getattr(pr.confidence, "evidence", None):
                     rev = bool(pr.confidence.evidence.get("review_recommended", False))
                 page_conf_map[key] = {
                     "file_display_name": file_name,
                     "page_number": p_num,
-                    "confidence_score": round(eff_score, 4),
+                    "confidence_score": eff_score,
                     "region_count": r_cnt,
-                    "min_confidence": round(min_c, 4),
-                    "max_confidence": round(max_c, 4),
+                    "min_confidence": min_c,
+                    "max_confidence": max_c,
                     "review_recommended": rev,
                 }
             elif level == "region" or pr.attributes.get("region_id") is not None:
-                eff_score = score if score is not None else 1.0
+                eff_score = round(score, 4) if score is not None else None
                 reg_id = str(pr.attributes.get("region_id") or pr.span_id)
                 reg_type = str(pr.attributes.get("region_type", "text"))
                 method = pr.confidence.method if pr.confidence is not None else "direct"
@@ -630,33 +632,37 @@ class MukhaPresenter:
                     rev = bool(pr.confidence.evidence.get("review_recommended", False))
 
                 orig_c_float = float(orig_conf) if orig_conf is not None else None
-                gain_float = float(conf_gain) if conf_gain is not None else None
+                gain_raw = pr.attributes.get("raw_confidence_score_delta", conf_gain)
+                gain_float = float(gain_raw) if gain_raw is not None else None
 
                 region_conf_list.append(
                     RegionConfidenceView(
                         region_id=reg_id,
                         file_display_name=file_name,
                         page_number=p_num,
-                        confidence_score=round(eff_score, 4),
+                        confidence_score=eff_score,
                         region_type=reg_type,
                         method=method,
                         review_recommended=rev,
                         original_confidence=round(orig_c_float, 4) if orig_c_float is not None else None,
                         confidence_gain=round(gain_float, 4) if gain_float is not None else None,
+                        raw_confidence_score_delta=round(gain_float, 4) if gain_float is not None else None,
                         fallback_engine=fallback_eng if is_fallback else None,
                     )
                 )
 
-                if is_fallback and orig_c_float is not None:
+                if is_fallback and orig_c_float is not None and eff_score is not None:
+                    delta = gain_float if gain_float is not None else (eff_score - orig_c_float)
                     fallback_improvements.append(
                         FallbackImprovementView(
                             region_id=reg_id,
                             file_display_name=file_name,
                             page_number=p_num,
                             original_confidence=round(orig_c_float, 4),
-                            improved_confidence=round(eff_score, 4),
-                            confidence_gain=round(gain_float if gain_float is not None else (eff_score - orig_c_float), 4),
+                            improved_confidence=eff_score,
+                            confidence_gain=round(delta, 4),
                             fallback_engine=fallback_eng,
+                            raw_confidence_score_delta=round(delta, 4),
                         )
                     )
 

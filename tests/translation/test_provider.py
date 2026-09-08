@@ -108,6 +108,7 @@ def test_provider_readiness_ready_when_all_assets_and_packages_present(tmp_path:
 def test_translation_engine_error_does_not_leak_paths(tmp_path: Path) -> None:
     """Verify missing model assets error message does not leak local filesystem paths."""
     import pytest
+
     from sarathi.dosh import DoshError, FailureCode
     from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
     from sarathi.shakti.translation.models import TranslationDirection
