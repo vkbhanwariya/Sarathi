@@ -9,12 +9,10 @@ Measures:
 
 from __future__ import annotations
 
-import io
 import re
 import sys
 import time
 import tracemalloc
-import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +55,7 @@ def compute_cer(reference: str, hypothesis: str) -> float:
 
 def create_synthetic_ground_truth_page() -> tuple[Any, str, dict[str, str]]:
     """Generate a clean synthetic page image with mixed scripts, numbers, and fine print."""
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     width, height = 1200, 1600
     img = Image.new("RGB", (width, height), color="white")
@@ -102,9 +100,7 @@ def run_ocr_benchmarks() -> dict[str, Any]:
     print("=" * 70)
 
     from sarathi.sankalpa import ExecutionProfile
-    from sarathi.shakti.ocr.engine import RapidOCREngine
     from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine as CoordEngine
-    from sarathi.shakti.ocr.engine.parser import _parse_rapidocr_output
     from sarathi.shakti.ocr.engine.tesseract import filter_english_and_numbers
 
     results: dict[str, Any] = {}
@@ -115,14 +111,14 @@ def run_ocr_benchmarks() -> dict[str, Any]:
     t0 = time.perf_counter()
     engine = CoordEngine()
     # Force cold load of Devanagari PP-OCRv5
-    dev_engine = engine._get_engine(lang="hi")
+    _ = engine._get_engine(lang="hi")
     cold_init_ms = (time.perf_counter() - t0) * 1000
     _, cold_mem_peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     # Warm access
     t1 = time.perf_counter()
-    warm_engine = engine._get_engine(lang="hi")
+    _ = engine._get_engine(lang="hi")
     warm_init_ms = (time.perf_counter() - t1) * 1000
 
     results["cold_init_ms"] = round(cold_init_ms, 2)
@@ -234,7 +230,6 @@ def run_ocr_benchmarks() -> dict[str, Any]:
     # E. Tesseract Fallback Ground Truth vs Confidence Comparison
     print("\n--- E. Tesseract Fallback: Confidence Comparison Reality ---")
     if engine.tesseract.is_available():
-        from PIL import ImageDraw
         # Create a slightly degraded crop: "15/08/2024"
         crop_img = test_img.crop((60, 160, 450, 220))
         tess_res = engine.tesseract.recognize_crop(crop_img, language="eng")
@@ -255,7 +250,6 @@ def run_font_benchmarks() -> dict[str, Any]:
     print("=" * 70)
 
     from sarathi.shakti.font_conversion import (
-        FontConversionCapability,
         FontConverter,
         LegacyFontDetector,
         TextProtector,
@@ -269,7 +263,6 @@ def run_font_benchmarks() -> dict[str, Any]:
     detector = LegacyFontDetector(profiles=profiles)
     protector = TextProtector()
     converter = FontConverter(profiles=profiles)
-    capability = FontConversionCapability()
 
     # Sample legacy KrutiDev text with mixed English, repeated amounts, and punctuation
     sample_text = (
@@ -425,8 +418,8 @@ def main() -> None:
     print("=" * 70)
 
     t_start = time.perf_counter()
-    ocr_res = run_ocr_benchmarks()
-    font_res = run_font_benchmarks()
+    run_ocr_benchmarks()
+    run_font_benchmarks()
     total_time = round(time.perf_counter() - t_start, 2)
 
     print("\n" + "=" * 70)

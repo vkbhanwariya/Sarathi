@@ -8,6 +8,7 @@ inline draft proposal handling without browser prompt(), and selection preservat
 from __future__ import annotations
 
 import json
+
 from playwright.sync_api import Page, expect
 
 

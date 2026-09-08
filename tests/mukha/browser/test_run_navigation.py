@@ -7,6 +7,7 @@ cancellation always targets the active execution, and out-of-order responses are
 from __future__ import annotations
 
 import time
+
 from playwright.sync_api import Page, expect
 
 from sarathi.mukha.web import MukhaWebServer

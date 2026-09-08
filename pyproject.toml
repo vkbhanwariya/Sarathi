@@ -54,8 +54,15 @@ testpaths = ["tests"]
 pythonpath = ["src", "."]
 addopts = "-ra -q --tb=short --show-capture=no"
 markers = [
+    "unit: marks isolated deterministic unit tests",
+    "contract: marks public data or API contract tests",
+    "integration: marks multi-component runtime integration tests",
+    "browser: marks Playwright browser interaction tests",
     "architecture: marks architectural fitness functions and structural dependency invariants",
+    "performance: marks wall-clock timing or scalability benchmarks",
     "real_model: marks tests that require downloading or running real neural model weights (deselect with '-m \"not real_model\"')",
+    "model_asset: marks tests that require local model asset files",
+    "slow: marks intentionally slower integration or end-to-end tests",
 ]
 
 [tool.ruff]

@@ -83,7 +83,7 @@ def test_summary_terminal_outcome_titles(app_page: Page) -> None:
         """async () => {
             const { renderSummary } = await import("/js/screens/summary.js");
             const titleEl = document.getElementById("summary-title");
-            
+
             const results = {};
             for (const st of ["SUCCESS", "PARTIAL", "CANCELLED", "QUARANTINED", "FAILED"]) {
                 renderSummary({ run_id: "test-run", status: st, total_inputs: 1 });
