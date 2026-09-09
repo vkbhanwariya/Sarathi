@@ -33,7 +33,7 @@ jobs:
         run: uv run ruff check .
 
   architecture:
-    name: Architecture Boundaries
+    name: Architecture Sanity
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -51,8 +51,8 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev
 
-      - name: Architecture tests (manifest & import linter)
-        run: uv run --group dev pytest -q -m architecture
+      - name: Run architecture tests only
+        run: uv run --group dev pytest -q tests/architecture
 
   test:
     name: Unit & Integration Tests
