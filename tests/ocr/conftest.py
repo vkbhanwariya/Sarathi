@@ -1,11 +1,8 @@
 """Platform-specific OCR test collection rules."""
 
-from __future__ import annotations
-
 import os
 
 import pytest
-
 
 _WINDOWS_TESSERACT_TESTS = {
     "test_tesseract_adapter_real_subprocess_execution_with_tsv_parsing",
