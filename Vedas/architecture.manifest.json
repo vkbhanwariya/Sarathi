@@ -1,27 +1,27 @@
 {
-  "manifest_version": "1.0.0",
+  "manifest_version": "2.0.0",
   "system": "sarathi",
   "source_root": "src",
   "root_package": "sarathi",
   "dependency_policy": {
-    "default_internal_policy": "deny"
+    "default_internal_policy": "allow"
   },
   "modules": {
     "dosh": {
       "package": "sarathi.dosh",
-      "role": "failure-taxonomy-and-error-definitions",
+      "role": "shared-error-types",
       "may_import": []
     },
     "sankalpa": {
       "package": "sarathi.sankalpa",
-      "role": "contracts-protocols-and-domain-neutral-types",
+      "role": "shared-contracts-and-document-models",
       "may_import": [
         "sarathi.dosh"
       ]
     },
     "kavacha": {
       "package": "sarathi.kavacha",
-      "role": "security-quarantine-and-isolation",
+      "role": "security-authorization-and-path-privacy-checks",
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa"
@@ -29,7 +29,7 @@
     },
     "darpana": {
       "package": "sarathi.darpana",
-      "role": "telemetry-audit-history-and-metrics",
+      "role": "runtime-and-quality-events-history",
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa"
@@ -37,7 +37,7 @@
     },
     "smriti": {
       "package": "sarathi.smriti",
-      "role": "cache-state-persistence-and-idempotency",
+      "role": "optional-result-cache",
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa"
@@ -45,7 +45,7 @@
     },
     "yantra": {
       "package": "sarathi.yantra",
-      "role": "compute-resource-management-and-device-allocation",
+      "role": "execution-and-device-helpers",
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa",
@@ -54,7 +54,7 @@
     },
     "sutra": {
       "package": "sarathi.sutra",
-      "role": "configuration-settings-and-defaults",
+      "role": "runtime-settings",
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa",
@@ -65,43 +65,28 @@
     },
     "nabhi": {
       "package": "sarathi.nabhi",
-      "role": "generic-execution-kernel-and-pipeline-orchestration",
+      "role": "pipeline-execution-and-capability-resolution",
       "may_import": [
-        "sarathi.dosh",
-        "sarathi.sankalpa",
-        "sarathi.darpana",
-        "sarathi.kavacha",
-        "sarathi.smriti",
-        "sarathi.yantra",
-        "sarathi.sutra"
+        "*"
       ]
     },
     "shakti": {
       "package": "sarathi.shakti",
-      "role": "capability-plugins-and-neutral-primitives",
+      "role": "document-processing-capabilities-and-provider-adapters",
       "may_import": [
-        "sarathi.dosh",
-        "sarathi.sankalpa"
+        "*"
       ]
     },
     "mukha": {
       "package": "sarathi.mukha",
-      "role": "presentation-layer-cli-web-tui",
+      "role": "user-interface",
       "may_import": [
-        "sarathi.dosh",
-        "sarathi.sankalpa",
-        "sarathi.sutra",
-        "sarathi.darpana",
-        "sarathi.yantra",
-        "sarathi.smriti",
-        "sarathi.kavacha",
-        "sarathi.nabhi",
-        "sarathi.agni"
+        "*"
       ]
     },
     "agni": {
       "package": "sarathi.agni",
-      "role": "composition-root-and-application-bootstrap",
+      "role": "application-composition-and-startup",
       "composition_root": true,
       "may_import": [
         "*"
@@ -122,14 +107,8 @@
         "sarathi.shakti.azure",
         "sarathi.shakti.bhashini"
       ],
-      "mutually_independent": true
+      "mutually_independent": false
     }
   },
-  "exceptions": [
-    {
-      "from": "sarathi.nabhi.dvara",
-      "to": "sarathi.shakti.providers",
-      "reason": "Canonical built-in provider discovery bridge"
-    }
-  ]
+  "exceptions": []
 }
