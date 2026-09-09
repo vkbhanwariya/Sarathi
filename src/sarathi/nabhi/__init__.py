@@ -6,6 +6,7 @@ from sarathi.nabhi.artifacts import ArtifactBoundary
 from sarathi.nabhi.dvara import Dvara
 from sarathi.nabhi.kosh import Kosh
 from sarathi.nabhi.manthan import CapabilityPlan, Manthan
+from sarathi.nabhi.prana import Prana
 from sarathi.nabhi.pravaha import Pravaha
 from sarathi.nabhi.quarantine import (
     LifecycleAction,
@@ -24,6 +25,7 @@ __all__ = [
     "LifecycleAction",
     "LifecycleActionType",
     "Manthan",
+    "Prana",
     "Pravaha",
     "QuarantineRecord",
     "QuarantineStatus",
