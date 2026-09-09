@@ -3,14 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
-from sarathi.shakti.statutory.checksums import (
-    CIN_PATTERN,
-    CNR_PATTERN,
-    GSTIN_PATTERN,
-    PAN_PATTERN,
-)
 from sarathi.shakti.statutory.models import StatutoryDocumentType
 
 _STATUTORY_KEYWORDS = re.compile(
