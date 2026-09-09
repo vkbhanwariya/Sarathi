@@ -3,16 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from sarathi.shakti.statutory.checksums import (
-    CIN_PATTERN,
-    CNR_PATTERN,
-    DIN_PATTERN,
-    GSTIN_PATTERN,
     IRN_PATTERN,
-    PAN_PATTERN,
-    TAN_PATTERN,
     verify_cin,
     verify_cnr,
     verify_din,
@@ -38,10 +31,11 @@ _INVOICE_NUM_RE = re.compile(
     r"(?:invoice\s*no|inv\s*no|bill\s*no|invoice\s*number)[.:\s]+([A-Za-z0-9\-\/]+)",
     re.IGNORECASE,
 )
-_DATE_RE = re.compile(
-    r"\b([0-3]?[0-9][\/\-\.][0-1]?[0-9][\/\-\.](?:20)?[0-9]{2})\b"
+_DATE_RE = re.compile(r"\b([0-3]?[0-9][\/\-\.][0-1]?[0-9][\/\-\.](?:20)?[0-9]{2})\b")
+_AY_RE = re.compile(
+    r"\b(?:A\.?Y\.?|Assessment\s*Year)[.:\s]*((?:20)?[0-9]{2}\s*[\-\/]\s*(?:20)?[0-9]{2})\b",
+    re.IGNORECASE,
 )
-_AY_RE = re.compile(r"\b(?:A\.?Y\.?|Assessment\s*Year)[.:\s]*((?:20)?[0-9]{2}\s*[\-\/]\s*(?:20)?[0-9]{2})\b", re.IGNORECASE)
 _ACK_RE = re.compile(r"\b(?:Ack(?:nowledgement)?\s*No|E-Filing\s*Ack)[.:\s]*([0-9]{15})\b", re.IGNORECASE)
 _CASE_NO_RE = re.compile(
     r"\b((?:WP\(C\)|W\.P\.\(C\)|CRL\.A|CRL\.M|SLP\(C\)|CS\(COMM\)|ARB\.P|CO\.APP)\s*No\.?\s*[0-9]+\s*(?:of|\/)\s*(?:20)?[0-9]{2})\b",
@@ -213,7 +207,11 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
         )
 
     mca_meta: MCAMetadata | None = None
-    if raw_identifiers["cins"] or "MINISTRY OF CORPORATE AFFAIRS" in text.upper() or "REGISTRAR OF COMPANIES" in text.upper():
+    if (
+        raw_identifiers["cins"]
+        or "MINISTRY OF CORPORATE AFFAIRS" in text.upper()
+        or "REGISTRAR OF COMPANIES" in text.upper()
+    ):
         cin_val = raw_identifiers["cins"][0] if raw_identifiers["cins"] else None
         mca_meta = MCAMetadata(
             cin=cin_val,
@@ -223,7 +221,13 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
         )
 
     court_meta: ECourtsMetadata | None = None
-    if raw_identifiers["cnrs"] or _CASE_NO_RE.search(text) or "HIGH COURT" in text.upper() or "SUPREME COURT" in text.upper() or "DISTRICT COURT" in text.upper():
+    if (
+        raw_identifiers["cnrs"]
+        or _CASE_NO_RE.search(text)
+        or "HIGH COURT" in text.upper()
+        or "SUPREME COURT" in text.upper()
+        or "DISTRICT COURT" in text.upper()
+    ):
         cnr_val = raw_identifiers["cnrs"][0] if raw_identifiers["cnrs"] else None
         case_match = _CASE_NO_RE.search(text)
         judge_match = _JUDGE_RE.search(text)
@@ -259,7 +263,11 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
         doc_type = StatutoryDocumentType.INCOME_TAX_ACK
         confidence = 0.92
     elif mca_meta and mca_meta.cin:
-        doc_type = StatutoryDocumentType.MCA_COI if "CERTIFICATE OF INCORPORATION" in text.upper() else StatutoryDocumentType.MCA_FILING
+        doc_type = (
+            StatutoryDocumentType.MCA_COI
+            if "CERTIFICATE OF INCORPORATION" in text.upper()
+            else StatutoryDocumentType.MCA_FILING
+        )
         confidence = 0.94
     elif court_meta and (court_meta.cnr_number or court_meta.case_number):
         doc_type = StatutoryDocumentType.ECOURTS_ORDER
