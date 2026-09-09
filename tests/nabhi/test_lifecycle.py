@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-import sarathi.nabhi as nabhi_module
 from sarathi.agni import Agni
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.nabhi import Prana
 
 
 class MockComponent:
@@ -113,6 +113,10 @@ class TestAgniLifecycle:
         assert exc_info.value is first
         assert events == ["close:c2", "close:c1"]
 
-    def test_nabhi_no_longer_exports_lifecycle_manager(self) -> None:
-        assert "Prana" not in nabhi_module.__all__
-        assert not hasattr(nabhi_module, "Prana")
+    def test_prana_is_only_a_compatibility_view(self) -> None:
+        runtime = _bare_agni()
+        view = Prana(runtime)
+        component = MockComponent("c1")
+        view.register("c1", component)
+        assert view.registered_ids() == ("c1",)
+        assert view._components is runtime._components
