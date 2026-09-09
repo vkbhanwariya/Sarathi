@@ -3,26 +3,20 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionContext,
-    ExecutionProfile,
     InputRef,
     Request,
     Result,
 )
 from sarathi.shakti.statutory import (
-    ECourtsMetadata,
-    GSTMetadata,
-    IncomeTaxMetadata,
-    MCAMetadata,
     StatutoryDocumentType,
-    StatutoryEntities,
     StatutoryProvider,
     extract_statutory_entities,
-    is_statutory_document,
     verify_cin,
     verify_cnr,
     verify_din,
@@ -122,7 +116,6 @@ class TestOCRErrorTolerantRepairs:
         prefix = "27ABCPE1234F1Z"
         check_digit = calculate_gstin_check_digit(prefix)
         assert check_digit is not None
-        valid_gstin = prefix + check_digit
 
         # Simulate OCR reading 'O' as state code, and '2' as 'Z'
         corrupt = "O7ABCPE1234F12" + check_digit
@@ -150,11 +143,11 @@ class TestStatutoryExtraction:
         GSTIN: {sup_gst}
         Invoice No: INV-2026-0891
         Date of Invoice: 15/07/2026
-        
+
         Buyer Details:
         Client Solutions Ltd
         GSTIN / UIN: {buy_gst}
-        
+
         HSN/SAC: 998313
         Total Taxable Value: 1,50,000.00
         CGST (9%): 13,500.00
@@ -177,7 +170,7 @@ class TestStatutoryExtraction:
         doc_text = """
         INCOME TAX DEPARTMENT - GOVERNMENT OF INDIA
         INDIAN INCOME TAX RETURN ACKNOWLEDGEMENT (ITR-V)
-        
+
         Assessment Year: 2025-26
         PAN: AABCP1234C
         Name: Rajesh Sharma
@@ -199,7 +192,7 @@ class TestStatutoryExtraction:
         MINISTRY OF CORPORATE AFFAIRS
         GOVERNMENT OF INDIA
         CERTIFICATE OF INCORPORATION
-        
+
         Corporate Identity Number (CIN): U72200DL2025PTC123456
         Company Name: TechNova Solutions Private Limited
         Date of Incorporation: 10/01/2025
@@ -218,16 +211,16 @@ class TestStatutoryExtraction:
         doc_text = """
         IN THE HIGH COURT OF DELHI AT NEW DELHI
         CNR NO. DLHC010123452026
-        
+
         WP(C) No. 4512 of 2026
-        
+
         BHARAT PETROLEUM CORPORATION LTD
         VERSUS
         UNION OF INDIA & ORS
-        
+
         BEFORE:
         HON'BLE MR. JUSTICE VIKRAMADITYA SEN, JUDGE
-        
+
         ORDER:
         Notice issued. List on next hearing date.
         """
