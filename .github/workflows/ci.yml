@@ -74,6 +74,15 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --group dev
 
+      - name: Install Tesseract language packs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin
+
+      - name: Provision verified OCR models
+        shell: pwsh
+        run: ./scripts/Setup-OCRModels.ps1
+
       - name: Run deterministic test suite
         run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture"
 
@@ -94,11 +103,11 @@ jobs:
       - name: Set up Python 3.13
         run: uv python install 3.13
 
-      - name: Install dev dependencies
-        run: uv sync --group dev
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
 
       - name: Install Playwright browsers
         run: uv run playwright install --with-deps chromium
 
       - name: Run browser test suite
-        run: uv run --group dev pytest -q -m browser
+        run: uv run --group dev --all-extras pytest -q -m browser
