@@ -67,8 +67,16 @@ if (-not (Test-Path -LiteralPath $modelsDir -PathType Container)) {
     $null = New-Item -ItemType Directory -Path $modelsDir -Force
 }
 
-# Upstream model release repository URLs (RapidAI / PaddleOCR ONNX)
-$upstreamBaseUrl = 'https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0'
+# Version-pinned canonical RapidOCR model catalog. Every downloaded file is
+# independently verified against data/ocr/manifest.json before it is accepted.
+$upstreamBaseUrl = 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2'
+$modelRelativePaths = @{
+    det            = 'onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx'
+    rec            = 'onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx'
+    rec_devanagari = 'onnx/PP-OCRv5/rec/devanagari_PP-OCRv5_rec_mobile.onnx'
+    rec_v6_en      = 'onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx'
+    cls            = 'onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx'
+}
 
 $models = $manifest.models.PSObject.Properties
 $totalModels = 0
@@ -108,22 +116,26 @@ foreach ($prop in $models) {
             continue
         }
 
-        # Check local source directory if supplied
+        # Check local source directory if supplied.
         $sourced = $false
         if ($SourceDir -and (Test-Path -LiteralPath (Join-Path $SourceDir $filename) -PathType Leaf)) {
             $srcFile = Join-Path $SourceDir $filename
             Copy-Item -LiteralPath $srcFile -Destination $destPath -Force
             $sourced = $true
         } else {
-            $downloadUrl = "$upstreamBaseUrl/$filename"
+            if (-not $modelRelativePaths.ContainsKey($key)) {
+                throw "No upstream source mapping declared for OCR model '$key' ($filename)."
+            }
+
+            $relativePath = $modelRelativePaths[$key]
+            $downloadUrl = "$upstreamBaseUrl/$relativePath"
             Write-Host "Downloading from $downloadUrl... " -NoNewline
             try {
                 Invoke-WebRequest -Uri $downloadUrl -OutFile $destPath -UseBasicParsing
                 $sourced = $true
             } catch {
                 Write-Host "FAILED" -ForegroundColor Red
-                Write-Error "Failed to download model '$filename': $_"
-                continue
+                throw "Failed to download model '$filename' from '$downloadUrl': $($_.Exception.Message)"
             }
         }
 
