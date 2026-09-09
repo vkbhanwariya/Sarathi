@@ -1,4 +1,4 @@
-"""Unit tests for Agni bootstrap composition-root dependency injection and immutability."""
+"""Unit tests for Agni bootstrap dependency injection and lifecycle ownership."""
 
 from __future__ import annotations
 
@@ -17,8 +17,6 @@ from sarathi.sutra import Settings
 
 
 class CustomImmutableCapability:
-    """A user-supplied capability without private _yantra attribute."""
-
     def __init__(self) -> None:
         self.declaration = CapabilityDeclaration(
             capability_id="custom_cap",
@@ -26,7 +24,7 @@ class CustomImmutableCapability:
             version="1.0.0",
             supported_profiles=(ExecutionProfile.INSTANT,),
         )
-        self.executed: bool = False
+        self.executed = False
 
     def execute(
         self,
@@ -39,8 +37,6 @@ class CustomImmutableCapability:
 
 
 class UserCapabilityWithNoneYantra:
-    """A user capability that explicitly sets _yantra = None and should NOT be mutated."""
-
     def __init__(self) -> None:
         self.declaration = CapabilityDeclaration(
             capability_id="none_cap",
@@ -61,38 +57,22 @@ class UserCapabilityWithNoneYantra:
 
 class TestBootstrapDependencyInjection:
     def test_default_capabilities_receive_injected_dependencies(self, tmp_path: Path) -> None:
-        in_dir = tmp_path / "inputs"
-        out_dir = tmp_path / "outputs"
-        rt_dir = tmp_path / "runtime"
-        in_dir.mkdir()
-        out_dir.mkdir()
-        rt_dir.mkdir()
-
         settings = Settings({
             "storage": {
-                "input_root": str(in_dir),
-                "output_root": str(out_dir),
-                "runtime_root": str(rt_dir),
+                "input_root": str(tmp_path / "inputs"),
+                "output_root": str(tmp_path / "outputs"),
+                "runtime_root": str(tmp_path / "runtime"),
             },
-            "telemetry": {
-                "live_buffer_capacity": 512,
-            },
+            "telemetry": {"live_buffer_capacity": 512},
         })
 
         agni = Agni(settings=settings)
         try:
-            # Check Darpana was constructed with Sutra live_buffer_capacity
             assert agni.darpana.capacity == 512
-
-            # Check default OCRCapability received Yantra and Darpana at construction
             caps = agni.capabilities
             assert "ocr" in caps
-            ocr_cap = caps["ocr"]
-            assert hasattr(ocr_cap, "_yantra")
-            assert ocr_cap._yantra is agni.yantra
-            assert ocr_cap._darpana is agni.darpana
-
-            # Check other default capabilities received Darpana
+            assert caps["ocr"]._yantra is agni.yantra
+            assert caps["ocr"]._darpana is agni.darpana
             assert caps["identify"]._darpana is agni.darpana
             assert caps["read_native"]._darpana is agni.darpana
             assert caps["bank_statements"]._darpana is agni.darpana
@@ -102,21 +82,13 @@ class TestBootstrapDependencyInjection:
             agni.close()
 
     def test_user_supplied_capabilities_are_not_mutated(self, tmp_path: Path) -> None:
-        in_dir = tmp_path / "inputs"
-        out_dir = tmp_path / "outputs"
-        rt_dir = tmp_path / "runtime"
-        in_dir.mkdir()
-        out_dir.mkdir()
-        rt_dir.mkdir()
-
         settings = Settings({
             "storage": {
-                "input_root": str(in_dir),
-                "output_root": str(out_dir),
-                "runtime_root": str(rt_dir),
+                "input_root": str(tmp_path / "inputs"),
+                "output_root": str(tmp_path / "outputs"),
+                "runtime_root": str(tmp_path / "runtime"),
             },
         })
-
         cap1 = CustomImmutableCapability()
         cap2 = UserCapabilityWithNoneYantra()
         plugin = PluginInfo(
@@ -132,16 +104,12 @@ class TestBootstrapDependencyInjection:
             plugins=[plugin],
         )
         try:
-            # cap1 must not have _yantra dynamically attached
             assert not hasattr(cap1, "_yantra")
-
-            # cap2 must still have _yantra is None (not overwritten by bootstrap)
             assert cap2._yantra is None
         finally:
             agni.close()
 
     def test_smriti_cache_auto_managed_by_agni(self, tmp_path: Path) -> None:
-        """Verify Agni constructs and manages SmritiCache lifecycle when cache_enabled is True."""
         from sarathi.smriti import SmritiCache
 
         settings = Settings({
@@ -150,15 +118,12 @@ class TestBootstrapDependencyInjection:
                 "output_root": str(tmp_path / "out"),
                 "runtime_root": str(tmp_path / "rt"),
             },
-            "cache": {
-                "enabled": True,
-            },
+            "cache": {"enabled": True},
         })
         agni = Agni(settings=settings)
         try:
             assert agni.smriti is not None
             assert isinstance(agni.smriti, SmritiCache)
-            # SmritiCache must be registered with Prana
-            assert "smriti" in agni._prana._components
+            assert "smriti" in agni.registered_component_ids()
         finally:
             agni.close()
