@@ -4,15 +4,11 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from sarathi.darpana import Darpana
+from typing import TYPE_CHECKING
 
 import pymupdf
 
 from sarathi.dosh import DoshError, FailureCode
-
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
@@ -24,10 +20,12 @@ from sarathi.sankalpa import (
     Result,
     WarningRecord,
 )
-from sarathi.shakti.statutory.detector import is_statutory_document
 from sarathi.shakti.statutory.extractor import extract_statutory_entities
 from sarathi.shakti.statutory.models import StatutoryEntities
 from sarathi.shakti.statutory.plugin import CAPABILITY_DECLARATION
+
+if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
 
 
 class StatutoryCapability:
