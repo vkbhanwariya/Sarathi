@@ -1,0 +1,177 @@
+name: Phase 6 retained-state migration
+
+on:
+  push:
+    branches: [development]
+    paths:
+      - '.github/workflows/phase6-retention.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+      - name: Install development dependencies
+        run: uv sync --group dev
+      - name: Apply bounded retained-state cleanup
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def replace_count(path: str, old: str, new: str, expected: int) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} matches, found {count}: {old[:80]!r}")
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          runner = "src/sarathi/mukha/web/runner.py"
+          replace_once(runner, "from dataclasses import dataclass\n", "from dataclasses import dataclass, replace\n")
+          replace_once(
+              runner,
+              "        self._input_path_registry: dict[str, Path] = {}\n        self._run_summaries: dict[str, RunSummaryView] = {}\n",
+              "        self._input_path_registry: dict[str, Path] = {}\n        self._run_summaries: dict[str, RunSummaryView] = {}\n        self._history_capacity: int = agni.settings.telemetry_history_max_records\n",
+          )
+          replace_once(
+              runner,
+              "        with self._lock:\n            self._intake_selection = input_selection\n            if inputs:\n",
+              "        with self._lock:\n            self._intake_selection = input_selection\n            self._input_path_registry.clear()\n            if inputs:\n",
+          )
+          marker = "    def apply_review_intent(self, intent: ReviewIntent) -> bool:\n"
+          helper = (
+              "    def _record_run_summary_locked(self, summary: RunSummaryView) -> None:\n"
+              "        \"\"\"Retain one terminal summary and prune related historical indexes to the configured limit.\"\"\"\n"
+              "        self._run_summaries[summary.run_id] = summary\n"
+              "        while len(self._run_summaries) > self._history_capacity:\n"
+              "            expired_run_id = next(iter(self._run_summaries))\n"
+              "            self._run_summaries.pop(expired_run_id, None)\n"
+              "            self._confirmed_artifacts.pop(expired_run_id, None)\n"
+              "            self._run_output_roots.pop(expired_run_id, None)\n\n"
+          )
+          replace_once(runner, marker, helper + marker)
+          replace_once(
+              runner,
+              "        with self._lock:\n            if self._active_thread is not None and self._active_thread.is_alive():\n                return StartRunResponse(\n                    status=StartRunStatus.BUSY,\n                    error_message=\"An interactive processing run is already active.\",\n                )\n\n            for inp in inputs:\n",
+              "        with self._lock:\n            if self._active_thread is not None and self._active_thread.is_alive():\n                return StartRunResponse(\n                    status=StartRunStatus.BUSY,\n                    error_message=\"An interactive processing run is already active.\",\n                )\n\n            self._input_path_registry.clear()\n            for inp in inputs:\n",
+          )
+          replace_count(
+              runner,
+              "                        self._run_summaries[run_id] = summary\n",
+              "                        self._record_run_summary_locked(summary)\n",
+              3,
+          )
+          replace_once(
+              runner,
+              "                            self._run_summaries[run_id] = self._terminal_summary\n                        self._live_workers.clear()\n",
+              "                            self._record_run_summary_locked(self._terminal_summary)\n                        if self._active_request is request and \"progress_callback\" in request.custom_options:\n                            self._active_request = replace(\n                                request,\n                                custom_options={\n                                    key: value\n                                    for key, value in request.custom_options.items()\n                                    if key != \"progress_callback\"\n                                },\n                            )\n                        self._live_workers.clear()\n",
+          )
+
+          tests = "tests/mukha/test_confirmed_artifacts.py"
+          replace_once(
+              tests,
+              "from sarathi.mukha.web.server import MukhaWebServer\nfrom sarathi.sankalpa import ArtifactRef\n",
+              "from sarathi.mukha.state import RunSummaryView\nfrom sarathi.mukha.web.runner import RunCoordinator\nfrom sarathi.mukha.web.server import MukhaWebServer\nfrom sarathi.sankalpa import ArtifactRef, InputRef, Result\n",
+          )
+          append = (
+              "\n\ndef test_runner_bounds_historical_indexes_to_configured_history_limit(tmp_path: Path) -> None:\n"
+              "    \"\"\"Historical summary/artifact indexes share the existing telemetry history limit.\"\"\"\n"
+              "    agni = MagicMock()\n"
+              "    agni.settings.telemetry_history_max_records = 2\n"
+              "    runner = RunCoordinator(agni)\n\n"
+              "    for index in range(3):\n"
+              "        run_id = f\"run_{index}\"\n"
+              "        artifact = ArtifactRef(\n"
+              "            artifact_id=f\"art_{index}\",\n"
+              "            role=\"output\",\n"
+              "            media_type=\"text/plain\",\n"
+              "            path=tmp_path / f\"out_{index}.txt\",\n"
+              "            size_bytes=1,\n"
+              "        )\n"
+              "        with runner._lock:\n"
+              "            runner._confirmed_artifacts[run_id] = {artifact.artifact_id: artifact}\n"
+              "            runner._run_output_roots[run_id] = tmp_path\n"
+              "            runner._record_run_summary_locked(\n"
+              "                RunSummaryView(run_id=run_id, status=\"SUCCESS\", wall_time_ns=1, total_inputs=1)\n"
+              "            )\n\n"
+              "    assert runner.get_run_summary(\"run_0\") is None\n"
+              "    assert runner.get_confirmed_artifact(\"run_0\", \"art_0\") is None\n"
+              "    assert runner.get_run_summary(\"run_1\") is not None\n"
+              "    assert runner.get_run_summary(\"run_2\") is not None\n\n\n"
+              "def test_intake_path_registry_tracks_only_current_selection(tmp_path: Path) -> None:\n"
+              "    \"\"\"Selecting new inputs releases stale source-path references.\"\"\"\n"
+              "    agni = MagicMock()\n"
+              "    agni.settings.telemetry_history_max_records = 2\n"
+              "    runner = RunCoordinator(agni)\n"
+              "    first_path = tmp_path / \"first.txt\"\n"
+              "    second_path = tmp_path / \"second.txt\"\n"
+              "    first_path.write_text(\"first\", encoding=\"utf-8\")\n"
+              "    second_path.write_text(\"second\", encoding=\"utf-8\")\n"
+              "    first = InputRef(input_id=\"first\", source_path=first_path, display_name=\"first.txt\", size_bytes=5)\n"
+              "    second = InputRef(input_id=\"second\", source_path=second_path, display_name=\"second.txt\", size_bytes=6)\n\n"
+              "    runner.set_intake_selection(None, inputs=(first,))\n"
+              "    assert runner.get_input_path(\"first\") == first_path.resolve()\n"
+              "    runner.set_intake_selection(None, inputs=(second,))\n"
+              "    assert runner.get_input_path(\"first\") is None\n"
+              "    assert runner.get_input_path(\"second\") == second_path.resolve()\n\n\n"
+              "def test_completed_run_releases_progress_callback(tmp_path: Path) -> None:\n"
+              "    \"\"\"The retained request keeps display facts but not the worker callback closure.\"\"\"\n"
+              "    source = tmp_path / \"input.txt\"\n"
+              "    source.write_text(\"hello\", encoding=\"utf-8\")\n"
+              "    inp = InputRef(input_id=\"input\", source_path=source, display_name=\"input.txt\", size_bytes=5)\n"
+              "    agni = MagicMock()\n"
+              "    agni.settings.telemetry_history_max_records = 2\n"
+              "    agni.kavacha = None\n"
+              "    agni.darpana = None\n"
+              "    agni.execute.return_value = Result()\n"
+              "    runner = RunCoordinator(agni)\n\n"
+              "    with patch.object(MukhaWebServer, \"__init__\", return_value=None):\n"
+              "        pass\n"
+              "    with patch(\n"
+              "        \"sarathi.mukha.web.runner.MukhaPresenter.intake_from_paths\",\n"
+              "        return_value=((inp,), 1, 5),\n"
+              "    ):\n"
+              "        response = runner.start_run([source])\n"
+              "    assert response.run_id is not None\n"
+              "    assert runner._active_thread is not None\n"
+              "    runner._active_thread.join(timeout=5)\n"
+              "    snapshot = runner.get_active_snapshot()\n"
+              "    assert snapshot.request is not None\n"
+              "    assert \"progress_callback\" not in snapshot.request.custom_options\n"
+              "    assert snapshot.request.inputs == (inp,)\n"
+          )
+          p = Path(tests)
+          p.write_text(p.read_text(encoding="utf-8").rstrip() + append + "\n", encoding="utf-8")
+          PY
+      - name: Validate focused retention behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check src/sarathi/smriti src/sarathi/mukha/web/runner.py tests/smriti tests/mukha/test_confirmed_artifacts.py
+          uv run pytest -q tests/smriti tests/mukha/test_confirmed_artifacts.py
+      - name: Commit migration and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/sarathi/mukha/web/runner.py tests/mukha/test_confirmed_artifacts.py
+          git commit -m 'Bound Mukha retained run state'
+          git rm .github/workflows/phase6-retention.yml
+          git commit -m 'Remove Phase 6 migration helper'
+          git push origin HEAD:development
