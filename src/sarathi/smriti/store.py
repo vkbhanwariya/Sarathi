@@ -74,7 +74,6 @@ class SQLiteCacheStore:
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
                 return None, None
 
-            # Update accessed timestamp
             conn.execute(
                 "UPDATE smriti_entries SET accessed_at = ? WHERE key_hash = ?",
                 (now, key.key_hash),
@@ -83,7 +82,6 @@ class SQLiteCacheStore:
                 res = deserialize_result(data_json)
                 return res, float(created_at)
             except (json.JSONDecodeError, ValueError, KeyError, TypeError):
-                # Corrupted or unparseable entry: prune safely
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
                 return None, None
 
@@ -107,8 +105,7 @@ class SQLiteCacheStore:
         with self._lock, self._get_connection() as conn:
             count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
             if count >= self._policy.max_entries_l2:
-                excess = count - self._policy.max_entries_l2 + 1
-                evict_count = max(50, excess)
+                evict_count = count - self._policy.max_entries_l2 + 1
                 conn.execute(
                     """
                     DELETE FROM smriti_entries WHERE key_hash IN (
