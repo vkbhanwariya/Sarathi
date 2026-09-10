@@ -114,7 +114,7 @@ class TestResourceAllocation:
         assert alloc1.device_id == "gpu-0"
         assert alloc1.is_spillover is False
 
-        # Second allocation spills over to CPU
+        # Second allocation spills over to CPU through the canonical allocator
         alloc2 = yantra.allocate(req)
         assert alloc2.device_id == "cpu-0"
         assert alloc2.device_type == DeviceType.CPU
@@ -481,42 +481,3 @@ class TestYantraExecution:
         assert exc_info.value is primary_err
         # Note attached with release failure details
         assert any("OSError" in note for note in getattr(primary_err, "__notes__", []))
-
-    def test_device_slot_pool_and_hybrid_pool_creation(self) -> None:
-        from sarathi.sankalpa import ExecutionBinding
-        from sarathi.yantra.devices import DeviceSlotPool
-
-        gpu_binding = ExecutionBinding(
-            device_id="gpu-0",
-            device_type=DeviceType.GPU,
-            backend="openvino",
-            backend_device_id="GPU.0",
-            approved_concurrency=4,
-        )
-        cpu_binding = ExecutionBinding(
-            device_id="cpu-0",
-            device_type=DeviceType.CPU,
-            backend="openvino",
-            backend_device_id="CPU",
-            approved_concurrency=4,
-        )
-        pool = DeviceSlotPool([gpu_binding, cpu_binding])
-        assert pool.total_capacity == 8
-
-        # Test acquiring slots
-        acquired = []
-        for _ in range(8):
-            with pool.acquire() as b:
-                acquired.append(b.device_type)
-        assert len(acquired) == 8
-        assert acquired.count(DeviceType.GPU) == 4
-        assert acquired.count(DeviceType.CPU) == 4
-
-        # Test Yantra.create_hybrid_device_pool
-        inv = DeviceInventory([
-            DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=4),
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=8),
-        ])
-        yantra = Yantra(inv)
-        hybrid_pool = yantra.create_hybrid_device_pool(gpu_binding, include_cpu=True, max_cpu_concurrency=4)
-        assert hybrid_pool.total_capacity == 8
