@@ -17,13 +17,12 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     Capability,
     DeviceRequirement,
-    DeviceType,
     ExecutionBinding,
     ExecutionContext,
     Request,
     Result,
 )
-from sarathi.yantra.devices import DeviceInventory, DeviceSlotPool
+from sarathi.yantra.devices import DeviceInventory
 from sarathi.yantra.resources import Allocation, _ResourceAllocator
 
 if TYPE_CHECKING:
@@ -98,7 +97,7 @@ class Yantra:
             return self._is_closed
 
     def start(self) -> None:
-        """Start Yantra and initialize bounded execution pool under Prana lifecycle."""
+        """Start Yantra and initialize bounded execution pool under Agni lifecycle."""
         with self._lifecycle_lock:
             if self._is_closed:
                 raise DoshError(
@@ -165,48 +164,15 @@ class Yantra:
         with scope:
             return self._allocator.allocate(requirement, context=context, timeout=timeout)
 
-    def create_hybrid_device_pool(
-        self,
-        primary_binding: ExecutionBinding,
-        include_cpu: bool = True,
-        max_cpu_concurrency: int = 4,
-    ) -> DeviceSlotPool:
-        """Create a multi-device slot pool combining the primary allocated binding with CPU backup slots.
-
-        Allows compute-heavy capabilities (e.g. multi-page OCR) to utilize both primary hardware (GPU)
-        and CPU slots concurrently, dynamically load-balancing subtasks across device slots.
-        """
-        if not isinstance(primary_binding, ExecutionBinding):
-            raise TypeError(f"primary_binding must be an ExecutionBinding, got {type(primary_binding).__name__}.")
-
-        bindings: list[ExecutionBinding] = [primary_binding]
-        if include_cpu and primary_binding.device_type != DeviceType.CPU:
-            cpu_dev = self.inventory.find_by_type(DeviceType.CPU)
-            if cpu_dev is not None:
-                backend = cpu_dev.supported_backends[0] if cpu_dev.supported_backends else primary_binding.backend
-                locators = cpu_dev.backend_locators or {}
-                cpu_locator = locators.get(backend, "CPU")
-                cpu_binding = ExecutionBinding(
-                    device_id=cpu_dev.device_id,
-                    device_type=DeviceType.CPU,
-                    backend=backend,
-                    backend_device_id=cpu_locator,
-                    is_spillover=True,
-                    approved_concurrency=max(1, min(cpu_dev.capacity, max_cpu_concurrency)),
-                )
-                bindings.append(cpu_binding)
-
-        return DeviceSlotPool(bindings)
-
     def execute_subtasks(
         self,
         subtasks: Sequence[Callable[[], Any]],
         context: ExecutionContext | None = None,
         max_concurrency: int | None = None,
-        device_pool: DeviceSlotPool | None = None,
     ) -> list[Any]:
         """Execute independent subtasks concurrently using Yantra's bounded worker pool, preserving source order.
 
+        Concurrency is bounded by the active execution binding when one is present.
         Uses bounded in-flight sliding window scheduling so large task sets do not submit unbounded futures.
         On child failure or cancellation, settles already-running work before returning or raising.
 
@@ -230,20 +196,15 @@ class Yantra:
         if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
             context.cancellation_token.check_cancelled()
 
-        if device_pool is not None:
-            effective_concurrency = min(self._max_workers, device_pool.total_capacity)
-            if max_concurrency is not None and max_concurrency > 0:
-                effective_concurrency = min(effective_concurrency, max_concurrency)
-        else:
-            effective_concurrency = self._max_workers
-            if (
-                context is not None
-                and context.execution_binding is not None
-                and context.execution_binding.approved_concurrency > 0
-            ):
-                effective_concurrency = min(effective_concurrency, context.execution_binding.approved_concurrency)
-            if max_concurrency is not None and max_concurrency > 0:
-                effective_concurrency = min(effective_concurrency, max_concurrency)
+        effective_concurrency = self._max_workers
+        if (
+            context is not None
+            and context.execution_binding is not None
+            and context.execution_binding.approved_concurrency > 0
+        ):
+            effective_concurrency = min(effective_concurrency, context.execution_binding.approved_concurrency)
+        if max_concurrency is not None and max_concurrency > 0:
+            effective_concurrency = min(effective_concurrency, max_concurrency)
 
         # Sequential execution if only 1 task or effective_concurrency == 1
         if len(subtasks) == 1 or effective_concurrency == 1:
