@@ -6,6 +6,7 @@ import re
 import time
 import uuid
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -118,21 +119,11 @@ def execute_request(
         elif context.cancellation_token is not None and request.cancellation_token is None:
             effective_token = context.cancellation_token
 
-        if context.cancellation_token is not effective_token:
-            exec_ctx = ExecutionContext(
-                run_id=context.run_id,
-                request_id=context.request_id,
-                trace_id=context.trace_id,
-                span_id=context.span_id,
-                parent_span_id=context.parent_span_id,
-                profile=context.profile,
-                quarantine_attempt=context.quarantine_attempt,
-                is_retry=context.is_retry,
-                cancellation_token=effective_token,
-                metadata=context.metadata,
-            )
-        else:
-            exec_ctx = context
+        exec_ctx = (
+            replace(context, cancellation_token=effective_token)
+            if context.cancellation_token is not effective_token
+            else context
+        )
     else:
         exec_ctx = ExecutionContext(
             run_id=f"run-{uuid.uuid4().hex[:12]}",
