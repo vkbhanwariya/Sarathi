@@ -44,12 +44,16 @@ jobs:
               'from sarathi.mukha.web.security import (',
           )
           replace(
+              'tests/mukha/test_web_server.py',
+              'from sarathi.mukha.web.http_handler import _serialize_dataclass',
+              'from sarathi.mukha.web.security import _serialize_dataclass',
+          )
+          replace(
               'tests/architecture/test_mukha_transport.py',
               'from pathlib import Path\n\n\n_WEB_ROOT',
               'from pathlib import Path\n\n_WEB_ROOT',
           )
 
-          # The deleted compatibility module must have zero import references.
           offenders = []
           for root in (Path('src'), Path('tests')):
               for path in root.rglob('*.py'):
