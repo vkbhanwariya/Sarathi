@@ -9,7 +9,7 @@ Must NOT become a global mutable state container or service locator.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -103,19 +103,7 @@ class ExecutionContext:
         """Create a context copy with the specified immutable ExecutionBinding attached."""
         if not isinstance(binding, ExecutionBinding):
             raise TypeError(f"binding must be an ExecutionBinding instance, got {type(binding).__name__}.")
-        return ExecutionContext(
-            run_id=self.run_id,
-            request_id=self.request_id,
-            trace_id=self.trace_id,
-            span_id=self.span_id,
-            parent_span_id=self.parent_span_id,
-            profile=self.profile,
-            quarantine_attempt=self.quarantine_attempt,
-            is_retry=self.is_retry,
-            cancellation_token=self.cancellation_token,
-            metadata=dict(self.metadata),
-            execution_binding=binding,
-        )
+        return replace(self, execution_binding=binding)
 
     def child_span(self, span_id: str, extra_metadata: Mapping[str, Any] | None = None) -> ExecutionContext:
         """Create a child execution context with this context as parent."""
@@ -124,32 +112,17 @@ class ExecutionContext:
         merged_meta = dict(self.metadata)
         if extra_metadata:
             merged_meta.update(extra_metadata)
-        return ExecutionContext(
-            run_id=self.run_id,
-            request_id=self.request_id,
-            trace_id=self.trace_id,
+        return replace(
+            self,
             span_id=span_id,
             parent_span_id=self.span_id,
-            profile=self.profile,
-            quarantine_attempt=self.quarantine_attempt,
-            is_retry=self.is_retry,
-            cancellation_token=self.cancellation_token,
             metadata=merged_meta,
-            execution_binding=self.execution_binding,
         )
 
     def with_retry(self, quarantine_attempt: int) -> ExecutionContext:
         """Create a context copy for retry execution."""
-        return ExecutionContext(
-            run_id=self.run_id,
-            request_id=self.request_id,
-            trace_id=self.trace_id,
-            span_id=self.span_id,
-            parent_span_id=self.parent_span_id,
-            profile=self.profile,
+        return replace(
+            self,
             quarantine_attempt=quarantine_attempt,
             is_retry=True,
-            cancellation_token=self.cancellation_token,
-            metadata=dict(self.metadata),
-            execution_binding=self.execution_binding,
         )
