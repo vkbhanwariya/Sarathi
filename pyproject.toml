@@ -11,6 +11,8 @@ dependencies = [
     "pymupdf>=1.28.2",
     "python-calamine>=0.8.2",
     "pyyaml>=6.0.3",
+    "starlette>=1.6.0,<2",
+    "uvicorn>=0.52.1,<0.53",
     "xlrd>=2.0.2",
 ]
 
