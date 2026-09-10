@@ -115,17 +115,14 @@ def test_smriti_l1_and_l2_cache_equivalence(tmp_path: Path) -> None:
     key = CacheKey(key_hash="test_key_equivalence_123", capability_id="ocr", fingerprint="fp123", profile="instant")
     cache.put(key, original_result)
 
-    # 1. Retrieve from L1
     l1_hit = cache.get(key)
     assert l1_hit is not None
     assert l1_hit.data.pages[0].spans[0].text == "Heading"
     assert l1_hit.artifact_payloads[0].intent.relative_path == Path("exports/report.pdf")
 
-    # 2. Invalidate L1 memory only to force L2 SQLite fetch
     cache._l1.invalidate(key=key)
     assert cache._l1.get(key) is None
 
-    # 3. Retrieve from L2 SQLite
     l2_hit = cache.get(key)
     assert l2_hit is not None
     assert isinstance(l2_hit.data, CanonicalDocument)
@@ -140,7 +137,6 @@ def test_translation_legacy_font_handoff_warning() -> None:
     from sarathi.shakti.translation.capability import TranslationCapability
 
     cap = TranslationCapability()
-    # Kruti dev signature digraphs
     legacy_doc = CanonicalDocument(
         document_id="doc_legacy",
         source_input_id="in_legacy",
@@ -189,7 +185,7 @@ def test_ocr_empty_input_warning(tmp_path: Path) -> None:
 
 
 def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> None:
-    """SQLiteCacheStore bounds entries to max_entries_l2 even when over capacity."""
+    """SQLiteCacheStore retains exactly the configured number of most-recent entries."""
     from sarathi.smriti.policy import CachePolicy
     from sarathi.smriti.store import SQLiteCacheStore
 
@@ -198,12 +194,11 @@ def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> N
 
     conn1 = store._get_connection()
     conn2 = store._get_connection()
-    assert conn1 is conn2  # Connection is reused
+    assert conn1 is conn2
 
     doc = CanonicalDocument(document_id="d1", source_input_id="i1", text="test")
     res = Result(data=doc)
 
-    # Insert 15 entries (exceeding limit of 10)
     for idx in range(15):
         k = CacheKey(
             capability_id="test",
@@ -213,9 +208,14 @@ def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> N
         )
         store.put(k, res)
 
-    # Verify count is strictly <= max_entries_l2
     with store._lock, store._get_connection() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
-        assert count <= 10
+        keys = [
+            row[0]
+            for row in conn.execute(
+                "SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC"
+            ).fetchall()
+        ]
+
+    assert keys == [f"hash_{idx:04d}" for idx in range(5, 15)]
 
     store.close()
