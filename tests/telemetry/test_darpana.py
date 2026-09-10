@@ -15,7 +15,6 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi import (
     ArtifactBoundary,
     CapabilityPlan,
-    Dvara,
     Kosh,
     Manthan,
     Pravaha,
@@ -193,7 +192,6 @@ class TestMarutiTelemetry:
         assert rec.error_type == "DoshError"
         assert rec.failure_code is FailureCode.EXECUTION_FAILED
         assert rec.duration_ns >= 0
-        # Privacy check: sensitive message is not recorded in error_type, failure_code or attributes
         assert "Secret sensitive execution error text" not in str(rec.error_type)
         assert "Secret sensitive execution error text" not in str(rec.failure_code)
         assert "Secret sensitive execution error text" not in str(rec.attributes)
@@ -260,7 +258,6 @@ class TestMarutiTelemetry:
                 phases = {s["phase_name"] for s in spans_nested}
                 assert phases == {"outer", "inner"}
 
-            # After inner exits, outer should still be active
             spans_after_inner = darpana.active_spans()
             assert len(spans_after_inner) == 1
             assert spans_after_inner[0]["phase_name"] == "outer"
@@ -394,7 +391,6 @@ class TestDarpanaGlobalWiring:
         with pytest.raises(TypeError, match="requirement must be a DeviceRequirement instance"):
             yantra.allocate("invalid_requirement_string", context=execution_context)  # type: ignore
 
-        # Zero telemetry records created on invalid argument
         assert len(darpana.maruti_records()) == 0
 
     def test_yantra_release_invalid_allocation_fails_before_telemetry(
@@ -418,12 +414,14 @@ class TestDarpanaGlobalWiring:
         execution_context: ExecutionContext,
         tmp_path: Path,
     ) -> None:
+        from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
         darpana = Darpana(capacity=50)
 
-        # 1. Dvara Bootstrap
+        # 1. Agni-owned bootstrap observation around Kosh declaration registration.
         kosh = Kosh()
-        dvara = Dvara(kosh, darpana=darpana)
-        dvara.register_builtins(context=execution_context)
+        with darpana.time_scope(execution_context, phase_name="bootstrap", component="agni.bootstrap"):
+            kosh.register_providers(BUILTIN_PLUGIN_PROVIDERS)
 
         # 2. Sutra loader
         conf_file = tmp_path / "settings.toml"
@@ -671,13 +669,11 @@ class TestDarpanaGlobalWiring:
         maruti_records = darpana.maruti_records()
         quar_obs = [r for r in maruti_records if r.phase_name == "quarantine_lifecycle"]
 
-        # Transitions: quarantined -> retried -> released
         statuses = [r.attributes["lifecycle_status"] for r in quar_obs]
         assert "quarantined" in statuses
         assert "retried" in statuses
         assert "released" in statuses
 
-        # Verify factual non-negative measured durations and safe attributes only
         for r in quar_obs:
             assert r.duration_ns >= 0
             assert r.outcome == "success"
@@ -756,7 +752,6 @@ class TestDarpanaGlobalWiring:
         quar_obs = [r for r in maruti_records if r.phase_name == "quarantine_lifecycle"]
         statuses = [r.attributes["lifecycle_status"] for r in quar_obs]
 
-        # Initial quarantine -> retry attempt -> terminal exhaustion
         assert "quarantined" in statuses
         assert "retried" in statuses
         assert "terminal" in statuses
