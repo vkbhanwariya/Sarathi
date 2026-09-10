@@ -32,6 +32,10 @@ dist/
 *.egg
 *.whl
 
+# Frontend
+node_modules/
+.npm/
+
 # IDE & Editor Configurations
 .vscode/
 .idea/

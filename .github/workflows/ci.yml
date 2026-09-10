@@ -54,6 +54,29 @@ jobs:
       - name: Run architecture tests only
         run: uv run --group dev pytest -q tests/architecture
 
+  frontend:
+    name: Mukha UI TypeScript
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install locked frontend dependencies
+        run: npm ci
+
+      - name: Typecheck and build Mukha UI
+        run: npm run build
+
   test:
     name: Unit & Integration Tests
     needs: [lint]
