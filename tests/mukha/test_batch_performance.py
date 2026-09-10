@@ -18,7 +18,7 @@ from sarathi.mukha.state import (
     FileRunView,
     RunViewState,
 )
-from sarathi.mukha.web.http_handler import _serialize_dataclass
+from sarathi.mukha.web.security import _serialize_dataclass
 
 pytestmark = [pytest.mark.performance]
 

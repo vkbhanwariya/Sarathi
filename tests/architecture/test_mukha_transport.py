@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 _WEB_ROOT = Path(__file__).resolve().parents[2] / "src" / "sarathi" / "mukha" / "web"
 
 
