@@ -1,15 +1,20 @@
-"""Unit tests for Nabhi — Core Kernel Phase 1: Kosh Registry."""
+"""Tests for the Nabhi Kosh plugin and capability registry."""
+
+from pathlib import Path
 
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.nabhi import Kosh
+from sarathi.nabhi import Kosh, Manthan
 from sarathi.sankalpa import (
     CapabilityDeclaration,
     ExecutionProfile,
+    InputRef,
     PluginInfo,
+    Request,
     SecurityDeclaration,
 )
+from sarathi.shakti.darshana import identify_request
 
 
 @pytest.fixture
@@ -77,7 +82,6 @@ class TestKoshRegistry:
         kosh: Kosh,
         sample_capability: CapabilityDeclaration,
     ) -> None:
-        # Owning plugin "shakti.ocr" has not been registered yet
         with pytest.raises(DoshError) as exc_info:
             kosh.register_capability(sample_capability)
 
@@ -105,8 +109,6 @@ class TestKoshRegistry:
         err = exc_info.value
         assert err.code is FailureCode.VALIDATION_FAILED
         assert "already registered" in err.message
-
-        # Verify no overwrite occurred
         assert kosh.get_plugin("shakti.ocr") == sample_plugin
 
     def test_duplicate_capability_registration_rejected(
@@ -131,8 +133,6 @@ class TestKoshRegistry:
         err = exc_info.value
         assert err.code is FailureCode.VALIDATION_FAILED
         assert "already registered" in err.message
-
-        # Verify original capability remains
         assert kosh.get_capability("ocr") == sample_capability
         assert len(kosh) == 1
 
@@ -166,7 +166,6 @@ class TestKoshRegistry:
         kosh.register_plugin(sample_plugin)
         kosh.register_capability(sample_capability)
 
-        # Baseline snapshots before rejection
         plugins_before = kosh.plugins()
         caps_before = kosh.capabilities()
         plugin_caps_before = kosh.get_capabilities_for_plugin("shakti.ocr")
@@ -183,8 +182,6 @@ class TestKoshRegistry:
             kosh.register_capability(undeclared_cap)
 
         assert exc_info.value.code is FailureCode.VALIDATION_FAILED
-
-        # Verify state is completely unmutated
         assert len(kosh) == count_before
         assert kosh.plugins() == plugins_before
         assert kosh.capabilities() == caps_before
@@ -229,17 +226,155 @@ class TestKoshRegistry:
         assert kosh.get_capabilities_for_plugin("plugin.a") == (c1, c3)
 
     def test_invalid_argument_types(self, kosh: Kosh) -> None:
+        with pytest.raises(TypeError, match="providers must be a sequence"):
+            kosh.register_providers(123)  # type: ignore[arg-type]
+
         with pytest.raises(TypeError, match="plugin must be a PluginInfo"):
-            kosh.register_plugin("not_a_plugin")  # type: ignore
+            kosh.register_plugin("not_a_plugin")  # type: ignore[arg-type]
 
         with pytest.raises(TypeError, match="capability must be a CapabilityDeclaration"):
-            kosh.register_capability("not_a_capability")  # type: ignore
+            kosh.register_capability("not_a_capability")  # type: ignore[arg-type]
 
         with pytest.raises(TypeError, match="plugin_id must be a string"):
-            kosh.get_plugin(123)  # type: ignore
+            kosh.get_plugin(123)  # type: ignore[arg-type]
 
         with pytest.raises(TypeError, match="capability_id must be a string"):
-            kosh.get_capability(123)  # type: ignore
+            kosh.get_capability(123)  # type: ignore[arg-type]
 
         with pytest.raises(TypeError, match="plugin_id must be a string"):
-            kosh.get_capabilities_for_plugin(None)  # type: ignore
+            kosh.get_capabilities_for_plugin(None)  # type: ignore[arg-type]
+
+
+class TestKoshProviderRegistration:
+    def test_register_providers_registers_builtin_metadata(self, kosh: Kosh) -> None:
+        from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
+        registered_ids = kosh.register_providers(BUILTIN_PLUGIN_PROVIDERS)
+
+        assert "shakti.darshana" in registered_ids
+        assert "shakti.native_extraction" in registered_ids
+        assert "shakti.ocr" in registered_ids
+        assert "shakti.translation" in registered_ids
+        assert kosh.get_capability("identify") is not None
+        assert kosh.get_capability("read_native") is not None
+        assert kosh.get_capability("ocr") is not None
+        assert kosh.get_capability("translation") is not None
+
+    def test_register_providers_is_idempotent(self, kosh: Kosh) -> None:
+        from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
+        first_pass = kosh.register_providers(BUILTIN_PLUGIN_PROVIDERS)
+        second_pass = kosh.register_providers(BUILTIN_PLUGIN_PROVIDERS)
+
+        assert first_pass == second_pass
+        assert len(kosh.get_capabilities_for_plugin("shakti.ocr")) == 1
+
+    def test_provider_conflict_fails_before_batch_mutation(self, kosh: Kosh) -> None:
+        from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
+        tampered_plugin = PluginInfo(
+            plugin_id="shakti.darshana",
+            name="Conflicting Tampered Darshana",
+            version="9.9.9",
+            security=SecurityDeclaration(),
+            capabilities=("identify",),
+        )
+        kosh.register_plugin(tampered_plugin)
+
+        with pytest.raises(DoshError) as exc_info:
+            kosh.register_providers(BUILTIN_PLUGIN_PROVIDERS)
+
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Conflicting plugin declaration already registered" in exc_info.value.message
+        assert not kosh.has_plugin("shakti.ocr")
+        assert not kosh.has_plugin("shakti.native_extraction")
+
+    def test_capability_conflict_fails_before_batch_mutation(self, kosh: Kosh) -> None:
+        from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
+        plugin = PluginInfo(
+            plugin_id="shakti.ocr",
+            name="OCR",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("ocr",),
+        )
+        kosh.register_plugin(plugin)
+        tampered_capability = CapabilityDeclaration(
+            capability_id="ocr",
+            plugin_id="shakti.ocr",
+            version="9.9.9",
+            supported_profiles=(ExecutionProfile.CUSTOM,),
+        )
+        kosh.register_capability(tampered_capability)
+
+        with pytest.raises(DoshError) as exc_info:
+            kosh.register_providers(BUILTIN_PLUGIN_PROVIDERS)
+
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Conflicting capability declaration already registered" in exc_info.value.message
+        assert not kosh.has_plugin("shakti.darshana")
+        assert not kosh.has_plugin("shakti.native_extraction")
+
+    def test_provider_capabilities_must_match_plugin_info_before_mutation(self, kosh: Kosh) -> None:
+        from sarathi.shakti.darshana.provider import DarshanaProvider
+
+        tampered_plugin = PluginInfo(
+            plugin_id="shakti.darshana",
+            name="Darshana",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("identify", "extra_cap"),
+        )
+
+        class TamperedDarshanaProvider(DarshanaProvider):
+            @property
+            def plugin_info(self) -> PluginInfo:
+                return tampered_plugin
+
+        with pytest.raises(DoshError) as exc_info:
+            kosh.register_providers([TamperedDarshanaProvider()])
+
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "do not exactly match" in exc_info.value.message
+        assert not kosh.has_plugin("shakti.darshana")
+
+    def test_duplicate_provider_id_in_single_batch_is_rejected(self, kosh: Kosh) -> None:
+        from sarathi.shakti.darshana.provider import DarshanaProvider
+
+        provider = DarshanaProvider()
+        with pytest.raises(DoshError, match="Duplicate plugin ID"):
+            kosh.register_providers([provider, provider])
+
+        assert kosh.plugins() == ()
+        assert kosh.capabilities() == ()
+
+    def test_darshana_enriched_request_reaches_manthan(self, tmp_path: Path, kosh: Kosh) -> None:
+        from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
+        kosh.register_providers(BUILTIN_PLUGIN_PROVIDERS)
+        manthan = Manthan(kosh)
+
+        pdf_file = tmp_path / "invoice.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4\nInvoice details")
+        raw_input = InputRef(
+            input_id="inp-invoice-1",
+            source_path=pdf_file,
+            display_name="invoice.pdf",
+            size_bytes=pdf_file.stat().st_size,
+            media_type=None,
+        )
+        initial_request = Request(
+            request_id="req-process-1",
+            requirement="ocr",
+            inputs=(raw_input,),
+            profile=ExecutionProfile.INSTANT,
+        )
+
+        enriched_request = identify_request(initial_request)
+        assert enriched_request.inputs[0].media_type == "application/pdf"
+        assert "darshana_facts" in enriched_request.inputs[0].metadata
+
+        plan = manthan.resolve(enriched_request)
+        assert plan.request_id == "req-process-1"
+        assert plan.capability_ids == ("ocr",)
