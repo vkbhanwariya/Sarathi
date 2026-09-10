@@ -1,4 +1,4 @@
-"""Sarathi V2 - Local, Plugin-First Document Intelligence System."""
+"""Sarathi V3 - Local document intelligence system."""
 
-__version__ = "2.0.0"
+__version__ = "3.0.0.dev0"
 __all__ = ["__version__"]
