@@ -1,6 +1,6 @@
 # Sarathi V2 — Shared Services Specification
 
-**Specification Updated:** 06-09-2026, 07:30 PM IST (Asia/Kolkata)
+**Specification Updated:** 10-09-2026 (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Darpana, Smriti, Anubhava, Mukha, Sutra, Kavacha, and Dosh.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -247,117 +247,93 @@ mechanisms.
 
 ## Kavacha --- Security & Privacy
 
-**Kavacha --- Security & Privacy** is the single global owner for
-security and privacy enforcement.
+**Kavacha --- Security & Privacy** is the runtime authorization boundary for
+security-sensitive capability execution and filesystem source/destination
+safety.
 
-Plugins do not implement private PII scanners, credential vaults,
-network policy, cloud guards, or local/external processing rules. They
-declare what they require; Kavacha decides and enforces globally.
+Plugins declare the security-sensitive privileges they require. Kavacha checks
+those declarations against the active `SecurityPolicy` before Pravaha delegates
+execution to Yantra. Kavacha does not become a network proxy, credential vault,
+PII scanner, HTTP client, secret store, or second cloud runtime.
 
-### Canonical Wiring
-
-``` text
-Plugin / Capability
-      ↓
-Security Declaration / Request
-      ↓
-Kavacha — Security & Privacy
-      ↓
-Security Decision
-├── PII access policy
-├── local vs external processing
-├── network permission
-├── outbound PII verification
-└── authorized secret access
-      ↓
-Yantra — Resource & Execution Manager
-      ↓
-Approved Plugin Execution
-      ↓
-Darpana — Telemetry & Tracing
-      ↓
-Audit metadata only — never raw secrets
-```
-
-Canonical rule:
+### Canonical Runtime Gate
 
 ``` text
-Plugin declares
-      ↓
-Kavacha decides and enforces
-      ↓
-Yantra executes approved work
-      ↓
-Darpana audits safely
+PluginInfo.security
+       ↓
+Kavacha.authorize(SecurityDeclaration)
+       ↓
+SecurityPolicy
+├── PII access permitted?
+├── network access permitted?
+├── external processing permitted?
+└── declared secret names permitted?
+       ↓
+Approved capability execution
+       ↓
+Yantra / Shakti
 ```
+
+The gate is capability-execution authorization, not per-HTTP-request transport
+interception. A cloud plugin that declares network/external access is denied
+before its capability executes when operator policy does not permit those
+privileges.
 
 ### Plugin Security Declaration
 
-Security requirements are reviewable plugin/capability metadata in
+Security requirements are reviewable plugin metadata in
 **Sankalpa --- Canonical Contracts**:
 
 ``` text
 pii_access
-local_processing
+local_processing_only
 network_access
 external_processing
 required_secrets
 ```
 
-**Dvara --- Plugin Discovery** and **Kosh --- Plugin & Capability
-Registry** register declarations; they do not decide policy.
+**Agni** selects providers and **Kosh** stores their declarations. Neither Agni
+nor Kosh decides security policy. Pravaha looks up the owning plugin declaration
+and asks Kavacha to authorize it before execution.
 
-### Mandatory Outbound Gate
-
-Every external/cloud call passes through Kavacha independently of any
-earlier masking.
-
-``` text
-External processing requested
-        ↓
-Kavacha — Security & Privacy
-        ↓
-Network / external-processing policy
-        ↓
-Independent PII / sensitive-data verification
-        ↓
-Allowed?
-   ├── NO  → block with explicit error
-   └── YES
-          ↓
-Authorized secret access if required
-          ↓
-External call may execute
-```
-
-Masking and outbound verification are separate defense-in-depth steps.
-Masking never bypasses the final outbound verification gate.
+Cloud providers must accurately declare their network, external-processing, PII,
+and credential-name requirements. Adding a new network path without updating the
+owning plugin declaration is an architecture/security defect.
 
 ### Secrets and Credentials
 
-Plugins request secrets by logical name. Raw credentials are not stored
-in plugin code or ordinary configuration files.
+`required_secrets` contains logical credential names required by a plugin.
+`SecurityPolicy.allowed_secrets` authorizes which declared names a runtime may
+use; it does not contain or retrieve secret values.
 
-**Sutra --- Configuration** owns non-secret settings and policy
-configuration. **Kavacha --- Security & Privacy** owns the secure
-credential boundary and authorized secret access.
+Credential values are resolved by the owning provider/client from its supported
+runtime configuration boundary, normally process environment or explicitly
+injected configuration. Secret values must not be committed to project settings,
+logged, placed in telemetry, or included in error messages.
 
-### Minimal Physical Shape
+Kavacha intentionally does not expose `get_secret`, vault, verifier, or outbound
+request APIs. If a future concrete requirement needs centralized credential
+storage or content scanning, that feature must be justified and implemented
+before architecture documents claim it exists.
+
+### Filesystem Safety
+
+Kavacha also validates source/destination overlap for canonical runtime paths.
+This is a local authorization/safety check; artifact staging and commit ownership
+remain with Nabhi's artifact boundary.
+
+### Physical Shape
 
 ``` text
 kavacha/
 ├── service.py
-├── policy.py
-├── verifier.py
-└── vault.py
+└── policy.py
 ```
 
-`service.py` is the single public security interface. `policy.py` owns
-permission decisions. `verifier.py` owns PII/sensitive-content
-verification. `vault.py` owns the secure secret boundary.
-
-No separate PII Manager, Network Manager, Cloud Guard, Credential
-Manager, or plugin-local security subsystem is created.
+`service.py` exposes declaration authorization and path-overlap validation.
+`policy.py` owns immutable policy evaluation. No parallel PII Manager, Network
+Manager, Cloud Guard, Credential Manager, outbound gateway, verifier, or vault
+is created without demonstrated need.
 
 ------------------------------------------------------------------------
 
