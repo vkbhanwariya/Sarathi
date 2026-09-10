@@ -782,7 +782,7 @@ class TestNestedArtifactsAndManifestLastBoundary:
         assert staged_path.exists()
         assert staged_path == ws.staging_dir / "nested_a" / "nested_b" / "nested_c" / "statement_summary.json"
 
-        # 2. Committing deeply nested staged path
+        # 2. Committing deeply nested staged artifact
         ref = ws.commit_staged_artifact(intent, staged_path)
         assert ref.path == ws.output_dir / "nested_a" / "nested_b" / "nested_c" / "statement_summary.json"
         assert ref.path.exists()
