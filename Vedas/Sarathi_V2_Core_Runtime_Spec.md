@@ -197,7 +197,8 @@ execution behavior.
 
 ### Manthan --- Capability Resolver
 
-Selects the valid capability route for a request.
+Selects the valid capability route for a request, including continuation routes
+requested by capabilities during execution.
 
 Conceptually:
 
@@ -210,16 +211,21 @@ Document + User Requirement + Available Capabilities
 ```
 
 It uses declared capability information and runtime availability. It
-does not contain OCR-specific or bank-specific branches.
+does not contain OCR-specific or bank-specific branches. For continuation,
+Pravaha supplies the requested next requirement, already-completed stages, and
+still-pending stages from the interrupted plan; Manthan derives the new plan.
 
 Invariants:
 - Performs topological dependency sorting across all required capabilities.
+- Owns construction of both initial and continuation `CapabilityPlan` values.
+- Preserves the request's `ExecutionProfile` across continuation. If the next capability or any transitive prerequisite does not support that profile, resolution fails with `FailureCode.UNSUPPORTED`; neither Manthan nor Pravaha silently changes the profile.
+- Removes already-completed prerequisites from a continuation route and appends still-pending interrupted stages in deterministic order without duplicates.
 - Enforces recursive prerequisite profile validation: when a request specifies an `ExecutionProfile`, `Manthan` verifies that every transitive prerequisite capability in the dependency chain officially supports that profile. If any dependency does not support the profile, it fails fast with `FailureCode.UNSUPPORTED` rather than executing an incompatible capability chain.
 - Rejects circular dependencies and self-prerequisites deterministically.
 
 ### Pravaha --- Dynamic Pipeline Engine
 
-Executes the resolved capability plan.
+Executes plans resolved by Manthan.
 
 Responsibilities:
 
@@ -228,6 +234,7 @@ Responsibilities:
 -   propagate failures and warnings correctly
 -   maintain execution lineage
 -   check `context.cancellation_token` cooperatively between stages and continuation loops to prevent runaway execution
+-   when a capability returns `next_requirement`, pass execution-state hand-off facts to Manthan and execute the returned continuation plan; Pravaha does not select a replacement execution profile or construct a competing plan
 -   incorporate sorted `request.custom_options` into input hashing (`_compute_input_hash`) to prevent cross-stage cache collisions
 -   own document/capability failure isolation and the quarantine/retry
     lifecycle
@@ -235,7 +242,7 @@ Responsibilities:
 
 The engine is organized into the `sarathi.nabhi.pravaha` subpackage:
 - `engine.py`: Canonical `Pravaha` coordinator managing plan execution, quarantine, and recovery;
-- `pipeline.py`: Plan execution loop, capability dependency sequencing, and step hand-off;
+- `pipeline.py`: Plan execution loop, capability sequencing, and continuation hand-off to Manthan;
 - `lifecycle.py`: Retry lifecycle coordination, exception handling, and quarantine storage;
 - `common.py`: Pipeline execution state, step records, and shared internal contracts.
 
