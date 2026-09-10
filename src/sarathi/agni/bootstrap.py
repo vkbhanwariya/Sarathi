@@ -66,26 +66,32 @@ class Agni:
             runtime_root, output_root, input_root, active_settings
         )
         active_darpana = resolve_darpana(darpana, active_settings, val_runtime)
-        active_kavacha = resolve_kavacha(kavacha, active_settings, val_input, val_runtime, val_output)
-        active_yantra, active_inventory = resolve_yantra_and_inventory(inventory, active_settings, active_darpana)
-        active_providers, all_candidate_providers = resolve_plugin_providers(
-            plugin_providers, extra_plugin_providers, active_settings, capabilities
-        )
 
-        services = assemble_platform_services(
-            settings=active_settings,
-            runtime_root=val_runtime,
-            output_root=val_output,
-            input_root=val_input,
-            kavacha=active_kavacha,
-            darpana=active_darpana,
-            yantra=active_yantra,
-            active_providers=active_providers,
-            capabilities=capabilities,
-            plugins=plugins,
-            smriti=smriti,
-        )
-        validate_bootstrap_consistency(kosh=services.kosh, capabilities=services.capabilities)
+        with active_darpana.time_scope(
+            bootstrap_ctx,
+            phase_name="bootstrap",
+            component="agni.bootstrap",
+        ):
+            active_kavacha = resolve_kavacha(kavacha, active_settings, val_input, val_runtime, val_output)
+            active_yantra, active_inventory = resolve_yantra_and_inventory(inventory, active_settings, active_darpana)
+            active_providers, all_candidate_providers = resolve_plugin_providers(
+                plugin_providers, extra_plugin_providers, active_settings, capabilities
+            )
+
+            services = assemble_platform_services(
+                settings=active_settings,
+                runtime_root=val_runtime,
+                output_root=val_output,
+                input_root=val_input,
+                kavacha=active_kavacha,
+                darpana=active_darpana,
+                yantra=active_yantra,
+                active_providers=active_providers,
+                capabilities=capabilities,
+                plugins=plugins,
+                smriti=smriti,
+            )
+            validate_bootstrap_consistency(kosh=services.kosh, capabilities=services.capabilities)
 
         self._settings = active_settings
         self._darpana = active_darpana
