@@ -1,0 +1,84 @@
+name: Starlette parity sync
+
+on:
+  push:
+    branches: [v3-mukha-starlette]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3-mukha-starlette
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: latest
+
+      - name: Apply transport parity fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          test_web = Path('tests/mukha/test_web_server.py')
+          text = test_web.read_text(encoding='utf-8')
+          text = text.replace(
+              'headers_dict = dict(resp.headers)',
+              'headers_dict = {key.title(): value for key, value in resp.headers.items()}',
+          )
+          text = text.replace(
+              'return err.code, err.read(), dict(err.headers)',
+              'return err.code, err.read(), {key.title(): value for key, value in err.headers.items()}',
+          )
+          text = text.replace(
+              'sarathi.mukha.web.http_handler.NativePicker.browse_files',
+              'sarathi.mukha.web.app.NativePicker.browse_files',
+          )
+          text = text.replace(
+              'sarathi.mukha.web.http_handler.NativePicker.browse_folder',
+              'sarathi.mukha.web.app.NativePicker.browse_folder',
+          )
+          test_web.write_text(text, encoding='utf-8')
+
+          security_test = Path('tests/mukha/test_security_headers_and_host.py')
+          text = security_test.read_text(encoding='utf-8')
+          text = text.replace(
+              'conn.putrequest("GET", "/api/state")',
+              'conn.putrequest("GET", "/api/state", skip_host=True)',
+          )
+          text = text.replace(
+              'conn.putrequest("GET", "/")',
+              'conn.putrequest("GET", "/", skip_host=True)',
+          )
+          security_test.write_text(text, encoding='utf-8')
+
+          app_path = Path('src/sarathi/mukha/web/app.py')
+          text = app_path.read_text(encoding='utf-8')
+          handler_anchor = '''    async def artifact_download(request: Request) -> Response:\n'''
+          handler = '''    async def invalid_artifact_path(request: Request) -> Response:\n        # Starlette decodes percent-encoded separators before route matching.\n        # Catch malformed artifact paths explicitly rather than falling through to a generic 404.\n        return _json(400, {"ok": False, "error": "Invalid run or artifact identifier."})\n\n'''
+          if handler not in text:
+              text = text.replace(handler_anchor, handler + handler_anchor)
+
+          route_anchor = '''        Route("/api/runs/{run_id}/artifacts/{artifact_id}", artifact_download),\n'''
+          fallback_route = '''        Route("/api/runs/{run_id}/artifacts/{artifact_path:path}", invalid_artifact_path),\n'''
+          if fallback_route not in text:
+              text = text.replace(route_anchor, route_anchor + fallback_route)
+          app_path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Regenerate Python lockfile
+        run: uv lock
+
+      - name: Commit parity and lock updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/sarathi/mukha/web/app.py tests/mukha/test_web_server.py tests/mukha/test_security_headers_and_host.py uv.lock
+          git rm .github/workflows/starlette-parity-sync.yml
+          git commit -m "Fix Starlette transport parity and lock dependencies"
+          git push origin HEAD:v3-mukha-starlette
