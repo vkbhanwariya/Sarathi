@@ -1,4 +1,4 @@
-"""Core dynamic pipeline plan execution loop, continuation planning, and cache coordination."""
+"""Core dynamic pipeline plan execution loop, continuation hand-off, and cache coordination."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ from sarathi.nabhi.quarantine import (
 from sarathi.sankalpa import (
     Capability,
     ExecutionContext,
-    ExecutionProfile,
     Request,
     Result,
     WarningRecord,
@@ -433,49 +432,16 @@ def execute_pipeline(
             )
         seen_requirements.add(next_req_id)
 
-        # Determine resumption stages
         current_cap_id = cap.declaration.capability_id
-        resuming_stages = (
+        remaining_stages = (
             (current_cap_id,) + current_plan.capability_ids[executed_stage_idx + 1 :]
             if prior_result.resume_self
             else current_plan.capability_ids[executed_stage_idx + 1 :]
         )
 
-        # Resolve next plan for next_req_id through Manthan with compatible profile
-        next_cap_decl = manthan.registry.get_capability(next_req_id)
-        effective_profile = current_request.profile
-        if next_cap_decl is not None and effective_profile not in next_cap_decl.supported_profiles:
-            if ExecutionProfile.ACCURATE in next_cap_decl.supported_profiles:
-                effective_profile = ExecutionProfile.ACCURATE
-            elif ExecutionProfile.INSTANT in next_cap_decl.supported_profiles:
-                effective_profile = ExecutionProfile.INSTANT
-            elif next_cap_decl.supported_profiles:
-                effective_profile = next_cap_decl.supported_profiles[0]
-
-        current_request = Request(
-            request_id=current_request.request_id,
-            requirement=next_req_id,
-            inputs=current_request.inputs,
-            profile=effective_profile,
-            custom_options=current_request.custom_options,
-            output_root=current_request.output_root,
-            preserve_partial=current_request.preserve_partial,
-            cancellation_token=current_request.cancellation_token,
-            metadata=current_request.metadata,
-        )
-        next_plan = manthan.resolve(current_request)
-
-        # Filter out already completed prerequisites from next_plan
-        unexecuted_next_stages = tuple(
-            cid for cid in next_plan.capability_ids if cid not in completed_capability_ids
-        )
-
-        combined_stages: list[str] = []
-        for s in unexecuted_next_stages + resuming_stages:
-            if s not in combined_stages:
-                combined_stages.append(s)
-
-        current_plan = CapabilityPlan(
-            request_id=request.request_id,
-            capability_ids=tuple(combined_stages),
+        current_request, current_plan = manthan.resolve_continuation(
+            current_request,
+            next_req_id,
+            completed_capability_ids=completed_capability_ids,
+            remaining_capability_ids=remaining_stages,
         )
