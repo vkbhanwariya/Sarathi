@@ -446,3 +446,100 @@ def test_capability_plan_rejects_duplicate_stage_ids() -> None:
             request_id="req-dup-test",
             capability_ids=("read_native", "ocr", "ocr"),
         )
+
+
+def test_continuation_resolution_filters_completed_and_preserves_pending_order() -> None:
+    registry = Kosh()
+    registry.register_plugin(
+        PluginInfo(
+            plugin_id="continuation.plugin",
+            name="Continuation Plugin",
+            version="1.0.0",
+            capabilities=("prep", "next_cap", "resume_cap"),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "prep",
+            "continuation.plugin",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "next_cap",
+            "continuation.plugin",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+            prerequisites=("prep",),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "resume_cap",
+            "continuation.plugin",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+        )
+    )
+
+    request = Request(
+        request_id="req-continuation",
+        requirement="resume_cap",
+        inputs=(InputRef("inp-1", Path("doc.pdf"), "doc.pdf", 10),),
+        profile=ExecutionProfile.LAYOUT_PRESERVING,
+    )
+
+    continuation_request, plan = Manthan(registry).resolve_continuation(
+        request,
+        "next_cap",
+        completed_capability_ids={"prep"},
+        remaining_capability_ids=("resume_cap",),
+    )
+
+    assert request.requirement == "resume_cap"
+    assert continuation_request.requirement == "next_cap"
+    assert continuation_request.profile is ExecutionProfile.LAYOUT_PRESERVING
+    assert plan.capability_ids == ("next_cap", "resume_cap")
+
+
+def test_continuation_resolution_rejects_profile_mismatch_without_downgrade() -> None:
+    registry = Kosh()
+    registry.register_plugin(
+        PluginInfo(
+            plugin_id="profile.continuation",
+            name="Profile Continuation",
+            version="1.0.0",
+            capabilities=("current_cap", "instant_only"),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "current_cap",
+            "profile.continuation",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "instant_only",
+            "profile.continuation",
+            "1.0.0",
+            (ExecutionProfile.INSTANT,),
+        )
+    )
+
+    request = Request(
+        request_id="req-profile-continuation",
+        requirement="current_cap",
+        inputs=(InputRef("inp-1", Path("doc.pdf"), "doc.pdf", 10),),
+        profile=ExecutionProfile.LAYOUT_PRESERVING,
+    )
+
+    with pytest.raises(DoshError) as exc_info:
+        Manthan(registry).resolve_continuation(request, "instant_only")
+
+    assert exc_info.value.code is FailureCode.UNSUPPORTED
+    assert "does not support requested execution profile 'layout_preserving'" in exc_info.value.message
