@@ -290,16 +290,11 @@ class TestKoshProviderRegistration:
         assert not kosh.has_plugin("shakti.native_extraction")
 
     def test_capability_conflict_fails_before_batch_mutation(self, kosh: Kosh) -> None:
+        from sarathi.shakti.ocr.provider import OCRProvider
         from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
 
-        plugin = PluginInfo(
-            plugin_id="shakti.ocr",
-            name="OCR",
-            version="1.0.0",
-            security=SecurityDeclaration(),
-            capabilities=("ocr",),
-        )
-        kosh.register_plugin(plugin)
+        provider = OCRProvider()
+        kosh.register_plugin(provider.plugin_info)
         tampered_capability = CapabilityDeclaration(
             capability_id="ocr",
             plugin_id="shakti.ocr",
