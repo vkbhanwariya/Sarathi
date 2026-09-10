@@ -21,7 +21,6 @@ class TestSecurityPolicy:
         assert policy.allow_external_processing is False
         assert policy.allowed_secrets == ("OCR_API_KEY", "TRANSLATION_SECRET")
 
-        # Immutability
         with pytest.raises(AttributeError):
             policy.allow_pii_access = True  # type: ignore
 
@@ -60,7 +59,6 @@ class TestSecurityPolicy:
             )
 
     def test_policy_rejects_sets_and_invalid_secrets(self) -> None:
-        # Reject sets
         with pytest.raises(TypeError, match="ordered sequence"):
             SecurityPolicy(
                 allow_pii_access=False,
@@ -69,7 +67,6 @@ class TestSecurityPolicy:
                 allowed_secrets={"SECRET_KEY"},  # type: ignore
             )
 
-        # Reject non-string secret elements
         with pytest.raises(TypeError, match="must be strings"):
             SecurityPolicy(
                 allow_pii_access=False,
@@ -78,7 +75,6 @@ class TestSecurityPolicy:
                 allowed_secrets=(123,),  # type: ignore
             )
 
-        # Reject empty secret names
         with pytest.raises(ValueError, match="empty or whitespace-only"):
             SecurityPolicy(
                 allow_pii_access=False,
@@ -87,7 +83,6 @@ class TestSecurityPolicy:
                 allowed_secrets=("",),
             )
 
-        # Reject duplicate secrets
         with pytest.raises(ValueError, match="Duplicate secret"):
             SecurityPolicy(
                 allow_pii_access=False,
@@ -215,7 +210,6 @@ class TestKavachaService:
             local_processing_only=False,
             required_secrets=("APPROVED_SECRET",),
         )
-        # Should succeed without exception
         kavacha.authorize(decl)
 
     def test_kavacha_denial_raises_dosh_error_without_leaking_secrets(self) -> None:
@@ -256,10 +250,67 @@ class TestKavachaService:
             kavacha.authorize("not_a_declaration")  # type: ignore
 
     def test_kavacha_exports(self) -> None:
-        expected = {"Kavacha", "OutboundRequest", "SecurityDecision", "SecurityPolicy"}
+        expected = {"Kavacha", "SecurityDecision", "SecurityPolicy"}
         assert set(kavacha_module.__all__) == expected
         for name in expected:
             assert hasattr(kavacha_module, name)
+
+
+class TestCloudPluginAuthorization:
+    @staticmethod
+    def _cloud_security_declarations() -> tuple[SecurityDeclaration, ...]:
+        from sarathi.shakti.azure.plugin import PLUGIN_INFO as azure
+        from sarathi.shakti.bhashini.plugin import PLUGIN_INFO as bhashini
+        from sarathi.shakti.gemini.plugin import PLUGIN_INFO as gemini
+        from sarathi.shakti.mistral.plugin import PLUGIN_INFO as mistral
+
+        return (
+            azure.security,
+            bhashini.security,
+            gemini.security,
+            mistral.security,
+        )
+
+    def test_cloud_plugins_declare_external_network_and_secret_requirements(self) -> None:
+        for declaration in self._cloud_security_declarations():
+            assert declaration.pii_access is True
+            assert declaration.local_processing_only is False
+            assert declaration.network_access is True
+            assert declaration.external_processing is True
+            assert declaration.required_secrets
+
+    def test_cloud_plugins_are_denied_when_network_policy_is_disabled(self) -> None:
+        kavacha = Kavacha(
+            SecurityPolicy(
+                allow_pii_access=True,
+                allow_network_access=False,
+                allow_external_processing=False,
+                allowed_secrets=(),
+            )
+        )
+
+        for declaration in self._cloud_security_declarations():
+            with pytest.raises(DoshError) as exc_info:
+                kavacha.authorize(declaration)
+            assert exc_info.value.code is FailureCode.SECURITY_DENIED
+            assert "Network access is not permitted" in exc_info.value.message
+
+    def test_cloud_plugins_are_allowed_when_declared_requirements_are_permitted(self) -> None:
+        declarations = self._cloud_security_declarations()
+        allowed_secrets = tuple(
+            dict.fromkeys(secret for declaration in declarations for secret in declaration.required_secrets)
+        )
+        kavacha = Kavacha(
+            SecurityPolicy(
+                allow_pii_access=True,
+                allow_network_access=True,
+                allow_external_processing=True,
+                allowed_secrets=allowed_secrets,
+            )
+        )
+
+        for declaration in declarations:
+            kavacha.authorize(declaration)
 
 
 class TestKavachaSourceDestinationOverlap:
@@ -281,7 +332,6 @@ class TestKavachaSourceDestinationOverlap:
         dest_dir = tmp_path / "output" / "Run-1"
         dest_dir.mkdir(parents=True, exist_ok=True)
 
-        # Should execute cleanly without error
         kavacha.validate_source_destination_overlap([src_file], [dest_dir])
 
     def test_source_inside_destination_rejected(self, kavacha: Kavacha, tmp_path: Path) -> None:
@@ -320,115 +370,3 @@ class TestKavachaSourceDestinationOverlap:
 
         with pytest.raises(TypeError, match="destination_roots must be a Path, str, or sequence"):
             kavacha.validate_source_destination_overlap([tmp_path], 123)  # type: ignore
-
-
-class TestKavachaOutboundGate:
-    def test_outbound_request_validation(self) -> None:
-        from sarathi.kavacha import OutboundRequest
-
-        with pytest.raises(ValueError, match="destination must be a non-empty string"):
-            OutboundRequest(destination="")
-
-        with pytest.raises(TypeError, match="payload_classification must be a str"):
-            OutboundRequest(destination="https://example.com", payload_classification=123)  # type: ignore
-
-        with pytest.raises(TypeError, match="requires_external_processing must be a bool"):
-            OutboundRequest(destination="https://example.com", requires_external_processing="yes")  # type: ignore
-
-        req = OutboundRequest(
-            destination="https://example.com/api",
-            payload_classification="pii",
-            requires_external_processing=True,
-            required_secrets=("KEY1",),
-        )
-        assert req.destination == "https://example.com/api"
-        assert req.payload_classification == "pii"
-        assert req.requires_external_processing is True
-        assert req.required_secrets == ("KEY1",)
-
-    def test_outbound_network_access_rejected_when_forbidden(self) -> None:
-        from sarathi.kavacha import OutboundRequest
-
-        policy = SecurityPolicy(
-            allow_pii_access=True,
-            allow_network_access=False,
-            allow_external_processing=False,
-            allowed_secrets=(),
-        )
-        kavacha = Kavacha(policy)
-        req = OutboundRequest(destination="https://example.com/api")
-
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize_outbound(req)
-        assert exc_info.value.code is FailureCode.SECURITY_DENIED
-        assert "network access is not permitted" in exc_info.value.message.lower()
-
-    def test_outbound_external_processing_rejected_when_forbidden(self) -> None:
-        from sarathi.kavacha import OutboundRequest
-
-        policy = SecurityPolicy(
-            allow_pii_access=True,
-            allow_network_access=True,
-            allow_external_processing=False,
-            allowed_secrets=(),
-        )
-        kavacha = Kavacha(policy)
-        req = OutboundRequest(destination="https://example.com/api", requires_external_processing=True)
-
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize_outbound(req)
-        assert exc_info.value.code is FailureCode.SECURITY_DENIED
-        assert "external processing is not permitted" in exc_info.value.message.lower()
-
-    def test_outbound_pii_rejected_when_forbidden(self) -> None:
-        from sarathi.kavacha import OutboundRequest
-
-        policy = SecurityPolicy(
-            allow_pii_access=False,
-            allow_network_access=True,
-            allow_external_processing=True,
-            allowed_secrets=(),
-        )
-        kavacha = Kavacha(policy)
-        req = OutboundRequest(destination="https://example.com/api", payload_classification="document_content")
-
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize_outbound(req)
-        assert exc_info.value.code is FailureCode.SECURITY_DENIED
-        assert "sensitive payload is not permitted" in exc_info.value.message.lower()
-
-    def test_outbound_unauthorized_secret_rejected(self) -> None:
-        from sarathi.kavacha import OutboundRequest
-
-        policy = SecurityPolicy(
-            allow_pii_access=True,
-            allow_network_access=True,
-            allow_external_processing=True,
-            allowed_secrets=("AUTHORIZED_KEY",),
-        )
-        kavacha = Kavacha(policy)
-        req = OutboundRequest(destination="https://example.com/api", required_secrets=("FORBIDDEN_KEY",))
-
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize_outbound(req)
-        assert exc_info.value.code is FailureCode.SECURITY_DENIED
-        assert "is not permitted by" in exc_info.value.message.lower()
-
-    def test_outbound_permitted_when_all_conditions_satisfied(self) -> None:
-        from sarathi.kavacha import OutboundRequest
-
-        policy = SecurityPolicy(
-            allow_pii_access=True,
-            allow_network_access=True,
-            allow_external_processing=True,
-            allowed_secrets=("TRANSLATE_KEY",),
-        )
-        kavacha = Kavacha(policy)
-        req = OutboundRequest(
-            destination="https://api.translation.service/v1",
-            payload_classification="document_content",
-            requires_external_processing=True,
-            required_secrets=("TRANSLATE_KEY",),
-        )
-        # Succeeded without error
-        kavacha.authorize_outbound(req)
