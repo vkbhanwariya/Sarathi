@@ -8,7 +8,7 @@ Defines:
 
 from __future__ import annotations
 
-from sarathi.nabhi.artifacts.atomic_io import _compute_sha256, _write_bytes_atomically
+from sarathi.nabhi.artifacts.atomic_io import _write_bytes_atomically
 from sarathi.nabhi.artifacts.boundary import ArtifactBoundary
 from sarathi.nabhi.artifacts.manifest import serialize_run_manifest
 from sarathi.nabhi.artifacts.paths import (
@@ -35,7 +35,6 @@ __all__ = [
     "_SAFE_DOTTED_PATTERN",
     "_SAFE_IDENTIFIER_PATTERN",
     "_check_symlink_escape",
-    "_compute_sha256",
     "_is_path_relative_to",
     "_validate_root_directory",
     "_validate_root_separation",

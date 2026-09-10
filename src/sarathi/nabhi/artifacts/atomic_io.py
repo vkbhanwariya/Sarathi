@@ -1,29 +1,12 @@
-"""Atomic file writing and streaming cryptographic hashing for artifacts."""
+"""Atomic file writing for Nabhi persistence."""
 
 from __future__ import annotations
 
-import hashlib
 import os
 import uuid
 from pathlib import Path
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.nabhi.artifacts.paths import _CHUNK_SIZE
-
-
-def _compute_sha256(file_path: Path) -> str:
-    """Compute and return the hex-encoded SHA-256 checksum of file_path using streaming chunks."""
-    h = hashlib.sha256()
-    try:
-        with file_path.open("rb") as f:
-            while chunk := f.read(_CHUNK_SIZE):
-                h.update(chunk)
-    except OSError as err:
-        raise DoshError(
-            code=FailureCode.EXECUTION_FAILED,
-            message="Failed to compute checksum for artifact.",
-        ) from err
-    return h.hexdigest().lower()
 
 
 def _write_bytes_atomically(target_path: Path, content: bytes | bytearray) -> None:

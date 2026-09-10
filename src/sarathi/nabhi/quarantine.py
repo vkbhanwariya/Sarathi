@@ -15,19 +15,17 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.nabhi.artifacts.atomic_io import _write_bytes_atomically
 from sarathi.sankalpa import ExecutionContext, Request
 from sarathi.sutra import Settings
-
-if TYPE_CHECKING:
-    pass
 
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -289,22 +287,13 @@ class QuarantineStore:
 
         manifest_path = item_dir / "manifest.json"
         manifest_bytes = json.dumps(record.to_dict(), indent=2, ensure_ascii=False).encode("utf-8")
-
-        temp_path = item_dir / f".tmp_{uuid.uuid4().hex}_manifest.json"
         try:
-            temp_path.write_bytes(manifest_bytes)
-            temp_path.replace(manifest_path)
-        except OSError as err:
-            if temp_path.exists():
-                try:
-                    temp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+            _write_bytes_atomically(manifest_path, manifest_bytes)
+        except DoshError as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to write quarantine manifest file.",
             ) from err
-
         return manifest_path
 
     def get_record(self, quarantine_id: str) -> QuarantineRecord | None:
@@ -369,42 +358,23 @@ class QuarantineStore:
                 message=f"Quarantine item '{cleaned_id}' does not exist.",
             )
 
-        # Terminal state cannot be transitioned to any state (terminal is completed)
         if existing.status == QuarantineStatus.TERMINAL:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
                 message=f"Quarantine item '{cleaned_id}' is in terminal state and cannot transition to '{new_status.value}'.",
             )
 
-        # Released state cannot be transitioned to any state (released is completed)
         if existing.status == QuarantineStatus.RELEASED:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
                 message=f"Quarantine item '{cleaned_id}' is in released state and cannot transition to '{new_status.value}'.",
             )
 
-        from datetime import datetime, timezone
-
-        ts_now = updated_at_utc or datetime.now(timezone.utc).isoformat()
-        new_attempt = attempt_count if attempt_count is not None else existing.attempt_count
-
-        updated_record = QuarantineRecord(
-            quarantine_id=existing.quarantine_id,
-            input_hash=existing.input_hash,
-            run_id=existing.run_id,
-            request_id=existing.request_id,
-            trace_id=existing.trace_id,
-            capability_id=existing.capability_id,
-            plugin_id=existing.plugin_id,
-            failure_code=existing.failure_code,
-            profile=existing.profile,
-            attempt_count=new_attempt,
-            max_retries=existing.max_retries,
+        updated_record = replace(
+            existing,
+            attempt_count=attempt_count if attempt_count is not None else existing.attempt_count,
             status=new_status,
-            created_at_utc=existing.created_at_utc,
-            updated_at_utc=ts_now,
-            provenance=existing.provenance,
+            updated_at_utc=updated_at_utc or datetime.now(timezone.utc).isoformat(),
         )
-
         self.quarantine(updated_record)
         return updated_record

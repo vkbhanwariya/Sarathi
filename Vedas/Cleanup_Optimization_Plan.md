@@ -59,9 +59,13 @@ No deskew, CLAHE, recognition model, language routing, fallback threshold, confi
 
 These timings measure Python/image-orchestration overhead only, not end-to-end neural inference throughput, and must not be presented as real-model OCR latency.
 
-### Phase 5 — Artifact and quarantine cleanup
+### Phase 5 — Artifact and quarantine cleanup — complete
 
-Preserve path authorization, staged/atomic finalization, containment, and run/artifact identity while removing wrappers or duplicate representations that do not add safety.
+The artifact and quarantine boundary was audited globally before removal. The safety-bearing behavior remains unchanged: Kavacha source/destination overlap authorization, runtime/output root separation, symlink-containment checks, staged streaming promotion with checksum generation and rollback, manifest-last finalization, committed-artifact retention on failure, explicit partial-artifact policy, quarantine identifier validation, retry identity binding, and atomic persistence.
+
+Cleanup removed only duplicated or unused machinery. `RunWorkspace` now calls the canonical path-resolution and normalization helpers directly instead of forwarding through two state-free private methods. The unused `partial_artifacts` parameter was removed from failure cleanup and every caller. The dead `_compute_sha256` helper and export were removed because staged promotion already computes the authoritative checksum while streaming. Quarantine manifests now reuse Nabhi's existing atomic byte writer rather than maintaining a second temp-file implementation, while preserving the quarantine-specific outer failure message. Immutable quarantine status and retry-failure records now use `dataclasses.replace()` instead of manually reconstructing every unchanged field.
+
+No artifact destination, checksum, manifest, rollback, staging, partial retention, quarantine transition, retry count, failure code, run/request/trace identity, or user-visible output behavior was changed. The existing `RunWorkspace._write_bytes_atomically` injection seam remains because current failure-path tests use it to verify manifest and artifact rollback behavior; removing a useful verification seam solely to reduce method count would not improve the architecture.
 
 ### Phase 6 — Smriti and retained state
 

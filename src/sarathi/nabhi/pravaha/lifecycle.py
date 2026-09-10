@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Mapping
 
@@ -67,10 +68,8 @@ def execute_retry_attempt(
             message=f"Quarantine item '{record.quarantine_id}' has exhausted maximum retries ({record.max_retries}).",
         )
 
-    # Enforce security authorization before any retry mutation or Yantra allocation
     authorize_capability(kavacha, registry, cap)
 
-    # Check cancellation before retry execution; cancellation bypasses retry
     if request.cancellation_token is not None and request.cancellation_token.is_cancelled:
         raise DoshError(
             code=FailureCode.OPERATION_CANCELLED,
@@ -86,7 +85,6 @@ def execute_retry_attempt(
 
     new_attempt = record.attempt_count + 1
 
-    # Mark attempt as actively being retried in store with measured lifecycle time_scope
     with quarantine_transition_scope(
         darpana=darpana,
         context=context,
@@ -138,7 +136,6 @@ def execute_retry_attempt(
                 prior_result=prior_result,
             )
 
-        # Retry succeeded: release quarantined status with measured lifecycle time_scope
         with quarantine_transition_scope(
             darpana=darpana,
             context=retry_ctx,
@@ -155,27 +152,14 @@ def execute_retry_attempt(
         record_pramana_if_available(darpana, cap, result, retry_ctx)
         return result, released_rec
     except DoshError as dosh_err:
-        # Check if this failure remains retryable and retries are not exhausted
         is_still_retryable = retry_policy.is_retryable(dosh_err.code, new_attempt)
         next_status = QuarantineStatus.RETRIED if is_still_retryable else QuarantineStatus.TERMINAL
-        ts_now = datetime.now(timezone.utc).isoformat()
-
-        updated_rec = QuarantineRecord(
-            quarantine_id=retried_rec.quarantine_id,
-            input_hash=retried_rec.input_hash,
-            run_id=retried_rec.run_id,
-            request_id=retried_rec.request_id,
-            trace_id=retried_rec.trace_id,
-            capability_id=retried_rec.capability_id,
-            plugin_id=retried_rec.plugin_id,
+        updated_rec = replace(
+            retried_rec,
             failure_code=dosh_err.code,
-            profile=retried_rec.profile,
             attempt_count=new_attempt,
-            max_retries=retried_rec.max_retries,
             status=next_status,
-            created_at_utc=retried_rec.created_at_utc,
-            updated_at_utc=ts_now,
-            provenance=retried_rec.provenance,
+            updated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
         if not is_still_retryable:
             with quarantine_transition_scope(
@@ -214,7 +198,6 @@ def apply_lifecycle_action(
             message="No quarantine store configured in Pravaha.",
         )
 
-    # Validate action item_id format
     if not isinstance(action.item_id, str) or not _SAFE_ID_PATTERN.match(action.item_id):
         raise DoshError(
             code=FailureCode.VALIDATION_FAILED,
@@ -307,7 +290,6 @@ def apply_lifecycle_action(
                     message="Request and ExecutionContext are required to execute a retry through Yantra.",
                 )
 
-            # Mandatory RETRY identity binding checks before ANY mutation or execution
             if effective_req.request_id != existing.request_id:
                 raise DoshError(
                     code=FailureCode.VALIDATION_FAILED,
@@ -338,7 +320,6 @@ def apply_lifecycle_action(
                     message=f"Context profile '{effective_ctx.profile.value}' does not match quarantined profile '{existing.profile}'.",
                 )
 
-            # Resolve target capability and verify registered declaration
             cap_id = existing.capability_id
             if cap_id not in capabilities:
                 raise DoshError(
@@ -365,7 +346,6 @@ def apply_lifecycle_action(
                     message=f"Executable capability '{cap_id}' declaration does not match registered declaration in Kosh.",
                 )
 
-            # Recompute canonical input hash and verify match
             recomputed_hash = compute_input_hash(effective_req, cap, effective_ctx)
             if recomputed_hash != existing.input_hash:
                 raise DoshError(
@@ -373,7 +353,6 @@ def apply_lifecycle_action(
                     message="Recomputed input hash does not match quarantined input hash.",
                 )
 
-            # All checks passed: proceed with Yantra execution
             _, updated_rec = execute_retry_attempt(
                 cap=cap,
                 request=effective_req,

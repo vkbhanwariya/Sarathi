@@ -79,7 +79,6 @@ class RunWorkspace:
         self._partial_artifacts: list[Path] = []
         self._is_finalized: bool = False
 
-        # Ensure staging and output directories exist
         try:
             self._staging_dir.mkdir(parents=True, exist_ok=True)
             self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -124,14 +123,6 @@ class RunWorkspace:
         """Return whether this run workspace has finalized."""
         return self._is_finalized
 
-    def _resolve_relative_path(self, intent: ArtifactIntent) -> Path:
-        """Resolve and return the validated relative destination path declared by an ArtifactIntent."""
-        return resolve_relative_path(intent)
-
-    def _normalize_path_key(self, rel_path: Path) -> str:
-        """Normalize a relative path to standard forward-slash key for uniqueness checking."""
-        return normalize_path_key(rel_path)
-
     def _write_bytes_atomically(self, target_path: Path, content: bytes | bytearray) -> None:
         """Write content bytes into target_path atomically using a temporary file in the same directory."""
         _write_bytes_atomically(target_path, content)
@@ -149,8 +140,8 @@ class RunWorkspace:
                 message="Cannot stage artifact in a finalized run workspace.",
             )
 
-        rel_path = self._resolve_relative_path(intent)
-        path_key = self._normalize_path_key(rel_path)
+        rel_path = resolve_relative_path(intent)
+        path_key = normalize_path_key(rel_path)
 
         if path_key in self._staged_relative_paths:
             raise DoshError(
@@ -237,7 +228,6 @@ class RunWorkspace:
             output_dir=self._output_dir,
             committed_artifacts=self._committed_artifacts,
             preserve_partial=self._preserve_partial,
-            partial_artifacts=self._partial_artifacts,
         )
         self._staged_relative_paths.clear()
         self._committed_artifacts.clear()
@@ -349,7 +339,6 @@ class RunWorkspace:
                                 attributes={"error": "cleanup_failed_during_exception"},
                             )
                         )
-                    # Preserve original exception while attaching safe cleanup-failure note if supported
                     if exc_val is not None and hasattr(exc_val, "add_note"):
                         exc_val.add_note("Failed to clean up run workspace upon exception.")
         elif not self._is_finalized:

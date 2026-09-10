@@ -23,24 +23,20 @@ def cleanup_workspace_on_failure(
     output_dir: Path,
     committed_artifacts: list[ArtifactRef],
     preserve_partial: bool,
-    partial_artifacts: list[Path] | None = None,
 ) -> None:
     """Clean up uncommitted staging data and non-preserved partial data upon failure.
 
     Committed artifacts are ALWAYS retained for recovery per Core Runtime requirements.
     """
     try:
-        # 1. Clean staging directory
         if staging_dir.exists():
             shutil.rmtree(staging_dir)
 
-        # 2. Clean partial directory if not preserving partials
         if not preserve_partial:
             partial_dir = output_dir / "partial"
             if partial_dir.exists():
                 shutil.rmtree(partial_dir)
 
-        # 3. If output directory has no committed artifacts and no preserved partials, remove it
         if output_dir.exists():
             partial_dir = output_dir / "partial"
             has_partials = preserve_partial and partial_dir.exists() and any(partial_dir.iterdir())
@@ -116,13 +112,11 @@ def finalize_run_workspace(
         )
     except DoshError as err:
         if err.code == FailureCode.EXECUTION_FAILED:
-            cleanup_workspace_on_failure(staging_dir, output_dir, committed_artifacts, preserve_partial, partial_artifacts)
+            cleanup_workspace_on_failure(staging_dir, output_dir, committed_artifacts, preserve_partial)
         raise
 
-    # Only after all validation and serialization succeed do we perform final filesystem cleanup
     try:
         if not success or effective_status in ("failed", "cancelled"):
-            # Clean up partial artifacts if not preserving partials
             if not preserve_partial:
                 partial_dir = output_dir / "partial"
                 if partial_dir.exists():
@@ -141,7 +135,7 @@ def finalize_run_workspace(
     try:
         writer(manifest_file, manifest_bytes)
     except DoshError:
-        cleanup_workspace_on_failure(staging_dir, output_dir, committed_artifacts, preserve_partial, partial_artifacts)
+        cleanup_workspace_on_failure(staging_dir, output_dir, committed_artifacts, preserve_partial)
         raise
 
     return manifest_file
