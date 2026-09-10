@@ -21,3 +21,7 @@ Starlette owns HTTP routing, JSON responses, static-file responses, and SSE stre
 The existing `/api/*` payload shapes and SSE `state` event contract are preserved during transport migration so frontend modernization remains independent from backend transport replacement. `MukhaWebServer.local_url` exposes the canonical loopback origin; callers append route paths to that origin.
 
 HTTP header names are treated case-insensitively as required by HTTP. Host and Origin validation, CSP, frame restrictions, cache policy, content-type behavior, and path-containment checks remain enforced independent of header-name casing emitted by the ASGI server.
+
+## Follow-on cleanup and optimization
+
+The ordered post-migration roadmap, performance-baseline protocol, phase gates, and final V3 cleanup definition are maintained in [`Sarathi_V3_Cleanup_Optimization_Plan.md`](./Sarathi_V3_Cleanup_Optimization_Plan.md).
