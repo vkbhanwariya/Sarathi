@@ -11,7 +11,7 @@ import http.client
 
 import pytest
 
-from sarathi.mukha.web.http_handler import (
+from sarathi.mukha.web.security import (
     _is_authorized_loopback_host,
     _is_authorized_loopback_origin,
 )

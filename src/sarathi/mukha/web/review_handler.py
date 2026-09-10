@@ -54,24 +54,3 @@ def parse_and_validate_review_intent(
         expected_revision=expected_rev,
     )
     return intent, None, 200
-
-
-def handle_review_post(handler: Any, body: dict[str, Any]) -> None:
-    """Handle POST /api/review request dispatching."""
-    intent, err_msg, status_code = parse_and_validate_review_intent(body)
-    if err_msg is not None or intent is None:
-        handler._send_json(status_code, {"ok": False, "error": err_msg or "Invalid review payload."})
-        return
-
-    applied = handler.mukha_app.apply_review_intent(intent)
-    if not applied:
-        handler._send_json(
-            400,
-            {
-                "ok": False,
-                "error": "Review intent rejected: foreign run, stale attempt, duplicate submission, or invalid item.",
-            },
-        )
-        return
-
-    handler._send_json(200, {"ok": True, "action": intent.action_id, "item_id": intent.item_id, "applied": True})

@@ -47,8 +47,14 @@ The desired V3 shape is a small number of clear runtime responsibilities:
 Agni
   composition + lifecycle
 
-Nabhi
-  registry + planning + pipeline execution
+Kosh
+  registry + declarations
+
+Manthan
+  planning
+
+Pravaha
+  pipeline execution
 
 Shakti
   document capabilities

@@ -483,7 +483,7 @@ def test_serialize_dataclass_with_value_field() -> None:
     from dataclasses import dataclass
     from enum import Enum
 
-    from sarathi.mukha.web.http_handler import _serialize_dataclass
+    from sarathi.mukha.web.security import _serialize_dataclass
 
     class StatusEnum(Enum):
         ACTIVE = "active"
