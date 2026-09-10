@@ -23,7 +23,6 @@ class MemoryCacheEntry:
     key: CacheKey
     result: Result
     created_at: float
-    accessed_at: float
 
 
 class MemoryCache:
@@ -46,8 +45,6 @@ class MemoryCache:
                 del self._cache[key.key_hash]
                 return None
 
-            # Move to end for LRU
-            entry.accessed_at = now
             self._cache.move_to_end(key.key_hash)
             return copy.deepcopy(entry.result)
 
@@ -66,19 +63,16 @@ class MemoryCache:
                     key=key,
                     result=result_copy,
                     created_at=entry_created_at,
-                    accessed_at=now,
                 )
                 return
 
             if len(self._cache) >= self._policy.max_entries_l1:
-                # Evict least recently used
                 self._cache.popitem(last=False)
 
             self._cache[key.key_hash] = MemoryCacheEntry(
                 key=key,
                 result=result_copy,
                 created_at=entry_created_at,
-                accessed_at=now,
             )
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
