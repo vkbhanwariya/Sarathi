@@ -10,7 +10,8 @@ resource allocation, telemetry, retry, quarantine, caching, or security enforcem
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Collection, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
@@ -124,6 +125,42 @@ class Manthan:
         return CapabilityPlan(
             request_id=request.request_id,
             capability_ids=planned_ids,
+        )
+
+    def resolve_continuation(
+        self,
+        request: Request,
+        next_requirement: str,
+        *,
+        completed_capability_ids: Collection[str] = (),
+        remaining_capability_ids: Sequence[str] = (),
+    ) -> tuple[Request, CapabilityPlan]:
+        """Resolve a continuation while preserving the request's execution profile.
+
+        Completed prerequisite stages are removed from the newly resolved route,
+        then still-pending stages from the interrupted plan are appended in order.
+        Manthan remains the only component that constructs continuation plans.
+        """
+        if not isinstance(request, Request):
+            raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
+        if not isinstance(next_requirement, str):
+            raise TypeError(f"next_requirement must be a string, got {type(next_requirement).__name__}.")
+
+        continuation_request = replace(request, requirement=next_requirement)
+        next_plan = self.resolve(continuation_request)
+        completed = set(completed_capability_ids)
+
+        combined_stages: list[str] = []
+        for capability_id in next_plan.capability_ids:
+            if capability_id not in completed and capability_id not in combined_stages:
+                combined_stages.append(capability_id)
+        for capability_id in remaining_capability_ids:
+            if capability_id not in combined_stages:
+                combined_stages.append(capability_id)
+
+        return continuation_request, CapabilityPlan(
+            request_id=request.request_id,
+            capability_ids=tuple(combined_stages),
         )
 
     def _topological_sort(self, root_id: str, profile: ExecutionProfile | None = None) -> tuple[str, ...]:
