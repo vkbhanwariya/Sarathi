@@ -1,4 +1,4 @@
-"""Mistral Cloud OCR Capability implementation for Sarathi V2.
+"""Mistral Cloud OCR Capability implementation for Sarathi.
 
 Consumes documents/images, invokes mistral-ocr-latest via MistralClient,
 and maps response into canonical PageData, TextSpan bounding boxes, TableData,

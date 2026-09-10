@@ -1,4 +1,4 @@
-"""Bank Statement Consolidation Plugin Declaration for Sarathi V2."""
+"""Bank Statement Consolidation Plugin Declaration for Sarathi."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Shakti Translation Package for Sarathi V2."""
+"""Shakti Translation Package for Sarathi."""
 
 from __future__ import annotations
 

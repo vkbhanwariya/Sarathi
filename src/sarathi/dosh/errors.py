@@ -1,4 +1,4 @@
-"""Dosh — Error System for Sarathi V2.
+"""Dosh — Error System for Sarathi.
 
 Defines the small common failure vocabulary required across the system:
 - FailureCode: Canonical failure classifications.

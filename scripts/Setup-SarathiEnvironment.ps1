@@ -77,7 +77,7 @@ if ($env:OS -ne 'Windows_NT') {
 $resolvedRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 
 Write-Host ''
-Write-Host '=== Sarathi V2 Environment Setup ==='
+Write-Host '=== Sarathi Environment Setup ==='
 Write-Host "Script directory : $scriptRoot"
 Write-Host "Project root     : $resolvedRoot"
 Write-Host "Python version   : $PythonVersion"

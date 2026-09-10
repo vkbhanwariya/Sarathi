@@ -1,4 +1,4 @@
-"""Typed Decimal-based Financial Models and Contracts for Bank Statements in Sarathi V2.
+"""Typed Decimal-based Financial Models and Contracts for Bank Statements in Sarathi.
 
 All monetary arithmetic and fields use Python standard library Decimal end-to-end.
 Float arithmetic is strictly prohibited.

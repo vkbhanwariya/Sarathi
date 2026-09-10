@@ -1,4 +1,4 @@
-"""Capability Readiness Contracts for Sarathi V2.
+"""Capability Readiness Contracts for Sarathi.
 
 Defines:
 - ReadinessStatus: Enum representing capability readiness states.

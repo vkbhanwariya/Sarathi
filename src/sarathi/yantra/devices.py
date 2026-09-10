@@ -1,4 +1,4 @@
-"""Device inventory contracts for Yantra Resource Manager in Sarathi V2.
+"""Device inventory contracts for Yantra Resource Manager in Sarathi.
 
 Defines:
 - DeviceInfo: Immutable record of an available device and its slot capacity.

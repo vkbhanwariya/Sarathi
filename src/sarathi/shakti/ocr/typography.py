@@ -1,4 +1,4 @@
-"""Mini typography helper for OCR capability in Sarathi V2.
+"""Mini typography helper for OCR capability in Sarathi.
 
 Owns recognized-output DOCX typography:
 - English-only -> Times New Roman

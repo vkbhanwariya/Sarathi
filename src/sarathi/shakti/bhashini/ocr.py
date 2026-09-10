@@ -1,4 +1,4 @@
-"""Bhashini (Chitrakshar) Cloud OCR Capability implementation for Sarathi V2."""
+"""Bhashini (Chitrakshar) Cloud OCR Capability implementation for Sarathi."""
 
 from __future__ import annotations
 

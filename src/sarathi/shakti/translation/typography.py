@@ -1,4 +1,4 @@
-"""Mini typography helper for Translation capability in Sarathi V2.
+"""Mini typography helper for Translation capability in Sarathi.
 
 Owns translated-output DOCX typography:
 - English-only -> Times New Roman

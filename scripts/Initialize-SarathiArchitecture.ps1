@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Creates the canonical Sarathi V2 project scaffold without overwriting existing files.
+Creates the canonical Sarathi project scaffold without overwriting existing files.
 
 .DESCRIPTION
 Runs on Windows PowerShell 5.1 and newer PowerShell releases on Windows 11.
@@ -241,13 +241,13 @@ Add-FileIfMissing '.python-version' "3.13.15"
 Add-FileIfMissing 'pyproject.toml' $pyproject
 Add-FileIfMissing '.gitignore' $gitignore
 
-Write-Host "Sarathi V2 scaffold complete: $resolvedRoot"
+Write-Host "Sarathi scaffold complete: $resolvedRoot"
 Write-Host "Created directories: $createdDirectories"
 Write-Host "Created files:       $createdFiles"
 Write-Host "Preserved existing:  $preservedItems"
 
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedRoot 'README.md'))) {
-    Write-Warning 'README.md is absent. Place the canonical Sarathi V2 README at the project root.'
+    Write-Warning 'README.md is absent. Place the canonical Sarathi README at the project root.'
 }
 
 Write-Host 'No capability implementation files or empty Anubhava data files were created.'

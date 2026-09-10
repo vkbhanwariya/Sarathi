@@ -1,4 +1,4 @@
-"""Header Mapper for Bank Statements in Sarathi V2.
+"""Header Mapper for Bank Statements in Sarathi.
 
 Maps extracted table headers to canonical financial fields:
 - date, description, reference_number, cheque_number, debit, credit, amount, direction, balance

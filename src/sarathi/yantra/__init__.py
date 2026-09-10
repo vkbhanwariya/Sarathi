@@ -1,4 +1,4 @@
-"""Yantra — Resource & Execution Manager for Sarathi V2.
+"""Yantra — Resource & Execution Manager for Sarathi.
 
 Exposes:
 - Allocation: Immutable record of an allocated hardware slot.

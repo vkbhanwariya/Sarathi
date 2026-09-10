@@ -1,13 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Sarathi Architecture Manifest Schema",
-  "description": "Schema defining architectural boundary contracts, ownership, and dependency rules for Sarathi.",
+  "description": "Schema defining canonical production topology, ownership, and dependency declarations for Sarathi.",
   "type": "object",
   "required": [
     "manifest_version",
     "system",
     "source_root",
     "root_package",
+    "root_components",
     "dependency_policy",
     "modules",
     "groups",
@@ -29,6 +30,14 @@
     "root_package": {
       "type": "string"
     },
+    "root_components": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
     "dependency_policy": {
       "type": "object",
       "required": ["default_internal_policy"],
@@ -44,7 +53,7 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["package", "role", "may_import"],
+        "required": ["package", "role", "components", "may_import"],
         "additionalProperties": false,
         "properties": {
           "package": {
@@ -52,6 +61,14 @@
           },
           "role": {
             "type": "string"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
           },
           "composition_root": {
             "type": "boolean"

@@ -56,7 +56,7 @@ function Home({ state }: { state: ApplicationViewState }) {
           <span class="eyebrow">Document intelligence workspace</span>
           <h2>Process documents without losing sight of the evidence.</h2>
           <p>
-            Sarathi V3 keeps intake, execution, review and artifacts in one local workflow.
+            Sarathi keeps intake, execution, review and artifacts in one local workflow.
           </p>
         </div>
         <div class="hero__status">

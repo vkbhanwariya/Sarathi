@@ -1,4 +1,4 @@
-"""Canonical Dynamic Pipeline Engine for Nabhi Kernel in Sarathi V2."""
+"""Canonical Dynamic Pipeline Engine for Nabhi Kernel in Sarathi."""
 
 from __future__ import annotations
 

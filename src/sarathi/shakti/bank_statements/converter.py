@@ -1,4 +1,4 @@
-"""Financial Value Converter for Bank Statements in Sarathi V2.
+"""Financial Value Converter for Bank Statements in Sarathi.
 
 Converts monetary amounts into Python Decimal (never float), dates, and times.
 Canonical module for value conversion in Shakti bank statements.

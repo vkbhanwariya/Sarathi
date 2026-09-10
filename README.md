@@ -1,166 +1,112 @@
-# Sarathi V3
+# Sarathi
 
-**Development version:** `3.0.0.dev0`  
-**Branch:** `v3`  
-**Updated:** 10-09-2026 (Asia/Kolkata)
+Sarathi is a local-first document intelligence application for extracting, understanding, translating, converting, and consolidating documents. The current package version is `3.0.0.dev0` and the Python runtime baseline is `>=3.13,<3.14`.
 
-Sarathi is a local-first document intelligence application for OCR, native document extraction, translation, font conversion, bank-statement processing, and optional cloud-assisted document processing.
+The repository is intentionally simple: `development` is the active integration branch and `main` is the stable branch. Changes are completed and validated on `development`, then promoted to `main` only after the permanent CI gates pass.
 
-V3 is the simplification line. It keeps useful product behavior while removing internal architecture machinery that does not justify its cost.
+## What Sarathi does
 
-> `main` remains the V2 stable line. V3 development happens on `v3`; V3 changes are not merged into V2 merely to preserve history.
+Sarathi currently provides:
 
----
+- native text and structure extraction from supported documents;
+- local OCR using RapidOCR/OpenVINO with targeted Tesseract support;
+- Hindi/English translation;
+- legacy Hindi font conversion and DOCX output;
+- bank-statement extraction and consolidation;
+- optional cloud OCR/translation adapters for Mistral, Gemini, Azure, and Bhashini;
+- a loopback-only local web interface backed by Starlette/Uvicorn and a TypeScript/Preact frontend migration.
 
-## Principles
-
-- Prefer the smallest implementation that completely solves the current requirement.
-- Preserve user-visible behavior while deleting redundant internal layers.
-- One decision should have one clear authority; avoid shadow managers and parallel policy paths.
-- Add abstractions only when current code has a demonstrated need for them.
-- Keep capabilities focused on document/domain work; shared runtime concerns stay outside capability implementations.
-- Tests protect behavior and important boundaries, not arbitrary architecture metrics.
-- Compatibility exists where users or persisted data require it, not automatically for superseded internal APIs.
-
----
+Capability availability depends on installed optional dependencies, configured credentials, and runtime readiness checks. Sarathi must report unavailable capabilities explicitly rather than silently changing the requested behavior.
 
 ## Runtime flow
 
 ```text
-Input documents
-      ↓
-Identify
-      ↓
-Resolve required capabilities
-      ↓
-Execute pipeline
-      ↓
-OCR / Extract / Translate / Convert / Consolidate
-      ↓
-Commit completed outputs
+CLI / Local Web UI
+        |
+        v
+     Agni
+composition + lifecycle
+        |
+        v
+Kosh declarations -> Manthan planning
+                        |
+                        v
+                    Pravaha
+               pipeline execution
+                        |
+                        v
+                     Shakti
+             document capabilities
+                        |
+                        v
+                committed artifacts
 ```
 
-The current internal names remain while V3 simplification proceeds:
+Cross-cutting services are explicit: Kavacha authorizes real security/privacy boundaries, Yantra owns execution/device resources, Smriti provides optional caching, Darpana records runtime/quality history, Sankalpa defines shared contracts, Sutra loads settings, and Dosh defines shared errors.
 
-- **Agni** — composition and process lifecycle
-- **Kosh** — plugin/capability declaration registry
-- **Manthan** — initial and continuation plan resolution
-- **Pravaha** — plan execution, hand-off, retry/cancellation flow
-- **Yantra** — hardware allocation and execution concurrency
-- **Kavacha** — declared security-policy authorization and path safety
-- **Smriti** — reusable result cache
-- **Darpana** — runtime/quality observation
-- **Shakti** — document and business capabilities
-- **Mukha** — presentation layer
+`sarathi.nabhi` is the physical runtime namespace that currently contains Kosh, Manthan, Pravaha, artifact/quarantine support, and the deprecated Prana compatibility adapter. It is not a second planning or execution authority: Kosh owns declarations, Manthan owns planning, and Pravaha executes the returned plan.
 
-These names are not a reason to preserve unnecessary subsystems. V3 may flatten or rename them when doing so makes the product easier to understand and maintain.
+## Repository map
 
----
+| Path | Purpose |
+| --- | --- |
+| `src/sarathi/` | Python application/runtime code |
+| `ui/` | TypeScript/Preact frontend |
+| `Vedas/` | Current architecture and engineering documentation |
+| `tests/` | Unit, integration, architecture, browser, and specialized tests |
+| `config/` | Runtime configuration |
+| `data/` | Checked-in configuration/data assets such as bank mappings and OCR manifests |
+| `scripts/` | Environment, model, benchmark, and maintenance scripts |
+| `.github/workflows/ci.yml` | Permanent CI definition |
 
-## V3 simplification completed so far
+The canonical production topology is machine-readable in `Vedas/architecture.manifest.json` and validated by architecture tests.
 
-### Runtime and governance
+## Setup
 
-- Replaced architecture-heavy contribution rules with simple-code-first guidance.
-- Removed the arbitrary 30 KB source-file architecture rule.
-- Removed duplicated import-linter architecture policy and stale boundary inventories.
-- Reduced architecture tests to meaningful sanity checks.
-- Moved process lifecycle ownership into Agni.
-- Removed Dvara; Kosh now performs atomic provider declaration registration directly.
-
-### Planning and execution
-
-- Manthan is the sole authority for initial and continuation capability plans.
-- Pravaha no longer silently changes execution profiles or constructs competing continuation plans.
-- Continuation preserves the requested profile and fails clearly when the route is incompatible.
-
-### Hardware policy
-
-- Yantra owns device allocation and concurrency policy.
-- Removed the synthetic multi-device `DeviceSlotPool` / hybrid OCR scheduling path.
-- OCR owns page decomposition and OCR behavior, not CPU/GPU spillover or worker policy.
-- Real allocator-backed preferred-device/spillover behavior remains intact.
-
-### Security boundary
-
-- Removed the unused parallel `OutboundRequest` / per-request outbound policy model.
-- Kavacha authorizes the owning plugin's declared PII/network/external-processing/credential-name requirements before capability execution.
-- Cloud clients own provider-specific HTTP transport and credential-value lookup.
-- Kavacha is intentionally not a credential vault, HTTP proxy, PII scanner, or network gateway.
-
----
-
-## Current capabilities
-
-- Native document extraction
-- Local OCR with RapidOCR/OpenVINO and targeted Tesseract fallback
-- Hindi/English translation
-- Legacy Hindi font conversion and DOCX output
-- Bank statement extraction and consolidation
-- Optional cloud OCR/translation adapters for Mistral, Gemini, Azure, and Bhashini
-
----
-
-## Development setup
-
-Python `>=3.13,<3.14` is the current runtime baseline.
+Install the project and development dependencies:
 
 ```powershell
+uv python install 3.13
 uv sync --all-extras --group dev
 ```
 
-Run Sarathi:
+Run the local web application:
 
 ```powershell
-# Local web UI
 .\arambha.bat
+```
 
-# Or module entry point
+Or run the module directly:
+
+```powershell
 uv run python -m sarathi
+```
 
-# CLI example
+CLI example:
+
+```powershell
 uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --profile "instant"
 ```
 
-Useful verification commands:
+## Validation
+
+Useful local checks mirror the permanent CI gates:
 
 ```powershell
 uv run --group dev python -m compileall -q src tests scripts
 uv run ruff check .
 uv run --group dev pytest -q tests/architecture
-uv run --all-extras --group dev pytest -q -m "not browser and not real_model and not performance"
+uv run --all-extras --group dev pytest -q -m "not browser and not performance and not real_model and not architecture"
 ```
 
-The CI workflow runs on both `main` and `v3`. V3 uses the fully loaded OCR test environment with verified model assets and Tesseract English/Hindi language packs.
-
----
+CI also builds the TypeScript UI and runs Playwright browser tests. OCR CI provisions verified model assets and the required Tesseract language packs.
 
 ## Documentation
 
-Detailed specifications currently remain under `Vedas/` while they are simplified alongside the owning code. Some filenames still carry the `Sarathi_V2_` prefix because V3 is being migrated incrementally rather than rewritten from scratch.
+Start with [`Vedas/README.md`](Vedas/README.md). It links the current architecture, capability, Mukha transport, cleanup roadmap, and machine-readable architecture manifest.
 
-Key references:
+Current documentation describes the code that exists now. Superseded product-generation documents are intentionally not kept in the active Vedas tree; historical context belongs in Git history, not in current operating instructions.
 
-- [Core Runtime Specification](Vedas/Sarathi_V2_Core_Runtime_Spec.md)
-- [Shared Services Specification](Vedas/Sarathi_V2_Shared_Services_Spec.md)
-- [Plugin & Capability Specification](Vedas/Sarathi_V2_Plugin_Capability_Spec.md)
-- [OCR Specification](Vedas/Sarathi_V2_OCR_Spec.md)
-- [Native Extraction Specification](Vedas/Sarathi_V2_Native_Extraction_Spec.md)
-- [Translation Specification](Vedas/Sarathi_V2_Translation_Spec.md)
-- [Font Conversion Specification](Vedas/Sarathi_V2_Font_Conversion_Spec.md)
-- [Bank Statement Specification](Vedas/Sarathi_V2_Bank_Statement_Spec.md)
-- [Mukha Screen Specification](Vedas/Sarathi_V2_Mukha_Screen_Spec.md)
-- [Implementation Guide](Vedas/Sarathi_V2_Implementation_Guide.md)
+## Engineering rule
 
-V3 documentation should describe implemented behavior, not speculative infrastructure. When an old V2 rule conflicts with current V3 implementation, fix or remove the stale rule as part of the owning subsystem cleanup.
-
----
-
-## Version policy
-
-- `main` — V2 stable/history line
-- `v3` — active V3 development line
-- current package version — `3.0.0.dev0`
-- first stable V3 release — `3.0.0`
-
-V3 is an evolution of the tested V2 codebase, not a rewrite-from-zero. Each subsystem is simplified one at a time and must remain behaviorally validated before moving to the next.
+Preserve behavior, keep one clear owner for each decision, delete obsolete paths instead of maintaining parallel architectures, and complete one cleanup phase—including tests and documentation—before starting the next.

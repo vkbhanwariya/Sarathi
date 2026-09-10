@@ -1,4 +1,4 @@
-"""Smriti - Cache and Runtime State Service for Sarathi V2."""
+"""Smriti - Cache and Runtime State Service for Sarathi."""
 
 from sarathi.smriti.key import (
     CacheKey,

@@ -1,4 +1,4 @@
-"""Executable Translation Capability for Sarathi V2."""
+"""Executable Translation Capability for Sarathi."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""RapidOCR + PP-OCRv5/v6 + OpenVINO engine coordinator for Sarathi V2.
+"""RapidOCR + PP-OCRv5/v6 + OpenVINO engine coordinator for Sarathi.
 
 Coordinates multi-language OCR engine instances, preprocessing, inference execution,
 targeted Tesseract fallback, and canonical PageData synthesis.

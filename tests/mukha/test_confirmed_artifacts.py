@@ -1,17 +1,18 @@
-"""Test confirmed artifact population, streaming headers, and containment validation.
+"""Test confirmed artifact streaming headers and containment validation.
 
 Validates:
-1. Real or mock run execution populates _confirmed_artifacts from result.artifacts.
-2. Streaming download endpoint returns 200 with correct Content-Type, Content-Length, and Content-Disposition.
+1. Confirmed artifacts are streamed through the public server lookup contract.
+2. Download responses return correct Content-Type, Content-Length, and Content-Disposition.
 3. Access to files outside output_root or runtime_root is strictly denied with 403 Forbidden.
 4. Non-existent or unregistered artifacts return 404 Not Found.
 """
 
 from __future__ import annotations
 
+import urllib.error
 import urllib.request
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -24,16 +25,16 @@ def _http_get(url: str) -> tuple[int, dict[str, str], bytes]:
     req = urllib.request.Request(url, headers={"Host": "127.0.0.1"})
     try:
         with urllib.request.urlopen(req) as resp:
-            headers = {k.lower(): v for k, v in resp.headers.items()}
+            headers = {key.lower(): value for key, value in resp.headers.items()}
             return resp.status, headers, resp.read()
     except urllib.error.HTTPError as err:
-        headers = {k.lower(): v for k, v in err.headers.items()}
+        headers = {key.lower(): value for key, value in err.headers.items()}
         return err.code, headers, err.read()
 
 
 @pytest.fixture
 def artifact_server(tmp_path: Path):
-    """Fixture providing a started MukhaWebServer with isolated output and runtime roots."""
+    """Provide a started MukhaWebServer with isolated output and runtime roots."""
     output_root = tmp_path / "output"
     runtime_root = tmp_path / "runtime"
     output_root.mkdir(parents=True, exist_ok=True)
@@ -45,6 +46,7 @@ def artifact_server(tmp_path: Path):
     mock_agni.kavacha = None
     mock_agni.kosh.capabilities.return_value = ()
     mock_agni.darpana = None
+    mock_agni.smriti = None
 
     server = MukhaWebServer(mock_agni, host="127.0.0.1", port=0)
     server.start()
@@ -54,8 +56,8 @@ def artifact_server(tmp_path: Path):
         server.stop()
 
 
-def test_confirmed_artifact_populated_and_streamed(artifact_server: tuple[MukhaWebServer, Path, Path]) -> None:
-    """Artifacts registered on terminal run result must be streamable with strict headers."""
+def test_confirmed_artifact_streamed(artifact_server: tuple[MukhaWebServer, Path, Path]) -> None:
+    """A confirmed artifact returned by the server lookup must be streamable with strict headers."""
     server, out_root, _ = artifact_server
 
     run_id = "run_art_001"
@@ -71,13 +73,10 @@ def test_confirmed_artifact_populated_and_streamed(artifact_server: tuple[MukhaW
         size_bytes=len(art_content),
     )
 
-    # Register confirmed artifact on server
-    with server._lock:
-        server._confirmed_artifacts[run_id] = {art_ref.artifact_id: art_ref}
-
-    status, headers, body = _http_get(
-        f"http://127.0.0.1:{server.resolved_port}/api/runs/{run_id}/artifacts/{art_ref.artifact_id}"
-    )
+    with patch.object(server, "get_confirmed_artifact", return_value=art_ref):
+        status, headers, body = _http_get(
+            f"http://127.0.0.1:{server.resolved_port}/api/runs/{run_id}/artifacts/{art_ref.artifact_id}"
+        )
 
     assert status == 200
     assert headers["content-type"] == "application/pdf"
@@ -105,12 +104,10 @@ def test_artifact_containment_forbidden(artifact_server: tuple[MukhaWebServer, P
         size_bytes=len(outside_content),
     )
 
-    with server._lock:
-        server._confirmed_artifacts[run_id] = {art_ref.artifact_id: art_ref}
-
-    status, _, _ = _http_get(
-        f"http://127.0.0.1:{server.resolved_port}/api/runs/{run_id}/artifacts/{art_ref.artifact_id}"
-    )
+    with patch.object(server, "get_confirmed_artifact", return_value=art_ref):
+        status, _, _ = _http_get(
+            f"http://127.0.0.1:{server.resolved_port}/api/runs/{run_id}/artifacts/{art_ref.artifact_id}"
+        )
 
     assert status == 403
 

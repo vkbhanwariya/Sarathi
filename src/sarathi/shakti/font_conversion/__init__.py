@@ -1,4 +1,4 @@
-"""Roopa Font Conversion Capability Package for Sarathi V2."""
+"""Roopa Font Conversion Capability Package for Sarathi."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Phase 4 Integrity and Audit Remediation Tests for Sarathi V2.
+"""Phase 4 Integrity and Audit Remediation Tests for Sarathi.
 
 Verifies:
 - Finding 12: Semantic span preservation in font conversion & translation

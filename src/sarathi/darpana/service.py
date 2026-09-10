@@ -1,4 +1,4 @@
-"""Darpana - Telemetry & Tracing Service for Sarathi V2.
+"""Darpana - Telemetry & Tracing Service for Sarathi.
 
 Exposes:
 - Darpana: Injected telemetry service maintaining thread-safe bounded in-memory histories

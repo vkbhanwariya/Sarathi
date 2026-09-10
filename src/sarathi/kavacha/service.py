@@ -1,4 +1,4 @@
-"""Kavacha — Security & Privacy Service for Sarathi V2.
+"""Kavacha — Security & Privacy Service for Sarathi.
 
 Delegates plugin/capability authorization decisions to SecurityPolicy and
 performs path containment and overlap verification. Contains no secret storage,

@@ -1,4 +1,4 @@
-"""End-to-end operational acceptance tests for Sarathi V2.
+"""End-to-end operational acceptance tests for Sarathi.
 
 Verifies the complete pipeline flow through the actual Agni runtime bootstrap:
 - Selected input ingestion, validation, and security root checks

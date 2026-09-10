@@ -47,7 +47,7 @@ def test_preview_execution_plan_mock_success(tmp_path: Path) -> None:
     mock_agni.kosh.get_capability.return_value = mock_cap
 
     concrete_device = DeviceInfo(device_id="cpu:0", device_type=DeviceType.CPU, capacity=4)
-    mock_agni.yantra.device_inventory.devices = [concrete_device]
+    mock_agni.yantra.inventory.devices = [concrete_device]
 
     res = preview_execution_plan(
         agni=mock_agni,

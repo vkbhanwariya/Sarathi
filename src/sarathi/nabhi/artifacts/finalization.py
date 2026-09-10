@@ -1,4 +1,4 @@
-"""Run Workspace Finalization and Failure Cleanup for Sarathi V2.
+"""Run Workspace Finalization and Failure Cleanup for Sarathi.
 
 Provides atomic run manifest emission, in-memory pre-validation, staged directory
 cleanup, and failure state purging.

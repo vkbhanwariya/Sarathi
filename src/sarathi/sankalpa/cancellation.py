@@ -1,4 +1,4 @@
-"""Cancellation Contracts for Sarathi V2.
+"""Cancellation Contracts for Sarathi.
 
 Defines:
 - CancellationToken: Thread-safe cooperative cancellation token for execution pipelines.

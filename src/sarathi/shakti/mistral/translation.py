@@ -1,4 +1,4 @@
-"""Mistral Cloud Translation Capability implementation for Sarathi V2.
+"""Mistral Cloud Translation Capability implementation for Sarathi.
 
 Consumes CanonicalDocument or raw input text, invokes mistral-large-latest via MistralClient,
 and maps translated text into CanonicalDocument and TXT/DOCX artifacts.

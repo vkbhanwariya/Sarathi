@@ -1,4 +1,4 @@
-"""Mukha Presenter - Pure Presentation Logic and State Projection in Sarathi V2.
+"""Mukha Presenter - Pure Presentation Logic and State Projection in Sarathi.
 
 Transforms canonical Request, Result, Darpana records, and Kavacha policy
 into typed presentation view models. Does not mutate runtime state, execute work,

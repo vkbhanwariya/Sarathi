@@ -1,4 +1,4 @@
-"""Privacy-safe REST client for Mistral AI APIs in Sarathi V2.
+"""Privacy-safe REST client for Mistral AI APIs in Sarathi.
 
 Implements zero-leak HTTP transport, strict header controls, and sanitized error mapping.
 Supports both httpx and standard library urllib as a fallback.

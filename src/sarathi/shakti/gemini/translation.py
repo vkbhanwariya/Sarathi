@@ -1,4 +1,4 @@
-"""Google Gemini Cloud Translation Capability implementation for Sarathi V2."""
+"""Google Gemini Cloud Translation Capability implementation for Sarathi."""
 
 from __future__ import annotations
 

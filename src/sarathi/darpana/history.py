@@ -1,4 +1,4 @@
-"""Retained Safe Terminal Run History for Darpana in Sarathi V2.
+"""Retained Safe Terminal Run History for Darpana in Sarathi.
 
 Defines:
 - TerminalRunSummary: Privacy-filtered immutable terminal execution summary.

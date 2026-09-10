@@ -1,4 +1,4 @@
-"""Execution Profile Contracts for Sarathi V2.
+"""Execution Profile Contracts for Sarathi.
 
 Defines the canonical processing modes:
 - Instant: Fastest viable path, minimum unnecessary fallback.
@@ -16,7 +16,7 @@ from typing import Any, Mapping
 
 
 class ExecutionProfile(StrEnum):
-    """Canonical processing profiles defined across Sarathi V2."""
+    """Canonical processing profiles defined across Sarathi."""
 
     INSTANT = "instant"
     ACCURATE = "accurate"

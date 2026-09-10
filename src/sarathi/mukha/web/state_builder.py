@@ -1,4 +1,4 @@
-"""Mukha Web Presentation State Builder for Sarathi V2.
+"""Mukha Web Presentation State Builder for Sarathi.
 
 Projects canonical runtime facts, telemetry records, and runner progress into
 typed view contracts for the interactive Web UI.

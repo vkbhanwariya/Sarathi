@@ -1,4 +1,4 @@
-"""OCR Dependency and Model Preflight Readiness Checker for Sarathi V2.
+"""OCR Dependency and Model Preflight Readiness Checker for Sarathi.
 
 Verifies required Python libraries, manifest integrity, and model file checksums
 under strict local execution guarantees.

@@ -1,4 +1,4 @@
-"""Bhashini IndicTrans2 Translation Capability implementation for Sarathi V2."""
+"""Bhashini IndicTrans2 Translation Capability implementation for Sarathi."""
 
 from __future__ import annotations
 

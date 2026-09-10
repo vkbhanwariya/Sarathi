@@ -1,4 +1,4 @@
-"""Microsoft Azure Cloud Plugin for Sarathi V2.
+"""Microsoft Azure Cloud Plugin for Sarathi.
 
 Exposes Azure Document Intelligence OCR and Azure AI Translator capabilities.
 """

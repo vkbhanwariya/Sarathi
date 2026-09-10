@@ -20,6 +20,7 @@ from starlette.routing import Route
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
+from sarathi.mukha.state import ReviewIntent
 from sarathi.mukha.web.native_picker import NativePicker
 from sarathi.mukha.web.preview import (
     build_artifact_preview,
@@ -27,7 +28,6 @@ from sarathi.mukha.web.preview import (
     build_input_preview,
     render_pdf_page,
 )
-from sarathi.mukha.web.review_handler import parse_and_validate_review_intent
 from sarathi.mukha.web.runner import StartRunStatus
 from sarathi.mukha.web.security import (
     _format_public_error,
@@ -209,6 +209,54 @@ async def _read_json_object(request: Request) -> tuple[dict[str, Any] | None, Re
     return parsed, None
 
 
+def _parse_review_intent(body: dict[str, Any]) -> tuple[ReviewIntent | None, str | None, int]:
+    """Translate an HTTP review payload into a validated review intent."""
+    item_id = body.get("item_id")
+    action = body.get("action_id") or body.get("action")
+    attempt_id = body.get("attempt_id")
+    run_id = body.get("run_id")
+
+    if not isinstance(item_id, str) or not item_id.strip():
+        return None, "item_id must be a non-empty string.", 400
+    if not isinstance(action, str) or not action.strip():
+        return None, "action or action_id must be a non-empty string.", 400
+    if not isinstance(attempt_id, str) or not attempt_id.strip():
+        return None, "attempt_id must be a non-empty string.", 400
+    if run_id is not None and (not isinstance(run_id, str) or not run_id.strip()):
+        return None, "run_id must be a non-empty string when provided.", 400
+
+    action_id = action.strip()
+    if action_id == "edit":
+        action_id = "validate_edit"
+    elif action_id in ("dismiss", "unresolved"):
+        action_id = "unresolved"
+
+    if action_id not in ("accept", "validate_edit", "retry", "unresolved"):
+        return None, f"Invalid review action: '{action}'.", 400
+    if action_id in ("validate_edit", "retry"):
+        return None, f"Review action '{action_id}' is currently unsupported by runtime capability.", 400
+
+    expected_revision = None
+    if body.get("expected_revision") is not None:
+        try:
+            expected_revision = int(body["expected_revision"])
+        except (TypeError, ValueError):
+            return None, "expected_revision must be an integer.", 400
+
+    return (
+        ReviewIntent(
+            item_id=item_id.strip(),
+            attempt_id=attempt_id.strip(),
+            action_id=action_id,
+            run_id=run_id.strip() if run_id else None,
+            proposed_value=str(body["proposed_value"]) if body.get("proposed_value") is not None else None,
+            expected_revision=expected_revision,
+        ),
+        None,
+        200,
+    )
+
+
 def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
     """Build the Starlette application around an existing Mukha presentation façade."""
 
@@ -255,9 +303,9 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                 if await request.is_disconnected():
                     return
                 state = mukha.get_application_view_state()
-                runner_revision = getattr(mukha.runner, "state_revision", None)
+                runner_revision = mukha.runner.state_revision
                 is_running = bool(state.active_run and state.active_run.status == "RUNNING")
-                if runner_revision is None or runner_revision != last_revision or is_running:
+                if runner_revision != last_revision or is_running:
                     serialized = json.dumps(
                         {
                             "ok": True,
@@ -269,7 +317,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                     )
                     if serialized != last_serialized or runner_revision != last_revision:
                         last_serialized = serialized
-                        last_revision = state.state_revision if runner_revision is not None else -1
+                        last_revision = state.state_revision
                         yield f"event: state\ndata: {serialized}\n\n".encode("utf-8")
 
                 now = time.monotonic()
@@ -307,15 +355,11 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
     async def input_raw(request: Request) -> Response:
         target = mukha.get_input_path(request.path_params["input_id"])
         if target is None:
-            target = mukha.runner.get_input_path(request.path_params["input_id"])
-        if target is None:
             return _json(404, {"ok": False, "error": "Input file not found."})
         return _raw_file_response(target, download="download" in request.query_params)
 
     async def input_pdf_page(request: Request) -> Response:
         target = mukha.get_input_path(request.path_params["input_id"])
-        if target is None:
-            target = mukha.runner.get_input_path(request.path_params["input_id"])
         if target is None or not target.is_file():
             return _json(404, {"ok": False, "error": "Input file not found."})
         try:
@@ -433,9 +477,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
 
         return _json(200, compare_runs(mukha.agni, run_a, run_b))
 
-    async def invalid_artifact_path(request: Request) -> Response:
-        # Starlette decodes percent-encoded separators before route matching.
-        # Catch malformed artifact paths explicitly rather than falling through to a generic 404.
+    async def invalid_artifact_path(_: Request) -> Response:
         return _json(400, {"ok": False, "error": "Invalid run or artifact identifier."})
 
     async def artifact_download(request: Request) -> Response:
@@ -497,7 +539,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         if error_response is not None:
             return error_response
         assert body is not None
-        intent, error, status = parse_and_validate_review_intent(body)
+        intent, error, status = _parse_review_intent(body)
         if intent is None or error is not None:
             return _json(status, {"ok": False, "error": error or "Invalid review payload."})
         if not mukha.apply_review_intent(intent):
@@ -561,9 +603,15 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                 {"ok": False, "error": _format_public_error(run_error)},
             )
         if result.status == StartRunStatus.BUSY:
-            return _json(409, {"ok": False, "error": result.error_message or "An interactive processing run is already active."})
+            return _json(
+                409,
+                {"ok": False, "error": result.error_message or "An interactive processing run is already active."},
+            )
         if result.status == StartRunStatus.INVALID_INPUTS:
-            return _json(400, {"ok": False, "error": result.error_message or "No eligible input documents discovered."})
+            return _json(
+                400,
+                {"ok": False, "error": result.error_message or "No eligible input documents discovered."},
+            )
         return _json(200, {"ok": True, "run_id": result.run_id})
 
     async def cancel_run(request: Request) -> Response:

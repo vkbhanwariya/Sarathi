@@ -1,4 +1,4 @@
-"""Bhashini Cloud Plugin for Sarathi V2.
+"""Bhashini Cloud Plugin for Sarathi.
 
 Exposes Bhashini Chitrakshar OCR and IndicTrans2 Translation capabilities.
 """

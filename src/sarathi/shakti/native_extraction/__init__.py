@@ -1,4 +1,4 @@
-"""Shruti — Read / Native Extraction Capability for Sarathi V2.
+"""Shruti — Read / Native Extraction Capability for Sarathi.
 
 Exposes:
 - NativeExtractionCapability: Executable capability for byte-first native document extraction.

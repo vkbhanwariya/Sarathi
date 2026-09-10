@@ -1,4 +1,4 @@
-"""Typed Presentation State and Models for Mukha in Sarathi V2.
+"""Typed Presentation State and Models for Mukha in Sarathi.
 
 Defines immutable view state dataclasses for Home, Live Monitor, Run Summary,
 and Inspector screens. Mukha consumes canonical state; it does not decide execution

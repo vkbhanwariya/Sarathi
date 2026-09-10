@@ -1,8 +1,11 @@
 {
-  "manifest_version": "2.0.0",
+  "manifest_version": "2.1.0",
   "system": "sarathi",
   "source_root": "src",
   "root_package": "sarathi",
+  "root_components": [
+    "__main__"
+  ],
   "dependency_policy": {
     "default_internal_policy": "allow"
   },
@@ -10,11 +13,26 @@
     "dosh": {
       "package": "sarathi.dosh",
       "role": "shared-error-types",
+      "components": [
+        "errors"
+      ],
       "may_import": []
     },
     "sankalpa": {
       "package": "sarathi.sankalpa",
       "role": "shared-contracts-and-document-models",
+      "components": [
+        "artifact",
+        "cancellation",
+        "capability",
+        "context",
+        "document",
+        "execution_profile",
+        "plugin",
+        "readiness",
+        "request",
+        "result"
+      ],
       "may_import": [
         "sarathi.dosh"
       ]
@@ -22,6 +40,10 @@
     "kavacha": {
       "package": "sarathi.kavacha",
       "role": "security-authorization-and-path-privacy-checks",
+      "components": [
+        "policy",
+        "service"
+      ],
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa"
@@ -30,6 +52,12 @@
     "darpana": {
       "package": "sarathi.darpana",
       "role": "runtime-and-quality-events-history",
+      "components": [
+        "history",
+        "maruti",
+        "pramana",
+        "service"
+      ],
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa"
@@ -38,6 +66,13 @@
     "smriti": {
       "package": "sarathi.smriti",
       "role": "optional-result-cache",
+      "components": [
+        "key",
+        "memory",
+        "policy",
+        "serialization",
+        "store"
+      ],
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa"
@@ -46,6 +81,11 @@
     "yantra": {
       "package": "sarathi.yantra",
       "role": "execution-and-device-helpers",
+      "components": [
+        "devices",
+        "manager",
+        "resources"
+      ],
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa",
@@ -55,6 +95,10 @@
     "sutra": {
       "package": "sarathi.sutra",
       "role": "runtime-settings",
+      "components": [
+        "loader",
+        "settings"
+      ],
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa",
@@ -65,7 +109,15 @@
     },
     "nabhi": {
       "package": "sarathi.nabhi",
-      "role": "pipeline-execution-and-capability-resolution",
+      "role": "runtime-namespace-for-registry-planning-execution-and-artifacts",
+      "components": [
+        "artifacts",
+        "kosh",
+        "manthan",
+        "prana",
+        "pravaha",
+        "quarantine"
+      ],
       "may_import": [
         "*"
       ]
@@ -73,20 +125,50 @@
     "shakti": {
       "package": "sarathi.shakti",
       "role": "document-processing-capabilities-and-provider-adapters",
+      "components": [
+        "artifact_naming",
+        "azure",
+        "bank_statements",
+        "bhashini",
+        "darshana",
+        "docx_exporter",
+        "font_conversion",
+        "gemini",
+        "mistral",
+        "native_extraction",
+        "ocr",
+        "providers",
+        "statutory",
+        "text",
+        "translation"
+      ],
       "may_import": [
         "*"
       ]
     },
     "mukha": {
       "package": "sarathi.mukha",
-      "role": "user-interface",
+      "role": "presentation-local-web-transport-and-ui-state",
+      "components": [
+        "intake",
+        "presenter",
+        "state",
+        "web"
+      ],
       "may_import": [
         "*"
       ]
     },
     "agni": {
       "package": "sarathi.agni",
-      "role": "application-composition-and-startup",
+      "role": "application-composition-and-process-lifecycle",
+      "components": [
+        "bootstrap",
+        "dispatcher",
+        "preflight",
+        "readiness",
+        "wiring"
+      ],
       "composition_root": true,
       "may_import": [
         "*"

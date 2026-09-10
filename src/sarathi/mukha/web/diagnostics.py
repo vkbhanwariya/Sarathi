@@ -1,9 +1,4 @@
-"""Mukha Run Diagnostics Exporter for Sarathi V2.
-
-Generates sanitized, privacy-safe diagnostics bundles for execution runs,
-capturing platform facts, hardware devices, stage timing distributions,
-and error records without leaking raw document text or filesystem roots.
-"""
+"""Privacy-safe Mukha run diagnostics export for Sarathi."""
 
 from __future__ import annotations
 
@@ -28,7 +23,6 @@ def export_run_diagnostics(
     """Generate a sanitized diagnostics report bundle for troubleshooting."""
     maruti_recs, pramana_recs = get_run_telemetry(agni, run_id)
 
-    # 1. System environment facts
     system_facts = {
         "python_version": sys.version.split()[0],
         "os_platform": platform.platform(),
@@ -39,58 +33,50 @@ def export_run_diagnostics(
         "security_policy": "Kavacha Local Isolation",
     }
 
-    # 2. Hardware device inventory
-    devices: list[dict[str, Any]] = []
-    if hasattr(agni, "yantra") and agni.yantra is not None:
-        inv = getattr(agni.yantra, "device_inventory", None)
-        if inv is not None and hasattr(inv, "devices"):
-            for d in inv.devices:
-                devices.append(
-                    {
-                        "device_type": str(d.device_type),
-                        "device_id": str(d.device_id),
-                        "is_available": bool(getattr(d, "is_available", True)),
-                        "is_preferred": bool(getattr(d, "is_preferred", False)),
-                    }
-                )
+    devices = [
+        {
+            "device_type": device.device_type.value,
+            "device_id": device.device_id,
+            "is_available": device.capacity > 0,
+            "is_preferred": False,
+        }
+        for device in agni.yantra.inventory.devices
+    ]
 
-    # 3. Stage timing and performance summary (Sanitized)
     stage_durations: dict[str, dict[str, Any]] = {}
     activity_events: list[dict[str, Any]] = []
 
-    for m in maruti_recs:
-        p_name = m.phase_name or "unknown_phase"
-        dur_ns = max(0, int(m.duration_ns or 0))
-        if p_name not in stage_durations:
-            stage_durations[p_name] = {"calls": 0, "total_duration_ns": 0}
-        stage_durations[p_name]["calls"] += 1
-        stage_durations[p_name]["total_duration_ns"] += dur_ns
+    for record in maruti_recs:
+        phase_name = record.phase_name or "unknown_phase"
+        duration_ns = max(0, int(record.duration_ns or 0))
+        if phase_name not in stage_durations:
+            stage_durations[phase_name] = {"calls": 0, "total_duration_ns": 0}
+        stage_durations[phase_name]["calls"] += 1
+        stage_durations[phase_name]["total_duration_ns"] += duration_ns
 
-        # Privacy-safe activity log
-        attr_sanitized = {
-            k: _sanitize_message(str(v))
-            for k, v in (m.attributes or {}).items()
-            if k not in ("text", "content", "raw_path", "source_text")
+        sanitized_attributes = {
+            key: _sanitize_message(str(value))
+            for key, value in (record.attributes or {}).items()
+            if key not in ("text", "content", "raw_path", "source_text")
         }
-        dev = str((m.attributes or {}).get("device_type", "cpu")) if m.attributes else "cpu"
+        device_type = str((record.attributes or {}).get("device_type", "cpu"))
         activity_events.append(
             {
-                "timestamp_utc": m.timestamp_utc,
-                "phase": p_name,
-                "component": m.component,
-                "duration_ms": round(dur_ns / 1_000_000, 2),
-                "device_type": dev,
-                "attributes": attr_sanitized,
+                "timestamp_utc": record.timestamp_utc,
+                "phase": phase_name,
+                "component": record.component,
+                "duration_ms": round(duration_ns / 1_000_000, 2),
+                "device_type": device_type,
+                "attributes": sanitized_attributes,
             }
         )
 
-    # 4. Confidence statistics (Sanitized, no text)
     confidences = [
-        float(p.confidence.score if hasattr(p.confidence, "score") else p.confidence)
-        for p in pramana_recs
-        if p.confidence is not None
+        float(record.confidence.score if hasattr(record.confidence, "score") else record.confidence)
+        for record in pramana_recs
+        if record.confidence is not None
     ]
-    conf_stats: dict[str, Any] = {
+    confidence_statistics: dict[str, Any] = {
         "sample_count": len(confidences),
         "min_confidence": min(confidences) if confidences else None,
         "max_confidence": max(confidences) if confidences else None,
@@ -104,7 +90,7 @@ def export_run_diagnostics(
         "system": system_facts,
         "hardware_devices": devices,
         "stages": stage_durations,
-        "confidence_statistics": conf_stats,
+        "confidence_statistics": confidence_statistics,
         "event_count": len(activity_events),
         "events": activity_events[:200],
     }

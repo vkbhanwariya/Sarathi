@@ -1,4 +1,4 @@
-"""Plugin Contracts and Security Declarations for Sarathi V2.
+"""Plugin Contracts and Security Declarations for Sarathi.
 
 Defines:
 - SecurityDeclaration: Reviewable security and privacy requirements declared by plugins.

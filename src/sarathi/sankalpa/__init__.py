@@ -1,4 +1,4 @@
-"""Sankalpa — Canonical Contracts for Sarathi V2.
+"""Sankalpa — Canonical Contracts for Sarathi.
 
 This package defines the small common data language used by the entire system:
 - ExecutionProfile: INSTANT, ACCURATE, LAYOUT_PRESERVING, CUSTOM.

@@ -1,5 +1,5 @@
 /**
- * Sarathi V2 — Mukha Web Application Controller (Modular ES Root)
+ * Sarathi — Mukha Web Application Controller (Modular ES Root)
  *
  * Coordinates screen switching, presentation state updates, keyboard shortcuts,
  * and lifecycle events across modular native ES components.

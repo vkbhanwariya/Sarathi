@@ -23,14 +23,12 @@ from sarathi.mukha.web.state_builder import (
     build_application_view_state,
     build_inspector_view,
     extract_review_items,
-    get_run_telemetry,
     query_run_history,
 )
 from sarathi.sankalpa import ArtifactRef, ExecutionProfile
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
-    from sarathi.darpana import MarutiRecord, PramanaRecord
 
 
 class MukhaWebServer:
@@ -59,33 +57,6 @@ class MukhaWebServer:
     def runner(self) -> RunCoordinator:
         """Return the interactive run coordinator."""
         return self._runner
-
-    @property
-    def _lock(self) -> threading.Lock:
-        """Backward-compatible access to runner synchronization lock."""
-        return self._runner._lock
-
-    @property
-    def _confirmed_artifacts(self) -> dict[str, dict[str, ArtifactRef]]:
-        """Backward-compatible access to confirmed artifacts map."""
-        return self._runner._confirmed_artifacts
-
-    @_confirmed_artifacts.setter
-    def _confirmed_artifacts(self, val: dict[str, dict[str, ArtifactRef]]) -> None:
-        self._runner._confirmed_artifacts = val
-
-    @property
-    def _run_output_roots(self) -> dict[str, Path]:
-        """Backward-compatible access to run output roots map."""
-        return self._runner._run_output_roots
-
-    @_run_output_roots.setter
-    def _run_output_roots(self, val: dict[str, Path]) -> None:
-        self._runner._run_output_roots = val
-
-    def _get_run_telemetry(self, run_id: str) -> tuple[tuple[MarutiRecord, ...], tuple[PramanaRecord, ...]]:
-        """Backward-compatible run-filtered telemetry query helper."""
-        return get_run_telemetry(self._agni, run_id)
 
     def is_busy(self) -> bool:
         """Return True when an interactive processing run is active."""
@@ -139,33 +110,37 @@ class MukhaWebServer:
         summary = self._runner.get_run_summary(run_id)
         if summary is not None:
             return summary
-        if hasattr(self._agni, "darpana") and self._agni.darpana is not None:
-            terminal = self._agni.darpana.get_run_summary(run_id)
-            if terminal is not None:
-                status = terminal.status.upper()
-                if status == "COMPLETED":
-                    status = "SUCCESS"
-                total_inputs = max(1, terminal.artifact_count) if status == "SUCCESS" else terminal.artifact_count
-                successful_files = terminal.artifact_count if status == "SUCCESS" else 0
-                failed_files = 1 if status == "FAILED" else 0
-                return RunSummaryView(
-                    run_id=terminal.run_id,
-                    status=status,
-                    wall_time_ns=terminal.duration_ms * 1_000_000,
-                    total_inputs=total_inputs,
-                    successful_files=successful_files,
-                    warning_files=terminal.warning_count,
-                    failed_files=failed_files,
-                    quarantined_count=0,
-                    retry_count=0,
-                    warnings=(
-                        tuple(f"Execution warning {index + 1}" for index in range(terminal.warning_count))
-                        if terminal.warning_count
-                        else ()
-                    ),
-                    failures=("Execution failed." if status == "FAILED" else ()),
-                )
-        return None
+
+        darpana = self._agni.darpana
+        if darpana is None:
+            return None
+        terminal = darpana.get_run_summary(run_id)
+        if terminal is None:
+            return None
+
+        status = terminal.status.upper()
+        if status == "COMPLETED":
+            status = "SUCCESS"
+        total_inputs = max(1, terminal.artifact_count) if status == "SUCCESS" else terminal.artifact_count
+        successful_files = terminal.artifact_count if status == "SUCCESS" else 0
+        failed_files = 1 if status == "FAILED" else 0
+        return RunSummaryView(
+            run_id=terminal.run_id,
+            status=status,
+            wall_time_ns=terminal.duration_ms * 1_000_000,
+            total_inputs=total_inputs,
+            successful_files=successful_files,
+            warning_files=terminal.warning_count,
+            failed_files=failed_files,
+            quarantined_count=0,
+            retry_count=0,
+            warnings=(
+                tuple(f"Execution warning {index + 1}" for index in range(terminal.warning_count))
+                if terminal.warning_count
+                else ()
+            ),
+            failures=("Execution failed." if status == "FAILED" else ()),
+        )
 
     def get_run_history(self, limit: int = 50) -> tuple[Any, ...]:
         """Return recent terminal run summaries from Darpana history."""
@@ -174,15 +149,13 @@ class MukhaWebServer:
     def clear_history(self) -> bool:
         """Clear coordinator and Darpana run history."""
         self._runner.clear_history()
-        if hasattr(self._agni, "darpana") and self._agni.darpana is not None:
-            return self._agni.darpana.clear_history()
-        return True
+        darpana = self._agni.darpana
+        return darpana.clear_history() if darpana is not None else True
 
     def clear_cache(self) -> int:
-        """Clear the two-tier Smriti result cache."""
-        if hasattr(self._agni, "smriti") and self._agni.smriti is not None:
-            return self._agni.smriti.clear()
-        return 0
+        """Clear the optional Smriti result cache."""
+        cache = self._agni.smriti
+        return cache.clear() if cache is not None else 0
 
     def get_review_items(self, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
         """Return pending review/exception items."""

@@ -1,4 +1,4 @@
-"""Pramana — Confidence & Accuracy Telemetry for Darpana in Sarathi V2.
+"""Pramana — Confidence & Accuracy Telemetry for Darpana in Sarathi.
 
 Defines:
 - AccuracyValue: Evidence-backed quality measurement.

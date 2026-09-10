@@ -1,4 +1,4 @@
-"""TOML Configuration Loader for Sutra in Sarathi V2.
+"""TOML Configuration Loader for Sutra in Sarathi.
 
 Loads an explicit TOML configuration file into immutable Settings.
 Raises DoshError with FailureCode.INVALID_CONFIGURATION on missing, unreadable,

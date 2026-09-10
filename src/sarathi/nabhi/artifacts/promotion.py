@@ -1,4 +1,4 @@
-"""Artifact Promotion, Staging Commits, and Partial Preservation for Sarathi V2.
+"""Artifact Promotion, Staging Commits, and Partial Preservation for Sarathi.
 
 Provides atomic promotion of staged files, direct byte payload commits, rollback handling,
 and partial artifact preservation under Output/.../partial/.

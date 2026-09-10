@@ -1,4 +1,4 @@
-"""Artifact and Input Contracts for Sarathi V2.
+"""Artifact and Input Contracts for Sarathi.
 
 Defines:
 - InputRef: typed reference to an input source with measured facts.

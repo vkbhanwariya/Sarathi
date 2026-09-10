@@ -1,4 +1,4 @@
-"""Resource allocation engine for Yantra in Sarathi V2.
+"""Resource allocation engine for Yantra in Sarathi.
 
 Defines:
 - Allocation: Immutable record of an allocated hardware slot.

@@ -1,4 +1,4 @@
-"""Microsoft Azure Document Intelligence Cloud OCR Capability implementation for Sarathi V2.
+"""Microsoft Azure Document Intelligence Cloud OCR Capability implementation for Sarathi.
 
 Consumes documents, invokes Azure Document Intelligence prebuilt-layout,
 and maps response into canonical PageData, TextSpan with exact confidence scores,

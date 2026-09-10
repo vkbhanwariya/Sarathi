@@ -1,4 +1,4 @@
-"""Pravaha - Dynamic Pipeline Engine for Nabhi Kernel in Sarathi V2.
+"""Pravaha - Dynamic Pipeline Engine for Nabhi Kernel in Sarathi.
 
 Defines:
 - Pravaha: Executes resolved capability plans across injected executable capabilities,

@@ -1,4 +1,4 @@
-"""Quarantine and Failure Lifecycle State for Nabhi Kernel in Sarathi V2.
+"""Quarantine and Failure Lifecycle State for Nabhi Kernel in Sarathi.
 
 Defines:
 - QuarantineStatus: Lifecycle status for failed/quarantined attempts.

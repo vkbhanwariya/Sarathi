@@ -1,4 +1,4 @@
-"""Darpana — Telemetry & Tracing for Sarathi V2.
+"""Darpana — Telemetry & Tracing for Sarathi.
 
 Exposes:
 - AccuracyValue: Evidence-backed accuracy observation.

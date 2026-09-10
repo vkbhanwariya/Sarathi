@@ -1,4 +1,4 @@
-"""Statutory and Legal Document Intelligence Plugin Declaration for Sarathi V2."""
+"""Statutory and Legal Document Intelligence Plugin Declaration for Sarathi."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Result Contracts for Sarathi V2.
+"""Result Contracts for Sarathi.
 
 Defines:
 - ConfidenceValue: Evidence-backed confidence measurement.

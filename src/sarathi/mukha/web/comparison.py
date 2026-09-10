@@ -1,4 +1,4 @@
-"""Mukha Historical Run Comparator for Sarathi V2.
+"""Mukha Historical Run Comparator for Sarathi.
 
 Computes comparative metrics, stage duration deltas, worker throughput,
 and accuracy differences between two terminal runs from Darpana telemetry.

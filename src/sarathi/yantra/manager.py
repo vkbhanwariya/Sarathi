@@ -1,4 +1,4 @@
-"""Yantra - Resource & Execution Manager for Sarathi V2.
+"""Yantra - Resource & Execution Manager for Sarathi.
 
 Exposes:
 - Yantra: Single public interface for compatible hardware allocation, release, and approved capability execution.

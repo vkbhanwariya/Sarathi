@@ -1,4 +1,4 @@
-"""OCR Phase 1 Capability for Sarathi V2.
+"""OCR Phase 1 Capability for Sarathi.
 
 Exposes:
 - OCRCapability: Executable capability implementing RapidOCR + PP-OCRv5 + OpenVINO execution.

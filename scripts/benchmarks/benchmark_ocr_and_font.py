@@ -413,7 +413,7 @@ def run_font_benchmarks() -> dict[str, Any]:
 
 def main() -> None:
     print("=" * 70)
-    print(" SARATHI V2: OCR & FONT CONVERSION BASELINE BENCHMARK")
+    print(" SARATHI: OCR & FONT CONVERSION BASELINE BENCHMARK")
     print(f" Python {sys.version.split()[0]} | Root: {REPO_ROOT}")
     print("=" * 70)
 

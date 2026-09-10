@@ -1,4 +1,4 @@
-"""Darshana — Intake Identification Plugin for Sarathi V2."""
+"""Darshana — Intake Identification Plugin for Sarathi."""
 
 from __future__ import annotations
 

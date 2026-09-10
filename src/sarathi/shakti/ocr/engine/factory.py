@@ -1,4 +1,4 @@
-"""Verified RapidOCR + OpenVINO Engine Instance Factory for Sarathi V2.
+"""Verified RapidOCR + OpenVINO Engine Instance Factory for Sarathi.
 
 Verifies model weights on disk against the local cryptographic manifest and
 synthesizes device-specific RapidOCR parameters for execution.

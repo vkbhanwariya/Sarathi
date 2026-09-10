@@ -1,4 +1,4 @@
-"""Security Policy Definitions for Kavacha in Sarathi V2.
+"""Security Policy Definitions for Kavacha in Sarathi.
 
 Defines:
 - SecurityDecision: Immutable authorization outcome.

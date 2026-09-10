@@ -1,4 +1,4 @@
-"""Mukha - Console & Presentation for Sarathi V2.
+"""Mukha - Console & Presentation for Sarathi.
 
 Exposes:
 - MukhaWebServer: Canonical Local Web presentation server for interactive document intelligence.

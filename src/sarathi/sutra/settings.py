@@ -1,4 +1,4 @@
-"""Settings Contract for Sutra Configuration in Sarathi V2.
+"""Settings Contract for Sutra Configuration in Sarathi.
 
 Defines:
 - Settings: Immutable typed container for validated TOML configuration.

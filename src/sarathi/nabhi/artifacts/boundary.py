@@ -1,4 +1,4 @@
-"""Canonical Artifact Boundary for Sarathi V2.
+"""Canonical Artifact Boundary for Sarathi.
 
 Single global boundary responsible for staging, atomic commits, run manifests,
 and storage root lifecycle.
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 
 class ArtifactBoundary:
-    """Canonical Artifact Boundary for Sarathi V2.
+    """Canonical Artifact Boundary for Sarathi.
 
     Single global boundary responsible for staging, atomic commits, run manifests,
     and storage root lifecycle.

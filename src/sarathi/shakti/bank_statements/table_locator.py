@@ -1,4 +1,4 @@
-"""Table Locator and Classifier for Bank Statements in Sarathi V2.
+"""Table Locator and Classifier for Bank Statements in Sarathi.
 
 Classifies extracted tables in a CanonicalDocument into:
 - TRANSACTION_TABLE

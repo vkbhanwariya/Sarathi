@@ -1,4 +1,4 @@
-"""Financial Validator for Bank Statements in Sarathi V2.
+"""Financial Validator for Bank Statements in Sarathi.
 
 Validates:
 1. Transaction invariants (date, debit/credit presence, non-negative Decimal)

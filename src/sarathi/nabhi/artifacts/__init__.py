@@ -1,4 +1,4 @@
-"""Canonical Artifact Boundary for Nabhi Kernel in Sarathi V2.
+"""Canonical Artifact Boundary for Nabhi Kernel in Sarathi.
 
 Defines:
 - ArtifactBoundary: The single injected boundary for artifact lifecycle management.

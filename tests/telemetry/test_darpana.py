@@ -1,4 +1,4 @@
-"""Unit tests for Darpana - Telemetry & Tracing Service in Sarathi V2."""
+"""Unit tests for Darpana - Telemetry & Tracing Service in Sarathi."""
 
 from pathlib import Path
 from typing import Any

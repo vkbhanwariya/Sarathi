@@ -1,4 +1,4 @@
-"""Identification Facts contract for Darshana in Sarathi V2.
+"""Identification Facts contract for Darshana in Sarathi.
 
 Defines:
 - IdentificationFacts: Immutable typed facts measured from safe byte/content evidence.

@@ -1,4 +1,4 @@
-"""Sarathi V2 CLI and Non-Interactive Runtime Entry Point.
+"""Sarathi CLI and Non-Interactive Runtime Entry Point.
 
 Hands execution strictly to Agni composition root.
 """
@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     """Run Sarathi non-interactive execution."""
     parser = argparse.ArgumentParser(
         prog="sarathi",
-        description="Sarathi V2 - Local, Plugin-First Document Intelligence System",
+        description="Sarathi - Local, Plugin-First Document Intelligence System",
     )
     parser.add_argument(
         "--config",
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
                 server = MukhaWebServer(agni=agni)
                 server.start()
                 local_url = server.local_url
-                print(f"Sarathi V2 Dashboard running at: {local_url}")
+                print(f"Sarathi Dashboard running at: {local_url}")
                 print("Press Ctrl+C to stop.")
                 try:
                     webbrowser.open(local_url)

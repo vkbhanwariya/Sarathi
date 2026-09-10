@@ -1,4 +1,4 @@
-"""Manthan — Capability Resolver for Nabhi Kernel in Sarathi V2.
+"""Manthan — Capability Resolver for Nabhi Kernel in Sarathi.
 
 Defines:
 - CapabilityPlan: Immutable resolved capability execution plan.

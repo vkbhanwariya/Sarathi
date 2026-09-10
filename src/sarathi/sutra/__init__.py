@@ -1,4 +1,4 @@
-"""Sutra — Configuration for Sarathi V2.
+"""Sutra — Configuration for Sarathi.
 
 Exposes:
 - Settings: Immutable container for validated TOML configuration.

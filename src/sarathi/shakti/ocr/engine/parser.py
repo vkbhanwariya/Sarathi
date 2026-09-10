@@ -1,4 +1,4 @@
-"""RapidOCR Output and Geometry Parser for Sarathi V2.
+"""RapidOCR Output and Geometry Parser for Sarathi.
 
 Normalizes raw OCR model inferences, extracts text spans, validates bounding boxes,
 checks confidence score bounds, and generates factual warnings.

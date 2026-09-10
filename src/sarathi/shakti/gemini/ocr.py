@@ -1,4 +1,4 @@
-"""Google Gemini Cloud OCR Capability implementation for Sarathi V2.
+"""Google Gemini Cloud OCR Capability implementation for Sarathi.
 
 Consumes document images/PDFs, invokes Gemini multimodal API via GeminiClient,
 and maps response into canonical PageData, TableData, and TXT/DOCX artifacts

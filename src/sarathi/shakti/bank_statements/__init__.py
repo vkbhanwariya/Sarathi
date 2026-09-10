@@ -1,4 +1,4 @@
-"""Bank Statement Consolidation Capability Package for Sarathi V2."""
+"""Bank Statement Consolidation Capability Package for Sarathi."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Google Gemini Cloud Plugin for Sarathi V2.
+"""Google Gemini Cloud Plugin for Sarathi.
 
 Exposes Gemini multimodal cloud OCR and Translation capabilities.
 """

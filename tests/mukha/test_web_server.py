@@ -92,7 +92,7 @@ class TestMukhaWebServerSecurityAndStatic:
         status_js, body_js, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.js")
         assert status_js == 200
         js_text = body_js.decode("utf-8")
-        assert "Sarathi V2" in js_text
+        assert "Sarathi" in js_text
         assert "function updatePresentation(appState)" in js_text
         assert "function init()" in js_text
 
@@ -237,7 +237,7 @@ class TestMukhaWebServerAPI:
     def test_real_agni_execution_displays_success(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Verify real Agni run completion sets SUCCESS terminal status without status field on Result."""
         test_file = tmp_path / "data.txt"
-        test_file.write_text("Hello Sarathi V2", encoding="utf-8")
+        test_file.write_text("Hello Sarathi", encoding="utf-8")
 
         status, data = _http_post(
             f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
@@ -261,7 +261,7 @@ class TestMukhaWebServerAPI:
         test_file = tmp_path / "data.txt"
         test_file.write_text("Sample", encoding="utf-8")
 
-        with patch.object(web_server._agni, "execute") as mock_exec:
+        with patch.object(web_server.agni, "execute") as mock_exec:
             from sarathi.dosh import DoshError, FailureCode
 
             mock_exec.side_effect = DoshError(
@@ -297,7 +297,9 @@ class TestMukhaWebServerAPI:
         run_id = data["run_id"]
         _wait_for_idle(web_server)
 
-        maruti, pramana = web_server._get_run_telemetry(run_id)
+        from sarathi.mukha.web.state_builder import get_run_telemetry
+
+        maruti, pramana = get_run_telemetry(web_server.agni, run_id)
         for r in maruti:
             assert r.run_id == run_id or r.request_id == run_id
         for p in pramana:
@@ -331,14 +333,13 @@ class TestMukhaWebServerAPI:
     def test_confirmed_artifact_download_and_containment_security(
         self, web_server: MukhaWebServer, tmp_path: Path
     ) -> None:
-        """Artifact downloads stream confirmed artifacts and reject cross-run or outside paths."""
+        """Artifact downloads stream confirmed artifacts and reject cross-run lookup."""
         from sarathi.sankalpa import ArtifactRef
 
         run_id = "run_test_art"
         art_id = "art_123"
         art_path = web_server.output_root / "test_artifact.txt"
         art_path.write_text("Protected Content", encoding="utf-8")
-
         ref = ArtifactRef(
             artifact_id=art_id,
             path=art_path,
@@ -348,24 +349,27 @@ class TestMukhaWebServerAPI:
             checksum_sha256="dummy",
         )
 
-        with web_server._lock:
-            web_server._confirmed_artifacts[run_id] = {art_id: ref}
+        def confirmed_artifact(candidate_run_id: str, candidate_artifact_id: str):
+            if candidate_run_id == run_id and candidate_artifact_id == art_id:
+                return ref
+            return None
 
-        # 1. Successful download
-        status, body, headers = _http_get(
-            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/{art_id}"
-        )
-        assert status == 200
-        assert body == b"Protected Content"
-        assert headers.get("X-Content-Type-Options") == "nosniff"
+        with patch.object(web_server, "get_confirmed_artifact", side_effect=confirmed_artifact):
+            status, body, headers = _http_get(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/{art_id}"
+            )
+            assert status == 200
+            assert body == b"Protected Content"
+            assert headers.get("X-Content-Type-Options") == "nosniff"
 
-        # 2. Unknown artifact ID -> 404
-        status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/wrong_id")
-        assert status == 404
-
-        # 3. Wrong run ID -> 404
-        status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/wrong_run/artifacts/{art_id}")
-        assert status == 404
+            status, _, _ = _http_get(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/wrong_id"
+            )
+            assert status == 404
+            status, _, _ = _http_get(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs/wrong_run/artifacts/{art_id}"
+            )
+            assert status == 404
 
     def test_run_accepts_custom_options_and_forwards_to_request(
         self, web_server: MukhaWebServer, tmp_path: Path
@@ -375,13 +379,13 @@ class TestMukhaWebServerAPI:
         test_file.write_text("Hello Custom", encoding="utf-8")
 
         captured_request: list[Any] = []
-        original_execute = web_server._agni.execute
+        original_execute = web_server.agni.execute
 
         def mock_execute(req: Any) -> Any:
             captured_request.append(req)
             return original_execute(req)
 
-        with patch.object(web_server._agni, "execute", side_effect=mock_execute):
+        with patch.object(web_server.agni, "execute", side_effect=mock_execute):
             status, data = _http_post(
                 f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
                 data={
@@ -397,20 +401,12 @@ class TestMukhaWebServerAPI:
         assert len(captured_request) == 1
         assert captured_request[0].custom_options.get("lang") == "devanagari"
 
-    def test_reveal_output_directory_invokes_platform_opener(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
-        """reveal_output_directory executes without raising and returns true when dir exists."""
+    def test_reveal_output_directory_delegates_to_runner(self, web_server: MukhaWebServer) -> None:
+        """The web façade delegates output reveal to the run coordinator."""
         run_id = "run_reveal_test"
-        out_dir = tmp_path / "out_dir"
-        out_dir.mkdir()
-        with web_server._lock:
-            web_server._run_output_roots[run_id] = out_dir
-
-        with patch("subprocess.Popen") as mock_popen, patch("subprocess.run"):
-            res = web_server.reveal_output_directory(run_id)
-            assert res is True
-            assert mock_popen.called
+        with patch.object(web_server.runner, "reveal_output_directory", return_value=True) as reveal:
+            assert web_server.reveal_output_directory(run_id) is True
+        reveal.assert_called_once_with(run_id)
 
     def test_active_workers_and_page_progress_in_view_state(
         self, web_server: MukhaWebServer, tmp_path: Path
@@ -439,7 +435,7 @@ class TestMukhaWebServerAPI:
             return Result(data=None)
 
         with (
-            patch.object(web_server._agni, "execute", side_effect=mock_execute),
+            patch.object(web_server.agni, "execute", side_effect=mock_execute),
             patch("sarathi.mukha.presenter.MukhaPresenter.audit_capability_status", return_value={"ocr": (True, "Ready")}),
         ):
             status, data = _http_post(
@@ -858,7 +854,7 @@ def test_scoped_input_and_artifact_preview(web_server: MukhaWebServer, tmp_path:
 def test_intake_preview_by_input_id(web_server: MukhaWebServer, tmp_path: Path) -> None:
     """Verify documents added via intake can be previewed by input_id before starting a run."""
     doc_file = tmp_path / "sample_doc.txt"
-    doc_file.write_text("Hello Sarathi V2 Preview!", encoding="utf-8")
+    doc_file.write_text("Hello Sarathi Preview!", encoding="utf-8")
 
     # 1. Intake document
     intake_status, intake_res = _http_post(
@@ -879,18 +875,18 @@ def test_intake_preview_by_input_id(web_server: MukhaWebServer, tmp_path: Path) 
     prev_payload = json.loads(prev_data.decode("utf-8"))
     assert prev_payload["ok"] is True
     assert prev_payload["type"] == "text"
-    assert "Hello Sarathi V2 Preview!" in prev_payload["content"]
+    assert "Hello Sarathi Preview!" in prev_payload["content"]
 
 
 def test_get_run_summary_endpoint(web_server: MukhaWebServer) -> None:
-    """Verify GET /api/runs/<run_id>/summary returns stored terminal run summary."""
+    """Verify GET /api/runs/<run_id>/summary returns a terminal run summary."""
     from sarathi.mukha.state import RunSummaryView
 
-    # 404 for non-existent run summary
-    status_404, data_404, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run-fake/summary")
+    status_404, _, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run-fake/summary"
+    )
     assert status_404 == 404
 
-    # Populate a mock summary in coordinator
     mock_summary = RunSummaryView(
         run_id="run-summary-test-123",
         status="SUCCESS",
@@ -900,13 +896,11 @@ def test_get_run_summary_endpoint(web_server: MukhaWebServer) -> None:
         warning_files=0,
         failed_files=0,
     )
-    with web_server.runner._lock:
-        web_server.runner._run_summaries[mock_summary.run_id] = mock_summary
+    with patch.object(web_server, "get_run_summary", return_value=mock_summary):
+        status_ok, data_ok, _ = _http_get(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{mock_summary.run_id}/summary"
+        )
 
-    # Query endpoint
-    status_ok, data_ok, _ = _http_get(
-        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{mock_summary.run_id}/summary"
-    )
     assert status_ok == 200
     res = json.loads(data_ok.decode("utf-8"))
     assert res["ok"] is True

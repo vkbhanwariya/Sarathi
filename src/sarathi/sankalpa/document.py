@@ -1,4 +1,4 @@
-"""Document Contracts for Sarathi V2.
+"""Document Contracts for Sarathi.
 
 Defines the canonical format-agnostic and domain-agnostic document representation:
 - TextSpan: A localized or segmented piece of text with optional geometry/evidence.

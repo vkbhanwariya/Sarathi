@@ -1,4 +1,4 @@
-"""Context Contracts for Sarathi V2.
+"""Context Contracts for Sarathi.
 
 Defines:
 - ExecutionBinding: Immutable specification of allocated hardware and runtime backend.

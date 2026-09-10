@@ -1,4 +1,4 @@
-"""Capability Contracts for Sarathi V2.
+"""Capability Contracts for Sarathi.
 
 Defines:
 - DeviceType: CPU, GPU, NPU.
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class Capability(Protocol):
-    """Canonical executable Capability protocol for Sarathi V2.
+    """Canonical executable Capability protocol for Sarathi.
 
     The single canonical interface for executable plugin capabilities in Shakti.
     Exposes an immutable declaration and an execute method transforming an input

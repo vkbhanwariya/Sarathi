@@ -1,4 +1,4 @@
-"""Kavacha — Security & Privacy for Sarathi V2.
+"""Kavacha — Security & Privacy for Sarathi.
 
 Exposes:
 - SecurityDecision: Immutable authorization decision contract.

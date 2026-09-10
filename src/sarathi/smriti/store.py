@@ -151,7 +151,7 @@ class SQLiteCacheStore:
 
 
 class SmritiCache:
-    """Canonical Two-Tier (L1 Memory + L2 SQLite) Cache Service for Sarathi V2."""
+    """Canonical Two-Tier (L1 Memory + L2 SQLite) Cache Service for Sarathi."""
 
     def __init__(
         self,

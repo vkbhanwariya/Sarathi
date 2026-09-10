@@ -1,4 +1,4 @@
-"""Maruti - Runtime, Logging & Performance Telemetry for Darpana in Sarathi V2.
+"""Maruti - Runtime, Logging & Performance Telemetry for Darpana in Sarathi.
 
 Defines:
 - MarutiRecord: Immutable structured runtime and performance event record.

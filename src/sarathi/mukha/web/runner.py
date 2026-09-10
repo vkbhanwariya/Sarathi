@@ -1,4 +1,4 @@
-"""Mukha Interactive Run Coordinator and Worker Lifecycle for Sarathi V3.
+"""Mukha Interactive Run Coordinator and Worker Lifecycle for Sarathi.
 
 Manages interactive background processing runs, concurrency locking, cancellation,
 live worker and page progress tracking, and confirmed artifact indexing.

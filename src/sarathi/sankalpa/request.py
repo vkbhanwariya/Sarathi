@@ -1,4 +1,4 @@
-"""Request Contracts for Sarathi V2.
+"""Request Contracts for Sarathi.
 
 Defines the canonical processing request exchanged through the runtime.
 Kept domain-agnostic.

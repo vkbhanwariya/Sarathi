@@ -1,4 +1,4 @@
-"""Models and Data Structures for Roopa Font Conversion in Sarathi V2."""
+"""Models and Data Structures for Roopa Font Conversion in Sarathi."""
 
 from __future__ import annotations
 
