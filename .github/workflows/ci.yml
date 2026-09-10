@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v3]
   pull_request:
-    branches: [main]
+    branches: [main, v3]
 
 jobs:
   lint:
@@ -80,11 +80,10 @@ jobs:
           sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin
 
       - name: Provision verified OCR models
-        shell: pwsh
-        run: ./scripts/Setup-OCRModels.ps1
+        run: uv run python scripts/setup_ocr_models.py --download
 
-      - name: Run deterministic test suite
-        run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture"
+      - name: Run deterministic tests
+        run: uv run --all-extras --group dev pytest -q -m "not browser and not real_model and not performance"
 
   browser:
     name: Browser Tests
@@ -112,11 +111,10 @@ jobs:
           sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin
 
       - name: Provision verified OCR models
-        shell: pwsh
-        run: ./scripts/Setup-OCRModels.ps1
+        run: uv run python scripts/setup_ocr_models.py --download
 
-      - name: Install Playwright browsers
+      - name: Install Chromium
         run: uv run playwright install --with-deps chromium
 
-      - name: Run browser test suite
-        run: uv run --group dev --all-extras pytest -q -m browser
+      - name: Run browser tests
+        run: uv run --all-extras --group dev pytest -q -m browser
