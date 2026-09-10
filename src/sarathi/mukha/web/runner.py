@@ -1,4 +1,4 @@
-"""Mukha Interactive Run Coordinator and Worker Lifecycle for Sarathi V2.
+"""Mukha Interactive Run Coordinator and Worker Lifecycle for Sarathi V3.
 
 Manages interactive background processing runs, concurrency locking, cancellation,
 live worker and page progress tracking, and confirmed artifact indexing.
@@ -12,17 +12,14 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import InputSelectionView, ReviewIntent, RunSummaryView
-from sarathi.mukha.web.http_handler import (
-    StartRunResponse,
-    StartRunStatus,
-    _format_public_error,
-)
+from sarathi.mukha.web.security import _format_public_error
 from sarathi.mukha.web.state_builder import get_run_telemetry
 from sarathi.sankalpa import (
     ArtifactRef,
@@ -36,6 +33,23 @@ from sarathi.sankalpa import (
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
+
+
+class StartRunStatus(StrEnum):
+    """Result status of an attempt to start an interactive run."""
+
+    OK = "ok"
+    BUSY = "busy"
+    INVALID_INPUTS = "invalid_inputs"
+
+
+@dataclass(frozen=True, slots=True)
+class StartRunResponse:
+    """Typed result of an attempt to start an interactive run."""
+
+    status: StartRunStatus
+    run_id: str | None = None
+    error_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
