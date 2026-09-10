@@ -378,10 +378,13 @@ hardware scheduling, security policy, or telemetry storage.
 ## Yantra --- Resource & Execution Manager
 
 **Yantra --- Resource & Execution Manager** is the single global owner
-of hardware and execution policy.
+of hardware allocation and execution policy.
 
-No plugin creates its own global worker pool, device manager, GPU
-selector, NPU selector, thread policy, or competing scheduler.
+Capabilities may decompose domain work into independent subtasks, but they do
+not select devices, inspect hardware inventory to make scheduling decisions,
+synthesize alternate execution bindings, create private device pools, or choose
+spillover/concurrency policy. Independent subtasks are submitted back to Yantra
+under the execution context already approved for the capability invocation.
 
 ### Hardware Capability First
 
@@ -432,12 +435,9 @@ priority
 #### Parallelism Semantics and Runtime Enforcement
 
 1. **Explicit Claim**: `DeviceRequirement.parallelizable` defaults to `False`. Parallelism is an explicitly claimed capability, not an assumed default. Only workloads with verified thread-safe, GIL-releasing native runtimes (e.g. CTranslate2 or RapidOCR) declare `parallelizable=True`. Single-threaded C libraries (e.g. PyMuPDF) and pure Python CPU loops declare `parallelizable=False`.
-2. **Yantra Enforcement**: During allocation, Yantra sets:
-   ```text
-   approved_concurrency = dev.capacity if parallelizable else 1
-   ```
-   Non-parallel capabilities receive an `ExecutionBinding` with `approved_concurrency = 1` regardless of physical device capacity, natively bounding subtask execution to single-concurrency.
-3. **Hardware Capacity Configuration**: Accelerator capacities and queuing limits are configured via Sutra `[hardware]` (`detect_accelerators`, `gpu_capacity_per_device`, `npu_capacity_per_device`, `max_queue_depth`). Yantra's thread pool capacity derives canonically from the sum of active device capacities, avoiding redundant or conflicting override controls.
+2. **One allocator-backed binding**: Yantra allocates one compatible device for each capability invocation and constructs the canonical `ExecutionBinding` from that reservation. `approved_concurrency = dev.capacity if parallelizable else 1`. Capabilities receive that binding through `ExecutionContext` and do not manufacture additional bindings.
+3. **Subtask enforcement**: `Yantra.execute_subtasks(..., context=context)` bounds independent work by `context.execution_binding.approved_concurrency` when a binding exists. Capability code decides what constitutes an independent domain unit; Yantra decides how much of that work may execute concurrently.
+4. **Hardware Capacity Configuration**: Accelerator capacities and queuing limits are configured via Sutra `[hardware]` (`detect_accelerators`, `gpu_capacity_per_device`, `npu_capacity_per_device`, `max_queue_depth`). Yantra's thread pool capacity derives canonically from the sum of active device capacities, avoiding capability-specific scheduling knobs.
 
 Yantra then performs:
 
@@ -448,37 +448,38 @@ Workload requirements
  ↓
 Best compatible device
  ↓
-Primary allocation
+Allocator reservation
  ↓
-Execution
+ExecutionBinding
+ ↓
+Capability execution
 ```
 
 ### Global Utilization and Spillover
 
-Best-fit allocation comes first, but compatible resources should not
-remain unnecessarily idle.
+Spillover is an allocator decision made before capability execution. If a
+preferred device cannot satisfy a request, Yantra may allocate another declared
+supported device according to the canonical resource policy. The resulting
+binding records whether that allocation was spillover.
 
 ``` text
-Preferred worker/device available?
+Preferred compatible allocation available?
         │
-        ├── YES → execute there
+        ├── YES → allocate and execute there
         │
         └── NO
              ↓
-Compatible free resource available?
+Supported spillover allocation available?
         │
-        ├── YES → spill over when policy permits
+        ├── YES → allocate once and execute there
         │
-        └── NO  → queue for appropriate resource
+        └── NO  → queue / fail by allocation policy
 ```
 
-The objective is:
-
-**best capability use first → utilization optimization second → safe
-fallback third.**
-
-This policy applies globally to OCR, native extraction, font conversion,
-translation, bank processing, and future plugins.
+A running capability does not combine independently synthesized CPU/GPU slots or
+bypass allocator accounting to increase throughput. This policy applies globally
+to OCR, native extraction, font conversion, translation, bank processing, and
+future plugins.
 
 #### Bounded Queue Waiting and Allocation Timeout
 When all compatible devices are saturated, execution requests do not block indefinitely. `Yantra.execute(..., timeout=...)` accepts an explicit allocation timeout (defaulting to 30.0 seconds). If a compatible worker or device does not become free within the timeout window, `Yantra` raises `DoshError(FailureCode.RESOURCE_EXHAUSTED)` with detailed queue metrics, enabling graceful Pravaha failure handling or quarantine instead of unrecoverable deadlocks.
@@ -502,9 +503,8 @@ Compatible device candidates
 └── CPU
 ```
 
-Selection is based on declared compatibility, measured speed, stability, current
-load, and fallback availability. Engine/runtime direction remains in the owning
-capability specification.
+Selection is based on declared compatibility and current allocator availability.
+Engine/runtime direction remains in the owning capability specification.
 
 ### Global Measurement Boundary
 
