@@ -1,8 +1,7 @@
 """Construction of Sarathi runtime services.
 
-This module wires concrete services. It deliberately avoids introducing another
-lifecycle or orchestration layer: Agni owns application startup/shutdown and
-Pravaha owns request execution.
+This module wires concrete services. Agni owns composition and lifecycle,
+Kosh owns declaration registration, and Pravaha owns request execution.
 """
 
 from __future__ import annotations
@@ -14,8 +13,8 @@ from typing import Mapping, Sequence
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha
-from sarathi.nabhi import ArtifactBoundary, Dvara, Kosh, Manthan, Pravaha, QuarantineStore, RetryPolicy
-from sarathi.sankalpa import Capability, ExecutionContext, PluginInfo, PluginProvider, PluginServices
+from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Pravaha, QuarantineStore, RetryPolicy
+from sarathi.sankalpa import Capability, PluginInfo, PluginProvider, PluginServices
 from sarathi.smriti import SmritiCache
 from sarathi.sutra import Settings, get_canonical_data_root
 from sarathi.yantra import Yantra
@@ -27,7 +26,6 @@ class AssembledServices:
 
     artifact_boundary: ArtifactBoundary
     kosh: Kosh
-    dvara: Dvara
     manthan: Manthan
     quarantine_store: QuarantineStore
     smriti: SmritiCache | None
@@ -49,7 +47,6 @@ def assemble_platform_services(
     capabilities: Mapping[str, Capability] | None,
     plugins: Sequence[PluginInfo] | None,
     smriti: SmritiCache | None,
-    bootstrap_ctx: ExecutionContext,
 ) -> AssembledServices:
     """Construct the services required by Agni and Pravaha."""
     if capabilities is not None:
@@ -70,7 +67,7 @@ def assemble_platform_services(
                 )
         active_capabilities = dict(capabilities)
         replacement_plugin_ids = {cap.declaration.plugin_id for cap in active_capabilities.values()}
-        dvara_providers = tuple(
+        registry_providers = tuple(
             provider for provider in active_providers if provider.plugin_info.plugin_id in replacement_plugin_ids
         )
     else:
@@ -90,7 +87,7 @@ def assemble_platform_services(
                         message=f"Duplicate capability ID '{cap_id}' returned by provider '{provider.plugin_info.plugin_id}'.",
                     )
                 active_capabilities[cap_id] = capability
-        dvara_providers = active_providers
+        registry_providers = active_providers
 
     retry_policy = RetryPolicy(max_retries=settings.pipeline_max_retries)
     artifact_boundary = ArtifactBoundary(
@@ -101,8 +98,7 @@ def assemble_platform_services(
     )
 
     kosh = Kosh()
-    dvara = Dvara(registry=kosh, darpana=darpana, providers=dvara_providers)
-    dvara.register_builtins(context=bootstrap_ctx)
+    kosh.register_providers(registry_providers)
 
     if plugins is not None:
         if not isinstance(plugins, (list, tuple)):
@@ -125,7 +121,7 @@ def assemble_platform_services(
                     "Pass explicit PluginInfo via the 'plugins' argument."
                 ),
             )
-        dvara.register_capability(capability.declaration)
+        kosh.register_capability(capability.declaration)
 
     manthan = Manthan(registry=kosh)
     quarantine_store = QuarantineStore(root=runtime_root / "Quarantine")
@@ -153,12 +149,11 @@ def assemble_platform_services(
     return AssembledServices(
         artifact_boundary=artifact_boundary,
         kosh=kosh,
-        dvara=dvara,
         manthan=manthan,
         quarantine_store=quarantine_store,
         smriti=active_smriti,
         retry_policy=retry_policy,
         pravaha=pravaha,
         capabilities=active_capabilities,
-        active_providers=dvara_providers,
+        active_providers=registry_providers,
     )
