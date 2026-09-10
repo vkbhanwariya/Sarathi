@@ -1,4 +1,4 @@
-﻿"""Comprehensive unit tests for Agni - Runtime Bootstrap and Composition Root."""
+"""Comprehensive unit tests for Agni - Runtime Bootstrap and Composition Root."""
 
 import os
 from pathlib import Path
@@ -10,7 +10,7 @@ from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha, SecurityPolicy
-from sarathi.nabhi import ArtifactBoundary, Dvara, Kosh, Manthan, Prana, Pravaha, QuarantineStore, RetryPolicy
+from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Prana, Pravaha, QuarantineStore, RetryPolicy
 from sarathi.sankalpa import (
     CapabilityDeclaration,
     ConfidenceValue,
@@ -103,7 +103,6 @@ class TestAgniBootstrap:
         assert isinstance(agni.kavacha, Kavacha)
         assert isinstance(agni.artifact_boundary, ArtifactBoundary)
         assert isinstance(agni.kosh, Kosh)
-        assert isinstance(agni.dvara, Dvara)
         assert isinstance(agni.yantra, Yantra)
         assert isinstance(agni.manthan, Manthan)
         assert isinstance(agni.prana, Prana)
@@ -437,7 +436,6 @@ class TestAgniBootstrap:
         for r in maruti_records:
             assert r.duration_ns >= 0
             assert r.outcome == "success"
-
         id_rec = next(r for r in maruti_records if r.phase_name == "identification")
         assert id_rec.component == "shakti.darshana"
         assert id_rec.attributes["input_count"] == 1
