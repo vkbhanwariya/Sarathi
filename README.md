@@ -1,7 +1,6 @@
 # Sarathi V2
 
-**README Updated:** 08-09-2026, 11:55 PM IST (Asia/Kolkata)
-
+**README Updated:** 10-09-2026 (Asia/Kolkata)
 
 Sarathi V2 is a local, plugin-first document intelligence system for
 identifying documents, extracting and transforming their content, and
@@ -37,10 +36,10 @@ abstraction layers.
 
 ### Tiny Core, Plugin Features
 
-**Nabhi --- Core Kernel** coordinates plugins, capabilities, lifecycle,
-requests, contexts, results, resolution, and execution. OCR, translation,
-banking, conversion, extraction, and other document intelligence remain in
-**Shakti --- Plugin Ecosystem**.
+**Agni --- Runtime Bootstrap** owns composition and process lifecycle. **Nabhi --- Core Kernel**
+coordinates the declaration registry, requests, contexts, results, resolution, and
+pipeline execution. OCR, translation, banking, conversion, extraction, and other
+document intelligence remain in **Shakti --- Plugin Ecosystem**.
 
 ### Whole-System Change Propagation
 
@@ -79,9 +78,9 @@ executes the resulting plan.
 
 | Sanskrit name + English function | Canonical ownership |
 |---|---|
-| **Agni --- Runtime Bootstrap** | Creates, wires, starts, and closes the system |
+| **Agni --- Runtime Bootstrap** | Selects active providers; creates, wires, starts, and closes the system |
 | **Sankalpa --- Canonical Contracts** | Defines the common request, input, artifact, context, result, profile, and plugin language |
-| **Nabhi --- Core Kernel** | Coordinates discovery, registry, lifecycle, resolution, pipelines, and the single artifact-commit boundary |
+| **Nabhi --- Core Kernel** | Owns declaration registration, capability resolution, pipeline execution, and the single artifact-commit boundary |
 | **Yantra --- Resource & Execution Manager** | Allocates compatible resources and executes approved work |
 | **Darpana --- Telemetry & Tracing** | Observes through **Maruti --- Runtime, Logging & Performance Telemetry** and **Pramana --- Confidence & Accuracy Telemetry** |
 | **Mukha --- Console & Presentation** | Presents canonical runtime state and telemetry |
@@ -111,7 +110,7 @@ contracts.
 | [Font Conversion Specification](Vedas/Sarathi_V2_Font_Conversion_Spec.md) | **Roopa --- Convert / Font Conversion** local detection, mapping, protection, normalization, data, dependencies, and tests |
 | [Translation Specification](Vedas/Sarathi_V2_Translation_Spec.md) | Translation-local models, protected content, terminology, dependencies, and tests |
 | [Bank Statement Consolidation Specification](Vedas/Sarathi_V2_Bank_Statement_Spec.md) | Bank-local pipeline, contracts, normalization, validation, outputs, profiles, and tests |
-| [Implementation Guide](Vedas/Sarathi_V2_Implementation_Guide.md) | Development baseline, Phase 1 order, project structure, file ownership, end-to-end wiring, testing policy, dependency policy, and status |
+| [Implementation Guide](Vedas/Sarathi_V2_Implementation_Guide.md) | Development baseline, project structure, ownership, runtime wiring, testing policy, and status |
 
 Each detailed rule has one documentation owner. The main README links to that
 owner instead of copying its contents.
