@@ -98,7 +98,7 @@ class TestMukhaWebServerSecurityHeaders:
 
     def test_live_server_security_headers_on_api_state(self, web_server: MukhaWebServer) -> None:
         conn = http.client.HTTPConnection("127.0.0.1", web_server.resolved_port)
-        conn.putrequest("GET", "/api/state")
+        conn.putrequest("GET", "/api/state", skip_host=True)
         conn.putheader("Host", f"127.0.0.1:{web_server.resolved_port}")
         conn.endheaders()
         response = conn.getresponse()
@@ -114,7 +114,7 @@ class TestMukhaWebServerSecurityHeaders:
 
     def test_live_server_security_headers_on_static_resource(self, web_server: MukhaWebServer) -> None:
         conn = http.client.HTTPConnection("127.0.0.1", web_server.resolved_port)
-        conn.putrequest("GET", "/")
+        conn.putrequest("GET", "/", skip_host=True)
         conn.putheader("Host", f"127.0.0.1:{web_server.resolved_port}")
         conn.endheaders()
         response = conn.getresponse()

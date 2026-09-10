@@ -22,10 +22,10 @@ def _http_get(url: str, headers: dict[str, str] | None = None) -> tuple[int, byt
     req = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
-            headers_dict = dict(resp.headers)
+            headers_dict = {key.title(): value for key, value in resp.headers.items()}
             return resp.status, resp.read(), headers_dict
     except urllib.error.HTTPError as err:
-        return err.code, err.read(), dict(err.headers)
+        return err.code, err.read(), {key.title(): value for key, value in err.headers.items()}
 
 
 def _http_post(url: str, data: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
@@ -143,7 +143,7 @@ class TestMukhaWebServerAPI:
     def test_native_browse_endpoints_mocked(self, web_server: MukhaWebServer) -> None:
         """POST /api/browse/files and /api/browse/folder call NativePicker."""
         with patch(
-            "sarathi.mukha.web.http_handler.NativePicker.browse_files", return_value=NativePickerResult(paths=("/doc.pdf",))
+            "sarathi.mukha.web.app.NativePicker.browse_files", return_value=NativePickerResult(paths=("/doc.pdf",))
         ):
             status, data = _http_post(f"http://127.0.0.1:{web_server.resolved_port}/api/browse/files", data={})
             assert status == 200
@@ -151,7 +151,7 @@ class TestMukhaWebServerAPI:
             assert data["paths"] == ["/doc.pdf"]
 
         with patch(
-            "sarathi.mukha.web.http_handler.NativePicker.browse_folder", return_value=NativePickerResult(paths=("/folder",))
+            "sarathi.mukha.web.app.NativePicker.browse_folder", return_value=NativePickerResult(paths=("/folder",))
         ):
             status, data = _http_post(f"http://127.0.0.1:{web_server.resolved_port}/api/browse/folder", data={})
             assert status == 200

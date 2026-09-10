@@ -433,6 +433,11 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
 
         return _json(200, compare_runs(mukha.agni, run_a, run_b))
 
+    async def invalid_artifact_path(request: Request) -> Response:
+        # Starlette decodes percent-encoded separators before route matching.
+        # Catch malformed artifact paths explicitly rather than falling through to a generic 404.
+        return _json(400, {"ok": False, "error": "Invalid run or artifact identifier."})
+
     async def artifact_download(request: Request) -> Response:
         return _confirmed_artifact_response(
             mukha,
@@ -608,6 +613,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         Route("/api/runs/{run_id}/summary", run_summary),
         Route("/api/runs/compare", compare_runs_route),
         Route("/api/runs/{run_id}/artifacts/{artifact_id}", artifact_download),
+        Route("/api/runs/{run_id}/artifacts/{artifact_path:path}", invalid_artifact_path),
         Route("/api/browse/files", browse_files, methods=["POST"]),
         Route("/api/browse/folder", browse_folder, methods=["POST"]),
         Route("/api/intake", intake, methods=["POST"]),
