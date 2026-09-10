@@ -196,11 +196,14 @@ class RapidOCREngine:
 
             img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps)
 
-        # Synchronize preprocessed image for geometrically aligned cropping
-        from PIL import Image
-
+        # Keep a PIL image only when a later operation actually needs one.
+        # Instant OCR never uses fallback crops, so eagerly rebuilding PIL from the
+        # NumPy inference array is pure per-page allocation/copy overhead.
+        processed_img: Any | None = None
         is_binarized = False
         if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
+            from PIL import Image
+
             is_binarized = True
             if isinstance(img_arr, np.ndarray):
                 gray_pil = Image.fromarray(img_arr).convert("L")
@@ -211,13 +214,6 @@ class RapidOCREngine:
             threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
             processed_img = threshold_img
             img_arr = np.array(threshold_img.convert("RGB"))
-        else:
-            if isinstance(img_arr, np.ndarray):
-                processed_img = Image.fromarray(img_arr)
-            elif hasattr(image, "copy"):
-                processed_img = image.copy()
-            else:
-                processed_img = image
 
         if cancellation_token is not None and cancellation_token.is_cancelled:
             cancellation_token.check_cancelled()
@@ -278,6 +274,14 @@ class RapidOCREngine:
                             )
                         )
                         break
+
+                    if processed_img is None:
+                        if not should_preprocess and hasattr(image, "crop"):
+                            processed_img = image
+                        else:
+                            from PIL import Image
+
+                            processed_img = Image.fromarray(img_arr) if isinstance(img_arr, np.ndarray) else image
 
                     min_x, min_y, max_x, max_y = span.bounding_box
                     w, h = processed_img.size if hasattr(processed_img, "size") else (int(max_x), int(max_y))

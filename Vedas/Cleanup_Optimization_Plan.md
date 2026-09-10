@@ -49,9 +49,15 @@ Kosh owns declaration registration and lookup; provider batches are fully valida
 
 Repository-wide usage auditing confirmed that Yantra's bounded subtask execution is used by OCR and translation, while queueing, cancellation cleanup, allocation integrity, backend compatibility, and concurrency binding protect active correctness paths. Those mechanisms remain. Unused `DeviceInventory` aliases/type-search helpers were deleted, the allocator now consumes concrete `DeviceInfo` records instead of generic duck-typed objects, and the concurrency hardening test now enforces the actual two-task bound it configures. Accelerator `capacity` remains an explicit scheduler concurrency budget rather than a claim about physical compute cores; no throughput tuning was made without a reproducible benchmark. Capability-specific workload strategy remains with the capability.
 
-### Phase 4 — OCR profiling and optimization
+### Phase 4 — OCR profiling and optimization — complete
 
-Profile model startup, preprocessing, inference, postprocessing, image conversion, page throughput, memory, and artifact cost. Optimize only proven hot paths without reducing recognition quality or changing fallback semantics.
+The OCR page path was profiled before modification with a model-free orchestration benchmark using a 1240×1754 RGB page (approximately A4 at 150 DPI), a no-op inference callable, and the real `RapidOCREngine.ocr_page()` orchestration. Instant OCR with preprocessing disabled measured **7.746 ms median/page**; default Instant preprocessing measured **19.417 ms median/page**, a measured preprocessing delta of **11.671 ms/page**. Eager NumPy-to-PIL reconstruction alone measured **0.991 ms median/page**.
+
+The optimization removes that eager fallback-crop image reconstruction from paths that cannot use it. `processed_img` is now materialized only when Custom binarization or a weak-span Tesseract fallback actually needs a PIL image; when preprocessing is disabled, fallback can reuse the original PIL image. The same no-preprocessing benchmark measured **7.270 ms median/page** after the change, about **6.1% lower orchestration overhead** on that workload.
+
+No deskew, CLAHE, recognition model, language routing, fallback threshold, confidence, geometry, concurrency, rasterization DPI, or artifact behavior was changed. Default preprocessing was deliberately left untouched despite its measurable cost because changing it without a recognition-quality corpus would trade correctness for an unproven speed benefit. Existing Accurate fallback crop-alignment coverage remains, and `test_instant_page_does_not_materialize_unused_fallback_image` prevents the unused Instant-path allocation from returning.
+
+These timings measure Python/image-orchestration overhead only, not end-to-end neural inference throughput, and must not be presented as real-model OCR latency.
 
 ### Phase 5 — Artifact and quarantine cleanup
 

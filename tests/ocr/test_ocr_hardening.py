@@ -115,6 +115,28 @@ def test_instant_profile_never_invokes_fallback() -> None:
     assert "fallback_applied" not in res.provenance[0].evidence
 
 
+def test_instant_page_does_not_materialize_unused_fallback_image() -> None:
+    """Instant OCR must not allocate a PIL fallback crop image that cannot be used."""
+    engine = RapidOCREngine()
+    engine._engine = lambda _arr: DummyOutput(
+        txts=["FAST_PATH"],
+        boxes=[[(10, 10), (80, 10), (80, 30), (10, 30)]],
+        scores=[0.99],
+    )
+    image = Image.new("RGB", (200, 100), color=(255, 255, 255))
+
+    with patch.object(Image, "fromarray", side_effect=AssertionError("unused PIL copy created")):
+        page, _, _, _ = engine.ocr_page(
+            image,
+            page_number=1,
+            input_id="instant-fast-path",
+            profile=ExecutionProfile.INSTANT,
+            custom_options={"preprocess": False},
+        )
+
+    assert page.text == "FAST_PATH"
+
+
 def test_accurate_fallback_crops_from_preprocessed_image_space() -> None:
     """Accurate fallback crops must originate from processed image space matching RapidOCR bounding boxes."""
     tess = DummyTesseract(available=True, return_tuple=("IMPROVED", 0.92))
