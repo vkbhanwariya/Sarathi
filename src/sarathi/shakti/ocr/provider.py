@@ -37,7 +37,6 @@ class OCRProvider(PluginProvider):
                 yantra=services.yantra,
                 darpana=services.darpana,
                 data_root=ocr_data_root,
-                settings=services.settings,
             )
         }
 
