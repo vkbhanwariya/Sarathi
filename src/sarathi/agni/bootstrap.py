@@ -25,7 +25,7 @@ from sarathi.agni.wiring import assemble_platform_services
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha
-from sarathi.nabhi import ArtifactBoundary, Dvara, Kosh, Manthan, Pravaha, QuarantineStore, RetryPolicy
+from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Pravaha, QuarantineStore, RetryPolicy
 from sarathi.sankalpa import (
     Capability,
     CapabilityReadiness,
@@ -84,7 +84,6 @@ class Agni:
             capabilities=capabilities,
             plugins=plugins,
             smriti=smriti,
-            bootstrap_ctx=bootstrap_ctx,
         )
         validate_bootstrap_consistency(kosh=services.kosh, capabilities=services.capabilities)
 
@@ -100,7 +99,6 @@ class Agni:
         self._retry_policy = services.retry_policy
         self._artifact_boundary = services.artifact_boundary
         self._kosh = services.kosh
-        self._dvara = services.dvara
         self._active_providers = services.active_providers
         self._disabled_plugins = tuple(active_settings.plugins_disabled)
         self._all_candidate_providers = all_candidate_providers
@@ -175,10 +173,6 @@ class Agni:
     @property
     def kosh(self) -> Kosh:
         return self._kosh
-
-    @property
-    def dvara(self) -> Dvara:
-        return self._dvara
 
     @property
     def yantra(self) -> Yantra:
