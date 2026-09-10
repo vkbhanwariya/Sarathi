@@ -1,6 +1,6 @@
 # Sarathi V2 — Core Runtime Specification
 
-**Specification Updated:** 08-09-2026, 01:25 PM IST (Asia/Kolkata)
+**Specification Updated:** 10-09-2026 (Asia/Kolkata)
 
 This file contains the detailed canonical specification for Agni, Sankalpa, Nabhi, Pravaha, and Yantra.
 The main [Sarathi V2 README](../README.md) retains only stable architecture, ownership, and document routing.
@@ -28,9 +28,9 @@ Apply configured Darpana recording and logging policy
     ↓
 Create global shared services
     ↓
-Initialize Nabhi — Core Kernel
+Select active PluginProviders
     ↓
-Discover and register plugins
+Kosh atomically registers provider declarations
     ↓
 Start Mukha — Console & Presentation
     ↓
@@ -167,31 +167,33 @@ compatibility boundary requires simultaneous schemas.
 **Nabhi --- Core Kernel** coordinates the system without knowing
 document domains.
 
-### Dvara --- Plugin Discovery
-
-Finds available plugins.
-
--   Built-in plugins are explicitly known.
--   External plugins may be auto-discovered.
--   Discovery does not execute business logic.
-
 ### Kosh --- Plugin & Capability Registry
 
-Maintains the canonical runtime registry.
+Maintains the canonical runtime declaration registry.
+
+**Agni** decides which providers participate in a runtime. It passes that
+provider set to Kosh; Kosh validates the complete batch and only then mutates
+registry state. Identical repeated registration is idempotent and conflicting
+plugin or capability declarations fail before partial mutation.
+
+Kosh does not discover/import plugins, construct executables, inspect hardware,
+or execute capability logic.
 
 It answers questions such as:
 
--   Which plugins are available?
+-   Which plugins are registered?
 -   Which capabilities do they provide?
--   Which execution modes and devices do they support?
--   Is a plugin healthy and available?
+-   Which execution modes and devices do their declarations support?
 
-### Prana --- Lifecycle Manager
+Operational readiness remains provider/Agni runtime state rather than registry
+ownership.
 
-Coordinates initialization and shutdown.
+### Prana --- Deprecated Lifecycle Compatibility View
 
-It does not own resource scheduling, telemetry, or plugin-specific
-initialization logic.
+Process-level startup and shutdown are owned directly by **Agni**. `Prana`
+exists only as a deprecated compatibility view for callers that still inspect
+the legacy lifecycle surface; it does not own lifecycle state, ordering, or
+execution behavior.
 
 ### Manthan --- Capability Resolver
 
