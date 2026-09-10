@@ -124,8 +124,8 @@ class MukhaWebServer:
 
     @property
     def local_url(self) -> str:
-        """Return the loopback URL for the Mukha application."""
-        return f"http://127.0.0.1:{self._resolved_port}/"
+        """Return the canonical loopback origin for the Mukha application."""
+        return f"http://127.0.0.1:{self._resolved_port}"
 
     def get_confirmed_artifact(self, run_id: str, artifact_id: str) -> ArtifactRef | None:
         """Look up a confirmed artifact by run and artifact IDs."""
