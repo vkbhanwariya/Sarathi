@@ -118,6 +118,7 @@ class TestOCRCapabilityYantraIntegration:
                 res = cap.execute(req, ctx)
                 assert spy_subtasks.call_count == 1
                 assert len(spy_subtasks.call_args[0][0]) == 2
+                assert spy_subtasks.call_args.kwargs == {"context": ctx}
 
             assert res.data is not None
             doc = res.data
@@ -125,10 +126,19 @@ class TestOCRCapabilityYantraIntegration:
             assert doc.pages[0].page_number == 1
             assert doc.pages[1].page_number == 2
 
-    def test_no_threadpoolexecutor_in_ocr_capability(self) -> None:
+    def test_capability_does_not_own_hardware_or_thread_policy(self) -> None:
         import inspect
 
         import sarathi.shakti.ocr.capability as cap_module
 
         src = inspect.getsource(cap_module)
-        assert "ThreadPoolExecutor" not in src, "OCRCapability must not create or import ThreadPoolExecutor"
+        forbidden = (
+            "ThreadPoolExecutor",
+            "DeviceSlotPool",
+            "create_hybrid_device_pool",
+            "hardware_ocr_hybrid_page_threshold",
+            "hybrid_device",
+            "load_settings",
+        )
+        for token in forbidden:
+            assert token not in src, f"OCRCapability must not own execution-policy detail {token!r}"
