@@ -15,7 +15,6 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ConfidenceValue,
-    DeviceType,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
@@ -70,7 +69,6 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
     "fallback_enabled",
     "validation_enabled",
     "progress_callback",
-    "hybrid_device",
 })
 _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "engine",
@@ -89,13 +87,11 @@ class OCRCapability:
         data_root: Path | None = None,
         yantra: Yantra | None = None,
         darpana: Darpana | None = None,
-        settings: Any | None = None,
     ) -> None:
         self.declaration: CapabilityDeclaration = declaration
         self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine(data_root=data_root)
         self._yantra: Yantra | None = yantra
         self._darpana: Darpana | None = darpana
-        self._settings: Any | None = settings
 
     def _record_page_telemetry(
         self,
@@ -250,19 +246,17 @@ class OCRCapability:
         if request.custom_options and callable(request.custom_options.get("progress_callback")):
             progress_cb = request.custom_options["progress_callback"]
 
-        # 2. Perform OCR: execute in bounded chunks across input boundaries if parallelizable
+        # 2. Perform OCR: decompose page work; Yantra owns device and concurrency policy.
         total_pages_needing_ocr = sum(len(needed) for _, _, needed in ocr_inputs)
         is_parallelizable = self.declaration.device_requirement.parallelizable
-        max_concurrency = (
+        approved_concurrency = (
             context.execution_binding.approved_concurrency if context.execution_binding else None
         )
-        default_cap = self._yantra.max_workers if self._yantra is not None else 1
-        approved_concurrency = max_concurrency if (max_concurrency and max_concurrency > 0) else default_cap
         can_parallelize = (
             total_pages_needing_ocr > 1
             and self._yantra is not None
             and is_parallelizable
-            and (max_concurrency is None or max_concurrency > 1)
+            and (approved_concurrency is None or approved_concurrency > 1)
         )
 
         doc_page_results: dict[str, list[tuple[int, PageData, ProvenanceRecord | None, list[WarningRecord]]]] = {
@@ -273,33 +267,6 @@ class OCRCapability:
                 doc_page_results[inp.input_id].append((p_num, p_data, None, []))
 
         if can_parallelize:
-            hybrid_threshold = 8
-            if self._settings is not None and hasattr(self._settings, "hardware_ocr_hybrid_page_threshold"):
-                hybrid_threshold = self._settings.hardware_ocr_hybrid_page_threshold
-            else:
-                try:
-                    from sarathi.sutra import load_settings
-
-                    settings = load_settings()
-                    hybrid_threshold = settings.hardware_ocr_hybrid_page_threshold
-                except Exception:
-                    hybrid_threshold = 8
-
-            custom_opts = request.custom_options or {}
-            use_hybrid = (
-                (total_pages_needing_ocr >= hybrid_threshold or custom_opts.get("hybrid_device") is True)
-                and context.execution_binding is not None
-                and context.execution_binding.device_type == DeviceType.GPU
-            )
-
-            device_pool = None
-            if use_hybrid:
-                device_pool = self._yantra.create_hybrid_device_pool(
-                    context.execution_binding,
-                    include_cpu=True,
-                    max_cpu_concurrency=4,
-                )
-
             all_items: list[tuple[InputRef, int, int, Any]] = []
             for inp, images, needed_indices in ocr_inputs:
                 tot = len(images)
@@ -315,99 +282,53 @@ class OCRCapability:
                         context.cancellation_token.check_cancelled()
 
                     w_id = str(threading.get_ident() % 1000)
-
-                    if device_pool is not None:
-                        with device_pool.acquire() as slot_binding:
-                            if progress_cb is not None:
-                                progress_cb(
-                                    file_display_name=inp_ref.display_name,
-                                    page_number=p_idx,
-                                    total_pages=tot_pages,
-                                    worker_id=w_id,
-                                    stage="Optical Character Recognition (OCR)",
-                                    device_type=slot_binding.device_type.value.upper(),
-                                    input_id=inp_ref.input_id,
-                                )
-
-                            ocr_kwargs: dict[str, Any] = {
-                                "profile": request.profile,
-                                "custom_options": request.custom_options,
-                                "execution_binding": slot_binding,
-                            }
-                            if context.cancellation_token is not None:
-                                ocr_kwargs["cancellation_token"] = context.cancellation_token
-
-                            t0 = time.perf_counter_ns()
-                            p_data, p_prov, _, p_warns = self._engine.ocr_page(
-                                p_img,
-                                p_idx,
-                                inp_ref.input_id,
-                                **ocr_kwargs,
-                            )
-                            dur = max(0, time.perf_counter_ns() - t0)
-                            self._record_page_telemetry(
-                                context=context,
-                                inp_ref=inp_ref,
-                                page_idx=p_idx,
-                                page_data=p_data,
-                                dur_ns=dur,
-                                binding=slot_binding,
-                                worker_id=w_id,
-                            )
-                            return p_data, p_prov, p_warns
-                    else:
-                        if progress_cb is not None:
-                            dev_str = (
-                                context.execution_binding.device_type.value.upper()
-                                if context.execution_binding
-                                else "CPU"
-                            )
-                            progress_cb(
-                                file_display_name=inp_ref.display_name,
-                                page_number=p_idx,
-                                total_pages=tot_pages,
-                                worker_id=w_id,
-                                stage="Optical Character Recognition (OCR)",
-                                device_type=dev_str,
-                                input_id=inp_ref.input_id,
-                            )
-
-                        ocr_kwargs: dict[str, Any] = {
-                            "profile": request.profile,
-                            "custom_options": request.custom_options,
-                            "execution_binding": context.execution_binding,
-                        }
-                        if context.cancellation_token is not None:
-                            ocr_kwargs["cancellation_token"] = context.cancellation_token
-
-                        t0 = time.perf_counter_ns()
-                        p_data, p_prov, _, p_warns = self._engine.ocr_page(
-                            p_img,
-                            p_idx,
-                            inp_ref.input_id,
-                            **ocr_kwargs,
+                    if progress_cb is not None:
+                        dev_str = (
+                            context.execution_binding.device_type.value.upper()
+                            if context.execution_binding
+                            else "CPU"
                         )
-                        dur = max(0, time.perf_counter_ns() - t0)
-                        self._record_page_telemetry(
-                            context=context,
-                            inp_ref=inp_ref,
-                            page_idx=p_idx,
-                            page_data=p_data,
-                            dur_ns=dur,
-                            binding=context.execution_binding,
+                        progress_cb(
+                            file_display_name=inp_ref.display_name,
+                            page_number=p_idx,
+                            total_pages=tot_pages,
                             worker_id=w_id,
+                            stage="Optical Character Recognition (OCR)",
+                            device_type=dev_str,
+                            input_id=inp_ref.input_id,
                         )
-                        return p_data, p_prov, p_warns
+
+                    ocr_kwargs: dict[str, Any] = {
+                        "profile": request.profile,
+                        "custom_options": request.custom_options,
+                        "execution_binding": context.execution_binding,
+                    }
+                    if context.cancellation_token is not None:
+                        ocr_kwargs["cancellation_token"] = context.cancellation_token
+
+                    t0 = time.perf_counter_ns()
+                    p_data, p_prov, _, p_warns = self._engine.ocr_page(
+                        p_img,
+                        p_idx,
+                        inp_ref.input_id,
+                        **ocr_kwargs,
+                    )
+                    dur = max(0, time.perf_counter_ns() - t0)
+                    self._record_page_telemetry(
+                        context=context,
+                        inp_ref=inp_ref,
+                        page_idx=p_idx,
+                        page_data=p_data,
+                        dur_ns=dur,
+                        binding=context.execution_binding,
+                        worker_id=w_id,
+                    )
+                    return p_data, p_prov, p_warns
 
                 return _task
 
             subtasks = [_make_page_task(item[0], item[1], item[2], item[3]) for item in all_items]
-            page_results = self._yantra.execute_subtasks(
-                subtasks,
-                context=context,
-                max_concurrency=approved_concurrency if device_pool is None else None,
-                device_pool=device_pool,
-            )
+            page_results = self._yantra.execute_subtasks(subtasks, context=context)
             for (inp_ref, p_idx, _, _), (p_data, p_prov, p_warns) in zip(all_items, page_results):
                 doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
         else:
