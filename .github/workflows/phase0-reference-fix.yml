@@ -1,0 +1,75 @@
+name: Phase 0 reference fix
+
+on:
+  push:
+    branches:
+      - cleanup-mukha-starlette-phase0
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: Fix remaining compatibility references
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path_str: str, old: str, new: str) -> None:
+              path = Path(path_str)
+              text = path.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'expected text not found in {path_str}: {old!r}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace(
+              'src/sarathi/mukha/web/server.py',
+              'from sarathi.mukha.web.http_handler import StartRunResponse\nfrom sarathi.mukha.web.runner import RunCoordinator\n',
+              'from sarathi.mukha.web.runner import RunCoordinator, StartRunResponse\n',
+          )
+          replace(
+              'tests/mukha/test_batch_performance.py',
+              'from sarathi.mukha.web.http_handler import _serialize_dataclass',
+              'from sarathi.mukha.web.security import _serialize_dataclass',
+          )
+          replace(
+              'tests/mukha/test_security_headers_and_host.py',
+              'from sarathi.mukha.web.http_handler import (',
+              'from sarathi.mukha.web.security import (',
+          )
+          replace(
+              'tests/architecture/test_mukha_transport.py',
+              'from pathlib import Path\n\n\n_WEB_ROOT',
+              'from pathlib import Path\n\n_WEB_ROOT',
+          )
+
+          # The deleted compatibility module must have zero import references.
+          offenders = []
+          for root in (Path('src'), Path('tests')):
+              for path in root.rglob('*.py'):
+                  text = path.read_text(encoding='utf-8')
+                  if 'sarathi.mukha.web.http_handler' in text:
+                      offenders.append(str(path))
+          if offenders:
+              raise SystemExit('remaining http_handler imports: ' + ', '.join(offenders))
+          PY
+
+          uv python install 3.13
+          uv sync --group dev
+          uv run ruff check . --fix
+          uv run ruff check .
+          uv run python -m compileall -q src tests scripts
+
+          rm .github/workflows/phase0-reference-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Remove remaining Mukha handler compatibility references"
+          git push origin HEAD:cleanup-mukha-starlette-phase0
