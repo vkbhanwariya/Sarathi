@@ -750,7 +750,6 @@ class TestPublicExport:
         expected = {
             "ArtifactBoundary",
             "CapabilityPlan",
-            "Dvara",
             "Kosh",
             "LifecycleAction",
             "LifecycleActionType",
