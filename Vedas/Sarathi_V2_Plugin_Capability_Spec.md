@@ -1,6 +1,6 @@
 # Sarathi V2 — Shakti — Plugin & Capability Specification
 
-**Specification Updated:** 08-09-2026, 11:55 PM IST (Asia/Kolkata)
+**Specification Updated:** 10-09-2026 (Asia/Kolkata)
 
 This file owns shared plugin rules, **PluginProvider** integration contracts, **Darshana — Identify**, capability readiness architecture, operator enablement policies, and capability specification routing. Capability-local behavior lives only in its owning file.
 
@@ -36,7 +36,7 @@ A plugin uses canonical contracts and shared services through their public bound
 
 ## 2. Canonical PluginProvider & PluginServices Boundary
 
-To eliminate duplicated wiring, decouple engines from metadata discovery, and keep core runtime generic, every plugin exposes a canonical `PluginProvider`.
+To eliminate duplicated wiring and keep the core runtime generic, every plugin exposes a canonical `PluginProvider`.
 
 ```text
                      PluginProvider
@@ -44,14 +44,10 @@ To eliminate duplicated wiring, decouple engines from metadata discovery, and ke
                    /        |        \
           declarations   readiness   factory
                ↓            ↓          ↓
-             Dvara       runtime      Agni
-               ↓          status        ↓
-              Kosh          │      executables
-                \           │          /
-                 \          ▼         /
-                  └────── Mukha      /
-                         │          /
-                         └─────────┘
+              Kosh       runtime      Agni
+               │          status        ↓
+               │            │      executables
+               └────────────┼───────────┘
                             ↓
                           Manthan
                             ↓
@@ -76,8 +72,8 @@ Immutable dataclass providing canonical injected shared dependencies to provider
 - `data_root`: Canonical data directory root.
 
 ### 2.3 Strict Ownership Separation
-- **Dvara (Nabhi):** Discovers plugin metadata and registers `PluginInfo` and `CapabilityDeclaration` into `Kosh`. Dvara receives providers; it never imports or instantiates execution engines.
-- **Agni (Kernel):** Composition root and lifecycle manager. Constructs global services in topological order, calls `provider.create_capabilities(services)` on active providers, and binds executables to Pravaha.
+- **Agni (Composition Root):** Selects the active provider set, constructs global services in topological order, calls `provider.create_capabilities(services)`, and binds executables to Pravaha.
+- **Kosh (Registry):** Validates and atomically registers `PluginInfo` and `CapabilityDeclaration` metadata supplied by Agni. It does not discover, import, instantiate, or execute plugins.
 - **Mukha (Presentation):** Consumes presentation facts only. Has zero direct imports of OCR engines, bank detectors, font JSON globbing, or translation dependencies. Probes readiness solely via `Agni.audit_readiness()`.
 
 ---
@@ -166,7 +162,7 @@ Agni enforces fail-fast bootstrap consistency validation (`_validate_bootstrap_c
 1. **1-to-1 Parity:** Every capability declaration registered in `Kosh` must have an executable binding in runtime capabilities, and every executable capability must have a registered declaration in `Kosh`.
 2. **Declaration Match:** The executable's declaration must strictly equal the declaration registered in `Kosh`.
 3. **No Duplicates:** Duplicate plugin IDs or duplicate capability IDs across providers are rejected at bootstrap with `DoshError(FailureCode.VALIDATION_FAILED)`.
-4. **Replacement Composition:** When `Agni(capabilities=...)` is passed for testing or micro-runtimes, Dvara registers only the providers corresponding to the supplied replacement capabilities, preserving 1-to-1 consistency without lingering phantom declarations in Kosh.
+4. **Replacement Composition:** When `Agni(capabilities=...)` is passed for testing or micro-runtimes, Agni selects only providers corresponding to the supplied replacement capabilities and Kosh registers only those declarations, preserving 1-to-1 consistency without phantom registry entries.
 
 ---
 
