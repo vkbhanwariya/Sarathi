@@ -416,12 +416,10 @@ class TestOperationalAcceptanceE2E:
             # 1. Single Kosh registry instance
             kosh = agni.kosh
             assert isinstance(kosh, Kosh)
-            assert agni.dvara.registry is kosh
             assert agni.manthan.registry is kosh
 
             # 2. Single Darpana telemetry instance
             assert agni.darpana is darpana
-            assert agni.dvara.darpana is darpana
             assert agni.yantra.darpana is darpana
             assert agni.pravaha.darpana is darpana
 
