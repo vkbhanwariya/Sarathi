@@ -88,16 +88,6 @@ class Manthan:
                 message=f"No capability registered for requirement '{requirement}'.",
             )
 
-        # Validate requested execution profile
-        if request.profile not in capability.supported_profiles:
-            raise DoshError(
-                code=FailureCode.UNSUPPORTED,
-                message=(
-                    f"Capability '{capability.capability_id}' does not support requested "
-                    f"execution profile '{request.profile.value}'."
-                ),
-            )
-
         # Validate input media types if supported_input_types is declared
         if capability.supported_input_types:
             for inp in request.inputs:
@@ -193,14 +183,18 @@ class Manthan:
                 )
 
             if profile is not None and profile not in cap.supported_profiles:
-                parent = visiting[-1] if visiting else root_id
-                raise DoshError(
-                    code=FailureCode.UNSUPPORTED,
-                    message=(
+                if visiting:
+                    parent = visiting[-1]
+                    message = (
                         f"Prerequisite capability '{cap_id}' required by '{parent}' does not support "
                         f"requested execution profile '{profile.value}'."
-                    ),
-                )
+                    )
+                else:
+                    message = (
+                        f"Capability '{cap_id}' does not support requested "
+                        f"execution profile '{profile.value}'."
+                    )
+                raise DoshError(code=FailureCode.UNSUPPORTED, message=message)
 
             if cap_id in cap.prerequisites:
                 raise DoshError(

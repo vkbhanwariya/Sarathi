@@ -35,15 +35,15 @@ delete obsolete code
 
 Starlette/Uvicorn own the local web transport. Obsolete stdlib HTTP handler/static-handler machinery is removed and architecture tests prevent it from returning.
 
-### Phase 1 — Mukha ownership cleanup — validating
+### Phase 1 — Mukha ownership cleanup — complete
 
 Goal: keep `server.py` as lifecycle/facade, `app.py` as HTTP translation/routing, runner code as run-state owner, and focused helpers only where they have substantive responsibility. Remove private compatibility seams, migrate tests to public/focused owners, keep API/browser behavior stable, and finish with a current-only documentation tree.
 
 Phase 1 is complete only when lint/compilation, architecture sanity, TypeScript build, deterministic Python tests, and Playwright browser tests pass on the exact final tree.
 
-### Phase 2 — Kosh / Manthan / Pravaha ownership
+### Phase 2 — Kosh / Manthan / Pravaha ownership — complete
 
-Reconfirm Kosh as declaration registry, Manthan as sole planning authority, and Pravaha as plan execution. Remove duplicate validation or route/profile selection that creates competing decisions.
+Kosh owns declaration registration and lookup; provider batches are fully validated before one direct atomic commit instead of being re-validated through the single-item registration API. Manthan is the sole planning authority for requirements, prerequisites, execution-profile compatibility, and continuation plans. Pravaha consumes resolved plans and owns execution, cancellation, retry, quarantine, and hand-off mechanics without constructing plans or selecting supported profiles. Architecture tests keep that ownership boundary explicit.
 
 ### Phase 3 — Yantra simplification and resource measurement
 

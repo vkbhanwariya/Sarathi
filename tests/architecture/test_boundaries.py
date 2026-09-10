@@ -38,3 +38,15 @@ class TestArchitecturalBoundaries:
         imports = _imports_under(repo_root / "src" / "sarathi" / "shakti")
         violations = sorted(name for name in imports if name.startswith("sarathi.mukha"))
         assert not violations, f"Document-processing capabilities depend on UI code: {violations}"
+
+    def test_pravaha_does_not_construct_plans_or_select_supported_profiles(self) -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        violations: list[str] = []
+        for py_file in (repo_root / "src" / "sarathi" / "nabhi" / "pravaha").rglob("*.py"):
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "CapabilityPlan":
+                    violations.append(f"{py_file.name}: constructs CapabilityPlan")
+                if isinstance(node, ast.Attribute) and node.attr == "supported_profiles":
+                    violations.append(f"{py_file.name}: inspects supported_profiles")
+        assert not violations, f"Pravaha contains planning decisions owned by Manthan: {violations}"

@@ -106,12 +106,17 @@ class Kosh:
                         ),
                     )
 
+        # Commit the already validated batch directly. Calling the public single-item
+        # registration methods here would repeat owner/duplicate validation after the
+        # atomic preflight above and create a second validation path for the same batch.
         for plugin, declarations in incoming:
             if plugin.plugin_id not in self._plugins:
-                self.register_plugin(plugin)
+                self._plugins[plugin.plugin_id] = plugin
+                self._plugin_capabilities[plugin.plugin_id] = []
             for declaration in declarations:
                 if declaration.capability_id not in self._capabilities:
-                    self.register_capability(declaration)
+                    self._capabilities[declaration.capability_id] = declaration
+                    self._plugin_capabilities[plugin.plugin_id].append(declaration.capability_id)
 
         return tuple(plugin.plugin_id for plugin, _ in incoming)
 
