@@ -99,15 +99,28 @@ BUILTIN_PLUGIN_PROVIDERS: tuple[PluginProvider, ...] = (
 
 Additive plugins may be supplied to the composition root via `Agni(extra_plugin_providers=...)`.
 
+### Cloud security boundary
+
+Cloud plugins declare their security-sensitive privileges in `PluginInfo.security`.
+Before Pravaha delegates a cloud capability to Yantra, Kavacha authorizes that
+owning plugin declaration against the active `SecurityPolicy`. A denied network,
+external-processing, PII, or secret-name requirement therefore fails before the
+cloud capability executes.
+
+Kavacha is not an HTTP interceptor or credential vault. Cloud clients own their
+provider-specific REST transport and resolve credential values from supported
+runtime configuration, while Kavacha owns permission to use the declared
+privileges and credential names. Secret values must never be logged or committed
+to project configuration.
+
 ### 3.1 Mistral AI Cloud Plugin (`sarathi.shakti.mistral`)
 
 The Mistral AI plugin provides cloud-based OCR (`mistral-ocr-latest`) and Translation (`mistral-large-latest`) capabilities via direct HTTP REST calls:
 - **Capabilities:**
   - `mistral_ocr`: Cloud OCR supporting document markdown, layout bounding boxes, and tabular extraction into canonical `PageData` and `TableData`.
   - `mistral_translation`: Cloud-based high-accuracy multilingual document translation into canonical `CanonicalDocument`.
-- **Security & Privacy (Kavacha Gating):**
-  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("MISTRAL_API_KEY",))`.
-  Enforced by **Kavacha** before any network call. If operator configuration does not permit `allow_network_access` or `allow_external_processing`, requests fail fast with `FailureCode.SECURITY_DENIED`.
+- **Security Declaration:**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("MISTRAL_API_KEY",))` and is authorized by Kavacha at the capability-execution boundary.
 - **Zero-Leak Transport:**
   Direct REST client (`httpx` with `urllib` fallback) without vendor SDK telemetry. HTTP 401/429/5xx status codes and error responses sanitize raw tokens, file paths, and private payloads.
 
@@ -117,8 +130,8 @@ The Google Gemini plugin provides multimodal cloud OCR (`gemini-2.5-flash`) and 
 - **Capabilities:**
   - `gemini_ocr`: Multimodal vision OCR generating structured page content, tables, and document layout into canonical `PageData` and `TableData`.
   - `gemini_translation`: Multilingual document translation preserving canonical layout and structure.
-- **Security & Privacy (Kavacha Gating):**
-  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("GEMINI_API_KEY",))`.
+- **Security Declaration:**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("GEMINI_API_KEY",))` and is authorized by Kavacha at the capability-execution boundary.
 - **Zero-Leak Transport:**
   Direct REST client via `httpx` to Google Generative Language endpoints without google-genai telemetry SDKs.
 
@@ -128,8 +141,8 @@ The Microsoft Azure plugin provides Azure AI Document Intelligence layout OCR (`
 - **Capabilities:**
   - `azure_ocr`: Prebuilt layout document intelligence extracting word-level confidences, polygon spans, paragraphs, and tables into canonical `PageData` and `TableData`.
   - `azure_translation`: Direct Azure Translator API multilingual document translation.
-- **Security & Privacy (Kavacha Gating):**
-  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("AZURE_API_KEY", "AZURE_ENDPOINT"))`.
+- **Security Declaration:**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("AZURE_API_KEY", "AZURE_ENDPOINT"))` and is authorized by Kavacha at the capability-execution boundary.
 - **Zero-Leak Transport:**
   Direct REST client via `httpx` targeting customer-configured regional cognitive endpoints without heavy Azure SDKs.
 
@@ -139,8 +152,8 @@ The Bhashini plugin integrates Government of India's National Language Translati
 - **Capabilities:**
   - `bhashini_ocr`: Chitrakshar Indic OCR supporting 22 scheduled Indian languages, complex Devnagari and regional scripts into canonical `PageData`.
   - `bhashini_translation`: IndicTrans2 neural machine translation across all official Indian languages and English.
-- **Security & Privacy (Kavacha Gating):**
-  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("BHASHINI_API_KEY", "BHASHINI_INFERENCE_KEY", "BHASHINI_USER_ID"))`.
+- **Security Declaration:**
+  Declares `SecurityDeclaration(pii_access=True, local_processing_only=False, network_access=True, external_processing=True, required_secrets=("BHASHINI_API_KEY", "BHASHINI_INFERENCE_KEY", "BHASHINI_USER_ID"))` and is authorized by Kavacha at the capability-execution boundary.
 - **Zero-Leak Transport:**
   Direct REST client via `httpx` targeting MeitY/ULCA pipeline and compute inference endpoints.
 
