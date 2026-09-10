@@ -1,0 +1,49 @@
+name: Consolidate repository to V3
+
+on:
+  push:
+    branches: [v3]
+
+permissions:
+  contents: write
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3
+          fetch-depth: 0
+
+      - name: Make v3 default and remove other branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          switched=false
+          if gh api --method PATCH "repos/${GITHUB_REPOSITORY}" -f default_branch=v3; then
+            current_default="$(gh api "repos/${GITHUB_REPOSITORY}" --jq .default_branch)"
+            if [ "$current_default" = "v3" ]; then
+              switched=true
+            fi
+          fi
+
+          for branch in simplify-architecture v3-mukha-ui v3-mukha-starlette; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" || true
+          done
+
+          if [ "$switched" = true ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/main" || true
+          else
+            echo "Default branch could not be changed by GITHUB_TOKEN; main cannot be deleted while it is default." >&2
+          fi
+
+      - name: Remove this one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/consolidate-to-v3.yml
+          git commit -m "Remove one-shot branch consolidation workflow"
+          git push origin HEAD:v3
