@@ -1,13 +1,13 @@
-"""Comprehensive unit and regression tests for Phase 2 Core State, Lifecycle & Cache fixes.
+"""Comprehensive unit and regression tests for core state, lifecycle and cache fixes.
 
 Verifies:
 - Finding 3: Central warning accumulation across pipeline stages
 - Finding 4: Mixed-batch OCR handoff for Font, Translation, and Bank
 - Finding 27: Cache key completeness (bounding boxes, layout, metadata, structured objects)
 - Finding 28: Auxiliary cache put failure records Darpana warning without breaking execution
-- Finding 29: Agni restart prevention after close (INVALID_STATE)
-- Finding 30: Singular lifecycle teardown via Prana for unstarted components
-- Finding 31: Dvara preflight rejection of capability without owning plugin
+- Finding 29: Agni restart prevention after close
+- Finding 30: Singular lifecycle ownership in Agni
+- Finding 31: Kosh rejection of capability without owning plugin
 - Finding 32: Mukha dynamic capability readiness inspection
 - Finding 33: Yantra secondary error note sanitization
 """
@@ -24,7 +24,7 @@ import pytest
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.mukha.presenter import MukhaPresenter
-from sarathi.nabhi import Dvara, Kosh
+from sarathi.nabhi import Kosh
 from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
@@ -71,6 +71,7 @@ def test_cache_key_includes_bounding_box() -> None:
 
 def test_cache_key_prior_result_digest_dataclass() -> None:
     """Finding 27: Non-CanonicalDocument dataclass prior results must hash structured attributes, not type name."""
+
     @dataclass
     class CustomFinancialSummary:
         total_amount: Decimal
@@ -105,19 +106,16 @@ def test_mixed_batch_ocr_handoff_font_and_translation() -> None:
     )
     ctx = ExecutionContext("run-1", "req-batch", "t1", "s1")
 
-    # Font conversion capability: item-scoped escalation (Directive 26: populated docs converted, empty doc records warning)
     font_cap = FontConversionCapability()
     res_font = font_cap.execute(req, ctx, prior_result=Result(data=(doc_with_text, doc_empty)))
     assert res_font.next_requirement is None
     assert any(w.code == "EMPTY_DOCUMENT_SKIPPED" for w in res_font.warnings)
 
-    # Translation capability
     trans_cap = TranslationCapability()
     res_trans = trans_cap.execute(req, ctx, prior_result=Result(data=(doc_with_text, doc_empty)))
     assert res_trans.next_requirement == "ocr"
     assert res_trans.resume_self is True
 
-    # Bank statement capability
     bank_cap = BankStatementCapability()
     res_bank = bank_cap.execute(req, ctx, prior_result=Result(data=(doc_with_text, doc_empty)))
     assert res_bank.next_requirement == "ocr"
@@ -141,7 +139,7 @@ def test_agni_forbids_restart_after_close(tmp_path: Path) -> None:
 
 
 def test_agni_singular_lifecycle_ownership(tmp_path: Path) -> None:
-    """Finding 30: Agni routes all shutdown exclusively through Prana without bypassing."""
+    """Finding 30: Agni directly owns runtime component startup and shutdown."""
     from sarathi.agni import Agni
 
     class TrackingDarpana(Darpana):
@@ -164,20 +162,17 @@ def test_agni_singular_lifecycle_ownership(tmp_path: Path) -> None:
         output_root=tmp_path / "output",
         darpana=mock_darpana,
     )
-    # When started, Prana starts darpana
     agni.start()
     assert mock_darpana.start_called is True
 
-    # When closed, Prana closes darpana
     agni.close()
     assert mock_darpana.close_called is True
     assert agni.is_closed is True
 
 
-def test_dvara_rejects_capability_without_registered_plugin() -> None:
-    """Finding 31: Dvara must not synthesize synthetic plugins; owning plugin must be registered."""
+def test_kosh_rejects_capability_without_registered_plugin() -> None:
+    """Finding 31: Kosh never synthesizes a missing owning plugin."""
     kosh = Kosh()
-    dvara = Dvara(kosh)
 
     orphan_cap = CapabilityDeclaration(
         capability_id="orphan_cap",
@@ -187,9 +182,9 @@ def test_dvara_rejects_capability_without_registered_plugin() -> None:
     )
 
     with pytest.raises(DoshError) as exc_info:
-        dvara.register_capability(orphan_cap)
+        kosh.register_capability(orphan_cap)
     assert exc_info.value.code == FailureCode.VALIDATION_FAILED
-    assert "must be registered before capability" in exc_info.value.message
+    assert "is not registered" in exc_info.value.message
 
 
 def test_mukha_dynamic_capability_readiness(tmp_path: Path) -> None:
@@ -197,7 +192,6 @@ def test_mukha_dynamic_capability_readiness(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     banks_dir = data_dir / "banks"
     banks_dir.mkdir(parents=True)
-    # Write a test bank profile
     (banks_dir / "icici.yaml").write_text("profile_id: icici\nbank_name: ICICI Bank\nkeywords: [icici]\n", encoding="utf-8")
 
     fonts_dir = data_dir / "fonts"
@@ -205,6 +199,7 @@ def test_mukha_dynamic_capability_readiness(tmp_path: Path) -> None:
     (fonts_dir / "krutidev010.json").write_text("{}", encoding="utf-8")
 
     from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
+
     statuses = MukhaPresenter.audit_capability_status(data_root=data_dir, providers=BUILTIN_PLUGIN_PROVIDERS)
     assert "bank_statements" in statuses
     is_ready, desc = statuses["bank_statements"]
@@ -244,7 +239,6 @@ def test_yantra_exception_note_sanitization() -> None:
     ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
     req = Request("req-1", "test_cap", (InputRef("i1", Path("test.txt"), "test.txt", 10),))
 
-    # Mock release to raise a secondary exception with sensitive details
     yantra.release = MagicMock(side_effect=ValueError("Sensitive database path /secret/db.sqlite"))
 
     with pytest.raises(RuntimeError) as exc_info:
@@ -252,7 +246,6 @@ def test_yantra_exception_note_sanitization() -> None:
 
     notes = getattr(exc_info.value, "__notes__", [])
     assert len(notes) == 1
-    # Must contain type name ValueError, but NOT the sensitive text
     assert "ValueError" in notes[0]
     assert "/secret/db.sqlite" not in notes[0]
 
@@ -292,14 +285,12 @@ def test_pipeline_multi_stage_warning_accumulation(tmp_path: Path) -> None:
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
             self.executions += 1
             if self.executions == 1:
-                # Stage 1: detects issue, emits warning, requests stage_b with resume_self
                 return Result(
                     data="data_a",
                     next_requirement="stage_b",
                     resume_self=True,
                     warnings=(WarningRecord("WARN_A", "Stage A warning", stage="stage_a"),),
                 )
-            # Resumed execution
             return Result(data=f"{prior_result.data if prior_result else ''}+resumed_a")
 
     class StageB(Capability):
@@ -308,7 +299,6 @@ def test_pipeline_multi_stage_warning_accumulation(tmp_path: Path) -> None:
             return decl_b
 
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
-            # Stage B returns without warnings
             return Result(data=f"{prior_result.data if prior_result else ''}+stage_b")
 
     caps = {"stage_a": StageA(), "stage_b": StageB()}
@@ -325,7 +315,6 @@ def test_pipeline_multi_stage_warning_accumulation(tmp_path: Path) -> None:
     plan = CapabilityPlan("req-flow", ("stage_a",))
 
     res = pravaha.execute(plan, req, ctx)
-    # The warning from stage A must be centrally preserved in the final Result!
     assert any(w.code == "WARN_A" for w in res.warnings)
     assert res.data == "data_a+stage_b+resumed_a"
 
@@ -380,11 +369,9 @@ def test_smriti_cache_put_failure_records_darpana_telemetry(tmp_path: Path) -> N
     ctx = ExecutionContext("run-1", "req-cache", "t1", "s1")
     plan = CapabilityPlan("req-cache", ("calc_stage",))
 
-    # Must succeed despite cache.put raising RuntimeError
     res = pravaha.execute(plan, req, ctx)
     assert res.data == "calc_success"
 
-    # Telemetry must record cache.write_failure
     records = darpana.maruti_records()
     write_failures = [r for r in records if r.phase_name == "cache.write_failure"]
     assert len(write_failures) >= 1
