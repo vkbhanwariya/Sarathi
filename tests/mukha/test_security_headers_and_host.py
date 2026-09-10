@@ -85,6 +85,11 @@ class TestStructuralHostValidation:
 
 
 class TestMukhaWebServerSecurityHeaders:
+    @staticmethod
+    def _headers(response: http.client.HTTPResponse) -> dict[str, str]:
+        """Normalize HTTP header names because field names are case-insensitive."""
+        return {name.lower(): value for name, value in response.getheaders()}
+
     def test_live_server_rejects_malicious_host_header(self, web_server: MukhaWebServer) -> None:
         conn = http.client.HTTPConnection("127.0.0.1", web_server.resolved_port)
         conn.putrequest("GET", "/api/state", skip_host=True)
@@ -104,12 +109,12 @@ class TestMukhaWebServerSecurityHeaders:
         response = conn.getresponse()
         assert response.status == 200
 
-        headers = dict(response.getheaders())
-        assert headers.get("X-Content-Type-Options") == "nosniff"
-        assert headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
-        assert headers.get("X-Frame-Options") == "DENY"
-        assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
-        assert headers.get("Cache-Control") == "no-store"
+        headers = self._headers(response)
+        assert headers.get("x-content-type-options") == "nosniff"
+        assert headers.get("referrer-policy") == "strict-origin-when-cross-origin"
+        assert headers.get("x-frame-options") == "DENY"
+        assert "default-src 'self'" in headers.get("content-security-policy", "")
+        assert headers.get("cache-control") == "no-store"
         conn.close()
 
     def test_live_server_security_headers_on_static_resource(self, web_server: MukhaWebServer) -> None:
@@ -120,10 +125,10 @@ class TestMukhaWebServerSecurityHeaders:
         response = conn.getresponse()
         assert response.status == 200
 
-        headers = dict(response.getheaders())
-        assert headers.get("X-Content-Type-Options") == "nosniff"
-        assert headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
-        assert headers.get("X-Frame-Options") == "DENY"
-        assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
-        assert headers.get("Cache-Control") == "no-cache"
+        headers = self._headers(response)
+        assert headers.get("x-content-type-options") == "nosniff"
+        assert headers.get("referrer-policy") == "strict-origin-when-cross-origin"
+        assert headers.get("x-frame-options") == "DENY"
+        assert "default-src 'self'" in headers.get("content-security-policy", "")
+        assert headers.get("cache-control") == "no-cache"
         conn.close()
