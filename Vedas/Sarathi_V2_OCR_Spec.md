@@ -1,6 +1,6 @@
 # Sarathi V2 — OCR — Optical Character Recognition Specification
 
-**Specification Updated:** 08-09-2026, 01:25 PM IST (Asia/Kolkata)
+**Specification Updated:** 10-09-2026 (Asia/Kolkata)
 
 Scope: OCR engines, processing profiles, preprocessing, fallback, page-level
 output evidence, dependencies, capability data, and acceptance behavior.
@@ -71,6 +71,25 @@ validated; invalid combinations are rejected with a reason.
 - tested processing profile/options selection;
 - compatibility validation before execution.
 
+## Execution Ownership
+
+OCR owns domain work: identifying independent pages, preprocessing them, invoking
+the selected OCR engine with the execution binding supplied by the runtime, and
+assembling page results in source order.
+
+**Yantra owns hardware and concurrency policy.** OCR does not select CPU/GPU/NPU,
+build alternate execution bindings, create multi-device slot pools, choose
+spillover hardware, read hardware scheduling settings, or set per-device worker
+limits. For parallelizable multi-page work, OCR submits independent page tasks to
+`Yantra.execute_subtasks(..., context=context)`. Yantra bounds those tasks using
+the canonical `ExecutionBinding.approved_concurrency` associated with the
+capability invocation.
+
+A capability invocation therefore has one allocator-backed execution binding.
+Fallback/spillover to another compatible device is an allocation decision made
+by Yantra before capability execution, not a second scheduling path created by
+OCR during execution.
+
 ## Page-level Output
 
 Each page/pass returns factual capability output:
@@ -108,7 +127,7 @@ auto-promotes candidates into that file.
 ## Canonical Ownership and Subpackage Placement
 
 The canonical implementation lives under `src/sarathi/shakti/ocr/`:
-- `capability.py`: Executable `OCRCapability` implementing the `Capability` contract with multi-document input parsing and pipeline continuation.
+- `capability.py`: Executable `OCRCapability` implementing the `Capability` contract with multi-document input parsing, page-work decomposition, and pipeline continuation.
 - `provider.py`: `OCRProvider` constructing executable capability and auditing engine/model readiness.
 - `typography.py`: Capability-local line-height font size inference and Devanagari/English font standardization.
 - `plugin.py`: Plugin metadata declaration.
@@ -130,6 +149,8 @@ The canonical implementation lives under `src/sarathi/shakti/ocr/`:
 - Instant never triggers hidden consensus or fallback;
 - Accurate fallback is targeted and evidence-driven;
 - Layout Preserving retains tested region/table/position semantics;
+- parallel page work uses only the allocator-backed binding and concurrency approved by Yantra;
+- OCR contains no private hardware-selection, spillover, or worker-policy path;
 - page/pass identity and confidence evidence remain correlated;
 - failed, cancelled, retried, and fallback pages retain factual outcomes;
 - output contains no fabricated confidence, accuracy, speed, or success values.
