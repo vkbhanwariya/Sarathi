@@ -160,8 +160,8 @@ def test_yantra_execute_subtasks_bounded_sliding_window_and_order_preservation()
     results = yantra.execute_subtasks(tasks, max_concurrency=2)
 
     assert results == [i * 10 for i in range(20)]
-    # Approved concurrency was 2; sliding window bounds in-flight at 2*2 = 4
-    assert max_active_observed <= 4
+    # Explicit max_concurrency=2 bounds the sliding window to two active tasks.
+    assert max_active_observed <= 2
     yantra.close()
 
 

@@ -103,21 +103,6 @@ class DeviceInventory:
                 return dev
         return None
 
-    def get(self, device_id: str) -> DeviceInfo | None:
-        """Return device by device_id or None if not found."""
-        return self.get_device(device_id)
-
-    def find_by_type(self, device_type: DeviceType) -> DeviceInfo | None:
-        """Return the first device matching device_type, or None."""
-        for dev in self.devices:
-            if dev.device_type == device_type:
-                return dev
-        return None
-
-    def find_all_by_type(self, device_type: DeviceType) -> tuple[DeviceInfo, ...]:
-        """Return all devices matching device_type."""
-        return tuple(dev for dev in self.devices if dev.device_type == device_type)
-
     def __len__(self) -> int:
         return len(self.devices)
 

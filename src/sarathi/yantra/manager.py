@@ -385,7 +385,7 @@ class Yantra:
                 context.cancellation_token.check_cancelled()
 
             # Construct factual ExecutionBinding directly from allocator reservation
-            dev = self.inventory.get(allocation.device_id)
+            dev = self.inventory.get_device(allocation.device_id)
             is_parallelizable = capability.declaration.device_requirement.parallelizable
             approved_concurrency = (dev.capacity if dev is not None else 1) if is_parallelizable else 1
             binding = ExecutionBinding(

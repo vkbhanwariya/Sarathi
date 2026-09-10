@@ -45,9 +45,9 @@ Phase 1 is complete only when lint/compilation, architecture sanity, TypeScript 
 
 Kosh owns declaration registration and lookup; provider batches are fully validated before one direct atomic commit instead of being re-validated through the single-item registration API. Manthan is the sole planning authority for requirements, prerequisites, execution-profile compatibility, and continuation plans. Pravaha consumes resolved plans and owns execution, cancellation, retry, quarantine, and hand-off mechanics without constructing plans or selecting supported profiles. Architecture tests keep that ownership boundary explicit.
 
-### Phase 3 — Yantra simplification and resource measurement
+### Phase 3 — Yantra simplification and resource measurement — complete
 
-Audit device inventory/allocation/concurrency structures against real workloads. Keep only structures that affect correctness or measured performance. Capability-specific workload strategy stays with the capability.
+Repository-wide usage auditing confirmed that Yantra's bounded subtask execution is used by OCR and translation, while queueing, cancellation cleanup, allocation integrity, backend compatibility, and concurrency binding protect active correctness paths. Those mechanisms remain. Unused `DeviceInventory` aliases/type-search helpers were deleted, the allocator now consumes concrete `DeviceInfo` records instead of generic duck-typed objects, and the concurrency hardening test now enforces the actual two-task bound it configures. Accelerator `capacity` remains an explicit scheduler concurrency budget rather than a claim about physical compute cores; no throughput tuning was made without a reproducible benchmark. Capability-specific workload strategy remains with the capability.
 
 ### Phase 4 — OCR profiling and optimization
 

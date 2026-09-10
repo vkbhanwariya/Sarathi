@@ -14,11 +14,10 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceRequirement, DeviceType, ExecutionContext
-from sarathi.yantra.devices import DeviceInventory
+from sarathi.yantra.devices import DeviceInfo, DeviceInventory
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,14 +266,14 @@ class _ResourceAllocator:
                 entry.event.set()
             self._waiting_queue.clear()
 
-    def _is_device_compatible(self, dev: Any, requirement: DeviceRequirement) -> bool:
+    def _is_device_compatible(self, dev: DeviceInfo, requirement: DeviceRequirement) -> bool:
         """Check factual compatibility between device and requirement."""
         if dev.device_type not in requirement.supported_devices:
             return False
 
         # Check backend compatibility if requirement specifies backends
         if requirement.supported_backends:
-            dev_backends = getattr(dev, "supported_backends", ("cpu",))
+            dev_backends = dev.supported_backends or ()
             if not any(req_b in dev_backends for req_b in requirement.supported_backends):
                 return False
 
@@ -288,9 +287,9 @@ class _ResourceAllocator:
 
         return True
 
-    def _resolve_backend_for_device(self, dev: Any, requirement: DeviceRequirement) -> tuple[str, str]:
+    def _resolve_backend_for_device(self, dev: DeviceInfo, requirement: DeviceRequirement) -> tuple[str, str]:
         """Resolve backend and backend_device_id factually for a device."""
-        dev_backends = getattr(dev, "supported_backends", ("cpu",))
+        dev_backends = dev.supported_backends or ()
         if requirement.supported_backends:
             # Pick first matching backend
             chosen_backend = next(
@@ -300,7 +299,7 @@ class _ResourceAllocator:
         else:
             chosen_backend = dev_backends[0] if dev_backends else "cpu"
 
-        locators = getattr(dev, "backend_locators", None)
+        locators = dev.backend_locators
         if locators and chosen_backend in locators:
             backend_dev_id = locators[chosen_backend]
         elif dev.device_type == DeviceType.GPU:
