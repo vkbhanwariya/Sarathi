@@ -261,7 +261,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
     """Build the Starlette application around an existing Mukha presentation façade."""
 
     async def root(_: Request) -> Response:
-        return _static_response("app.html", "text/html")
+        return _static_response("ui/index.html", "text/html")
 
     async def app_css(_: Request) -> Response:
         return _static_response("app.css", "text/css")
@@ -274,6 +274,13 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         if ".." in rel or "\\" in rel:
             return Response("Invalid script path.", status_code=400)
         return _static_response(f"js/{rel}", "application/javascript")
+
+    async def ui_asset(request: Request) -> Response:
+        name = request.path_params["path"]
+        if name not in {"app.js", "app.css"}:
+            return Response("UI asset not found.", status_code=404)
+        mime = "application/javascript" if name.endswith(".js") else "text/css"
+        return _static_response(f"ui/{name}", mime, "public, max-age=3600")
 
     async def packaged_asset(request: Request) -> Response:
         name = request.path_params["path"]
@@ -638,6 +645,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
     routes = [
         Route("/", root),
         Route("/index.html", root),
+        Route("/ui/{path:path}", ui_asset),
         Route("/app.css", app_css),
         Route("/app.js", app_js),
         Route("/js/{path:path}", js_asset),
