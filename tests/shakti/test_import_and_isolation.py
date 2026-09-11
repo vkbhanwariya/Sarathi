@@ -30,6 +30,7 @@ from sarathi.shakti.text import (
     normalize_size,
     output_font,
 )
+from sarathi.shakti.text.markdown import extract_markdown_tables
 from sarathi.shakti.translation.plugin import (
     CAPABILITY_DECLARATION as TRANSLATION_DECL,
 )
@@ -48,6 +49,28 @@ class TestShaktiTextPrimitives:
         placeholder = protector.format_placeholder(0)
         assert "\ue000" in placeholder
         assert "\ue001" in placeholder
+
+    def test_markdown_table_parser_preserves_existing_cloud_ocr_contract(self) -> None:
+        """Verify the shared parser keeps the provider table shape and numbering contract."""
+        text = (
+            "before\n"
+            "| Case | Year |\n"
+            "|---|:---:|\n"
+            "| 101 | 2026 |\n"
+            "after\n"
+            "| Name | Amount |\n"
+            "| Alice | 500 |"
+        )
+
+        tables = extract_markdown_tables(text)
+
+        assert len(tables) == 2
+        assert tables[0].name == "table_1"
+        assert tables[0].headers == ("Case", "Year")
+        assert tables[0].rows == (("101", "2026"),)
+        assert tables[1].name == "table_2"
+        assert tables[1].headers == ("Name", "Amount")
+        assert tables[1].rows == (("Alice", "500"),)
 
 
 class TestCapabilityDeclarationDisplayName:
