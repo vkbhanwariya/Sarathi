@@ -22,8 +22,13 @@ from sarathi.shakti.ocr.plugin import (
 )
 from sarathi.shakti.text import (
     BaseSpanProtector,
+    DEVANAGARI_FONT,
+    ENGLISH_FONT,
     LegacyFontDetector,
+    contains_devanagari,
     is_legacy_text,
+    normalize_size,
+    output_font,
 )
 from sarathi.shakti.translation.plugin import (
     CAPABILITY_DECLARATION as TRANSLATION_DECL,
@@ -108,55 +113,28 @@ class TestShaktiImportHygiene:
         assert cap_cls.__name__ == "FontConversionCapability"
 
 
-class TestCapabilityTypographyAutonomy:
-    """Verify each capability owns its typography locally without cross-capability coupling."""
+class TestSharedTypographyBoundary:
+    """Verify neutral output typography is shared while legacy-font calibration stays specialized."""
 
-    def test_capability_local_typography_autonomy(self) -> None:
-        """Verify each capability owns its typography locally without cross-capability coupling."""
+    def test_shared_typography_and_specialized_font_conversion(self) -> None:
+        """Keep one neutral typography contract without flattening calibrated font conversion."""
         from sarathi.shakti.font_conversion.font_size_normalizer import (
             get_font_size_adjustment,
             normalize_font_name,
             normalize_font_size,
         )
-        from sarathi.shakti.ocr.typography import (
-            DEVANAGARI_FONT as OCR_DEV_FONT,
-        )
-        from sarathi.shakti.ocr.typography import (
-            ENGLISH_FONT as OCR_ENG_FONT,
-        )
-        from sarathi.shakti.ocr.typography import (
-            normalize_size as ocr_norm_size,
-        )
-        from sarathi.shakti.ocr.typography import (
-            output_font as ocr_output_font,
-        )
-        from sarathi.shakti.translation.typography import (
-            DEVANAGARI_FONT as TRANS_DEV_FONT,
-        )
-        from sarathi.shakti.translation.typography import (
-            ENGLISH_FONT as TRANS_ENG_FONT,
-        )
-        from sarathi.shakti.translation.typography import (
-            normalize_size as trans_norm_size,
-        )
-        from sarathi.shakti.translation.typography import (
-            output_font as trans_output_font,
-        )
 
-        # Baseline consistency across capabilities
-        assert OCR_ENG_FONT == TRANS_ENG_FONT == "Times New Roman"
-        assert OCR_DEV_FONT == TRANS_DEV_FONT == "Nirmala UI"
+        assert ENGLISH_FONT == "Times New Roman"
+        assert DEVANAGARI_FONT == "Nirmala UI"
+        assert output_font(contains_devanagari=False) == ENGLISH_FONT
+        assert output_font(contains_devanagari=True) == DEVANAGARI_FONT
+        assert contains_devanagari("Section 482 के अंतर्गत") is True
+        assert contains_devanagari("Section 482") is False
+        assert normalize_size(None) == 12.0
+        assert normalize_size(14.0) == 14.0
 
-        # Autonomous helpers
-        assert ocr_output_font(contains_devanagari=False) == "Times New Roman"
-        assert trans_output_font(contains_devanagari=True) == "Nirmala UI"
-        assert ocr_norm_size(None) == 12.0
-        assert trans_norm_size(14.0) == 14.0
-
-        # Font conversion normalizer calibrated dynamic scaling
         assert normalize_font_name("Kruti Dev 010") == "kruti dev 010"
         adj = get_font_size_adjustment(anchor_font="Kruti Dev 010", target_font="Nirmala UI")
         assert adj.scale == 0.75
         assert adj.offset_pt == 0.0
         assert normalize_font_size(16.0, anchor_font="Kruti Dev 010", target_font="Nirmala UI") == 12.0
-
