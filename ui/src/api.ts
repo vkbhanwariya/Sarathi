@@ -1,4 +1,11 @@
-import type { ApplicationViewState, StateEnvelope } from "./types";
+import type {
+  ApplicationViewState,
+  InputSelectionView,
+  PlanPreview,
+  PreflightView,
+  RunRequest,
+  StateEnvelope,
+} from "./types";
 
 export class MukhaApiError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -7,18 +14,33 @@ export class MukhaApiError extends Error {
   }
 }
 
-async function parseEnvelope(response: Response): Promise<StateEnvelope> {
-  let payload: StateEnvelope;
+interface ApiEnvelope {
+  ok: boolean;
+  error?: string;
+}
+
+async function parseJson<T extends ApiEnvelope>(response: Response): Promise<T> {
+  let payload: T;
   try {
-    payload = (await response.json()) as StateEnvelope;
+    payload = (await response.json()) as T;
   } catch {
     throw new MukhaApiError("Mukha returned an invalid JSON response.", response.status);
   }
-
   if (!response.ok || !payload.ok) {
     throw new MukhaApiError(payload.error || `Mukha request failed (${response.status}).`, response.status);
   }
   return payload;
+}
+
+async function postJson<T extends ApiEnvelope>(url: string, body: unknown = {}): Promise<T> {
+  return parseJson<T>(
+    await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
 }
 
 export async function fetchState(signal?: AbortSignal): Promise<ApplicationViewState> {
@@ -28,11 +50,73 @@ export async function fetchState(signal?: AbortSignal): Promise<ApplicationViewS
     signal,
     headers: { Accept: "application/json" },
   });
-  const payload = await parseEnvelope(response);
+  const payload = await parseJson<StateEnvelope>(response);
   if (!payload.state) {
     throw new MukhaApiError("Mukha state response did not include state.", response.status);
   }
   return payload.state;
+}
+
+export async function browseFiles(): Promise<readonly string[]> {
+  const payload = await postJson<ApiEnvelope & { paths?: readonly string[] }>("/api/browse/files");
+  return payload.paths ?? [];
+}
+
+export async function browseFolder(): Promise<readonly string[]> {
+  const payload = await postJson<ApiEnvelope & { paths?: readonly string[] }>("/api/browse/folder");
+  return payload.paths ?? [];
+}
+
+export async function intakePaths(
+  paths: readonly string[],
+  recursive: boolean,
+): Promise<{ input_selection: InputSelectionView; preflight: PreflightView }> {
+  const payload = await postJson<
+    ApiEnvelope & { input_selection?: InputSelectionView; preflight?: PreflightView }
+  >("/api/intake", { paths, recursive });
+  if (!payload.input_selection || !payload.preflight) {
+    throw new MukhaApiError("Mukha intake response was incomplete.");
+  }
+  return { input_selection: payload.input_selection, preflight: payload.preflight };
+}
+
+export async function previewPlan(request: RunRequest): Promise<PlanPreview> {
+  const payload = await postJson<ApiEnvelope & Partial<PlanPreview>>("/api/plan/preview", request);
+  if (!payload.stages || !payload.devices || typeof payload.document_count !== "number") {
+    throw new MukhaApiError("Mukha plan preview response was incomplete.");
+  }
+  return {
+    stages: payload.stages,
+    devices: payload.devices,
+    document_count: payload.document_count,
+  };
+}
+
+export async function startRun(request: RunRequest): Promise<string> {
+  const payload = await postJson<ApiEnvelope & { run_id?: string }>("/api/runs", request);
+  if (!payload.run_id) throw new MukhaApiError("Mukha did not return a run identifier.");
+  return payload.run_id;
+}
+
+export async function cancelRun(runId: string): Promise<boolean> {
+  const payload = await postJson<ApiEnvelope & { cancelled?: boolean }>(
+    `/api/runs/${encodeURIComponent(runId)}/cancel`,
+  );
+  return Boolean(payload.cancelled);
+}
+
+export async function submitReview(
+  runId: string,
+  itemId: string,
+  attemptId: string,
+  action: "accept" | "unresolved",
+): Promise<void> {
+  await postJson<ApiEnvelope>("/api/review", {
+    run_id: runId,
+    item_id: itemId,
+    attempt_id: attemptId,
+    action,
+  });
 }
 
 export interface StateStream {
@@ -52,7 +136,7 @@ export function subscribeState(
       const payload = JSON.parse((event as MessageEvent<string>).data) as StateEnvelope;
       if (payload.ok && payload.state) onState(payload.state);
     } catch {
-      // A malformed event is ignored; the next valid state event will reconcile the view.
+      // The next valid event or polling refresh reconciles malformed event data.
     }
   });
   source.onerror = () => onConnection(false);
