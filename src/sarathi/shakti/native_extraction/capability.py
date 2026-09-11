@@ -11,11 +11,6 @@ from zipfile import BadZipFile
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
 
-import openpyxl.utils.exceptions
-import pymupdf
-import python_calamine
-import xlrd
-
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     ArtifactIntent,
@@ -32,48 +27,57 @@ from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_content_format
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
-from sarathi.shakti.native_extraction.readers import (
-    read_csv_or_text,
-    read_docx,
-    read_html_table,
-    read_pdf,
-    read_spreadsheet_ml,
-    read_xls_legacy,
-    read_xlsx,
-)
-
-_PARSE_EXCEPTIONS = (
-    pymupdf.FileDataError,
-    pymupdf.EmptyFileError,
-    openpyxl.utils.exceptions.InvalidFileException,
-    BadZipFile,
-    python_calamine.CalamineError,
-    xlrd.biffh.XLRDError,
-    ET.ParseError,
-    csv.Error,
-    UnicodeDecodeError,
-)
 
 
 def _get_reader(
     fmt: DetectedFormat,
-) -> Callable[[bytes, str], tuple[CanonicalDocument, list[ProvenanceRecord], list[WarningRecord]]] | None:
-    """Return the concrete reader for a detected format using modern structural pattern matching."""
+) -> tuple[
+    Callable[[bytes, str], tuple[CanonicalDocument, list[ProvenanceRecord], list[WarningRecord]]],
+    tuple[type[BaseException], ...],
+] | None:
+    """Return the concrete reader and its expected parse errors for one detected format."""
     match fmt:
         case DetectedFormat.PDF:
-            return read_pdf
+            import pymupdf
+
+            from sarathi.shakti.native_extraction.readers.pdf import read_pdf
+
+            return read_pdf, (pymupdf.FileDataError, pymupdf.EmptyFileError)
         case DetectedFormat.DOCX:
-            return read_docx
+            from sarathi.shakti.native_extraction.readers.docx import read_docx
+
+            return read_docx, (BadZipFile, ET.ParseError)
         case DetectedFormat.XLSX:
-            return read_xlsx
+            import openpyxl.utils.exceptions
+            import python_calamine
+
+            from sarathi.shakti.native_extraction.readers.spreadsheet import read_xlsx
+
+            return read_xlsx, (
+                openpyxl.utils.exceptions.InvalidFileException,
+                BadZipFile,
+                python_calamine.CalamineError,
+                ET.ParseError,
+                UnicodeDecodeError,
+            )
         case DetectedFormat.XLS_LEGACY:
-            return read_xls_legacy
+            import xlrd
+
+            from sarathi.shakti.native_extraction.readers.spreadsheet import read_xls_legacy
+
+            return read_xls_legacy, (xlrd.biffh.XLRDError,)
         case DetectedFormat.HTML_TABLE:
-            return read_html_table
+            from sarathi.shakti.native_extraction.readers.html import read_html_table
+
+            return read_html_table, (UnicodeDecodeError,)
         case DetectedFormat.SPREADSHEET_ML:
-            return read_spreadsheet_ml
+            from sarathi.shakti.native_extraction.readers.spreadsheet import read_spreadsheet_ml
+
+            return read_spreadsheet_ml, (ET.ParseError, UnicodeDecodeError)
         case DetectedFormat.CSV_OR_TEXT:
-            return read_csv_or_text
+            from sarathi.shakti.native_extraction.readers.delimited import read_csv_or_text
+
+            return read_csv_or_text, (csv.Error, UnicodeDecodeError)
         case _:
             return None
 
@@ -268,12 +272,13 @@ class NativeExtractionCapability:
                     message="Unsupported content format for native extraction.",
                 )
 
-            reader = _get_reader(fmt)
-            if reader is None:
+            reader_info = _get_reader(fmt)
+            if reader_info is None:
                 raise DoshError(
                     code=FailureCode.UNSUPPORTED,
                     message="Unsupported content format for native extraction.",
                 )
+            reader, parse_exceptions = reader_info
 
             # Route to concrete native readers with honest parse error handling
             try:
@@ -309,7 +314,7 @@ class NativeExtractionCapability:
 
             except DoshError:
                 raise
-            except _PARSE_EXCEPTIONS:
+            except parse_exceptions:
                 # Corrupted or unparseable document -> escalate to OCR only for OCR-capable format (PDF)
                 if fmt == DetectedFormat.PDF:
                     needs_ocr = True
