@@ -1,4 +1,4 @@
-"""Zero-leak direct REST client for Microsoft Azure AI Services."""
+"""Direct REST client for Microsoft Azure AI Services with sanitized error handling."""
 
 from __future__ import annotations
 
