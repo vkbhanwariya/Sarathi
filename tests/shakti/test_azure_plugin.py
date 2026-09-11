@@ -236,8 +236,17 @@ class TestAzureTranslationCapability:
 
         prior_doc = CanonicalDocument(
             document_id="doc-hi-az",
+            source_input_id="inp-1",
             text="बैंक ने अधिसूचना जारी की।",
-            pages=(PageData(page_number=1, text="बैंक ने अधिसूचना जारी की।"),),
+            pages=(
+                PageData(
+                    page_number=1,
+                    text="बैंक ने अधिसूचना जारी की।",
+                    metadata={"source_page": "kept"},
+                ),
+            ),
+            detected_type="ocr_document",
+            metadata={"existing": "kept"},
         )
         prior = Result(data=prior_doc)
 
@@ -255,6 +264,10 @@ class TestAzureTranslationCapability:
         doc: CanonicalDocument = result.data
         assert doc.text == "The bank issued the notification."
         assert doc.metadata["direction"] == "hi->en"
+        assert doc.metadata["existing"] == "kept"
+        assert doc.source_input_id == "inp-1"
+        assert doc.detected_type == "ocr_document"
+        assert doc.pages[0].metadata["source_page"] == "kept"
 
         art_names = {p.intent.name for p in result.artifact_payloads}
         assert any(n.endswith("_azure_translated.txt") for n in art_names)
