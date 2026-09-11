@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, development]
 
+permissions:
+  contents: write
+
 jobs:
   lint:
     name: Lint & Compilation
@@ -97,6 +100,17 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --group dev
 
+      - name: Commit refreshed Phase 10 lockfile (temporary)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        run: |
+          if ! git diff --quiet -- uv.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uv.lock
+            git commit -m "[skip ci] Refresh uv lock for headless OpenCV"
+            git push origin HEAD:development
+          fi
+
       - name: Verify headless OpenCV resolution (temporary)
         run: |
           .venv/bin/python - <<'PY'
@@ -108,12 +122,6 @@ jobs:
           assert 'opencv-python' not in installed
           print(f"OpenCV {cv2.__version__}: headless-only dependency graph verified")
           PY
-
-      - name: Upload Phase 10 lockfile (temporary)
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase10-uv-lock
-          path: uv.lock
 
       - name: Install Tesseract language packs
         run: |
