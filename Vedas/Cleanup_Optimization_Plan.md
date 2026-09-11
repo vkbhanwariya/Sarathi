@@ -107,9 +107,13 @@ Gemini, Mistral, and Bhashini OCR now share one Markdown-table parser because th
 
 The semantic audit deliberately left Translation language detection, Font Conversion calibration/protection, and DOCX OpenXML typography separate. Those paths have materially different contracts: dominant-script language choice, legacy-font calibration/protection, and document-style-aware OpenXML font selection/half-point sizing respectively. Package-root re-exports were narrowed to public neutral primitives instead of exposing private regex/signature tables. The Phase 9 production/test delta is net smaller while preserving existing user behavior and provider-specific processing.
 
-### Phase 10 — Dependency/import cost
+### Phase 10 — Dependency/import cost — complete
 
-Audit optional dependency boundaries and startup/import cost. Remove unused direct dependencies and defer heavy imports only when profiling shows material benefit.
+Fresh-process CI profiling showed that Native Extraction capability construction eagerly loaded format-specific reader stacks even before a matching input was processed. Before the change, median timings were **447.6 ms** for importing the Native Extraction capability, **522.6 ms** for the CLI import path, and **588.2 ms** for a minimal `Agni()` bootstrap. Concrete reader and parser dependencies are now imported only after byte-level format detection selects PDF, DOCX, XLSX/XLS, HTML, SpreadsheetML, or delimited text. The same profiling path measured **59.0 ms** for the Native Extraction capability import, **159.1 ms** for the CLI import path, and **409.1 ms** for the initial post-change `Agni()` bootstrap; a later OCR import-graph run measured **260.5 ms** median for bootstrap on that runner.
+
+The reader APIs, format detection, parse-error classes, OCR handoff rules, artifacts, and output data remain unchanged. The existing lazy `read_pdf` injection seam is retained so established failure-path tests continue to exercise unexpected reader errors without reintroducing eager PyMuPDF loading. A follow-up OCR import-graph profile placed the OCR capability/engine/factory/parser/readiness/Tesseract modules in the same roughly **110–121 ms** median range, with no single additional dominant hotspot; further import splitting was therefore rejected as unproven micro-optimization.
+
+The OCR dependency graph was also normalized to one OpenCV implementation. Sarathi keeps `opencv-python-headless`; uv's package-scoped dependency exclusion removes RapidOCR's transitive `opencv-python` edge. The regenerated lockfile contains `opencv-python-headless` only, RapidOCR no longer resolves the non-headless OpenCV wheel, and full OCR/unit/browser execution passed with `cv2` provided by the headless wheel. No OCR model, preprocessing, inference, accuracy, provider, or user-facing behavior changed. Temporary profiling and lock-refresh CI instrumentation was removed before phase completion.
 
 ### Phase 11 — Frontend production convergence
 
