@@ -6,8 +6,6 @@ import json
 import time
 from typing import TYPE_CHECKING
 
-import pymupdf
-
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     ArtifactIntent,
@@ -72,6 +70,8 @@ class StatutoryCapability:
                     ) from exc
 
                 if data.startswith(b"%PDF-") or b"%PDF-" in data[:1024]:
+                    import pymupdf
+
                     try:
                         doc = pymupdf.open(stream=data, filetype="pdf")
                         pages_text = [p.get_text() for p in doc]
