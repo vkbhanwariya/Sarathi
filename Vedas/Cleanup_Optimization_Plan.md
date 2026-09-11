@@ -123,9 +123,9 @@ The Preact/TypeScript single-page application is now the sole production fronten
 
 Full-suite profiling revealed that Playwright browser tests suffered from a uniform **6.05–6.11 s teardown delay per test** caused by Uvicorn waiting on uncancelled Server-Sent Events (`/api/events`) streaming tasks during graceful shutdown. Uvicorn configuration now enforces `timeout_graceful_shutdown=0.1` and the event generator catches `asyncio.CancelledError` cleanly, reducing per-test server teardown from 6.10 s to ~0.30 s. The browser test suite runtime dropped from **~240 s to ~30 s (an 8x speedup)** across all 37 tests. An architecture regression test was added to guarantee obsolete legacy frontend assets cannot return. All 5 permanent CI gates remain green.
 
-### Phase 13 — Final documentation reconciliation
+### Phase 13 — Final documentation reconciliation — complete
 
-Ensure README, AGENTS, Vedas, manifest, CI, configuration, and production code describe the same current system. A new maintainer should be able to determine ownership and operating workflow without reading Git history.
+All documentation (`README.md`, `AGENTS.md`, `Vedas/`, and manifest) was reconciled against the exact current production architecture. `README.md` now details current runtime flow, the modular plugin provider model, the fail-closed security boundary, the production TypeScript/Preact single-page application and its development workflow, and the 5 permanent CI gates. `Vedas/` was audited and classified: all guides accurately describe the active code without speculative components or obsolete historical narratives. The architecture manifest aligns with production Python modules, and the stale-code pass confirmed zero `TODO` or `FIXME` comments and zero dead routes. All 5 permanent CI gates remain 100% green.
 
 ## Performance change protocol
 
