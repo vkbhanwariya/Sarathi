@@ -20,6 +20,7 @@ from sarathi.sankalpa import (
     TableData,
     WarningRecord,
 )
+from sarathi.sankalpa.document import normalize_canonical_documents
 from sarathi.shakti.bank_statements.consolidator import (
     build_parquet_artifact,
     build_xlsx_artifact,
@@ -80,18 +81,13 @@ class BankStatementCapability:
                 message="BankStatementCapability requires a prior Result containing a CanonicalDocument or tuple of documents.",
             )
 
-        docs: list[CanonicalDocument]
-        if isinstance(prior_result.data, CanonicalDocument):
-            docs = [prior_result.data]
-        elif isinstance(prior_result.data, (tuple, list)) and all(
-            isinstance(d, CanonicalDocument) for d in prior_result.data
-        ):
-            docs = list(prior_result.data)
-        else:
+        normalized_docs = normalize_canonical_documents(prior_result.data)
+        if normalized_docs is None:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
                 message="BankStatementCapability requires a prior Result containing a CanonicalDocument or tuple of documents.",
             )
+        docs = list(normalized_docs)
 
         if not docs:
             raise DoshError(
