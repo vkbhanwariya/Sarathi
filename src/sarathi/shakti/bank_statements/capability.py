@@ -21,11 +21,6 @@ from sarathi.sankalpa import (
     WarningRecord,
 )
 from sarathi.sankalpa.document import normalize_canonical_documents
-from sarathi.shakti.bank_statements.consolidator import (
-    build_parquet_artifact,
-    build_xlsx_artifact,
-    consolidate_statements,
-)
 from sarathi.shakti.bank_statements.converter import (
     parse_date,
     parse_decimal_amount,
@@ -169,6 +164,12 @@ class BankStatementCapability:
                 )
             )
             statements.append(statement)
+
+        from sarathi.shakti.bank_statements.consolidator import (
+            build_parquet_artifact,
+            build_xlsx_artifact,
+            consolidate_statements,
+        )
 
         consolidation = consolidate_statements(statements)
         all_warnings.extend(
