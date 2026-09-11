@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from sarathi.darpana.pramana import select_aggregate_confidence_records
 from sarathi.mukha.web.state_builder import get_run_telemetry
 
 if TYPE_CHECKING:
@@ -35,11 +36,8 @@ def compare_runs(
             stages[p_name]["calls"] += 1
             stages[p_name]["total_ms"] = round(stages[p_name]["total_ms"] + (dur / 1_000_000), 2)
 
-        confidences = [
-            float(p.confidence.score if hasattr(p.confidence, "score") else p.confidence)
-            for p in p_recs
-            if p.confidence is not None
-        ]
+        aggregate_records = select_aggregate_confidence_records(p_recs)
+        confidences = [p.confidence.score for p in aggregate_records if p.confidence is not None]
         avg_conf = round(sum(confidences) / len(confidences), 4) if confidences else None
 
         return {

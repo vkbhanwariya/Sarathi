@@ -21,6 +21,7 @@ from typing import Any, Iterator, Mapping
 from sarathi.darpana.history import TerminalRunHistoryStore, TerminalRunSummary
 from sarathi.darpana.maruti import MarutiRecord
 from sarathi.darpana.pramana import PramanaRecord
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import ExecutionContext
 
 
@@ -88,13 +89,27 @@ class Darpana:
                 )
 
     def query_run_history(self, limit: int = 50) -> tuple[TerminalRunSummary, ...]:
-        """Query recent terminal run summaries from persistent store or in-memory history."""
-        if self._history_store is not None:
-            persisted = self._history_store.query(limit=limit)
-            if persisted:
-                return persisted
+        """Query recent terminal summaries without hiding current-process records after persistence failures."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            raise ValueError("limit must be a positive integer.")
+
         with self._lock:
-            return tuple(list(self._run_summaries)[-limit:][::-1])
+            memory = tuple(reversed(self._run_summaries))
+
+        if self._history_store is None:
+            return memory[:limit]
+
+        persisted = self._history_store.query(limit=limit)
+        combined: list[TerminalRunSummary] = []
+        seen_run_ids: set[str] = set()
+        for summary in (*memory, *persisted):
+            if summary.run_id in seen_run_ids:
+                continue
+            combined.append(summary)
+            seen_run_ids.add(summary.run_id)
+            if len(combined) >= limit:
+                break
+        return tuple(combined)
 
     def get_run_summary(self, run_id: str) -> TerminalRunSummary | None:
         """Retrieve a specific terminal run summary by run_id."""
@@ -140,92 +155,71 @@ class Darpana:
         *,
         attributes: Mapping[str, Any] | None = None,
     ) -> Iterator[None]:
-        """Context manager timing a block of execution and recording a MarutiRecord.
-
-        Validates all instrumentation arguments before execution begins.
-        Records outcome='success' on normal exit.
-        Records outcome='failure', exception type name, and FailureCode (if DoshError) if any BaseException occurs,
-        then re-raises without leaking raw exception message text.
-        """
+        """Time a block and record one Maruti outcome without swallowing failures."""
         if not isinstance(context, ExecutionContext):
             raise TypeError(f"context must be an ExecutionContext instance, got {type(context).__name__}.")
-
         if not isinstance(phase_name, str) or not phase_name.strip():
             raise ValueError("phase_name must be a non-empty string.")
-
         if not isinstance(component, str) or not component.strip():
             raise ValueError("component must be a non-empty string.")
-
         if attributes is not None and not isinstance(attributes, Mapping):
             raise TypeError(f"attributes must be a Mapping or None, got {type(attributes).__name__}.")
 
+        normalized_phase = phase_name.strip()
+        normalized_component = component.strip()
         safe_attributes = dict(attributes) if attributes else {}
-
         start_time_utc = datetime.now(timezone.utc).isoformat()
         start_ns = time.perf_counter_ns()
         scope_key = f"{context.span_id}-{uuid.uuid4().hex[:8]}"
-        span_entry = {
-            "run_id": context.run_id,
-            "request_id": context.request_id,
-            "trace_id": context.trace_id,
-            "span_id": context.span_id,
-            "phase_name": phase_name.strip(),
-            "component": component.strip(),
-            "start_time_utc": start_time_utc,
-            "attributes": safe_attributes,
-        }
         with self._lock:
-            self._active_spans[scope_key] = span_entry
+            self._active_spans[scope_key] = {
+                "run_id": context.run_id,
+                "request_id": context.request_id,
+                "trace_id": context.trace_id,
+                "span_id": context.span_id,
+                "phase_name": normalized_phase,
+                "component": normalized_component,
+                "start_time_utc": start_time_utc,
+                "attributes": safe_attributes,
+            }
 
+        outcome = "success"
+        error_type: str | None = None
+        failure_code: FailureCode | None = None
         try:
             yield
-            duration_ns = max(0, time.perf_counter_ns() - start_ns)
-            record = MarutiRecord(
-                run_id=context.run_id,
-                request_id=context.request_id,
-                trace_id=context.trace_id,
-                span_id=context.span_id,
-                phase_name=phase_name.strip(),
-                component=component.strip(),
-                timestamp_utc=start_time_utc,
-                duration_ns=duration_ns,
-                outcome="success",
-                error_type=None,
-                failure_code=None,
-                attributes=safe_attributes,
-            )
-            self.record_maruti(record)
         except BaseException as exc:
-            duration_ns = max(0, time.perf_counter_ns() - start_ns)
-            from sarathi.dosh import DoshError, FailureCode
-
-            f_code = exc.code if isinstance(exc, DoshError) else None
+            failure_code = exc.code if isinstance(exc, DoshError) else None
             is_cancelled = (
-                f_code == FailureCode.OPERATION_CANCELLED
+                failure_code == FailureCode.OPERATION_CANCELLED
                 or bool(isinstance(exc, DoshError) and exc.context.get("cancelled"))
                 or (context.cancellation_token is not None and context.cancellation_token.is_cancelled)
             )
             outcome = "cancelled" if is_cancelled else "failure"
-
-            record = MarutiRecord(
-                run_id=context.run_id,
-                request_id=context.request_id,
-                trace_id=context.trace_id,
-                span_id=context.span_id,
-                phase_name=phase_name.strip(),
-                component=component.strip(),
-                timestamp_utc=start_time_utc,
-                duration_ns=duration_ns,
-                outcome=outcome,
-                error_type=type(exc).__name__,
-                failure_code=f_code,
-                attributes=safe_attributes,
-            )
-            self.record_maruti(record)
+            error_type = type(exc).__name__
             raise
         finally:
-            with self._lock:
-                self._active_spans.pop(scope_key, None)
+            duration_ns = max(0, time.perf_counter_ns() - start_ns)
+            try:
+                self.record_maruti(
+                    MarutiRecord(
+                        run_id=context.run_id,
+                        request_id=context.request_id,
+                        trace_id=context.trace_id,
+                        span_id=context.span_id,
+                        phase_name=normalized_phase,
+                        component=normalized_component,
+                        timestamp_utc=start_time_utc,
+                        duration_ns=duration_ns,
+                        outcome=outcome,
+                        error_type=error_type,
+                        failure_code=failure_code,
+                        attributes=safe_attributes,
+                    )
+                )
+            finally:
+                with self._lock:
+                    self._active_spans.pop(scope_key, None)
 
     def active_spans(self) -> tuple[dict[str, Any], ...]:
         """Return an immutable snapshot of currently active in-flight execution spans."""

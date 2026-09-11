@@ -7,12 +7,7 @@ from typing import TYPE_CHECKING, Mapping
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
 from sarathi.nabhi.manthan import CapabilityPlan, Manthan
-from sarathi.nabhi.pravaha.common import (
-    authorize_capability,
-    compute_input_hash,
-    quarantine_transition_scope,
-    record_pramana_if_available,
-)
+from sarathi.nabhi.pravaha.common import compute_input_hash
 from sarathi.nabhi.pravaha.lifecycle import (
     apply_lifecycle_action as _apply_lifecycle_action,
 )
@@ -111,35 +106,9 @@ class Pravaha:
         """Return the injected Kavacha security service, if configured."""
         return self._kavacha
 
-    def _authorize_capability(self, cap: Capability) -> None:
-        """Authorize capability's owning plugin security declaration via Kavacha if configured."""
-        authorize_capability(self._kavacha, self._registry, cap)
-
     def _compute_input_hash(self, request: Request, capability: Capability, context: ExecutionContext) -> str:
         """Compute a deterministic, privacy-safe hash identifying the canonical execution attempt."""
         return compute_input_hash(request, capability, context)
-
-    def _record_pramana_if_available(
-        self,
-        capability: Capability,
-        result: Result,
-        context: ExecutionContext,
-    ) -> None:
-        """Record quality observation to Darpana Pramana telemetry if evidence-backed facts exist."""
-        record_pramana_if_available(self._darpana, capability, result, context)
-
-    def _quarantine_transition_scope(
-        self,
-        context: ExecutionContext,
-        capability_id: str,
-        lifecycle_status: str,
-        attempt_count: int,
-        max_retries: int,
-    ):
-        """Timing scope for actual quarantine lifecycle state transitions."""
-        return quarantine_transition_scope(
-            self._darpana, context, capability_id, lifecycle_status, attempt_count, max_retries
-        )
 
     def _execute_retry_attempt(
         self,

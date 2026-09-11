@@ -11,6 +11,7 @@ Never stores raw document text, file paths, or fabricated scores.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -104,3 +105,18 @@ class PramanaRecord:
             object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
         else:
             raise TypeError(f"attributes must be a Mapping, got {type(self.attributes).__name__}.")
+
+
+def select_aggregate_confidence_records(records: Iterable[PramanaRecord]) -> tuple[PramanaRecord, ...]:
+    """Prefer page observations only within capability/stage groups that actually emit them."""
+    measured = tuple(record for record in records if record.confidence is not None)
+    page_groups = {
+        (record.capability_id, record.stage)
+        for record in measured
+        if record.attributes.get("level") == "page"
+    }
+    return tuple(
+        record
+        for record in measured
+        if (record.capability_id, record.stage) not in page_groups or record.attributes.get("level") == "page"
+    )

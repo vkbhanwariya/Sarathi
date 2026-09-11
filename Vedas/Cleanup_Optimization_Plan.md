@@ -79,9 +79,15 @@ Phases 0–6 were re-audited together after completion. Stable Mukha, Kosh/Manth
 
 The sweep also fixed two concrete state/fidelity defects: execution bindings are preserved through cancellation-token reconciliation and Pravaha retry contexts, and canonical document transformations no longer infer callback signatures by swallowing arbitrary `TypeError`. Regression tests lock those contracts. This modernization sweep is not a new numbered phase; remaining phases are modernized as part of their own implementation.
 
-### Phase 7 — Darpana telemetry
+### Phase 7 — Darpana telemetry — complete
 
-Keep operationally useful timing/error/history facts, remove unconsumed schemas, and avoid high-frequency synchronous telemetry work in processing inner loops.
+Darpana remains Sarathi's local telemetry boundary: bounded Maruti runtime records, Pramana quality observations, active timing scopes, and privacy-filtered terminal run history. The public telemetry contracts, `active_spans()`, persistence-failure state, JSONL history, SQLite history, confidence records, and evidence-backed accuracy records were retained after a functionality-first usage audit. No OpenTelemetry dependency or parallel observability subsystem was added because there is no current external exporter requirement.
+
+`time_scope()` now has one outcome-recording path instead of duplicate success/failure record construction while preserving failure-code, cancellation, active-span, exception, and timing semantics. Run-history queries validate their limit and merge current-process summaries with persisted history by `run_id`, so a failed persistent save cannot cause an older persisted tail to hide a newer in-memory terminal run.
+
+Headline confidence aggregation prefers page-level observations only inside capability/stage groups that actually emit page telemetry. This prevents region count from overweighting a page without discarding measured confidence from unrelated capabilities or legacy groups that have no page-level records. Run summaries, live device summaries, diagnostics, and historical comparison share that selection rule, while detailed region telemetry remains available to the inspector.
+
+The shareable diagnostics boundary now exports only an explicit set of operational event attributes. Local Darpana/UI telemetry may retain detailed identities needed by the product, while diagnostics excludes document content, raw paths, filenames, input identifiers, and unknown attributes by default. No producer-side batching API or inner-loop rewrite was added because synchronization cost has not been demonstrated as a material bottleneck; that optimization remains subject to the repository's measure-first rule.
 
 ### Phase 8 — Kavacha and provider boundaries
 

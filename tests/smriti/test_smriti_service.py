@@ -92,32 +92,32 @@ def test_invalidation_by_capability(tmp_path: Path) -> None:
 
 
 def test_memory_cache_defensive_deep_copy() -> None:
-    """Verify L1 MemoryCache performs deepcopy on put and get, isolating caller mutations."""
-    from sarathi.sankalpa import WarningRecord
+    """L1 isolates nested mutable metadata on both put and get."""
     from sarathi.smriti.memory import MemoryCache
 
-    cache = MemoryCache()
-    doc = CanonicalDocument(document_id="d-iso", source_input_id="inp-1", text="original")
+    source_items = ["original"]
+    doc = CanonicalDocument(
+        document_id="d-iso",
+        source_input_id="inp-1",
+        text="original",
+        metadata={"items": source_items},
+    )
     inp = InputRef(input_id="inp-1", source_path=Path("dummy.txt"), display_name="dummy.txt", size_bytes=10)
     req = Request(request_id="r-iso", requirement="read_native", inputs=(inp,))
     key = compute_cache_key(req, "read_native", "1.0.0")
 
-    warns = [WarningRecord(code="W1", message="initial warning")]
-    orig_res = Result(data=doc, warnings=tuple(warns))
-    cache.put(key, orig_res)
+    cache = MemoryCache()
+    cache.put(key, Result(data=doc))
+    source_items.append("source-mutated")
 
-    # 1. Mutate retrieved result
-    got1 = cache.get(key)
-    assert got1 is not None
-    # Simulate caller attempting to mutate internal warning list or data
-    got1_warns = list(got1.warnings)
-    got1_warns.append(WarningRecord(code="W2", message="mutated warning"))
+    first = cache.get(key)
+    assert first is not None
+    assert first.data.metadata["items"] == ["original"]
 
-    # 2. Re-retrieve: cache must retain original unmutated state
-    got2 = cache.get(key)
-    assert got2 is not None
-    assert len(got2.warnings) == 1
-    assert got2.warnings[0].code == "W1"
+    first.data.metadata["items"].append("retrieved-mutated")
+    second = cache.get(key)
+    assert second is not None
+    assert second.data.metadata["items"] == ["original"]
 
 
 def test_smriti_l2_to_l1_promotion_preserves_created_at(tmp_path: Path) -> None:

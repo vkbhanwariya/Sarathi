@@ -6,13 +6,17 @@ Invariants verified:
 3. Missing page confidence does not enter any confidence distribution bucket.
 4. Missing min_confidence / max_confidence remain None instead of 1.0.
 5. format_confidence(None) formats truthfully as '-'.
+6. Run-level confidence page-weights only groups that actually emit page observations.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sarathi.darpana import PramanaRecord
 from sarathi.mukha.presenter import MukhaPresenter, format_confidence
 from sarathi.mukha.state import InspectorViewState, PageConfidenceView, RegionConfidenceView
+from sarathi.sankalpa import ConfidenceValue, InputRef, Request
 
 
 class TestMukhaTruthfulTelemetry:
@@ -122,6 +126,63 @@ class TestMukhaTruthfulTelemetry:
         assert dist["75-89%"] == 0
         assert dist["50-74%"] == 0
         assert dist["<50%"] == 0
+
+    def test_summary_confidence_page_weights_only_matching_group(self) -> None:
+        """OCR region density must not erase an unrelated capability's measured confidence."""
+        request = Request(
+            request_id="req-page-weight",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="input-page-weight",
+                    source_path=Path("input.pdf"),
+                    display_name="input.pdf",
+                    size_bytes=1,
+                ),
+            ),
+        )
+        page = PramanaRecord(
+            run_id="run-page-weight",
+            request_id=request.request_id,
+            trace_id="tr-page-weight",
+            span_id="sp-page",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-08T00:00:00Z",
+            confidence=ConfidenceValue(score=0.8, method="test", evidence={"level": "page"}),
+            attributes={"level": "page"},
+        )
+        region = PramanaRecord(
+            run_id="run-page-weight",
+            request_id=request.request_id,
+            trace_id="tr-page-weight",
+            span_id="sp-region",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-08T00:00:00Z",
+            confidence=ConfidenceValue(score=0.2, method="test", evidence={"level": "region"}),
+            attributes={"level": "region"},
+        )
+        translation = PramanaRecord(
+            run_id="run-page-weight",
+            request_id=request.request_id,
+            trace_id="tr-page-weight",
+            span_id="sp-translation",
+            capability_id="translation",
+            stage="translation",
+            timestamp_utc="2026-09-08T00:00:00Z",
+            confidence=ConfidenceValue(score=0.6, method="test", evidence={"level": "document"}),
+        )
+
+        summary = MukhaPresenter.build_summary_view(
+            run_id="run-page-weight",
+            status="COMPLETED",
+            wall_time_ns=1_000_000,
+            request=request,
+            pramana_records=(page, region, translation),
+        )
+
+        assert summary.avg_confidence == 0.7
 
     def test_format_confidence_preserves_none(self) -> None:
         """format_confidence must return '-' for None, never '100.0%' or '0.0%'."""

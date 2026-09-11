@@ -1,4 +1,4 @@
-﻿"""Tests for Retained Safe Run History, Privacy Guarantees, Reopening, and Storage Isolation."""
+"""Tests for Retained Safe Run History, Privacy Guarantees, Reopening, and Storage Isolation."""
 
 import json
 from pathlib import Path
@@ -159,6 +159,52 @@ def test_history_storage_failure_isolation(tmp_path: Path) -> None:
     in_memory = darpana.query_run_history()
     assert len(in_memory) == 1
     assert in_memory[0].run_id == "run-isolated"
+
+
+def test_history_query_keeps_new_memory_summary_when_save_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stale persisted tail must not hide a newer in-memory summary after a failed save."""
+    history_file = tmp_path / "telemetry" / "runs.jsonl"
+    seed_store = TerminalRunHistoryStore(history_file, format="jsonl")
+    old_summary = TerminalRunSummary(
+        run_id="run-old",
+        request_id="req-old",
+        requirement="ocr",
+        profile="instant",
+        status="completed",
+        start_time_utc="2026-09-02T12:00:00Z",
+        completed_at_utc="2026-09-02T12:00:01Z",
+        duration_ms=1000,
+        artifact_count=1,
+        warning_count=0,
+    )
+    assert seed_store.save(old_summary) is True
+
+    darpana = Darpana(capacity=10, history_path=history_file, history_format="jsonl")
+    assert darpana._history_store is not None
+    monkeypatch.setattr(darpana._history_store, "save", lambda summary: False)
+
+    new_summary = TerminalRunSummary(
+        run_id="run-new",
+        request_id="req-new",
+        requirement="ocr",
+        profile="instant",
+        status="completed",
+        start_time_utc="2026-09-02T12:01:00Z",
+        completed_at_utc="2026-09-02T12:01:01Z",
+        duration_ms=1000,
+        artifact_count=1,
+        warning_count=0,
+    )
+    darpana.record_run_summary(new_summary)
+
+    history = darpana.query_run_history(limit=10)
+    assert tuple(summary.run_id for summary in history) == ("run-new", "run-old")
+    assert any(record.phase_name == "telemetry.history_persistence_failure" for record in darpana.maruti_records())
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        darpana.query_run_history(limit=0)
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        darpana.query_run_history(limit=True)
 
 
 def test_agni_execution_records_history_via_sutra_settings(tmp_path: Path) -> None:

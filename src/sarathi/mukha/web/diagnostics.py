@@ -7,11 +7,41 @@ import sys
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from sarathi.darpana.pramana import select_aggregate_confidence_records
 from sarathi.mukha.web.security import _sanitize_message
 from sarathi.mukha.web.state_builder import get_run_telemetry
 
 if TYPE_CHECKING:
     from sarathi.agni import Agni
+
+_SAFE_EVENT_ATTRIBUTES = frozenset(
+    {
+        "attempt",
+        "attempt_count",
+        "cache_tier",
+        "cancelled",
+        "capability_id",
+        "chars",
+        "committed_count",
+        "device_type",
+        "error_type",
+        "fallback_applied",
+        "fallback_engine",
+        "fallback_improved_count",
+        "fallback_intercepted_count",
+        "input_count",
+        "lifecycle_status",
+        "max_retries",
+        "outcome",
+        "page",
+        "page_number",
+        "pages_processed",
+        "plugin_id",
+        "requirement",
+        "success",
+        "worker_id",
+    }
+)
 
 
 def export_run_diagnostics(
@@ -57,7 +87,7 @@ def export_run_diagnostics(
         sanitized_attributes = {
             key: _sanitize_message(str(value))
             for key, value in (record.attributes or {}).items()
-            if key not in ("text", "content", "raw_path", "source_text")
+            if key in _SAFE_EVENT_ATTRIBUTES
         }
         device_type = str((record.attributes or {}).get("device_type", "cpu"))
         activity_events.append(
@@ -71,11 +101,8 @@ def export_run_diagnostics(
             }
         )
 
-    confidences = [
-        float(record.confidence.score if hasattr(record.confidence, "score") else record.confidence)
-        for record in pramana_recs
-        if record.confidence is not None
-    ]
+    aggregate_pramana = select_aggregate_confidence_records(pramana_recs)
+    confidences = [record.confidence.score for record in aggregate_pramana if record.confidence is not None]
     confidence_statistics: dict[str, Any] = {
         "sample_count": len(confidences),
         "min_confidence": min(confidences) if confidences else None,

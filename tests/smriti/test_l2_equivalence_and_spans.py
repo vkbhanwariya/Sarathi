@@ -185,7 +185,7 @@ def test_ocr_empty_input_warning(tmp_path: Path) -> None:
 
 
 def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> None:
-    """SQLiteCacheStore retains exactly the configured number of most-recent entries."""
+    """SQLiteCacheStore retains exactly the configured most-recent entries without evicting on refresh."""
     from sarathi.smriti.policy import CachePolicy
     from sarathi.smriti.store import SQLiteCacheStore
 
@@ -217,5 +217,24 @@ def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> N
         ]
 
     assert keys == [f"hash_{idx:04d}" for idx in range(5, 15)]
+
+    retained = set(keys)
+    refresh_key = CacheKey(
+        capability_id="test",
+        fingerprint="fp_10",
+        profile="fast",
+        key_hash="hash_0010",
+    )
+    store.put(
+        refresh_key,
+        Result(data=CanonicalDocument(document_id="d2", source_input_id="i1", text="refreshed")),
+    )
+    with store._lock, store._get_connection() as conn:
+        refreshed_keys = {row[0] for row in conn.execute("SELECT key_hash FROM smriti_entries").fetchall()}
+
+    assert refreshed_keys == retained
+    refreshed = store.get(refresh_key)
+    assert refreshed is not None
+    assert refreshed.data.text == "refreshed"
 
     store.close()

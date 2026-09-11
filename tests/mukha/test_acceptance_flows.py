@@ -27,7 +27,14 @@ def test_diagnostics_export_sanitization() -> None:
             timestamp_utc="2026-09-07T00:00:00Z",
             duration_ns=150_000_000,
             outcome="success",
-            attributes={"text": "SECRET TEXT THAT SHOULD BE STRIPPED", "page": 1, "chars": 120},
+            attributes={
+                "text": "SECRET TEXT THAT SHOULD BE STRIPPED",
+                "page": 1,
+                "chars": 120,
+                "file_display_name": "private-report.pdf",
+                "input_id": "private-input-id",
+                "unexpected_detail": "private-value",
+            },
         ),
     )
     mock_agni.darpana.pramana_records.return_value = (
@@ -35,11 +42,23 @@ def test_diagnostics_export_sanitization() -> None:
             run_id="run-diag",
             request_id="req-1",
             trace_id="tr-1",
-            span_id="sp-1",
+            span_id="sp-page",
             capability_id="ocr",
             stage="ocr",
             timestamp_utc="2026-09-07T00:00:00Z",
             confidence=ConfidenceValue(score=0.96, method="test", evidence={"samples": 10}),
+            attributes={"level": "page"},
+        ),
+        PramanaRecord(
+            run_id="run-diag",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-region",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            confidence=ConfidenceValue(score=0.10, method="test", evidence={"samples": 1}),
+            attributes={"level": "region"},
         ),
     )
 
@@ -48,12 +67,17 @@ def test_diagnostics_export_sanitization() -> None:
     assert diag["run_id"] == "run-diag"
     assert diag["system"]["security_policy"] == "Kavacha Local Isolation"
     assert "optical_character_recognition" in diag["stages"]
+    assert diag["confidence_statistics"]["sample_count"] == 1
     assert diag["confidence_statistics"]["avg_confidence"] == 0.96
 
-    # Verify sensitive attributes are stripped
+    # Shareable diagnostics keep operational facts and exclude identity/content fields.
     event = diag["events"][0]
-    assert "text" not in event["attributes"]
     assert event["attributes"]["page"] == "1"
+    assert event["attributes"]["chars"] == "120"
+    assert "text" not in event["attributes"]
+    assert "file_display_name" not in event["attributes"]
+    assert "input_id" not in event["attributes"]
+    assert "unexpected_detail" not in event["attributes"]
 
 
 def test_run_comparison_analytics() -> None:
@@ -89,21 +113,45 @@ def test_run_comparison_analytics() -> None:
             run_id="run-a",
             request_id="req-1",
             trace_id="tr-1",
-            span_id="sp-1",
+            span_id="sp-a-page",
             capability_id="ocr",
             stage="ocr",
             timestamp_utc="2026-09-07T00:00:00Z",
             confidence=ConfidenceValue(score=0.85, method="test", evidence={"samples": 10}),
+            attributes={"level": "page"},
+        ),
+        PramanaRecord(
+            run_id="run-a",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-a-region",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            confidence=ConfidenceValue(score=0.10, method="test", evidence={"samples": 1}),
+            attributes={"level": "region"},
         ),
         PramanaRecord(
             run_id="run-b",
             request_id="req-2",
             trace_id="tr-2",
-            span_id="sp-2",
+            span_id="sp-b-page",
             capability_id="ocr",
             stage="ocr",
             timestamp_utc="2026-09-07T00:00:00Z",
             confidence=ConfidenceValue(score=0.95, method="test", evidence={"samples": 10}),
+            attributes={"level": "page"},
+        ),
+        PramanaRecord(
+            run_id="run-b",
+            request_id="req-2",
+            trace_id="tr-2",
+            span_id="sp-b-region",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            confidence=ConfidenceValue(score=0.99, method="test", evidence={"samples": 1}),
+            attributes={"level": "region"},
         ),
     )
 
@@ -112,6 +160,8 @@ def test_run_comparison_analytics() -> None:
     assert res["summary"]["duration_ms_a"] == 100.0
     assert res["summary"]["duration_ms_b"] == 75.0
     assert res["summary"]["duration_diff_ms"] == -25.0
+    assert res["summary"]["confidence_a"] == 0.85
+    assert res["summary"]["confidence_b"] == 0.95
     assert res["summary"]["confidence_diff"] == 0.1
     assert len(res["stages"]) == 1
     assert res["stages"][0]["stage"] == "ocr"

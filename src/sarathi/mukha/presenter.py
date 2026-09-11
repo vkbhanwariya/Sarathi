@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
+from sarathi.darpana.pramana import select_aggregate_confidence_records as _aggregate_confidence_records
 from sarathi.kavacha import Kavacha
 from sarathi.mukha.state import (
     ActivityLogView,
@@ -249,7 +250,7 @@ class MukhaPresenter:
                 if rec.span_id:
                     span_to_device_mon[rec.span_id] = dev_key
 
-        for p_rec in pramana_records:
+        for p_rec in _aggregate_confidence_records(pramana_records):
             dev = p_rec.attributes.get("device_type") or span_to_device_mon.get(p_rec.span_id)
             if dev and p_rec.confidence is not None:
                 device_confidences.setdefault(str(dev).upper(), []).append(p_rec.confidence.score)
@@ -370,7 +371,8 @@ class MukhaPresenter:
                 if r.span_id:
                     span_to_device[r.span_id] = dev_str
 
-        for pr in pramana_records:
+        aggregate_pramana = _aggregate_confidence_records(pramana_records)
+        for pr in aggregate_pramana:
             dev = pr.attributes.get("device_type") or span_to_device.get(pr.span_id)
             if dev and pr.confidence is not None:
                 dev_confs.setdefault(str(dev).upper(), []).append(pr.confidence.score)
@@ -411,8 +413,8 @@ class MukhaPresenter:
                         )
                     )
 
-        # Confidence from result or pramana records
-        all_confs = [pr.confidence.score for pr in pramana_records if pr.confidence is not None]
+        # Prefer page-level quality observations so region density does not bias run confidence.
+        all_confs = [pr.confidence.score for pr in aggregate_pramana if pr.confidence is not None]
         if all_confs:
             avg_confidence = sum(all_confs) / len(all_confs)
         elif result is not None and result.confidence is not None:
