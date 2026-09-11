@@ -1,4 +1,4 @@
-"""Zero-leak direct REST client for Google Gemini API."""
+"""Direct REST client for Google Gemini API with sanitized error handling."""
 
 from __future__ import annotations
 
