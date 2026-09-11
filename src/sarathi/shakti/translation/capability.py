@@ -23,7 +23,7 @@ from sarathi.sankalpa import (
     Result,
     WarningRecord,
 )
-from sarathi.sankalpa.document import transform_canonical_document
+from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.translation.detector import LanguageDetector
 from sarathi.shakti.translation.engine import (
@@ -159,13 +159,8 @@ class TranslationCapability:
                 message="TranslationCapability requires a prior Result containing a CanonicalDocument or sequence of CanonicalDocuments.",
             )
 
-        if isinstance(prior_result.data, CanonicalDocument):
-            docs = [prior_result.data]
-        elif isinstance(prior_result.data, (tuple, list)) and all(
-            isinstance(d, CanonicalDocument) for d in prior_result.data
-        ):
-            docs = list(prior_result.data)
-        else:
+        docs = normalize_canonical_documents(prior_result.data)
+        if docs is None:
             raise DoshError(
                 code=FailureCode.VALIDATION_FAILED,
                 message="TranslationCapability requires a prior Result containing a CanonicalDocument or sequence of CanonicalDocuments.",
