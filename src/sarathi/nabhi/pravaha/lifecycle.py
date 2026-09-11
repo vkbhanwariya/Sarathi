@@ -99,17 +99,13 @@ def execute_retry_attempt(
             attempt_count=new_attempt,
         )
 
-    retry_ctx = ExecutionContext(
-        run_id=context.run_id,
-        request_id=context.request_id,
-        trace_id=context.trace_id,
+    retry_ctx = replace(
+        context,
         span_id=f"retry-{new_attempt}-{context.span_id}",
         parent_span_id=context.span_id,
-        profile=context.profile,
         quarantine_attempt=new_attempt,
         is_retry=True,
         cancellation_token=context.cancellation_token or request.cancellation_token,
-        metadata=context.metadata,
     )
 
     scope = (

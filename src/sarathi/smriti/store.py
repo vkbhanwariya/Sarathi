@@ -103,18 +103,6 @@ class SQLiteCacheStore:
         now = time.time()
 
         with self._lock, self._get_connection() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
-            if count >= self._policy.max_entries_l2:
-                evict_count = count - self._policy.max_entries_l2 + 1
-                conn.execute(
-                    """
-                    DELETE FROM smriti_entries WHERE key_hash IN (
-                        SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC LIMIT ?
-                    )
-                """,
-                    (evict_count,),
-                )
-
             conn.execute(
                 """
                 INSERT OR REPLACE INTO smriti_entries
@@ -123,6 +111,18 @@ class SQLiteCacheStore:
             """,
                 (key.key_hash, key.capability_id, key.fingerprint, key.profile, data_json, now, now),
             )
+
+            count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
+            if count > self._policy.max_entries_l2:
+                evict_count = count - self._policy.max_entries_l2
+                conn.execute(
+                    """
+                    DELETE FROM smriti_entries WHERE key_hash IN (
+                        SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC LIMIT ?
+                    )
+                """,
+                    (evict_count,),
+                )
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
         """Invalidate entries from persistent SQLite store."""

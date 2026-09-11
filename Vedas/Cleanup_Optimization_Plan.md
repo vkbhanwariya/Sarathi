@@ -67,9 +67,17 @@ Cleanup removed only duplicated or unused machinery. `RunWorkspace` now calls th
 
 No artifact destination, checksum, manifest, rollback, staging, partial retention, quarantine transition, retry count, failure code, run/request/trace identity, or user-visible output behavior was changed. The existing `RunWorkspace._write_bytes_atomically` injection seam remains because current failure-path tests use it to verify manifest and artifact rollback behavior; removing a useful verification seam solely to reduce method count would not improve the architecture.
 
-### Phase 6 — Smriti and retained state
+### Phase 6 — Smriti and retained state — complete
 
-Make cache keys/invalidation/lifetime explicit, measure hit benefit, bound retained session state, and verify completed runs release large objects/callbacks.
+Smriti has explicit deterministic cache keys, canonical cacheability rules, bounded L1/L2 retention, TTL validation, capability/key invalidation, lossless canonical serialization, and L2-to-L1 promotion that preserves the original creation time. Completed-run retained-state cleanup is covered by the Phase 6 migration and regression suite.
+
+The completed-phase modernization sweep removed Smriti's mutation of Python's private process-global `copy._deepcopy_dispatch`. L1 isolation now uses a local structural defensive copy over the already constrained canonical cache tree, preserving nested mutable isolation without JSON round-tripping or global interpreter side effects. L2 retention now performs the upsert first and evicts only actual overflow, so refreshing an existing key at full capacity cannot evict an unrelated retained entry.
+
+### Completed-phase modernization sweep — complete
+
+Phases 0–6 were re-audited together after completion. Stable Mukha, Kosh/Manthan, Yantra, OCR scheduling, artifact, and quarantine ownership boundaries were intentionally left alone where a rewrite would only change style. Shared immutable-copy paths were simplified with `dataclasses.replace()` where manual reconstruction could lose future fields; canonical-document payload normalization was centralized only for strict consumers; loose fallback consumers retained their existing semantics.
+
+The sweep also fixed two concrete state/fidelity defects: execution bindings are preserved through cancellation-token reconciliation and Pravaha retry contexts, and canonical document transformations no longer infer callback signatures by swallowing arbitrary `TypeError`. Regression tests lock those contracts. This modernization sweep is not a new numbered phase; remaining phases are modernized as part of their own implementation.
 
 ### Phase 7 — Darpana telemetry
 

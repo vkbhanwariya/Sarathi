@@ -2,20 +2,39 @@
 
 from __future__ import annotations
 
-import copy
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
-from types import MappingProxyType
+from collections.abc import Mapping
+from dataclasses import dataclass, fields, is_dataclass, replace
+from typing import Any
 
 from sarathi.sankalpa import Result
 from sarathi.smriti.key import CacheKey
 from sarathi.smriti.policy import CachePolicy
 from sarathi.smriti.serialization import is_cacheable_result
 
-# Allow copy.deepcopy to safely clone MappingProxyType objects found in Result metadata
-copy._deepcopy_dispatch[MappingProxyType] = lambda x, memo: MappingProxyType(copy.deepcopy(dict(x), memo))
+
+def _defensive_copy(value: Any) -> Any:
+    """Copy canonical cache values without process-global deepcopy hooks."""
+    if isinstance(value, Mapping):
+        return {_defensive_copy(key): _defensive_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_defensive_copy(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_defensive_copy(item) for item in value)
+    if isinstance(value, set):
+        return {_defensive_copy(item) for item in value}
+    if isinstance(value, frozenset):
+        return frozenset(_defensive_copy(item) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        updates = {
+            field.name: _defensive_copy(getattr(value, field.name))
+            for field in fields(value)
+            if field.init
+        }
+        return replace(value, **updates)
+    return value
 
 
 @dataclass(slots=True)
@@ -46,7 +65,7 @@ class MemoryCache:
                 return None
 
             self._cache.move_to_end(key.key_hash)
-            return copy.deepcopy(entry.result)
+            return _defensive_copy(entry.result)
 
     def put(self, key: CacheKey, result: Result, created_at: float | None = None) -> None:
         """Store result in memory, evicting LRU items if at capacity."""
@@ -56,7 +75,7 @@ class MemoryCache:
         with self._lock:
             now = time.time()
             entry_created_at = created_at if created_at is not None else now
-            result_copy = copy.deepcopy(result)
+            result_copy = _defensive_copy(result)
             if key.key_hash in self._cache:
                 self._cache.move_to_end(key.key_hash)
                 self._cache[key.key_hash] = MemoryCacheEntry(
