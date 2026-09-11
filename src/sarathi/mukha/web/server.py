@@ -228,6 +228,7 @@ class MukhaWebServer:
             log_level="warning",
             access_log=False,
             lifespan="off",
+            timeout_graceful_shutdown=0.1,
         )
         server = uvicorn.Server(config)
         self._uvicorn_server = server
@@ -258,10 +259,10 @@ class MukhaWebServer:
             server.should_exit = True
 
         if thread is not None and thread.is_alive():
-            thread.join(timeout=5.0)
+            thread.join(timeout=1.0)
             if thread.is_alive() and server is not None:
                 server.force_exit = True
-                thread.join(timeout=1.0)
+                thread.join(timeout=0.5)
 
         sock = self._server_socket
         if sock is not None:

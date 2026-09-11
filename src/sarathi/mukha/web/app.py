@@ -294,32 +294,35 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             last_revision = -1
             last_serialized: str | None = None
             last_ping = time.monotonic()
-            while True:
-                if await request.is_disconnected():
-                    return
-                state = mukha.get_application_view_state()
-                runner_revision = mukha.runner.state_revision
-                is_running = bool(state.active_run and state.active_run.status == "RUNNING")
-                if runner_revision != last_revision or is_running:
-                    serialized = json.dumps(
-                        {
-                            "ok": True,
-                            "schema_version": state.schema_version,
-                            "state_revision": state.state_revision,
-                            "state": _serialize_dataclass(state),
-                        },
-                        ensure_ascii=False,
-                    )
-                    if serialized != last_serialized or runner_revision != last_revision:
-                        last_serialized = serialized
-                        last_revision = state.state_revision
-                        yield f"event: state\ndata: {serialized}\n\n".encode("utf-8")
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        return
+                    state = mukha.get_application_view_state()
+                    runner_revision = mukha.runner.state_revision
+                    is_running = bool(state.active_run and state.active_run.status == "RUNNING")
+                    if runner_revision != last_revision or is_running:
+                        serialized = json.dumps(
+                            {
+                                "ok": True,
+                                "schema_version": state.schema_version,
+                                "state_revision": state.state_revision,
+                                "state": _serialize_dataclass(state),
+                            },
+                            ensure_ascii=False,
+                        )
+                        if serialized != last_serialized or runner_revision != last_revision:
+                            last_serialized = serialized
+                            last_revision = state.state_revision
+                            yield f"event: state\ndata: {serialized}\n\n".encode("utf-8")
 
-                now = time.monotonic()
-                if now - last_ping >= 15.0:
-                    last_ping = now
-                    yield b"event: ping\ndata: {}\n\n"
-                await asyncio.sleep(0.5 if is_running else 1.5)
+                    now = time.monotonic()
+                    if now - last_ping >= 15.0:
+                        last_ping = now
+                        yield b"event: ping\ndata: {}\n\n"
+                    await asyncio.sleep(0.5 if is_running else 1.5)
+            except asyncio.CancelledError:
+                return
 
         return StreamingResponse(
             events(),

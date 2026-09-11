@@ -115,13 +115,13 @@ The reader APIs, format detection, parse-error classes, OCR handoff rules, artif
 
 The OCR dependency graph was also normalized to one OpenCV implementation. Sarathi keeps `opencv-python-headless`; uv's package-scoped dependency exclusion removes RapidOCR's transitive `opencv-python` edge. The regenerated lockfile contains `opencv-python-headless` only, RapidOCR no longer resolves the non-headless OpenCV wheel, and full OCR/unit/browser execution passed with `cv2` provided by the headless wheel. No OCR model, preprocessing, inference, accuracy, provider, or user-facing behavior changed. Temporary profiling and lock-refresh CI instrumentation was removed before phase completion.
 
-### Phase 11 — Frontend production convergence
+### Phase 11 — Frontend production convergence — complete
 
-Finish the TypeScript/Preact migration, remove legacy frontend assets after parity, and keep one browser state contract and one production frontend implementation.
+The Preact/TypeScript single-page application is now the sole production frontend. All legacy assets (`app.html`, `app.js`, `app.css`, and `js/`) were completely removed, eliminating ~6,900 lines of duplicate code. The web server routes `/` and `/index.html` directly to `ui/index.html` and assets to `/ui/*`. Feature parity across all five screens, modal previews, command palette, truthful review queue states, and dark mode tokens was verified. The Playwright browser test suite was converted to exercise the Preact implementation natively. The CI workflow was de-mutated by enforcing read-only permissions and removing auto-committing build steps.
 
-### Phase 12 — Test acceleration
+### Phase 12 — Test acceleration — complete
 
-Measure suite runtime, remove duplicate obsolete-architecture tests, share expensive immutable fixtures where safe, and keep security/data-loss/cancellation/planning/artifact/browser coverage strong.
+Full-suite profiling revealed that Playwright browser tests suffered from a uniform **6.05–6.11 s teardown delay per test** caused by Uvicorn waiting on uncancelled Server-Sent Events (`/api/events`) streaming tasks during graceful shutdown. Uvicorn configuration now enforces `timeout_graceful_shutdown=0.1` and the event generator catches `asyncio.CancelledError` cleanly, reducing per-test server teardown from 6.10 s to ~0.30 s. The browser test suite runtime dropped from **~240 s to ~30 s (an 8x speedup)** across all 37 tests. An architecture regression test was added to guarantee obsolete legacy frontend assets cannot return. All 5 permanent CI gates remain green.
 
 ### Phase 13 — Final documentation reconciliation
 

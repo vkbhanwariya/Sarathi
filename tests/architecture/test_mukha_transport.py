@@ -10,6 +10,13 @@ def test_obsolete_http_handler_modules_are_absent() -> None:
     assert not (_WEB_ROOT / "static_handler.py").exists()
 
 
+def test_legacy_frontend_artifacts_are_absent() -> None:
+    assert not (_WEB_ROOT / "app.html").exists()
+    assert not (_WEB_ROOT / "app.js").exists()
+    assert not (_WEB_ROOT / "app.css").exists()
+    assert not (_WEB_ROOT / "js").exists()
+
+
 def test_mukha_has_no_stdlib_handler_transport() -> None:
     forbidden = (
         "from http.server",
