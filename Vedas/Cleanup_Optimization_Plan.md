@@ -99,9 +99,13 @@ The audit removed absolute `zero-leak` / `privacy-safe` transport claims from cl
 
 A subsequent end-to-end provider-flow revalidation found that Azure, Gemini, and Bhashini translation manually rebuilt canonical documents and discarded unchanged document/page state. Those three existing capabilities now use `dataclasses.replace()` to preserve upstream canonical fields while keeping their current remote-call, direction, artifact, and fallback behavior unchanged; their existing provider tests were strengthened in place.
 
-### Phase 9 — Shared text/typography utilities
+### Phase 9 — Shared text/typography utilities — in progress
 
 Consolidate helpers only when their semantic contract is identical across real consumers. Remove compatibility re-exports after callers migrate.
+
+The first semantic audit confirmed that OCR and Translation use the same Devanagari-presence rule, Latin/Devanagari output fonts, positive-size validation, and 12 pt fallback. Those primitives now have one neutral owner in `shakti.text`; OCR retains its separate line-height/heading inference. Translation's historical zero-argument `normalize_size()` call contract is preserved through a narrow adapter instead of silently broadening or narrowing either capability API. Font Conversion remains separate because its size calibration and span protection have different evidence and conversion semantics.
+
+The same audit confirmed an identical Markdown-table parser in Gemini, Mistral, and Bhashini OCR. That migration remains in Phase 9; Azure's structured Document Intelligence table parser and media-type inference helpers are different concerns and are not being conflated with the shared text contract.
 
 ### Phase 10 — Dependency/import cost
 
