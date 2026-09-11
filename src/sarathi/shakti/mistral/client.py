@@ -1,6 +1,6 @@
-"""Privacy-safe REST client for Mistral AI APIs in Sarathi.
+"""Direct REST client for Mistral AI APIs with sanitized error handling.
 
-Implements zero-leak HTTP transport, strict header controls, and sanitized error mapping.
+Uses explicit authentication headers and sanitized error mapping.
 Supports both httpx and standard library urllib as a fallback.
 """
 
@@ -20,7 +20,7 @@ _DEFAULT_TIMEOUT_SECONDS = 60.0
 
 
 class MistralClient:
-    """Zero-leak HTTP client for Mistral AI OCR and Chat Completion APIs."""
+    """HTTP client for Mistral AI OCR and Chat Completion APIs."""
 
     def __init__(
         self,
@@ -47,7 +47,7 @@ class MistralClient:
         return self._api_key.strip()
 
     def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Perform sanitized HTTP POST to Mistral API with zero-leak error boundaries."""
+        """Perform sanitized HTTP POST to Mistral API."""
         api_key = self._get_api_key()
         url = f"{self._base_url}/{endpoint.lstrip('/')}"
         headers = {
