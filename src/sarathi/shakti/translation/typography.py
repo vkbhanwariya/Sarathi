@@ -12,8 +12,10 @@ from sarathi.shakti.text.typography import (
     DEVANAGARI_FONT,
     ENGLISH_FONT,
     contains_devanagari,
-    normalize_size as _normalize_size,
     output_font,
+)
+from sarathi.shakti.text.typography import (
+    normalize_size as _normalize_size,
 )
 
 
