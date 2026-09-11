@@ -95,7 +95,7 @@ The outbound-provider audit found four Shakti REST transports: Azure, Bhashini, 
 
 Provider/client credential lookup remains configuration discovery, not a second authorization subsystem. Direct client classes remain reusable lower-level transports and intentionally do not embed Kavacha policy logic; adding provider-local or client-local authorization would duplicate the existing runtime owner and complicate standalone use. No credential abstraction, lazy-secret layer, provider wrapper, Protocol, or new test module was added.
 
-The audit removed absolute `zero-leak` / `privacy-safe` transport claims from cloud-client documentation. Concrete credential redaction and sanitized error handling remain unchanged, but the code no longer promises an unprovable universal property. No HTTP payload, credential fallback, provider registration, policy behavior, OCR/translation output, accuracy, or performance path changed in Phase 8.
+The audit removed absolute `zero-leak` / `privacy-safe` transport claims from cloud-client documentation. Concrete credential redaction and sanitized error handling remain unchanged, but the code no longer promises an unprovable universal property. No HTTP payload, credential fallback, provider registration, policy behavior, OCR/translation output, accuracy, or performance path changed in Phase 8. No new regression test was added because the existing Kavacha cloud-policy tests already cover the unchanged authorization boundary.
 
 ### Phase 9 — Shared text/typography utilities
 
