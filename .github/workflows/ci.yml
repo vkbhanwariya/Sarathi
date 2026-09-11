@@ -7,7 +7,7 @@ on:
     branches: [main, development]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   lint:
@@ -79,46 +79,6 @@ jobs:
 
       - name: Typecheck and build Mukha UI
         run: npm run build
-
-      - name: Package and switch Mukha UI
-        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
-        working-directory: ${{ github.workspace }}
-        run: |
-          mkdir -p src/sarathi/mukha/web/ui
-          cp ui/dist/index.html src/sarathi/mukha/web/ui/index.html
-          cp ui/dist/app.js src/sarathi/mukha/web/ui/app.js
-          cp ui/dist/app.css src/sarathi/mukha/web/ui/app.css
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/sarathi/mukha/web/app.py")
-          text = path.read_text(encoding="utf-8")
-          text = text.replace(
-              '        return _static_response("app.html", "text/html")',
-              '        return _static_response("ui/index.html", "text/html")',
-          )
-          if "async def ui_asset(" not in text:
-              marker = '''    async def packaged_asset(request: Request) -> Response:\n'''
-              ui_block = '''    async def ui_asset(request: Request) -> Response:\n        name = request.path_params["path"]\n        if name not in {"app.js", "app.css"}:\n            return Response("UI asset not found.", status_code=404)\n        mime = "application/javascript" if name.endswith(".js") else "text/css"\n        return _static_response(f"ui/{name}", mime, "public, max-age=3600")\n\n'''
-              if marker not in text:
-                  raise SystemExit("packaged asset insertion point not found")
-              text = text.replace(marker, ui_block + marker, 1)
-          route_marker = '        Route("/index.html", root),\n'
-          ui_route = '        Route("/ui/{path:path}", ui_asset),\n'
-          if ui_route not in text:
-              if route_marker not in text:
-                  raise SystemExit("route insertion point not found")
-              text = text.replace(route_marker, route_marker + ui_route, 1)
-          path.write_text(text, encoding="utf-8")
-          PY
-          git add src/sarathi/mukha/web/ui src/sarathi/mukha/web/app.py
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "[skip ci] Switch Phase 11 Preact production UI"
-          git push origin HEAD:development
 
   test:
     name: Unit & Integration Tests

@@ -35,22 +35,27 @@ def _http_post(url: str, data: dict[str, Any], headers: dict[str, str] | None = 
     if headers:
         req_headers.update(headers)
 
-    req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            body = resp.read().decode("utf-8")
-            return resp.status, json.loads(body)
-    except urllib.error.HTTPError as err:
+    for attempt in range(2):
+        req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")
         try:
-            body = err.read().decode("utf-8")
-            return err.code, json.loads(body)
-        except Exception:
-            return err.code, {"error": str(err.reason)}
-    except (urllib.error.URLError, ConnectionError, OSError) as e:
-        # Connection reset/aborted by server due to oversized payload or header rejection
-        return (413 if len(payload) > 1_000_000 else 403), {"error": str(e)}
-    except Exception as e:
-        return 500, {"error": str(e)}
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                body = resp.read().decode("utf-8")
+                return resp.status, json.loads(body)
+        except urllib.error.HTTPError as err:
+            try:
+                body = err.read().decode("utf-8")
+                return err.code, json.loads(body)
+            except Exception:
+                return err.code, {"error": str(err.reason)}
+        except (urllib.error.URLError, ConnectionError, OSError) as e:
+            if attempt == 0 and len(payload) <= 1_000_000:
+                time.sleep(0.05)
+                continue
+            # Connection reset/aborted by server due to oversized payload or header rejection
+            return (413 if len(payload) > 1_000_000 else 403), {"error": str(e)}
+        except Exception as e:
+            return 500, {"error": str(e)}
+    return 500, {"error": "request failed"}
 
 
 def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 3.0) -> None:
@@ -71,36 +76,24 @@ class TestMukhaWebServerSecurityAndStatic:
             MukhaWebServer(agni=test_agni, host="0.0.0.0", port=0)
 
     def test_static_app_html(self, web_server: MukhaWebServer) -> None:
-        """Root GET request serves semantic app.html with 5 Veda screens."""
+        """Root GET request serves Preact index."""
         status, body, headers = _http_get(web_server.local_url)
         assert status == 200
         html = body.decode("utf-8")
         assert "Sarathi" in html
-        assert "Griha" in html
-        assert "Pravritti" in html
-        assert "Pariksha" in html
-        assert "Samapti" in html
-        assert "Nirikshana" in html
-        assert "Aarambha" in html
+        assert 'id="app"' in html
+        assert "/ui/app.js" in html
 
     def test_static_css_and_js(self, web_server: MukhaWebServer) -> None:
-        """GET /app.css and GET /app.js serve valid stylesheets and scripts."""
-        status_css, body_css, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.css")
+        """GET /ui/app.css and GET /ui/app.js serve valid stylesheets and scripts."""
+        status_css, body_css, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/app.css")
         assert status_css == 200
         assert ":root" in body_css.decode("utf-8")
 
-        status_js, body_js, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.js")
+        status_js, body_js, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/app.js")
         assert status_js == 200
         js_text = body_js.decode("utf-8")
         assert "Sarathi" in js_text
-        assert "function updatePresentation(appState)" in js_text
-        assert "function init()" in js_text
-
-        status_home, body_home, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/screens/home.js")
-        assert status_home == 200
-        home_text = body_home.decode("utf-8")
-        assert "function handleBrowseFiles()" in home_text
-        assert "function handleAddManualPath()" in home_text
 
     def test_security_rejects_forbidden_host(self, web_server: MukhaWebServer) -> None:
         """Requests with non-loopback Host header are rejected with 403."""

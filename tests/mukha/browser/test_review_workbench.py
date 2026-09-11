@@ -92,12 +92,7 @@ def test_review_empty_queue_state(app_page: Page) -> None:
     app_page.click(".nav-tab[data-screen='review']")
     expect(app_page.locator("#screen-review")).to_have_class("screen-view active")
 
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
 
     tbody = app_page.locator("#review-queue-tbody")
     expect(tbody).to_contain_text("No items currently require human review.")
@@ -118,12 +113,7 @@ def test_review_queue_rendering_and_pending_count(app_page: Page) -> None:
     )
 
     app_page.click(".nav-tab[data-screen='review']")
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
 
     # 3 review rows rendered
     rows = app_page.locator("#review-queue-tbody tr.review-row")
@@ -153,12 +143,7 @@ def test_previous_next_navigation_and_bounds(app_page: Page) -> None:
     )
 
     app_page.click(".nav-tab[data-screen='review']")
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
 
     prev_btn = app_page.locator("#btn-review-prev")
     next_btn = app_page.locator("#btn-review-next")
@@ -198,12 +183,7 @@ def test_action_enablement_and_unsupported_actions(app_page: Page) -> None:
     )
 
     app_page.click(".nav-tab[data-screen='review']")
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
 
     accept_btn = app_page.locator("#btn-review-accept")
     unresolved_btn = app_page.locator("#btn-review-dismiss")
@@ -234,12 +214,7 @@ def test_status_badge_truthfulness(app_page: Page) -> None:
     )
 
     app_page.click(".nav-tab[data-screen='review']")
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
 
     badge = app_page.locator("#review-status-badge")
 
@@ -271,12 +246,7 @@ def test_inline_draft_box_handling(app_page: Page) -> None:
     )
 
     app_page.click(".nav-tab[data-screen='review']")
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
 
     draft_box = app_page.locator("#review-draft-box")
     expect(draft_box).to_have_class("review-draft-card hidden")
@@ -317,12 +287,7 @@ def test_selection_preservation_across_queue_reload(app_page: Page) -> None:
     app_page.route("**/api/review*", handle_review)
 
     app_page.click(".nav-tab[data-screen='review']")
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
     expect(app_page.locator("#review-active-item-title")).to_have_text("rev_001")
 
     # Click row 1 (rev_002)
@@ -335,12 +300,7 @@ def test_selection_preservation_across_queue_reload(app_page: Page) -> None:
     current_items_holder[0] = updated_items
 
     # Reload queue
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/review.js");
-            await mod.loadReviewQueue();
-        }"""
-    )
+    app_page.evaluate("""async () => { await window.loadReviewQueue(); }""")
 
     # rev_002 should still be selected, and its badge updated to ACCEPTED
     expect(app_page.locator("#review-active-item-title")).to_have_text("rev_002")

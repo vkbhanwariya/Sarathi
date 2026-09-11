@@ -19,107 +19,62 @@ def _http_get(url: str) -> tuple[int, bytes, dict[str, str]]:
         return err.code, err.read(), {k.lower(): v for k, v in err.headers.items()}
 
 
-def test_app_html_loads_modular_script(web_server: MukhaWebServer) -> None:
-    """app.html must reference app.js as a native ES module."""
+def test_root_serves_preact_shell(web_server: MukhaWebServer) -> None:
+    """Root GET request must serve the Preact application index."""
     status, data, headers = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/")
     assert status == 200
     html = data.decode("utf-8")
-    assert '<script type="module" src="/app.js"></script>' in html
+    assert 'id="app"' in html
+    assert '<script type="module" crossorigin src="/ui/app.js"></script>' in html
     assert headers["content-type"].startswith("text/html")
 
 
-def test_app_js_composition_root_served(web_server: MukhaWebServer) -> None:
-    """app.js composition root must be served with javascript MIME type and valid imports."""
-    status, data, headers = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.js")
+def test_ui_app_js_bundle_served(web_server: MukhaWebServer) -> None:
+    """Preact app.js bundle must be served with javascript MIME type."""
+    status, data, headers = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/app.js")
     assert status == 200
     js = data.decode("utf-8")
     assert headers["content-type"].startswith("application/javascript")
-    assert 'import { initDom, elements, hideError } from "./js/dom.js";' in js or 'from "./js/dom.js"' in js
-    assert 'import { state, switchScreen, registerScreenCallback } from "./js/state.js";' in js or 'from "./js/state.js"' in js
+    assert "Sarathi" in js
+    assert len(data) > 1000
 
 
-def test_native_es_modules_served_cleanly(web_server: MukhaWebServer) -> None:
-    """All native ES modules in /js/ must be served with correct content-type."""
-    modules = [
-        "/js/formatters.js",
-        "/js/dom.js",
-        "/js/state.js",
-        "/js/api.js",
-        "/js/preview.js",
-        "/js/screens/home.js",
-        "/js/screens/monitor.js",
-        "/js/screens/review.js",
-        "/js/screens/summary.js",
-        "/js/screens/inspector.js",
-    ]
-
-    for mod in modules:
-        status, data, headers = _http_get(f"http://127.0.0.1:{web_server.resolved_port}{mod}")
-        assert status == 200, f"Module {mod} returned status {status}"
-        assert headers["content-type"].startswith("application/javascript")
-        assert len(data) > 50, f"Module {mod} was empty or truncated"
-
-
-def test_js_endpoint_rejects_traversal(web_server: MukhaWebServer) -> None:
-    """Attempting path traversal in /js/ endpoint must be blocked with HTTP 400."""
-    status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/..%2F..%2Fsecret.py")
-    assert status == 400
-
-
-def test_inspector_tabs_and_containers_integrity(web_server: MukhaWebServer) -> None:
-    """Every inspector tab button in app.html must have a corresponding container in app.html and match inspector.js."""
-    import re
-
-    # Fetch app.html
-    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/")
+def test_ui_app_css_served(web_server: MukhaWebServer) -> None:
+    """Preact app.css stylesheet must be served with text/css MIME type."""
+    status, data, headers = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/app.css")
     assert status == 200
-    html = data.decode("utf-8")
+    css = data.decode("utf-8")
+    assert headers["content-type"].startswith("text/css")
+    assert ":root" in css
+    assert ".palette-dialog" in css
+    assert ".preview-modal-dialog" in css
 
-    # Find all data-tab values in inspector sub-nav
-    tabs = re.findall(r'class="inspector-tab[^"]*"\s+data-tab="([^"]+)"', html)
-    assert set(tabs) == {"activity", "performance", "quality", "system"}
 
-    # Verify each tab has a matching container id="tab-inspector-<tab>"
-    for tab in tabs:
-        expected_id = f'id="tab-inspector-{tab}"'
-        assert expected_id in html, f"Missing container {expected_id} in app.html"
+def test_ui_endpoint_rejects_traversal(web_server: MukhaWebServer) -> None:
+    """Attempting invalid asset names or traversal in /ui/ endpoint must return 404."""
+    status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/..%2F..%2Fsecret.py")
+    assert status == 404
 
-    # Verify inspector.js matches tab-inspector- IDs and toggles hidden class
-    status_js, data_js, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/screens/inspector.js")
-    assert status_js == 200
-    js = data_js.decode("utf-8")
-    assert "tab-inspector-${state.activeInspectorTab}" in js
-    assert 'c.classList.toggle("hidden"' in js
+    status_missing, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/nonexistent.js")
+    assert status_missing == 404
 
 
 def test_preview_dialog_and_close_button_contract(web_server: MukhaWebServer) -> None:
-    """Verify document preview dialog structure, close button contract, and CSS display isolation."""
-    # 1. Check app.html
-    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/")
-    assert status == 200
-    html = data.decode("utf-8")
-    assert '<dialog id="doc-preview-dialog" class="preview-modal-dialog">' in html
-    assert '<button id="btn-close-preview" type="button" class="btn btn-outline btn-sm" aria-label="Close Preview">✕ Close</button>' in html
-
-    # 2. Check app.css display rules for closed dialogs
-    status_css, data_css, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.css")
-    assert status_css == 200
-    css = data_css.decode("utf-8")
-    assert "dialog:not([open])" in css
-    assert ".preview-modal-dialog[open]" in css
-    assert ".preview-modal-dialog:not([open])" in css
-    assert "display: none !important;" in css
-
-    # 3. Check preview.js exports and close handlers
-    status_prev, data_prev, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/js/preview.js")
-    assert status_prev == 200
-    prev_js = data_prev.decode("utf-8")
-    assert "export function closeDocumentPreview()" in prev_js
-    assert 'dlg.removeAttribute("open")' in prev_js
-    assert "initPreviewDialog" in prev_js
-
-    # 4. Check app.js imports closeDocumentPreview
-    status_app, data_app, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/app.js")
+    """Verify document preview dialog structure and close contract exist in compiled Preact UI bundle."""
+    status_app, data_app, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/app.js")
     assert status_app == 200
     app_js = data_app.decode("utf-8")
-    assert "closeDocumentPreview" in app_js
+    assert "doc-preview-dialog" in app_js
+    assert "btn-close-preview" in app_js
+    assert "btn-pdf-prev" in app_js
+    assert "btn-pdf-next" in app_js
+
+
+def test_command_palette_contract_in_bundle(web_server: MukhaWebServer) -> None:
+    """Verify command palette dialog and keyboard navigation elements exist in compiled Preact UI bundle."""
+    status_app, data_app, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/app.js")
+    assert status_app == 200
+    app_js = data_app.decode("utf-8")
+    assert "command-palette-dialog" in app_js
+    assert "palette-search-input" in app_js
+    assert "palette-command-list" in app_js

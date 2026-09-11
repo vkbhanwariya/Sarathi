@@ -35,8 +35,7 @@ def test_indeterminate_progress_rendering(app_page: Page) -> None:
             const bar = document.getElementById("top-progress-bar");
             const stage = document.getElementById("top-progress-stage");
             const pct = document.getElementById("top-progress-pct");
-            const mod = await import("/js/dom.js");
-            mod.renderProgressBar(container, bar, stage, pct, { kind: "indeterminate" }, { stageText: "Preparing model..." });
+            window.__renderProgressBar(container, bar, stage, pct, { kind: "indeterminate" }, { stageText: "Preparing model..." });
             return {
                 isIndeterminate: container.classList.contains("indeterminate"),
                 ariaBusy: container.getAttribute("aria-busy"),
@@ -57,7 +56,7 @@ def test_measured_zero_vs_missing_formatting(app_page: Page) -> None:
     """Verify that measured 0 values are preserved while missing values display as —."""
     res = app_page.evaluate(
         """async () => {
-            const mod = await import("/js/formatters.js");
+            const mod = window.__formatters;
             return {
                 zeroDuration: mod.formatDuration(0),
                 missingDuration: mod.formatDuration(null),
@@ -84,13 +83,9 @@ def test_summary_terminal_outcome_titles(app_page: Page) -> None:
     """Verify factual summary titles for each outcome."""
     titles = app_page.evaluate(
         """async () => {
-            const { renderSummary } = await import("/js/screens/summary.js");
-            const titleEl = document.getElementById("summary-title");
-
             const results = {};
             for (const st of ["SUCCESS", "PARTIAL", "CANCELLED", "QUARANTINED", "FAILED"]) {
-                renderSummary({ run_id: "test-run", status: st, total_inputs: 1 });
-                results[st] = titleEl.textContent;
+                results[st] = window.__formatSummaryTitle(st);
             }
             return results;
         }"""

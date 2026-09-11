@@ -31,12 +31,7 @@ def _make_synthetic_items(count: int, issues_ratio: float = 0.0) -> list[dict]:
 
 def test_batch_boundary_0_files(app_page: Page) -> None:
     """Boundary 0 files: empty message rendered, clear buttons disabled."""
-    app_page.evaluate(
-        """async () => {
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable([]);
-        }"""
-    )
+    app_page.evaluate("""() => window.__sarathi_set_intake([])""")
     tbody = app_page.locator("#selected-inputs-tbody")
     expect(tbody).to_contain_text("No documents selected")
     expect(app_page.locator("#input-grouped-summary")).to_have_class("grouped-summary-card hidden")
@@ -64,10 +59,8 @@ def test_batch_zero_eligible_inputs_disables_start_button(app_page: Page) -> Non
         },
     ]
     app_page.evaluate(
-        """async (items) => {
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items);
-            mod.renderPreflight({
+        """(items) => {
+            window.__sarathi_set_intake(items, {
                 eligible_count: 0,
                 issue_count: 2,
                 issues: [["encrypted.pdf", "Encrypted PDF file"], ["empty.txt", "Zero-byte file"]],
@@ -82,13 +75,7 @@ def test_batch_zero_eligible_inputs_disables_start_button(app_page: Page) -> Non
 def test_batch_boundary_1_file(app_page: Page) -> None:
     """Boundary 1 file: individual row rendered directly without grouped summary."""
     items = _make_synthetic_items(1)
-    app_page.evaluate(
-        """async (items) => {
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items, { groups: [{ format_name: "PDF", file_count: 1, total_size_bytes: 1024 }] });
-        }""",
-        items,
-    )
+    app_page.evaluate("""(items) => window.__sarathi_set_intake(items)""", items)
     rows = app_page.locator("#selected-inputs-tbody tr")
     expect(rows).to_have_count(1)
     expect(rows.first).to_contain_text("doc_0000.pdf")
@@ -98,13 +85,7 @@ def test_batch_boundary_1_file(app_page: Page) -> None:
 def test_batch_boundary_10_files(app_page: Page) -> None:
     """Boundary 10 files: exactly 10 individual rows rendered without grouped summary."""
     items = _make_synthetic_items(10)
-    app_page.evaluate(
-        """async (items) => {
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items, { groups: [{ format_name: "PDF", file_count: 10, total_size_bytes: 55000 }] });
-        }""",
-        items,
-    )
+    app_page.evaluate("""(items) => window.__sarathi_set_intake(items)""", items)
     rows = app_page.locator("#selected-inputs-tbody tr")
     expect(rows).to_have_count(10)
     expect(app_page.locator("#input-grouped-summary")).to_have_class("grouped-summary-card hidden")
@@ -113,15 +94,7 @@ def test_batch_boundary_10_files(app_page: Page) -> None:
 def test_batch_boundary_11_files_grouped_summary_and_view_all(app_page: Page) -> None:
     """Boundary 11 files: grouped summary card rendered with View All action expanding into paginated table."""
     items = _make_synthetic_items(11)
-    app_page.evaluate(
-        """async (items) => {
-            const stateMod = await import("/js/state.js");
-            stateMod.state.showAllInputsTable = false;
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items, { groups: [{ format_name: "PDF", file_count: 11, total_size_bytes: 66000 }] });
-        }""",
-        items,
-    )
+    app_page.evaluate("""(items) => window.__sarathi_set_intake(items)""", items)
 
     summary = app_page.locator("#input-grouped-summary")
     expect(summary).to_be_visible()
@@ -153,12 +126,10 @@ def test_batch_boundaries_100_and_101_files_pagination(app_page: Page) -> None:
     """Boundaries 100 & 101 files: paginated table allows reaching all items across pages without 100-row cutoff."""
     items_101 = _make_synthetic_items(101)
     app_page.evaluate(
-        """async (items) => {
-            const stateMod = await import("/js/state.js");
-            stateMod.state.showAllInputsTable = true;
-            stateMod.state.inputPagination = { page: 1, pageSize: 10 };
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items);
+        """(items) => {
+            window.__sarathi_set_intake(items);
+            window.__sarathi_set_show_all(true);
+            window.__sarathi_set_input_page(1);
         }""",
         items_101,
     )
@@ -175,14 +146,7 @@ def test_batch_boundaries_100_and_101_files_pagination(app_page: Page) -> None:
     expect(app_page.locator("#selected-inputs-tbody tr").first).to_contain_text("doc_0010.pdf")
 
     # Navigate to last page (page 11)
-    app_page.evaluate(
-        """async () => {
-            const stateMod = await import("/js/state.js");
-            stateMod.state.inputPagination.page = 11;
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable();
-        }"""
-    )
+    app_page.evaluate("""() => window.__sarathi_set_input_page(11)""")
     expect(app_page.locator("#input-page-indicator")).to_contain_text("Page 11 of 11 (101 total)")
     expect(app_page.locator("#btn-input-next")).to_be_disabled()
     # Exactly 1 row on page 11 (101st item)
@@ -197,11 +161,8 @@ def test_duplicate_filenames_in_different_directories(app_page: Page) -> None:
         {"input_id": "2", "source_path": "E:/FolderB/invoice.pdf", "display_name": "invoice.pdf", "size_bytes": 200, "is_eligible": True},
     ]
     app_page.evaluate(
-        """async (items) => {
-            const stateMod = await import("/js/state.js");
-            stateMod.state.checkedInputPaths.clear();
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items);
+        """(items) => {
+            window.__sarathi_set_intake(items);
         }""",
         items,
     )
@@ -212,12 +173,7 @@ def test_duplicate_filenames_in_different_directories(app_page: Page) -> None:
     # Check only the first invoice.pdf
     rows.first.locator(".input-row-chk").check()
 
-    checked_paths = app_page.evaluate(
-        """async () => {
-            const stateMod = await import("/js/state.js");
-            return Array.from(stateMod.state.checkedInputPaths);
-        }"""
-    )
+    checked_paths = app_page.evaluate("""() => window.__sarathi_get_checked_paths()""")
     assert checked_paths == ["E:/FolderA/invoice.pdf"]
     expect(rows.first.locator(".input-row-chk")).to_be_checked()
     expect(rows.nth(1).locator(".input-row-chk")).not_to_be_checked()
@@ -230,12 +186,9 @@ def test_search_filtering_preserves_selection_and_handles_empty(app_page: Page) 
         {"input_id": "2", "source_path": "E:/docs/beta.pdf", "display_name": "beta.pdf", "size_bytes": 200, "is_eligible": True},
     ]
     app_page.evaluate(
-        """async (items) => {
-            const stateMod = await import("/js/state.js");
-            stateMod.state.checkedInputPaths.clear();
-            stateMod.state.checkedInputPaths.add("E:/docs/alpha.pdf");
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items);
+        """(items) => {
+            window.__sarathi_set_intake(items);
+            window.__sarathi_add_checked("E:/docs/alpha.pdf");
         }""",
         items,
     )
@@ -261,11 +214,9 @@ def test_filter_tabs_all_eligible_issues(app_page: Page) -> None:
         {"input_id": "3", "source_path": "E:/doc3.pdf", "display_name": "doc3.pdf", "size_bytes": 100, "is_eligible": False, "issue_reason": "Encrypted"},
     ]
     app_page.evaluate(
-        """async (items) => {
-            const stateMod = await import("/js/state.js");
-            stateMod.state.inputFilterMode = "all";
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items);
+        """(items) => {
+            window.__sarathi_set_intake(items);
+            window.__sarathi_set_filter("all");
         }""",
         items,
     )
@@ -293,13 +244,10 @@ def test_selection_scope_and_indeterminate_checkbox(app_page: Page) -> None:
     """Selection scope distinguishes current page vs all matching files with indeterminate header checkbox."""
     items = _make_synthetic_items(15)  # 2 pages: 10 on page 1, 5 on page 2
     app_page.evaluate(
-        """async (items) => {
-            const stateMod = await import("/js/state.js");
-            stateMod.state.showAllInputsTable = true;
-            stateMod.state.checkedInputPaths.clear();
-            stateMod.state.inputPagination = { page: 1, pageSize: 10 };
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items);
+        """(items) => {
+            window.__sarathi_set_intake(items);
+            window.__sarathi_set_show_all(true);
+            window.__sarathi_set_input_page(1);
         }""",
         items,
     )
@@ -339,17 +287,12 @@ def test_selection_scope_and_indeterminate_checkbox(app_page: Page) -> None:
 def test_removal_and_readdition_of_excluded_file(app_page: Page) -> None:
     """Removing a file excludes it; re-adding un-excludes and restores it."""
     res = app_page.evaluate(
-        """async () => {
-            const stateMod = await import("/js/state.js");
-            const homeMod = await import("/js/screens/home.js");
-            stateMod.state.selectedRoots = ["E:/test.pdf"];
-            stateMod.state.excludedPaths.clear();
-            homeMod.removePaths(["E:/test.pdf"]);
-            const afterRemoveExcluded = stateMod.state.excludedPaths.has("E:/test.pdf");
+        """() => {
+            window.__sarathi_remove_path(["E:/test.pdf"]);
+            const afterRemoveExcluded = window.__sarathi_is_excluded("E:/test.pdf");
 
-            // Intentionally re-add
-            await homeMod.addSelectedPaths(["E:/test.pdf"]);
-            const afterReaddExcluded = stateMod.state.excludedPaths.has("E:/test.pdf");
+            window.__sarathi_add_path(["E:/test.pdf"]);
+            const afterReaddExcluded = window.__sarathi_is_excluded("E:/test.pdf");
             return { afterRemoveExcluded, afterReaddExcluded };
         }"""
     )
@@ -364,9 +307,8 @@ def test_accessible_issue_buttons_and_html_escaping(app_page: Page) -> None:
         {"input_id": "1", "source_path": "E:/bad.pdf", "display_name": "bad.pdf", "size_bytes": 100, "is_eligible": False, "issue_reason": xss_reason},
     ]
     app_page.evaluate(
-        """async (items) => {
-            const mod = await import("/js/screens/home.js");
-            mod.renderInputsTable(items);
+        """(items) => {
+            window.__sarathi_set_intake(items);
         }""",
         items,
     )

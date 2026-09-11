@@ -31,13 +31,20 @@ def _http_post(url: str, data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            body = resp.read().decode("utf-8")
-            return resp.status, json.loads(body)
-    except urllib.error.HTTPError as err:
-        body = err.read().decode("utf-8")
-        return err.code, json.loads(body)
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                body = resp.read().decode("utf-8")
+                return resp.status, json.loads(body)
+        except urllib.error.HTTPError as err:
+            body = err.read().decode("utf-8")
+            return err.code, json.loads(body)
+        except ConnectionResetError:
+            if attempt == 0:
+                time.sleep(0.05)
+                continue
+            raise
+    return 500, {"error": "request failed"}
 
 
 def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 2.0) -> None:

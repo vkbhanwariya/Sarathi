@@ -108,9 +108,8 @@ def test_stale_summary_responses_discarded(app_page: Page) -> None:
     # Invoke production loadRunSummary for run-a then run-b
     app_page.evaluate(
         """async () => {
-            const { loadRunSummary } = await import("/js/screens/summary.js");
-            loadRunSummary("run-a");
-            loadRunSummary("run-b");
+            window.loadRunSummary("run-a");
+            window.loadRunSummary("run-b");
         }"""
     )
 

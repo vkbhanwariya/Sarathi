@@ -21,5 +21,5 @@ def app_url(web_server: MukhaWebServer) -> str:
 def app_page(page: Page, app_url: str) -> Page:
     """Navigate to the running Mukha local web app and wait for DOM readiness."""
     page.goto(app_url)
-    page.wait_for_selector(".app-container", state="attached")
+    page.wait_for_selector("#screen-home", state="attached")
     return page

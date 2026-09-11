@@ -6,6 +6,8 @@ and parameter stability against telemetry and navigation updates.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -17,8 +19,8 @@ pytestmark = [pytest.mark.browser]
 def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     """Verify that the single-page application loads with Griha Home active."""
     expect(app_page.locator("h1")).to_contain_text("Sarathi")
-    expect(app_page.locator(".nav-tab[data-screen='home']")).to_have_class("nav-tab active")
-    expect(app_page.locator("#screen-home")).to_have_class("screen-view active")
+    expect(app_page.locator(".nav-tab[data-screen='home']")).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator("#screen-home")).to_have_class(re.compile(r"\bactive\b"))
 
 
 def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_server: MukhaWebServer) -> None:
@@ -101,10 +103,10 @@ def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
 
     # Switch to Monitor (F2) and back to Home (F1)
     app_page.click(".nav-tab[data-screen='monitor']")
-    expect(app_page.locator("#screen-monitor")).to_have_class("screen-view active")
+    expect(app_page.locator("#screen-monitor")).to_have_class(re.compile(r"\bactive\b"))
 
     app_page.click(".nav-tab[data-screen='home']")
-    expect(app_page.locator("#screen-home")).to_have_class("screen-view active")
+    expect(app_page.locator("#screen-home")).to_have_class(re.compile(r"\bactive\b"))
 
     # Value should remain accurate
     profile_select = app_page.locator("#param-profile")
@@ -112,7 +114,7 @@ def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
 
 
 def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
-    """Verify that buildRequestPayload produces identical configuration for preview and execution."""
+    """Verify that buildRequest produces identical configuration for preview and execution."""
     ocr_card = app_page.locator(".req-card[data-req='ocr']")
     ocr_card.click()
 
@@ -120,10 +122,9 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     profile_select.select_option("accurate")
 
     payload = app_page.evaluate(
-        """async () => {
-            const { buildRequestPayload } = await import("/js/screens/home.js");
-            return buildRequestPayload();
-        }"""
+        """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
     )
+    assert payload is not None
     assert payload["requirement"] == "ocr"
     assert payload["profile"] == "accurate"
+

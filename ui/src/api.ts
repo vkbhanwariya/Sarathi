@@ -1,5 +1,6 @@
 import type {
   ApplicationViewState,
+  DocumentPreviewData,
   InputSelectionView,
   InspectorViewState,
   PlanPreview,
@@ -189,4 +190,15 @@ export function subscribeState(
       onConnection(false);
     },
   };
+}
+
+export async function fetchDocumentPreview(pathOrUrl: string): Promise<DocumentPreviewData> {
+  const endpoint = pathOrUrl.startsWith("/api/")
+    ? pathOrUrl
+    : `/api/preview?path=${encodeURIComponent(pathOrUrl)}`;
+  return getJson<DocumentPreviewData>(endpoint);
+}
+
+export async function fetchPdfPage(pageUrl: string): Promise<DocumentPreviewData> {
+  return getJson<DocumentPreviewData>(pageUrl);
 }

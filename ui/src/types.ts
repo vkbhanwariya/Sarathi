@@ -307,3 +307,29 @@ export interface StateEnvelope {
   state_revision?: number;
   error?: string;
 }
+
+export interface DocumentPreviewTable {
+  headers?: readonly string[];
+  rows?: readonly (readonly string[])[];
+}
+
+export interface DocumentPreviewData {
+  ok: boolean;
+  type?: "pdf" | "word" | "text" | "tabular" | "image" | "binary" | string;
+  name?: string;
+  size?: number;
+  raw_path?: string;
+  error?: string;
+  current_page?: number;
+  page_count?: number;
+  page_data_url?: string;
+  page_text?: string;
+  total_paragraphs?: number;
+  paragraphs?: readonly string[];
+  tables?: readonly DocumentPreviewTable[];
+  content?: string;
+  truncated?: boolean;
+  headers?: readonly string[];
+  rows?: readonly (readonly string[])[];
+  data_url?: string;
+}

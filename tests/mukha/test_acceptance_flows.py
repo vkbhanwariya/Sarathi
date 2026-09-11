@@ -185,16 +185,18 @@ def test_acceptance_server_api_flows(tmp_path: Path) -> None:
     try:
         base = server.local_url
 
-        # 1. Verify app.html contains palette dialog
+        # 1. Verify root serves Preact index
         with urllib.request.urlopen(f"{base}/") as resp:
             html = resp.read().decode("utf-8")
-            assert 'id="command-palette-dialog"' in html
-            assert 'id="btn-export-diagnostics"' in html
+            assert 'id="app"' in html
+            assert "/ui/app.js" in html
 
-        # 2. Verify palette.js static route
-        with urllib.request.urlopen(f"{base}/js/palette.js") as resp:
+        # 2. Verify /ui/app.js bundle contains palette and diagnostic wiring
+        with urllib.request.urlopen(f"{base}/ui/app.js") as resp:
             assert resp.status == 200
-            assert "openCommandPalette" in resp.read().decode("utf-8")
+            app_js = resp.read().decode("utf-8")
+            assert "command-palette-dialog" in app_js
+            assert "btn-export-diagnostics" in app_js
 
         # 3. Verify diagnostics endpoint
         with urllib.request.urlopen(f"{base}/api/runs/test-run-id/diagnostics") as resp:
