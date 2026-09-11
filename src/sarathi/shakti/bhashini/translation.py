@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from sarathi.dosh import DoshError, FailureCode
@@ -12,7 +13,6 @@ from sarathi.sankalpa import (
     CapabilityDeclaration,
     ExecutionContext,
     InputRef,
-    PageData,
     ProvenanceRecord,
     Request,
     Result,
@@ -93,7 +93,8 @@ class BhashiniTranslationCapability:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
 
-            orig_text = doc_or_str.text if isinstance(doc_or_str, CanonicalDocument) else str(doc_or_str)
+            is_document = isinstance(doc_or_str, CanonicalDocument)
+            orig_text = doc_or_str.text if is_document else str(doc_or_str)
 
             translated_text = self._client.translate_text(
                 text=orig_text,
@@ -101,31 +102,56 @@ class BhashiniTranslationCapability:
                 target_lang=target_lang,
             )
 
-            new_pages: list[PageData] = []
-            if isinstance(doc_or_str, CanonicalDocument) and doc_or_str.pages:
-                for p in doc_or_str.pages:
-                    p_trans = self._client.translate_text(
-                        text=p.text,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
+            provider_metadata = {
+                "direction": f"{source_lang}->{target_lang}",
+                "provider": "bhashini_indictrans2",
+            }
+            if is_document:
+                new_pages = tuple(
+                    replace(
+                        page,
+                        text=self._client.translate_text(
+                            text=page.text,
+                            source_lang=source_lang,
+                            target_lang=target_lang,
+                        ),
                     )
-                    new_pages.append(PageData(page_number=p.page_number, text=p_trans, spans=p.spans, tables=p.tables))
-
-            trans_doc = CanonicalDocument(
-                document_id=f"{doc_id}-translated",
-                text=translated_text,
-                pages=tuple(new_pages) if new_pages else (),
-                metadata={
-                    "direction": f"{source_lang}->{target_lang}",
-                    "provider": "bhashini_indictrans2",
-                },
-            )
+                    for page in doc_or_str.pages
+                )
+                metadata = dict(doc_or_str.metadata)
+                metadata.update(provider_metadata)
+                trans_doc = replace(
+                    doc_or_str,
+                    document_id=f"{doc_id}-translated",
+                    text=translated_text,
+                    pages=new_pages,
+                    metadata=metadata,
+                )
+            else:
+                trans_doc = CanonicalDocument(
+                    document_id=f"{doc_id}-translated",
+                    text=translated_text,
+                    metadata=provider_metadata,
+                )
             translated_docs.append(trans_doc)
 
-            matching_inp = next(
-                (inp for inp in request.inputs if inp.input_id in doc_id),
-                request.inputs[0] if request.inputs else InputRef(input_id=doc_id, source_path=Path(f"{doc_id}.txt"), display_name=f"{doc_id}.txt", size_bytes=0),
+            matching_inp = (
+                next((inp for inp in request.inputs if inp.input_id == trans_doc.source_input_id), None)
+                if trans_doc.source_input_id is not None
+                else None
             )
+            if matching_inp is None:
+                matching_inp = next(
+                    (inp for inp in request.inputs if inp.input_id in doc_id),
+                    request.inputs[0]
+                    if request.inputs
+                    else InputRef(
+                        input_id=doc_id,
+                        source_path=Path(f"{doc_id}.txt"),
+                        display_name=f"{doc_id}.txt",
+                        size_bytes=0,
+                    ),
+                )
             txt_name = format_artifact_filename(matching_inp, "bhashini_translated", "txt", all_inputs=request.inputs)
             docx_name = format_artifact_filename(matching_inp, "bhashini_translated", "docx", all_inputs=request.inputs)
             stem = Path(matching_inp.display_name or doc_id).stem
