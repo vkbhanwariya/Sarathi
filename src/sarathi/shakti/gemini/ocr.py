@@ -23,46 +23,13 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Request,
     Result,
-    TableData,
     TextSpan,
 )
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.gemini.client import GeminiClient
 from sarathi.shakti.gemini.plugin import GEMINI_OCR_DECLARATION
-
-
-def _extract_markdown_tables(text: str) -> list[TableData]:
-    """Scan text for markdown tables and parse them into TableData objects."""
-    tables: list[TableData] = []
-    lines = [line.strip() for line in text.splitlines()]
-
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if line.startswith("|") and line.endswith("|") and line.count("|") >= 2:
-            table_lines = [line]
-            i += 1
-            while i < len(lines) and lines[i].startswith("|") and lines[i].endswith("|"):
-                table_lines.append(lines[i])
-                i += 1
-
-            if len(table_lines) >= 2:
-                headers = tuple(col.strip() for col in table_lines[0].strip("|").split("|"))
-                data_start = 1
-                if len(table_lines) > 1 and all(c in "-:| " for c in table_lines[1]):
-                    data_start = 2
-
-                rows: list[tuple[str, ...]] = []
-                for r_line in table_lines[data_start:]:
-                    rows.append(tuple(col.strip() for col in r_line.strip("|").split("|")))
-
-                if headers and rows:
-                    tables.append(TableData(name=f"table_{len(tables)+1}", headers=headers, rows=tuple(rows)))
-        else:
-            i += 1
-
-    return tables
+from sarathi.shakti.text.markdown import extract_markdown_tables
 
 
 def _infer_media_type(path: Path) -> str:
@@ -158,7 +125,7 @@ class GeminiOCRCapability:
                 for p in paragraphs
             ]
 
-            tables = _extract_markdown_tables(extracted_text)
+            tables = extract_markdown_tables(extracted_text)
 
             page_meta: dict[str, Any] = {
                 "confidence": confidence_score,
