@@ -1,4 +1,4 @@
-"""Zero-leak direct REST client for Bhashini (NLTM / ULCA) API."""
+"""Direct REST client for Bhashini (NLTM / ULCA) with sanitized error handling."""
 
 from __future__ import annotations
 
