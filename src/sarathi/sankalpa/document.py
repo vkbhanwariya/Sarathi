@@ -143,6 +143,23 @@ class CanonicalDocument:
             raise TypeError(f"metadata must be a Mapping, got {type(self.metadata)}.")
 
 
+def normalize_canonical_documents(value: Any) -> tuple[CanonicalDocument, ...] | None:
+    """Normalize a supported canonical-document payload to a tuple.
+
+    Returns None for unsupported or mixed payload shapes. Empty list/tuple inputs
+    remain an empty tuple so callers can distinguish "valid but empty" from invalid.
+    """
+    match value:
+        case CanonicalDocument() as document:
+            return (document,)
+        case (list() | tuple()) as documents:
+            if all(isinstance(document, CanonicalDocument) for document in documents):
+                return tuple(documents)
+            return None
+        case _:
+            return None
+
+
 def transform_canonical_document(
     doc: CanonicalDocument,
     text_transform_fn: Callable[[str], str],

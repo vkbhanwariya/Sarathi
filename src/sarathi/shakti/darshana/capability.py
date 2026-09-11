@@ -15,6 +15,7 @@ from sarathi.sankalpa import (
     Request,
     Result,
 )
+from sarathi.sankalpa.document import normalize_canonical_documents
 from sarathi.shakti.darshana.identifier import identify_file
 from sarathi.shakti.darshana.plugin import CAPABILITY_DECLARATION
 
@@ -61,8 +62,8 @@ class DarshanaCapability:
         if prior_result is not None and not isinstance(prior_result, Result):
             raise TypeError(f"prior_result must be a Result instance or None, got {type(prior_result).__name__}.")
 
-        prior_documents = prior_result.data if (prior_result and isinstance(prior_result.data, tuple)) else ()
-        documents: list[CanonicalDocument] = list(prior_documents)
+        prior_documents = normalize_canonical_documents(prior_result.data) if prior_result else ()
+        documents: list[CanonicalDocument] = list(prior_documents or ())
         provenance_records: list[ProvenanceRecord] = list(prior_result.provenance) if prior_result else []
 
         for inp in request.inputs:
