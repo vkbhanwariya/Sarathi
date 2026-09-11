@@ -23,7 +23,7 @@ from sarathi.sankalpa import (
     TextSpan,
     WarningRecord,
 )
-from sarathi.sankalpa.document import transform_canonical_document
+from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload, transform_docx_artifact
 from sarathi.shakti.font_conversion.converter import FontConverter
@@ -120,15 +120,11 @@ class FontConversionCapability:
         if prior_result is None or prior_result.data is None:
             raise DoshError(code=FailureCode.VALIDATION_FAILED, message=msg_req)
 
-        docs: list[CanonicalDocument]
-        is_batch = False
-        if isinstance(prior_result.data, CanonicalDocument):
-            docs = [prior_result.data]
-        elif isinstance(prior_result.data, (tuple, list)) and all(isinstance(d, CanonicalDocument) for d in prior_result.data):
-            docs = list(prior_result.data)
-            is_batch = True
-        else:
+        normalized_docs = normalize_canonical_documents(prior_result.data)
+        if normalized_docs is None:
             raise DoshError(code=FailureCode.VALIDATION_FAILED, message=msg_req)
+        docs = list(normalized_docs)
+        is_batch = not isinstance(prior_result.data, CanonicalDocument)
 
         if not docs:
             raise DoshError(code=FailureCode.VALIDATION_FAILED, message="No CanonicalDocument provided to FontConversionCapability.")
