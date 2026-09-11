@@ -97,6 +97,24 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --group dev
 
+      - name: Verify headless OpenCV resolution (temporary)
+        run: |
+          .venv/bin/python - <<'PY'
+          from importlib import metadata
+          import cv2
+
+          installed = {dist.metadata['Name'].lower() for dist in metadata.distributions()}
+          assert 'opencv-python-headless' in installed
+          assert 'opencv-python' not in installed
+          print(f"OpenCV {cv2.__version__}: headless-only dependency graph verified")
+          PY
+
+      - name: Upload Phase 10 lockfile (temporary)
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase10-uv-lock
+          path: uv.lock
+
       - name: Install Tesseract language packs
         run: |
           sudo apt-get update
