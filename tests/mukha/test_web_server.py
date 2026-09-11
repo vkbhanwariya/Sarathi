@@ -19,7 +19,10 @@ from sarathi.mukha.web.native_picker import NativePickerResult
 
 def _http_get(url: str, headers: dict[str, str] | None = None) -> tuple[int, bytes, dict[str, str]]:
     """Helper to perform HTTP GET request."""
-    req = urllib.request.Request(url, headers=headers or {})
+    req_headers = {"Connection": "close"}
+    if headers:
+        req_headers.update(headers)
+    req = urllib.request.Request(url, headers=req_headers)
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             headers_dict = {key.title(): value for key, value in resp.headers.items()}
@@ -31,31 +34,26 @@ def _http_get(url: str, headers: dict[str, str] | None = None) -> tuple[int, byt
 def _http_post(url: str, data: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
     """Helper to perform HTTP POST request with JSON payload."""
     payload = json.dumps(data).encode("utf-8")
-    req_headers = {"Content-Type": "application/json"}
+    req_headers = {"Content-Type": "application/json", "Connection": "close"}
     if headers:
         req_headers.update(headers)
 
-    for attempt in range(2):
-        req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")
+    req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            body = resp.read().decode("utf-8")
+            return resp.status, json.loads(body)
+    except urllib.error.HTTPError as err:
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                body = resp.read().decode("utf-8")
-                return resp.status, json.loads(body)
-        except urllib.error.HTTPError as err:
-            try:
-                body = err.read().decode("utf-8")
-                return err.code, json.loads(body)
-            except Exception:
-                return err.code, {"error": str(err.reason)}
-        except (urllib.error.URLError, ConnectionError, OSError) as e:
-            if attempt == 0 and len(payload) <= 1_000_000:
-                time.sleep(0.05)
-                continue
-            # Connection reset/aborted by server due to oversized payload or header rejection
-            return (413 if len(payload) > 1_000_000 else 403), {"error": str(e)}
-        except Exception as e:
-            return 500, {"error": str(e)}
-    return 500, {"error": "request failed"}
+            body = err.read().decode("utf-8")
+            return err.code, json.loads(body)
+        except Exception:
+            return err.code, {"error": str(err.reason)}
+    except (urllib.error.URLError, ConnectionError, OSError) as e:
+        # Connection reset/aborted by server due to oversized payload or header rejection
+        return (413 if len(payload) > 1_000_000 else 403), {"error": str(e)}
+    except Exception as e:
+        return 500, {"error": str(e)}
 
 
 def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 3.0) -> None:
