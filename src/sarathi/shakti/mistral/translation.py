@@ -6,6 +6,7 @@ and maps translated text into CanonicalDocument and TXT/DOCX artifacts.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from sarathi.dosh import DoshError, FailureCode
@@ -16,7 +17,6 @@ from sarathi.sankalpa import (
     CapabilityDeclaration,
     ExecutionContext,
     InputRef,
-    PageData,
     ProvenanceRecord,
     Request,
     Result,
@@ -66,7 +66,6 @@ class MistralTranslationCapability:
             else "mistral-large-latest"
         )
 
-        # Resolve translation direction
         raw_direction = (
             request.metadata.get("direction")
             or (request.custom_options.get("direction") if request.custom_options else None)
@@ -75,19 +74,14 @@ class MistralTranslationCapability:
         dir_key = str(raw_direction).lower().strip()
         source_lang, target_lang = _DIRECTION_MAP.get(dir_key, ("Hindi", "English"))
 
-        # Resolve documents from prior_result or input file
-        docs_to_process: list[tuple[str, str, tuple[PageData, ...]]] = []
+        docs_to_process: list[CanonicalDocument] = []
         if prior_result is not None and prior_result.data is not None:
             if isinstance(prior_result.data, CanonicalDocument):
-                docs_to_process.append((
-                    prior_result.data.document_id,
-                    prior_result.data.text,
-                    prior_result.data.pages,
-                ))
+                docs_to_process.append(prior_result.data)
             elif isinstance(prior_result.data, (list, tuple)):
-                for doc in prior_result.data:
-                    if isinstance(doc, CanonicalDocument):
-                        docs_to_process.append((doc.document_id, doc.text, doc.pages))
+                docs_to_process.extend(
+                    doc for doc in prior_result.data if isinstance(doc, CanonicalDocument)
+                )
         else:
             for inp in request.inputs:
                 try:
@@ -97,7 +91,13 @@ class MistralTranslationCapability:
                         code=FailureCode.EXECUTION_FAILED,
                         message=f"Failed to read input text: {inp.display_name}",
                     ) from exc
-                docs_to_process.append((f"doc-{inp.input_id}", text_content, ()))
+                docs_to_process.append(
+                    CanonicalDocument(
+                        document_id=f"doc-{inp.input_id}",
+                        source_input_id=inp.input_id,
+                        text=text_content,
+                    )
+                )
 
         if not docs_to_process:
             raise DoshError(
@@ -108,55 +108,85 @@ class MistralTranslationCapability:
         translated_docs: list[CanonicalDocument] = []
         all_payloads: list[ArtifactPayload] = []
 
-        for doc_id, text, pages in docs_to_process:
+        for doc in docs_to_process:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
 
             translated_text = self._client.chat_translate(
-                text=text,
+                text=doc.text,
                 source_lang=source_lang,
                 target_lang=target_lang,
                 model=model,
             )
 
-            # Map pages if available
-            new_pages: list[PageData] = []
-            if pages:
-                for p in pages:
-                    if p.text and p.text.strip():
-                        p_trans = self._client.chat_translate(
-                            text=p.text,
-                            source_lang=source_lang,
-                            target_lang=target_lang,
-                            model=model,
-                        )
-                    else:
-                        p_trans = ""
-                    new_pages.append(PageData(page_number=p.page_number, text=p_trans, spans=p.spans, tables=p.tables))
+            new_pages = []
+            for page in doc.pages:
+                if page.text and page.text.strip():
+                    page_text = self._client.chat_translate(
+                        text=page.text,
+                        source_lang=source_lang,
+                        target_lang=target_lang,
+                        model=model,
+                    )
+                else:
+                    page_text = ""
+                new_pages.append(replace(page, text=page_text))
 
-            trans_doc = CanonicalDocument(
-                document_id=f"{doc_id}-translated",
-                text=translated_text,
-                pages=tuple(new_pages) if new_pages else (),
-                metadata={
+            metadata = dict(doc.metadata)
+            metadata.update(
+                {
                     "model": model,
                     "direction": f"{source_lang}->{target_lang}",
                     "provider": "mistral",
-                },
+                }
+            )
+            trans_doc = replace(
+                doc,
+                document_id=f"{doc.document_id}-translated",
+                text=translated_text,
+                pages=tuple(new_pages),
+                metadata=metadata,
             )
             translated_docs.append(trans_doc)
 
             matching_inp = next(
-                (inp for inp in request.inputs if inp.input_id in doc_id),
-                request.inputs[0] if request.inputs else InputRef(input_id=doc_id, source_path=Path(f"{doc_id}.txt"), display_name=f"{doc_id}.txt", size_bytes=0),
+                (inp for inp in request.inputs if inp.input_id == doc.source_input_id),
+                None,
             )
-            txt_name = format_artifact_filename(matching_inp, "mistral_translated", "txt", all_inputs=request.inputs)
-            docx_name = format_artifact_filename(matching_inp, "mistral_translated", "docx", all_inputs=request.inputs)
-            stem = Path(matching_inp.display_name or doc_id).stem
+            if matching_inp is None:
+                matching_inp = next(
+                    (inp for inp in request.inputs if inp.input_id in doc.document_id),
+                    request.inputs[0]
+                    if request.inputs
+                    else InputRef(
+                        input_id=doc.document_id,
+                        source_path=Path(f"{doc.document_id}.txt"),
+                        display_name=f"{doc.document_id}.txt",
+                        size_bytes=0,
+                    ),
+                )
+
+            txt_name = format_artifact_filename(
+                matching_inp,
+                "mistral_translated",
+                "txt",
+                all_inputs=request.inputs,
+            )
+            docx_name = format_artifact_filename(
+                matching_inp,
+                "mistral_translated",
+                "docx",
+                all_inputs=request.inputs,
+            )
+            stem = Path(matching_inp.display_name or doc.document_id).stem
 
             all_payloads.append(
                 ArtifactPayload(
-                    intent=ArtifactIntent(name=txt_name, role="translated_text", media_type="text/plain"),
+                    intent=ArtifactIntent(
+                        name=txt_name,
+                        role="translated_text",
+                        media_type="text/plain",
+                    ),
                     content=translated_text.encode("utf-8"),
                 )
             )
