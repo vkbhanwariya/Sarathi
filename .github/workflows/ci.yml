@@ -106,6 +106,54 @@ jobs:
         shell: pwsh
         run: ./scripts/Setup-OCRModels.ps1
 
+      - name: Phase 10 import profile (temporary)
+        run: |
+          .venv/bin/python - <<'PY'
+          from __future__ import annotations
+
+          import statistics
+          import subprocess
+          import sys
+          import time
+
+          cases = {
+              "import_sarathi": "import sarathi",
+              "import_cli": "import sarathi.__main__",
+              "import_native_capability": "import sarathi.shakti.native_extraction.capability",
+              "agni_bootstrap": """
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from sarathi.agni import Agni
+
+          with TemporaryDirectory() as td:
+              root = Path(td)
+              input_root = root / "input"
+              runtime_root = root / "runtime"
+              output_root = root / "output"
+              input_root.mkdir()
+              runtime_root.mkdir()
+              output_root.mkdir()
+              with Agni(input_root=input_root, runtime_root=runtime_root, output_root=output_root):
+                  pass
+          """,
+          }
+
+          for name, code in cases.items():
+              samples = []
+              for _ in range(5):
+                  started = time.perf_counter()
+                  subprocess.run(
+                      [sys.executable, "-c", code],
+                      check=True,
+                      stdout=subprocess.DEVNULL,
+                      stderr=subprocess.PIPE,
+                      text=True,
+                  )
+                  samples.append((time.perf_counter() - started) * 1000.0)
+              rounded = ",".join(f"{value:.1f}" for value in samples)
+              print(f"PHASE10 {name} median_ms={statistics.median(samples):.1f} samples_ms={rounded}")
+          PY
+
       - name: Run deterministic test suite
         run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture"
 
