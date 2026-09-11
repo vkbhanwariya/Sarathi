@@ -99,13 +99,13 @@ The audit removed absolute `zero-leak` / `privacy-safe` transport claims from cl
 
 A subsequent end-to-end provider-flow revalidation found that Azure, Gemini, and Bhashini translation manually rebuilt canonical documents and discarded unchanged document/page state. Those three existing capabilities now use `dataclasses.replace()` to preserve upstream canonical fields while keeping their current remote-call, direction, artifact, and fallback behavior unchanged; their existing provider tests were strengthened in place.
 
-### Phase 9 — Shared text/typography utilities — in progress
+### Phase 9 — Shared text/typography utilities — complete
 
-Consolidate helpers only when their semantic contract is identical across real consumers. Remove compatibility re-exports after callers migrate.
+Only behavior with the same semantic contract was consolidated. OCR and Translation now share one neutral implementation for Devanagari-presence detection, English/Devanagari output fonts, positive-size validation, and the 12 pt default. OCR keeps its unique line-height/heading inference, while Translation retains its historical zero-argument `normalize_size()` call contract through a narrow adapter.
 
-The first semantic audit confirmed that OCR and Translation use the same Devanagari-presence rule, Latin/Devanagari output fonts, positive-size validation, and 12 pt fallback. Those primitives now have one neutral owner in `shakti.text`; OCR retains its separate line-height/heading inference. Translation's historical zero-argument `normalize_size()` call contract is preserved through a narrow adapter instead of silently broadening or narrowing either capability API. Font Conversion remains separate because its size calibration and span protection have different evidence and conversion semantics.
+Gemini, Mistral, and Bhashini OCR now share one Markdown-table parser because their previous parser bodies, delimiter handling, `TableData` construction, and table numbering were identical. Azure's Document Intelligence table path was left separate because it consumes structured provider output rather than Markdown.
 
-The same audit confirmed an identical Markdown-table parser in Gemini, Mistral, and Bhashini OCR. That migration remains in Phase 9; Azure's structured Document Intelligence table parser and media-type inference helpers are different concerns and are not being conflated with the shared text contract.
+The semantic audit deliberately left Translation language detection, Font Conversion calibration/protection, and DOCX OpenXML typography separate. Those paths have materially different contracts: dominant-script language choice, legacy-font calibration/protection, and document-style-aware OpenXML font selection/half-point sizing respectively. Package-root re-exports were narrowed to public neutral primitives instead of exposing private regex/signature tables. The Phase 9 production/test delta is net smaller while preserving existing user behavior and provider-specific processing.
 
 ### Phase 10 — Dependency/import cost
 
