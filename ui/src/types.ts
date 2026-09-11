@@ -56,13 +56,73 @@ export interface AvailableActionView {
   parameters: readonly ActionParameterView[];
 }
 
+export interface OperationView {
+  operation_name: string;
+  stage: string;
+  device_type: string;
+  elapsed_ns: number;
+  is_long_running: boolean;
+  last_activity: string | null;
+  progress: ProgressState | null;
+}
+
+export interface WorkerPageView {
+  worker_id: string;
+  file_display_name: string;
+  page_number: number | null;
+  stage: string;
+  device_type: string;
+  elapsed_ns: number;
+  idle_ns: number;
+  status: string;
+}
+
+export interface FileRunView {
+  input_id: string;
+  display_name: string;
+  ordinal: number;
+  status: string;
+  elapsed_ns: number | null;
+  current_stage: string;
+  warning_count: number;
+  error_message: string | null;
+}
+
+export interface DeviceProgressView {
+  device_type: string;
+  execution_count: number;
+  total_duration_ns: number;
+  avg_duration_ns: number | null;
+  avg_confidence: number | null;
+}
+
 export interface RunViewState {
   run_id: string;
   status: string;
   elapsed_ns: number;
   terminal_files: number;
   total_files: number;
+  current_focus: OperationView | null;
+  files: readonly FileRunView[];
+  active_workers: readonly WorkerPageView[];
+  device_progress: readonly DeviceProgressView[];
+  long_running: readonly OperationView[];
   progress: ProgressState | null;
+}
+
+export interface StageTimingView {
+  stage_name: string;
+  duration_ns: number;
+  call_count: number;
+}
+
+export interface DeviceSummaryView {
+  device_type: string;
+  execution_count: number;
+  attempts: number;
+  avg_duration_ns: number | null;
+  p95_duration_ns: number | null;
+  avg_confidence: number | null;
 }
 
 export interface ReviewItemView {
@@ -103,15 +163,80 @@ export interface RunSummaryView {
   avg_duration_per_input_ns: number | null;
   avg_confidence: number | null;
   accuracy: number | null;
+  stage_timings: readonly StageTimingView[];
+  device_summaries: readonly DeviceSummaryView[];
   artifacts: readonly ArtifactOutcomeView[];
   warnings: readonly string[];
   failures: readonly string[];
+}
+
+export interface WorkerPerformanceView {
+  worker_id: string;
+  device_type: string;
+  device_id: string;
+  tasks_completed: number;
+  pages_completed: number;
+  total_duration_ms: number;
+  avg_duration_ms: number;
+  throughput_per_sec: number;
+  status: string;
+}
+
+export interface PageConfidenceView {
+  file_display_name: string;
+  page_number: number;
+  confidence_score: number | null;
+  region_count: number;
+  min_confidence: number | null;
+  max_confidence: number | null;
+  review_recommended: boolean;
+}
+
+export interface RegionConfidenceView {
+  region_id: string;
+  file_display_name: string;
+  page_number: number;
+  confidence_score: number | null;
+  region_type: string;
+  method: string;
+  review_recommended: boolean;
+  original_confidence: number | null;
+  confidence_gain: number | null;
+  raw_confidence_score_delta: number | null;
+  fallback_engine: string | null;
+}
+
+export interface FallbackImprovementView {
+  region_id: string;
+  file_display_name: string;
+  page_number: number;
+  original_confidence: number;
+  improved_confidence: number;
+  confidence_gain: number;
+  fallback_engine: string;
+  raw_confidence_score_delta: number | null;
+}
+
+export interface ActivityLogView {
+  timestamp: string;
+  severity: string;
+  component: string;
+  message: string;
 }
 
 export interface InspectorViewState {
   run_id: string;
   status: string;
   elapsed_ns: number;
+  activity_logs: readonly ActivityLogView[];
+  stage_timings: readonly StageTimingView[];
+  device_summaries: readonly DeviceSummaryView[];
+  confidence_distribution: readonly (readonly [string, number])[];
+  system_facts: readonly (readonly [string, string])[];
+  worker_performance: readonly WorkerPerformanceView[];
+  page_confidence: readonly PageConfidenceView[];
+  region_confidence: readonly RegionConfidenceView[];
+  fallback_improvements: readonly FallbackImprovementView[];
 }
 
 export interface StartupViewState {
@@ -136,6 +261,21 @@ export interface ApplicationViewState {
   terminal_summary: RunSummaryView | null;
   inspector: InspectorViewState | null;
   startup: StartupViewState | null;
+}
+
+export interface TerminalRunHistoryView {
+  run_id: string;
+  request_id: string;
+  requirement: string;
+  profile: string;
+  status: "completed" | "failed" | "cancelled" | string;
+  start_time_utc: string;
+  completed_at_utc: string;
+  duration_ms: number;
+  artifact_count: number;
+  warning_count: number;
+  has_masked_identity: boolean;
+  output_dir: string | null;
 }
 
 export interface RunRequest {
