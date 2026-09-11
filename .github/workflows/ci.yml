@@ -106,7 +106,7 @@ jobs:
         shell: pwsh
         run: ./scripts/Setup-OCRModels.ps1
 
-      - name: Phase 10 import profile (temporary)
+      - name: Phase 10 baseline import profile (temporary)
         run: |
           .venv/bin/python - <<'PY'
           from __future__ import annotations
