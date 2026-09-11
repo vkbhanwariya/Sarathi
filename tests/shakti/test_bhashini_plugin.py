@@ -222,8 +222,17 @@ class TestBhashiniTranslationCapability:
 
         prior_doc = CanonicalDocument(
             document_id="doc-hi-bh",
+            source_input_id="inp-1",
             text="परिसमापक ने आवेदन प्रस्तुत किया।",
-            pages=(PageData(page_number=1, text="परिसमापक ने आवेदन प्रस्तुत किया।"),),
+            pages=(
+                PageData(
+                    page_number=1,
+                    text="परिसमापक ने आवेदन प्रस्तुत किया।",
+                    metadata={"source_page": "kept"},
+                ),
+            ),
+            detected_type="ocr_document",
+            metadata={"existing": "kept"},
         )
         prior = Result(data=prior_doc)
 
@@ -241,6 +250,10 @@ class TestBhashiniTranslationCapability:
         doc: CanonicalDocument = result.data
         assert doc.text == "The official liquidator submitted the application."
         assert doc.metadata["direction"] == "hi->en"
+        assert doc.metadata["existing"] == "kept"
+        assert doc.source_input_id == "inp-1"
+        assert doc.detected_type == "ocr_document"
+        assert doc.pages[0].metadata["source_page"] == "kept"
 
         art_names = {p.intent.name for p in result.artifact_payloads}
         assert any(n.endswith("_bhashini_translated.txt") for n in art_names)
