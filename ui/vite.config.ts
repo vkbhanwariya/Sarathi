@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   const backend = env.SARATHI_UI_BACKEND || "http://127.0.0.1:8765";
 
   return {
+    base: "/ui/",
     plugins: [preact()],
     server: {
       host: "127.0.0.1",
@@ -21,7 +22,13 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist",
       emptyOutDir: true,
-      sourcemap: true,
+      sourcemap: false,
+      rollupOptions: {
+        output: {
+          entryFileNames: "app.js",
+          assetFileNames: (assetInfo) => assetInfo.names?.some((name) => name.endsWith(".css")) ? "app.css" : "[name][extname]",
+        },
+      },
     },
   };
 });
