@@ -97,6 +97,8 @@ Provider/client credential lookup remains configuration discovery, not a second 
 
 The audit removed absolute `zero-leak` / `privacy-safe` transport claims from cloud-client documentation. Concrete credential redaction and sanitized error handling remain unchanged, but the code no longer promises an unprovable universal property. No HTTP payload, credential fallback, provider registration, policy behavior, OCR/translation output, accuracy, or performance path changed in Phase 8. No new regression test was added because the existing Kavacha cloud-policy tests already cover the unchanged authorization boundary.
 
+A subsequent end-to-end provider-flow revalidation found that Azure, Gemini, and Bhashini translation manually rebuilt canonical documents and discarded unchanged document/page state. Those three existing capabilities now use `dataclasses.replace()` to preserve upstream canonical fields while keeping their current remote-call, direction, artifact, and fallback behavior unchanged; their existing provider tests were strengthened in place.
+
 ### Phase 9 — Shared text/typography utilities
 
 Consolidate helpers only when their semantic contract is identical across real consumers. Remove compatibility re-exports after callers migrate.
