@@ -29,6 +29,16 @@ from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_con
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
 
 
+def read_pdf(
+    data: bytes,
+    input_id: str,
+) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
+    """Load the PDF reader only when a PDF is actually processed."""
+    from sarathi.shakti.native_extraction.readers.pdf import read_pdf as _read_pdf
+
+    return _read_pdf(data, input_id)
+
+
 def _get_reader(
     fmt: DetectedFormat,
 ) -> tuple[
@@ -39,8 +49,6 @@ def _get_reader(
     match fmt:
         case DetectedFormat.PDF:
             import pymupdf
-
-            from sarathi.shakti.native_extraction.readers.pdf import read_pdf
 
             return read_pdf, (pymupdf.FileDataError, pymupdf.EmptyFileError)
         case DetectedFormat.DOCX:
