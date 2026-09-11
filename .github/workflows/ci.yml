@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, development]
 
+permissions:
+  contents: write
+
 jobs:
   lint:
     name: Lint & Compilation
@@ -77,12 +80,22 @@ jobs:
       - name: Typecheck and build Mukha UI
         run: npm run build
 
-      - name: Upload Mukha UI bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: mukha-ui-dist
-          path: ui/dist
-          if-no-files-found: error
+      - name: Package Mukha UI bundle
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p src/sarathi/mukha/web/ui
+          cp ui/dist/index.html src/sarathi/mukha/web/ui/index.html
+          cp ui/dist/app.js src/sarathi/mukha/web/ui/app.js
+          cp ui/dist/app.css src/sarathi/mukha/web/ui/app.css
+          if git diff --quiet -- src/sarathi/mukha/web/ui; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/sarathi/mukha/web/ui
+          git commit -m "[skip ci] Package Phase 11 Preact bundle"
+          git push origin HEAD:development
 
   test:
     name: Unit & Integration Tests
