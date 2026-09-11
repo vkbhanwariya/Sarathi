@@ -12,7 +12,7 @@ Does NOT embed PDF, OCR, spreadsheet, bank, translation, or capability-specific 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
@@ -150,7 +150,7 @@ def transform_canonical_document(
     detected_type: str,
     target_lang: str | None = None,
     target_script: str | None = None,
-    span_transform_fn: Callable[[TextSpan], TextSpan | str] | Callable[[str], str] | None = None,
+    span_transform_fn: Callable[[TextSpan], TextSpan | str] | None = None,
     reconstruct_text_from_spans: bool = False,
 ) -> CanonicalDocument:
     """Transform text, pages, spans, and tables of a CanonicalDocument with semantic fidelity.
@@ -164,7 +164,7 @@ def transform_canonical_document(
     for t in doc.tables:
         t_rows = [tuple(text_transform_fn(str(c)) for c in r) for r in t.rows]
         t_headers = tuple(text_transform_fn(str(h)) for h in t.headers) if t.headers else ()
-        converted_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
+        converted_tables.append(replace(t, headers=t_headers, rows=tuple(t_rows)))
 
     converted_pages: list[PageData] = []
     for p in doc.pages:
@@ -172,15 +172,12 @@ def transform_canonical_document(
         for t in p.tables:
             t_rows = [tuple(text_transform_fn(str(c)) for c in r) for r in t.rows]
             t_headers = tuple(text_transform_fn(str(h)) for h in t.headers) if t.headers else ()
-            p_page_tables.append(TableData(name=t.name, headers=t_headers, rows=tuple(t_rows), metadata=t.metadata))
+            p_page_tables.append(replace(t, headers=t_headers, rows=tuple(t_rows)))
 
         p_spans: list[TextSpan] = []
         for s in p.spans:
             if span_transform_fn is not None:
-                try:
-                    res = span_transform_fn(s)  # type: ignore[arg-type]
-                except TypeError:
-                    res = span_transform_fn(s.text)  # type: ignore[call-arg]
+                res = span_transform_fn(s)
                 if isinstance(res, TextSpan):
                     p_spans.append(res)
                     continue
@@ -189,13 +186,11 @@ def transform_canonical_document(
                 s_text = text_transform_fn(s.text) if s.text else ""
 
             p_spans.append(
-                TextSpan(
+                replace(
+                    s,
                     text=s_text,
-                    confidence=s.confidence,
-                    bounding_box=s.bounding_box,
                     language=target_lang if target_lang is not None else s.language,
                     script=target_script if target_script is not None else s.script,
-                    metadata=dict(s.metadata),
                 )
             )
 
@@ -213,12 +208,11 @@ def transform_canonical_document(
             p_text = text_transform_fn(p.text) if p.text else ""
 
         converted_pages.append(
-            PageData(
-                page_number=p.page_number,
+            replace(
+                p,
                 text=p_text,
                 spans=tuple(p_spans),
                 tables=tuple(p_page_tables),
-                metadata=p.metadata,
             )
         )
 
@@ -247,12 +241,10 @@ def transform_canonical_document(
     else:
         all_doc_tables = ()
 
-    return CanonicalDocument(
-        document_id=doc.document_id,
-        source_input_id=doc.source_input_id,
+    return replace(
+        doc,
         text=new_text,
         pages=tuple(converted_pages),
         tables=all_doc_tables,
         detected_type=detected_type,
-        metadata=doc.metadata,
     )
