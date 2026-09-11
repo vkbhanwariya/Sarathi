@@ -89,9 +89,13 @@ Headline confidence aggregation prefers page-level observations only inside capa
 
 The shareable diagnostics boundary now exports only an explicit set of operational event attributes. Local Darpana/UI telemetry may retain detailed identities needed by the product, while diagnostics excludes document content, raw paths, filenames, input identifiers, and unknown attributes by default. No producer-side batching API or inner-loop rewrite was added because synchronization cost has not been demonstrated as a material bottleneck; that optimization remains subject to the repository's measure-first rule.
 
-### Phase 8 — Kavacha and provider boundaries
+### Phase 8 — Kavacha and provider boundaries — complete
 
-Map every outbound HTTP client, credential read, and document payload that can leave the machine to the actual authorization boundary. Remove security claims that are not implemented.
+The outbound-provider audit found four Shakti REST transports: Azure, Bhashini, Gemini, and Mistral. In normal Sarathi execution, Pravaha validates the planned capability and authorizes its owning plugin's `SecurityDeclaration` through Kavacha before Yantra invokes the capability; retry execution uses the same authorization boundary. The existing cloud declarations already state PII access, network access, external processing, and required secret-policy names, and the existing Kavacha suite already covers cloud allow/deny behavior.
+
+Provider/client credential lookup remains configuration discovery, not a second authorization subsystem. Direct client classes remain reusable lower-level transports and intentionally do not embed Kavacha policy logic; adding provider-local or client-local authorization would duplicate the existing runtime owner and complicate standalone use. No credential abstraction, lazy-secret layer, provider wrapper, Protocol, or new test module was added.
+
+The audit removed absolute `zero-leak` / `privacy-safe` transport claims from cloud-client documentation. Concrete credential redaction and sanitized error handling remain unchanged, but the code no longer promises an unprovable universal property. No HTTP payload, credential fallback, provider registration, policy behavior, OCR/translation output, accuracy, or performance path changed in Phase 8.
 
 ### Phase 9 — Shared text/typography utilities
 
