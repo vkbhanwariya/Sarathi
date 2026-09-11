@@ -1,4 +1,4 @@
-﻿"""Integration test for Translation pipeline composition using deterministic test backend."""
+"""Integration test for Translation pipeline composition using deterministic test backend."""
 
 from pathlib import Path
 from typing import Any

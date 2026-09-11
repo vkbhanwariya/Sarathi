@@ -41,11 +41,8 @@ def load_settings(
     """
     if not isinstance(path, (str, Path)):
         raise TypeError(f"path must be a str or Path, got {type(path).__name__}.")
-    if darpana is not None:
-        from sarathi.darpana import Darpana as DarpanaService
-
-        if not isinstance(darpana, DarpanaService):
-            raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
+    if darpana is not None and not hasattr(darpana, "time_scope"):
+        raise TypeError(f"darpana must provide a time_scope method or be None, got {type(darpana).__name__}.")
     if context is not None and not isinstance(context, ExecutionContext):
         raise TypeError(f"context must be an ExecutionContext instance or None, got {type(context).__name__}.")
 

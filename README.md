@@ -44,7 +44,7 @@ Kosh declarations -> Manthan planning
 
 Cross-cutting services are explicit: Kavacha authorizes real security/privacy boundaries, Yantra owns execution/device resources, Smriti provides optional caching, Darpana records runtime/quality history, Sankalpa defines shared contracts, Sutra loads settings, and Dosh defines shared errors.
 
-`sarathi.nabhi` is the physical runtime namespace that currently contains Kosh, Manthan, Pravaha, artifact/quarantine support, and the deprecated Prana compatibility adapter. It is not a second planning or execution authority: Kosh owns declarations, Manthan owns planning, and Pravaha executes the returned plan.
+`sarathi.nabhi` is the physical runtime namespace that currently contains Kosh, Manthan, Pravaha, and artifact/quarantine support. It is not a second planning or execution authority: Kosh owns declarations, Manthan owns planning, and Pravaha executes the returned plan.
 
 ## Plugin model
 

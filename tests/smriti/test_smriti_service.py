@@ -187,3 +187,24 @@ def test_smriti_cache_clear_purges_both_tiers(tmp_path: Path) -> None:
     cleared_count = cache.clear()
     assert cleared_count >= 1
     assert cache.get(key) is None
+
+
+def test_importing_smriti_does_not_patch_global_deepcopy_dispatch() -> None:
+    """Verify importing Smriti memory does not monkey-patch standard library copy dispatch."""
+    import subprocess
+    import sys
+
+    code = """
+import copy
+from types import MappingProxyType
+before = copy._deepcopy_dispatch.get(MappingProxyType)
+import sarathi.smriti.memory
+assert copy._deepcopy_dispatch.get(MappingProxyType) is before
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr

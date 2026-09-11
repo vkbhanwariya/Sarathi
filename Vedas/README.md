@@ -23,7 +23,7 @@ Historical generation-specific specifications are not active requirements. Git h
 
 Agni composes the application. Kosh stores capability/plugin declarations. Manthan resolves requested work into an executable plan. Pravaha executes that plan. Shakti implements document capabilities. Yantra provides execution/device resources. Kavacha authorizes security/privacy-sensitive boundaries. Smriti is optional cache state. Darpana records runtime/quality history. Mukha presents the application through a local-only web/API layer. Sankalpa, Sutra, and Dosh provide contracts, settings, and errors.
 
-The `sarathi.nabhi` package is a physical namespace for Kosh, Manthan, Pravaha, artifacts/quarantine, and Prana compatibility. It does not replace those ownership boundaries.
+The `sarathi.nabhi` package is a physical namespace for Kosh, Manthan, Pravaha, and artifacts/quarantine. It does not replace those ownership boundaries.
 
 ## Documentation standard
 

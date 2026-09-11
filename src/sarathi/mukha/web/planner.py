@@ -60,7 +60,14 @@ def preview_execution_plan(
         ]
         for capability_id in plan.capability_ids:
             capability = agni.kosh.get_capability(capability_id)
-            capability_name = capability.name if capability and hasattr(capability, "name") else capability_id
+            display_name = getattr(capability, "display_name", None)
+            name = getattr(capability, "name", None)
+            if isinstance(display_name, str) and display_name.strip():
+                capability_name = display_name.strip()
+            elif isinstance(name, str) and name.strip():
+                capability_name = name.strip()
+            else:
+                capability_name = capability_id
             stages.append({"stage_id": capability_id, "name": f"Execution: {capability_name} (Yantra)"})
 
         artifact_stage_name = (

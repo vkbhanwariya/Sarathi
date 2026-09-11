@@ -10,7 +10,7 @@ from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha, SecurityPolicy
-from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Prana, Pravaha, QuarantineStore, RetryPolicy
+from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Pravaha, QuarantineStore, RetryPolicy
 from sarathi.sankalpa import (
     CapabilityDeclaration,
     ConfidenceValue,
@@ -64,7 +64,7 @@ class MockControlledCapability:
 
 
 class MockLifecycleComponent:
-    """Mock component implementing start/close protocol for Prana."""
+    """Mock component implementing start/close protocol."""
 
     def __init__(self, name: str, *, fail_on_start: bool = False, fail_on_close: bool = False) -> None:
         self.name = name
@@ -105,7 +105,6 @@ class TestAgniBootstrap:
         assert isinstance(agni.kosh, Kosh)
         assert isinstance(agni.yantra, Yantra)
         assert isinstance(agni.manthan, Manthan)
-        assert isinstance(agni.prana, Prana)
         assert isinstance(agni.quarantine_store, QuarantineStore)
         assert isinstance(agni.retry_policy, RetryPolicy)
         assert isinstance(agni.pravaha, Pravaha)

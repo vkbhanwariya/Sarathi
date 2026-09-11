@@ -1,4 +1,4 @@
-﻿"""Comprehensive unit tests for Sankalpa — Canonical Contracts."""
+"""Comprehensive unit tests for Sankalpa — Canonical Contracts."""
 
 from pathlib import Path
 

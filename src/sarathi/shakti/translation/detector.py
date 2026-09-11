@@ -6,9 +6,9 @@ import re
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.text.legacy_detection import LegacyFontDetector
+from sarathi.shakti.text.typography import DEVANAGARI_RE as _DEVANAGARI_RE
 from sarathi.shakti.translation.models import Language, TranslationDirection
 
-_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 
 

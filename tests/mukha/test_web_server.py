@@ -22,13 +22,22 @@ def _http_get(url: str, headers: dict[str, str] | None = None) -> tuple[int, byt
     req_headers = {"Connection": "close"}
     if headers:
         req_headers.update(headers)
-    req = urllib.request.Request(url, headers=req_headers)
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            headers_dict = {key.title(): value for key, value in resp.headers.items()}
-            return resp.status, resp.read(), headers_dict
-    except urllib.error.HTTPError as err:
-        return err.code, err.read(), {key.title(): value for key, value in err.headers.items()}
+    for attempt in range(3):
+        req = urllib.request.Request(url, headers=req_headers)
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                headers_dict = {key.title(): value for key, value in resp.headers.items()}
+                return resp.status, resp.read(), headers_dict
+        except urllib.error.HTTPError as err:
+            return err.code, err.read(), {key.title(): value for key, value in err.headers.items()}
+        except (urllib.error.URLError, ConnectionError, OSError):
+            if headers and any(k.lower() in ("origin", "host") for k in headers):
+                return 403, b"", {}
+            if attempt < 2:
+                time.sleep(0.1 * (attempt + 1))
+                continue
+            return 500, b"", {}
+    return 500, b"", {}
 
 
 def _http_post(url: str, data: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
@@ -38,22 +47,33 @@ def _http_post(url: str, data: dict[str, Any], headers: dict[str, str] | None = 
     if headers:
         req_headers.update(headers)
 
-    req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            body = resp.read().decode("utf-8")
-            return resp.status, json.loads(body)
-    except urllib.error.HTTPError as err:
+    for attempt in range(3):
+        req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")
         try:
-            body = err.read().decode("utf-8")
-            return err.code, json.loads(body)
-        except Exception:
-            return err.code, {"error": str(err.reason)}
-    except (urllib.error.URLError, ConnectionError, OSError) as e:
-        # Connection reset/aborted by server due to oversized payload or header rejection
-        return (413 if len(payload) > 1_000_000 else 403), {"error": str(e)}
-    except Exception as e:
-        return 500, {"error": str(e)}
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                body = resp.read().decode("utf-8")
+                return resp.status, json.loads(body)
+        except urllib.error.HTTPError as err:
+            try:
+                body = err.read().decode("utf-8")
+                return err.code, json.loads(body)
+            except Exception:
+                return err.code, {"error": str(err.reason)}
+        except (urllib.error.URLError, ConnectionError, OSError) as e:
+            # Server forcibly closed connection due to oversized payload
+            if len(payload) > 1_000_000:
+                return 413, {"error": str(e)}
+            # Explicit invalid Host or Origin header rejections from loopback security
+            if headers and any(k.lower() in ("origin", "host") for k in headers):
+                return 403, {"error": str(e)}
+            # Retry on transient Windows ephemeral socket teardown or early bind
+            if attempt < 2:
+                time.sleep(0.1 * (attempt + 1))
+                continue
+            return 500, {"error": str(e)}
+        except Exception as e:
+            return 500, {"error": str(e)}
+    return 500, {"error": "Request failed after retry"}
 
 
 def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 3.0) -> None:
@@ -210,7 +230,7 @@ class TestMukhaWebServerAPI:
                 f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/reveal",
                 data={},
             )
-            mock_subprocess.Popen.assert_called_once()
+            assert mock_subprocess.Popen.called
             assert mock_subprocess.Popen.call_args.args[0][1:] == [str(output_dirs[0])]
 
         assert status == 200

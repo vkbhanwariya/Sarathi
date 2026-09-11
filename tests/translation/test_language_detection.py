@@ -1,4 +1,4 @@
-﻿"""Tests for Language Detection and Legacy Font Handoff."""
+"""Tests for Language Detection and Legacy Font Handoff."""
 
 import pytest
 

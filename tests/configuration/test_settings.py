@@ -1,4 +1,4 @@
-﻿"""Unit tests for Sutra — Configuration."""
+"""Unit tests for Sutra — Configuration."""
 
 import tomllib
 from pathlib import Path

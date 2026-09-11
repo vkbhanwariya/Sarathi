@@ -317,6 +317,41 @@ class TestStatutoryCapability:
         assert isinstance(res2.data, CanonicalDocument)
         assert len(res2.artifact_payloads) == 1
 
+    def test_capability_progress_callback(self, tmp_path: pytest.TempPathFactory) -> None:
+        calls = []
+
+        def dummy_cb(**kwargs):
+            calls.append(kwargs)
+
+        sample_file = tmp_path / "invoice.txt"
+        sample_file.write_text("TAX INVOICE\nGSTIN: 27ABCPE1234F1ZB", encoding="utf-8")
+        inp = InputRef(
+            input_id="inp-cb",
+            source_path=sample_file,
+            display_name="invoice.txt",
+            size_bytes=len(sample_file.read_bytes()),
+        )
+        req = Request(
+            request_id="req-cb",
+            requirement="statutory",
+            inputs=(inp,),
+            custom_options={"progress_callback": dummy_cb},
+        )
+        context = ExecutionContext(
+            run_id="run-cb",
+            request_id="req-cb",
+            trace_id="tr-cb",
+            span_id="sp-cb",
+        )
+        capability = StatutoryCapability()
+        res = capability.execute(req, context)
+
+        assert res.data is not None
+        assert len(calls) == 1
+        assert calls[0]["input_id"] == "inp-cb"
+        assert calls[0]["stage"] == "Statutory & Legal Extraction"
+        assert calls[0]["page_number"] == 1
+
     def test_provider_readiness(self) -> None:
         provider = StatutoryProvider()
         readiness = provider.readiness()

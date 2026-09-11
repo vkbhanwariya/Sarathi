@@ -1,4 +1,4 @@
-﻿"""Tests for Contract 1: Truthful and Privacy-Safe Cache Key Identity."""
+"""Tests for Contract 1: Truthful and Privacy-Safe Cache Key Identity."""
 
 from pathlib import Path
 

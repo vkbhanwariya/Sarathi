@@ -470,6 +470,7 @@ def build_application_view_state(
         "ocr": "Local rapid image/PDF text recognition",
         "font_conversion": "Legacy Hindi font mapping & Unicode",
         "translation": "Protected local Hindi↔English translation",
+        "statutory": "Statutory and legal document metadata extraction",
     }
 
     available_actions = []
@@ -489,7 +490,7 @@ def build_application_view_state(
                 label=act_label,
                 is_enabled=enabled,
                 disabled_reason=disabled_reason,
-                description=_ACTION_DESCS.get(act_id, ""),
+                description=_ACTION_DESCS.get(act_id) or getattr(decl, "description", "") or "",
                 parameters=params,
             )
         )

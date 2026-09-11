@@ -22,6 +22,7 @@ from sarathi.shakti.text.legacy_detection import (
 from sarathi.shakti.text.legacy_detection import (
     LegacyFontDetector as BaseLegacyFontDetector,
 )
+from sarathi.shakti.text.typography import DEVANAGARI_RE as _DEVANAGARI_UNICODE_RE
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
@@ -561,9 +562,6 @@ def normalize_font_family_name(font_name: str | None, profiles: dict[str, Legacy
     if profiles is _DEFAULT_PROFILES:
         _NORMALIZED_FAMILY_CACHE[font_name] = cleaned
     return cleaned
-
-
-_DEVANAGARI_UNICODE_RE = re.compile(r"[\u0900-\u097F\u1CD0-\u1CFF\uA8E0-\uA8FF]")
 
 
 def resolve_effective_font(

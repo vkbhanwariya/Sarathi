@@ -28,7 +28,7 @@ from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
-from sarathi.shakti.ocr.typography import (
+from sarathi.shakti.text.typography import (
     contains_devanagari,
     normalize_size,
     output_font,

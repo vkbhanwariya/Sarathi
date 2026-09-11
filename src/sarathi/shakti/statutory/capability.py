@@ -96,7 +96,22 @@ class StatutoryCapability:
         all_warnings: list[WarningRecord] = []
         doc_types: list[str] = []
 
-        for doc_id, text in text_items:
+        progress_cb = None
+        if request and request.custom_options and callable(request.custom_options.get("progress_callback")):
+            progress_cb = request.custom_options["progress_callback"]
+
+        for idx, (doc_id, text) in enumerate(text_items):
+            if progress_cb is not None:
+                progress_cb(
+                    file_display_name=doc_id,
+                    page_number=idx + 1,
+                    total_pages=len(text_items),
+                    worker_id="1",
+                    stage="Statutory & Legal Extraction",
+                    device_type="CPU",
+                    input_id=doc_id,
+                )
+
             entities: StatutoryEntities = extract_statutory_entities(text)
             entities_dict = entities.to_dict()
             doc_types.append(entities.doc_type.value)

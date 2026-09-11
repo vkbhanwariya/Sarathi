@@ -1,4 +1,4 @@
-﻿"""Unit tests for Shakti TranslationProvider (R05, R06)."""
+"""Unit tests for Shakti TranslationProvider (R05, R06)."""
 
 from __future__ import annotations
 

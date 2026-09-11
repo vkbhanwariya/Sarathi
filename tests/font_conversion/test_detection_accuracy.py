@@ -1,4 +1,4 @@
-﻿"""Tests for Legacy Font Detection Accuracy, Hints, and Schema Validation."""
+"""Tests for Legacy Font Detection Accuracy, Hints, and Schema Validation."""
 
 from __future__ import annotations
 

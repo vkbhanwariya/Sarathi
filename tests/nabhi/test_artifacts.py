@@ -754,7 +754,6 @@ class TestPublicExport:
             "LifecycleAction",
             "LifecycleActionType",
             "Manthan",
-            "Prana",
             "Pravaha",
             "QuarantineRecord",
             "QuarantineStatus",

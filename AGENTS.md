@@ -25,7 +25,7 @@ Sarathi is a local document-processing application. Prefer direct, maintainable 
 
 - `agni`: composition and process lifecycle.
 - `sankalpa`: shared request/result/document contracts.
-- `nabhi`: physical namespace containing Kosh, Manthan, Pravaha, artifact/quarantine support, and deprecated Prana compatibility.
+- `nabhi`: physical namespace containing Kosh, Manthan, Pravaha, and artifact/quarantine support.
 - Kosh: declarations and registry storage.
 - Manthan: initial and continuation planning.
 - Pravaha: execution of the plan returned by Manthan.

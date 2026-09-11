@@ -1,4 +1,4 @@
-﻿"""Tests for Raw Row Classification."""
+"""Tests for Raw Row Classification."""
 
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 

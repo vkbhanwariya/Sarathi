@@ -1,4 +1,4 @@
-﻿"""Consolidated unit and invariant tests for bank statement deduplication and ordering."""
+"""Consolidated unit and invariant tests for bank statement deduplication and ordering."""
 
 from __future__ import annotations
 

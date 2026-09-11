@@ -1,7 +1,7 @@
 """Canonical Built-in Plugin Provider Catalog for Sarathi.
 
 Provides one single canonical catalog of built-in Shakti plugin providers.
-Consumed by Dvara for metadata registration into Kosh and by Agni for
+Consumed during bootstrap for metadata registration into Kosh and by Agni for
 dependency-injected capability factory construction and readiness audits.
 """
 

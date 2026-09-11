@@ -9,6 +9,7 @@ DEVANAGARI_FONT: str = "Nirmala UI"
 DEFAULT_SIZE_PT: float = 12.0
 
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F\u1CD0-\u1CFF\uA8E0-\uA8FF]")
+DEVANAGARI_RE = _DEVANAGARI_RE
 
 
 def contains_devanagari(text: str) -> bool:
@@ -24,7 +25,7 @@ def output_font(*, contains_devanagari: bool) -> str:
 
 
 def normalize_size(
-    size_pt: float | None,
+    size_pt: float | None = None,
     *,
     default_size_pt: float = DEFAULT_SIZE_PT,
 ) -> float:
@@ -38,6 +39,7 @@ def normalize_size(
 __all__ = [
     "DEFAULT_SIZE_PT",
     "DEVANAGARI_FONT",
+    "DEVANAGARI_RE",
     "ENGLISH_FONT",
     "contains_devanagari",
     "normalize_size",

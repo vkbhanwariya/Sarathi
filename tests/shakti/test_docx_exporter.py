@@ -1,4 +1,4 @@
-﻿"""Focused positive and adversarial tests for the canonical DOCX exporter."""
+"""Focused positive and adversarial tests for the canonical DOCX exporter."""
 
 import io
 import xml.etree.ElementTree as ET

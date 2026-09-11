@@ -53,9 +53,7 @@ Kavacha, Yantra, Smriti, and Darpana support this flow without taking over plann
 
 ## Physical namespace versus decision ownership
 
-`src/sarathi/nabhi/` currently contains Kosh, Manthan, Pravaha, artifact/quarantine support, and the deprecated Prana compatibility adapter. This package layout is physical organization only. Architectural authority remains split by responsibility: Kosh declares, Manthan plans, Pravaha executes.
-
-Prana is compatibility code and should not be expanded into a new runtime authority. Compatibility paths are retained only while a real caller or persisted/public contract requires them.
+`src/sarathi/nabhi/` contains Kosh, Manthan, Pravaha, and artifact/quarantine support. This package layout is physical organization only. Architectural authority remains split by responsibility: Kosh declares, Manthan plans, Pravaha executes.
 
 ## Security boundary
 

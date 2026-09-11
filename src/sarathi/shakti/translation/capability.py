@@ -25,6 +25,11 @@ from sarathi.sankalpa import (
 )
 from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
 from sarathi.shakti.docx_exporter import build_docx_payload
+from sarathi.shakti.text.typography import (
+    contains_devanagari,
+    normalize_size,
+    output_font,
+)
 from sarathi.shakti.translation.detector import LanguageDetector
 from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
@@ -33,11 +38,6 @@ from sarathi.shakti.translation.engine import (
 from sarathi.shakti.translation.models import TranslationDirection, TranslationResult
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
-from sarathi.shakti.translation.typography import (
-    contains_devanagari,
-    normalize_size,
-    output_font,
-)
 
 
 class TranslationCapability:

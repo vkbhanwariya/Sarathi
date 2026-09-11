@@ -7,6 +7,7 @@ from sarathi.shakti.text.span_protection import BaseSpanProtector
 from sarathi.shakti.text.typography import (
     DEFAULT_SIZE_PT,
     DEVANAGARI_FONT,
+    DEVANAGARI_RE,
     ENGLISH_FONT,
     contains_devanagari,
     normalize_size,
@@ -17,6 +18,7 @@ __all__ = [
     "BaseSpanProtector",
     "DEFAULT_SIZE_PT",
     "DEVANAGARI_FONT",
+    "DEVANAGARI_RE",
     "ENGLISH_FONT",
     "LegacyFontDetector",
     "contains_devanagari",

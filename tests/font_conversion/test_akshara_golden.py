@@ -1,4 +1,4 @@
-﻿"""Deterministic Golden Regression Corpus for Akshara-aware Legacy Devanagari Font Conversion."""
+"""Deterministic Golden Regression Corpus for Akshara-aware Legacy Devanagari Font Conversion."""
 
 from __future__ import annotations
 

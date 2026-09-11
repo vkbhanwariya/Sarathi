@@ -1,4 +1,4 @@
-"""Integration tests for Yantra lifecycle under Prana in Agni bootstrap and end-to-end device binding."""
+"""Integration tests for Yantra lifecycle in Agni bootstrap and end-to-end device binding."""
 
 from __future__ import annotations
 
