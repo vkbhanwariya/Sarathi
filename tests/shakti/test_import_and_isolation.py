@@ -21,9 +21,9 @@ from sarathi.shakti.ocr.plugin import (
     CAPABILITY_DECLARATION as OCR_DECL,
 )
 from sarathi.shakti.text import (
-    BaseSpanProtector,
     DEVANAGARI_FONT,
     ENGLISH_FONT,
+    BaseSpanProtector,
     LegacyFontDetector,
     contains_devanagari,
     is_legacy_text,
