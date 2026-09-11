@@ -77,6 +77,13 @@ jobs:
       - name: Typecheck and build Mukha UI
         run: npm run build
 
+      - name: Upload Mukha UI bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mukha-ui-dist
+          path: ui/dist
+          if-no-files-found: error
+
   test:
     name: Unit & Integration Tests
     needs: [lint]
