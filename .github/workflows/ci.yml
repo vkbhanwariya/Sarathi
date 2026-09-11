@@ -106,7 +106,7 @@ jobs:
         shell: pwsh
         run: ./scripts/Setup-OCRModels.ps1
 
-      - name: Phase 10 optimized import profile (temporary)
+      - name: Phase 10 capability import profile (temporary)
         run: |
           .venv/bin/python - <<'PY'
           from __future__ import annotations
@@ -119,7 +119,13 @@ jobs:
           cases = {
               "import_sarathi": "import sarathi",
               "import_cli": "import sarathi.__main__",
+              "import_providers": "import sarathi.shakti.providers",
               "import_native_capability": "import sarathi.shakti.native_extraction.capability",
+              "import_bank_capability": "import sarathi.shakti.bank_statements.capability",
+              "import_ocr_capability": "import sarathi.shakti.ocr.capability",
+              "import_translation_capability": "import sarathi.shakti.translation.capability",
+              "import_font_conversion_capability": "import sarathi.shakti.font_conversion.capability",
+              "import_statutory_capability": "import sarathi.shakti.statutory.capability",
               "agni_bootstrap": """
           from pathlib import Path
           from tempfile import TemporaryDirectory
