@@ -22,12 +22,37 @@ from sarathi.shakti.native_extraction.readers.common import (
 def read_pdf(
     data: bytes,
     input_id: str,
+    use_layout: bool = False,
+    skip_header_footer: bool = False,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
-    """Extract native text, spans, and embedded tables from PDF via PyMuPDF."""
+    """Extract native text, spans, and embedded tables from PDF via PyMuPDF or pymupdf-layout."""
+    fallback_warning: WarningRecord | None = None
+    if use_layout:
+        try:
+            from sarathi.shakti.native_extraction.readers.pdf_layout import (
+                is_layout_package_available,
+                read_pdf_with_layout,
+            )
+
+            if is_layout_package_available():
+                return read_pdf_with_layout(data, input_id, skip_header_footer=skip_header_footer)
+
+            fallback_warning = WarningRecord(
+                code="LAYOUT_PACKAGE_UNAVAILABLE",
+                message="pymupdf-layout package is not installed; falling back to standard PyMuPDF reader.",
+                stage=CAPABILITY_ID,
+            )
+        except Exception as exc:
+            fallback_warning = WarningRecord(
+                code="LAYOUT_ANALYSIS_FAILED",
+                message=f"Layout analysis failed; falling back to standard reader: {exc}",
+                stage=CAPABILITY_ID,
+            )
+
     doc = pymupdf.open(stream=data, filetype="pdf")
     pages: list[PageData] = []
     provenances: list[ProvenanceRecord] = []
-    warnings: list[WarningRecord] = []
+    warnings: list[WarningRecord] = [fallback_warning] if fallback_warning else []
     full_text_parts: list[str] = []
     all_doc_tables: list[TableData] = []
 

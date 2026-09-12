@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from sarathi.sankalpa import ProvenanceRecord
+from sarathi.sankalpa import CanonicalDocument, ProvenanceRecord, WarningRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,3 +140,18 @@ class FontConversionResult:
     confidence: float
     protected_spans_count: int
     provenance: tuple[ProvenanceRecord, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ConvertedDocumentResult:
+    """Outcome of converting a CanonicalDocument between legacy and Unicode encodings."""
+
+    document: CanonicalDocument
+    metrics: ConversionMetrics
+    plan: ConversionPlan
+    detected_profile: str | None
+    profiles_used: tuple[str, ...]
+    confidence: float | None
+    protected_spans_count: int
+    warnings: tuple[WarningRecord, ...] = ()
+    converter_fn: Any | None = None

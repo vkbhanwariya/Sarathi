@@ -39,6 +39,9 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     expect(app_page.locator("#btn-task-documents-extraction")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#subtask-native")).to_be_visible()
     expect(app_page.locator("#subtask-instant-ocr")).to_be_visible()
+    expect(app_page.locator("#param-convert-legacy-fonts")).to_be_visible()
+    expect(app_page.locator("#param-convert-legacy-fonts")).to_be_checked()
+    expect(app_page.locator("#param-layout-analysis")).to_be_visible()
 
 
 def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_server: MukhaWebServer) -> None:

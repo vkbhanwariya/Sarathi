@@ -652,6 +652,8 @@ function Home({
   );
   const [transDirection, setTransDirection] = useState<string>("");
   const [statutoryEnabled, setStatutoryEnabled] = useState<boolean>(true);
+  const [convertLegacyFonts, setConvertLegacyFonts] = useState<boolean>(true);
+  const [layoutAnalysis, setLayoutAnalysis] = useState<boolean>(false);
   const [preserveLayout, setPreserveLayout] = useState<boolean>(false);
   const [sourceFont, setSourceFont] = useState<string>("");
 
@@ -720,7 +722,7 @@ function Home({
   } | null>(() => {
     if (!primaryTask || !currentSubtask) return null;
     if (primaryTask === "documents_extraction") {
-      if (currentSubtask === "native") return { requirement: "read_native", profile: "instant" };
+      if (currentSubtask === "native") return { requirement: "read_native", profile: layoutAnalysis ? "layout_preserving" : "instant" };
       if (currentSubtask === "instant_ocr") return { requirement: "ocr", profile: "instant" };
       if (currentSubtask === "accurate_ocr") return { requirement: "ocr", profile: "accurate" };
       if (currentSubtask === "cloud_ocr") return { requirement: cloudOcrProvider, profile: "instant" };
@@ -745,7 +747,7 @@ function Home({
       return { requirement: "translation", profile: "instant" };
     }
     return { requirement: "read_native", profile: "instant" };
-  }, [primaryTask, currentSubtask, cloudOcrProvider, ocrCustomParams.profile]);
+  }, [primaryTask, currentSubtask, layoutAnalysis, cloudOcrProvider, ocrCustomParams.profile]);
 
   const activeAction = currentBackendMapping
     ? state.available_actions.find((action) => action.action_id === currentBackendMapping.requirement)
@@ -760,6 +762,13 @@ function Home({
       if (currentSubtask === "native") {
         const statEl = typeof document !== "undefined" ? (document.getElementById("param-statutory") as HTMLInputElement | null) : null;
         customOptions.statutory = statEl ? statEl.checked : statutoryEnabled;
+        const legacyEl = typeof document !== "undefined" ? (document.getElementById("param-convert-legacy-fonts") as HTMLInputElement | null) : null;
+        customOptions.convert_legacy_fonts = legacyEl ? legacyEl.checked : convertLegacyFonts;
+        const layoutEl = typeof document !== "undefined" ? (document.getElementById("param-layout-analysis") as HTMLInputElement | null) : null;
+        const isLayout = layoutEl ? layoutEl.checked : layoutAnalysis;
+        if (isLayout) {
+          customOptions.layout_analysis = true;
+        }
       } else if (currentSubtask === "accurate_ocr") {
         const layEl = typeof document !== "undefined" ? (document.getElementById("param-preserve-layout") as HTMLInputElement | null) : null;
         if (layEl ? layEl.checked : preserveLayout) {
@@ -929,6 +938,8 @@ function Home({
     cloudOcrProvider,
     transDirection,
     statutoryEnabled,
+    convertLegacyFonts,
+    layoutAnalysis,
     preserveLayout,
     sourceFont,
     JSON.stringify(ocrCustomParams),
@@ -1329,6 +1340,34 @@ function Home({
                                     Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV. Automatically invokes statutory/legal extraction.
                                   </p>
                                   <div class="subtask-options-row">
+                                    <label class="toggle-row mini">
+                                      <input
+                                        id="param-convert-legacy-fonts"
+                                        type="checkbox"
+                                        checked={convertLegacyFonts}
+                                        onChange={(e) => {
+                                          setConvertLegacyFonts(e.currentTarget.checked);
+                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }));
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Convert Legacy Fonts to Unicode</strong>
+                                      </span>
+                                    </label>
+                                    <label class="toggle-row mini" title="Use Graph Neural Networks for multi-column flow, table grids, and semantic headers">
+                                      <input
+                                        id="param-layout-analysis"
+                                        type="checkbox"
+                                        checked={layoutAnalysis}
+                                        onChange={(e) => {
+                                          setLayoutAnalysis(e.currentTarget.checked);
+                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }));
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Deep Layout Analysis (GNN)</strong>
+                                      </span>
+                                    </label>
                                     <label class="toggle-row mini">
                                       <input
                                         id="param-statutory"

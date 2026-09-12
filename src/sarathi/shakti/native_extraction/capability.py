@@ -18,6 +18,7 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ExecutionContext,
+    ExecutionProfile,
     ProvenanceRecord,
     Request,
     Result,
@@ -32,11 +33,13 @@ from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
 def read_pdf(
     data: bytes,
     input_id: str,
+    use_layout: bool = False,
+    skip_header_footer: bool = False,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Load the PDF reader only when a PDF is actually processed."""
     from sarathi.shakti.native_extraction.readers.pdf import read_pdf as _read_pdf
 
-    return _read_pdf(data, input_id)
+    return _read_pdf(data, input_id, use_layout=use_layout, skip_header_footer=skip_header_footer)
 
 
 def _get_reader(
@@ -111,9 +114,11 @@ class NativeExtractionCapability:
         self,
         declaration: CapabilityDeclaration = CAPABILITY_DECLARATION,
         darpana: Darpana | None = None,
+        font_converter: Any | None = None,
     ) -> None:
         self.declaration: CapabilityDeclaration = declaration
         self._darpana: Darpana | None = darpana
+        self._font_converter = font_converter
 
     def _record_telemetry(
         self,
@@ -288,10 +293,26 @@ class NativeExtractionCapability:
                 )
             reader, parse_exceptions = reader_info
 
+            use_layout = bool(
+                request.profile == ExecutionProfile.LAYOUT_PRESERVING
+                or (request.custom_options and request.custom_options.get("layout_analysis"))
+            )
+            skip_header_footer = bool(
+                request.custom_options and request.custom_options.get("skip_header_footer")
+            )
+
             # Route to concrete native readers with honest parse error handling
             try:
                 t0 = time.perf_counter_ns()
-                doc, provs, warns = reader(data, inp.input_id)
+                if fmt == DetectedFormat.PDF:
+                    doc, provs, warns = reader(
+                        data,
+                        inp.input_id,
+                        use_layout=use_layout,
+                        skip_header_footer=skip_header_footer,
+                    )
+                else:
+                    doc, provs, warns = reader(data, inp.input_id)
                 dur = max(0, time.perf_counter_ns() - t0)
                 extracted_docs.append(doc)
                 all_provenance.extend(provs)
@@ -346,6 +367,49 @@ class NativeExtractionCapability:
                     source_input_id=inp.input_id,
                 )
                 extracted_docs.append(corrupt_doc)
+
+        # Convert legacy Indian font encodings to Unicode Devanagari if enabled
+        convert_legacy = True
+        if request.custom_options is not None and "convert_legacy_fonts" in request.custom_options:
+            convert_legacy = bool(request.custom_options["convert_legacy_fonts"])
+
+        if convert_legacy and not needs_ocr and extracted_docs:
+            font_hint = None
+            if request.custom_options:
+                font_hint = request.custom_options.get("font_hint") or request.custom_options.get("font_profile")
+
+            if self._font_converter is None:
+                from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+                self._font_converter = FontConversionCapability(darpana=self._darpana)
+
+            converted_docs: list[CanonicalDocument] = []
+            for doc in extracted_docs:
+                try:
+                    conv_res = self._font_converter.convert_document(doc, font_hint=font_hint)
+                    if (
+                        conv_res.detected_profile is not None
+                        or len(conv_res.profiles_used) > 0
+                        or conv_res.metrics.runs_converted > 0
+                    ):
+                        converted_docs.append(conv_res.document)
+                        all_provenance.append(
+                            ProvenanceRecord(
+                                source_input_id=doc.source_input_id,
+                                capability_id="font_conversion",
+                                stage="convert_legacy_fonts",
+                                evidence={"profile": conv_res.detected_profile or list(conv_res.profiles_used)},
+                            )
+                        )
+                        for w in conv_res.warnings:
+                            if w.code != "NO_LEGACY_FONT_DETECTED":
+                                all_warnings.append(w)
+                    else:
+                        converted_docs.append(doc)
+                except Exception:
+                    # In case of unexpected conversion error, preserve original extracted doc
+                    converted_docs.append(doc)
+            extracted_docs = converted_docs
 
         result_data: Any = extracted_docs[0] if len(extracted_docs) == 1 else tuple(extracted_docs)
 

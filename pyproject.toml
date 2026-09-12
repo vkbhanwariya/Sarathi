@@ -33,6 +33,11 @@ translation = [
     "sentencepiece>=0.2.2",
 ]
 font_conversion = []
+layout = [
+    "networkx>=3.0",
+    "onnxruntime>=1.18.0",
+    "pymupdf-layout>=1.28.2",
+]
 cloud = [
     "httpx>=0.28.1",
 ]

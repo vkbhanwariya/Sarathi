@@ -40,8 +40,11 @@ The Home screen user-facing processing choices will be limited to the following 
 
 1. **Native Extraction**
    - Automatically extracts native document text/content.
+   - Converts embedded Indian legacy Devanagari fonts (KrutiDev, DevLys, Chanakya, Shusha, Shivaji) to standardized Unicode Devanagari by default.
+   - User toggle: "Convert Legacy Fonts to Unicode" (`convert_legacy_fonts: bool`, default: `true`).
+   - Deep Layout Analysis (GNN): Optional GNN-based reading order and semantic layout analysis (`layout_analysis: bool`, profile: `layout_preserving`) leveraging `pymupdf-layout`. Gracefully falls back to standard PyMuPDF if package is absent.
    - Legal/statutory extraction is performed automatically as part of this path rather than exposed as a separate user-facing task.
-   - Backend mapping: `requirement="read_native"`, `profile="instant"`.
+   - Backend mapping: `requirement="read_native"`, `profile="instant"` (or `profile="layout_preserving"` when GNN layout analysis is active).
 
 2. **Instant OCR**
    - Super-fast OCR mode.

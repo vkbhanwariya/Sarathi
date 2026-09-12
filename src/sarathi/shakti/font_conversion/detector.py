@@ -244,10 +244,15 @@ def resolve_profile_from_font_name(
         (None, "modern") if recognized as a modern Unicode font.
         (None, "unknown") if unrecognized.
     """
-    if not font_name or not font_name.strip():
-        return None, None
+    raw_name = font_name.strip()
+    if "+" in raw_name:
+        parts = raw_name.split("+", 1)
+        if len(parts[0]) == 6 and parts[0].isalpha() and parts[1].strip():
+            raw_name = parts[1].strip()
+        elif parts[1].strip():
+            raw_name = parts[1].strip()
 
-    cleaned = "".join(c for c in font_name.lower() if c.isalnum())
+    cleaned = "".join(c for c in raw_name.lower() if c.isalnum())
     if not cleaned:
         return None, None
 
