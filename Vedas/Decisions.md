@@ -86,7 +86,7 @@ The Home screen user-facing processing choices will be limited to the following 
 
 ## Translation — Second-Level Tasks
 
-**Translation** is a parent task. Selecting it first detects the source document language automatically, then presents exactly these five translation-engine choices, in this order:
+**Translation** is a parent task. Selecting it first detects the source document language automatically, then presents exactly these six translation-engine choices, in this order:
 
 1. **IndicTrans2**
    - On-device/local translation engine.
@@ -103,8 +103,11 @@ The Home screen user-facing processing choices will be limited to the following 
 5. **Gemini**
    - Google Gemini cloud translation engine.
 
-- These five are the approved Translation choices for now.
-- Sarvam AI Translation and Azure AI Translation are not part of the approved Translation list for now.
+6. **Azure Translator**
+   - Microsoft Azure cloud translation engine.
+
+- These six are the approved Translation choices for now.
+- Sarvam AI Translation is not part of the approved Translation list for now.
 - Provider-specific translation engines remain under Translation rather than appearing as separate top-level Home tasks.
 
 ### Deferred from the Home task list
