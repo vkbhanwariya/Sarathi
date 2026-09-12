@@ -62,6 +62,20 @@ Parses, normalizes, and reconciles financial account statements into structured 
 - **Relevant Configuration**: Bank templates in `data/banks/`.
 - **Known Limitations**: Requires tabular row/column structure. Cannot reliably parse free-text transaction summaries or multi-column non-tabular layouts.
 
+### Domain Rules & Reconciliation Engine
+- **Row Classification**: Every extracted row is categorized prior to parsing:
+  - `TRANSACTION`: Core row containing date, description, amount, and balance.
+  - `CONTINUATION`: Multi-line transaction description wrapped onto a subsequent line.
+  - `OPENING_BALANCE` / `CLOSING_BALANCE`: Boundary balance rows extracted for audit reconciliation.
+  - `HEADER` / `REPEATED_HEADER`: Primary and repeated page headers categorized and filtered.
+  - `NOISE` / `SUMMARY`: Non-transactional disclosures, footnotes, and page numbers.
+- **Three Distinct Balance Semantics**:
+  1. *Opening Balance*: Initial statement balance prior to transactions in the period.
+  2. *Running Balance*: Per-transaction reported balance; validated continuously via `balance[i] = balance[i-1] + credit - debit`.
+  3. *Closing Balance*: Declared statement ending balance; compared against the calculated terminal balance to establish reconciliation confidence.
+- **Debit / Credit Inversion Detection**: If a statement's columns are inverted (e.g. credits recorded in debit column or vice versa), the validator tests whether swapped arithmetic resolves the running balance delta and logs an inversion warning.
+- **Multi-Page Overlap Deduplication**: Compares transaction dates, normalized amounts, reference numbers, and running balances across page boundaries to eliminate duplicate rows caused by pagination overlaps.
+
 ---
 
 ## 6. Statutory Processing (`statutory`)
@@ -99,3 +113,18 @@ Integrates optional external cloud services for OCR and translation when local e
   - `[security]`: `allow_network_access = true`, `allow_external_processing = true`, and secret names listed in `allowed_secrets`.
   - Sections: `[mistral]`, `[gemini]`, `[azure]`, `[bhashini]`.
 - **Known Limitations**: Requires active internet connectivity and valid API credentials. Subject to external network latency, provider rate limits, and egress policy.
+
+---
+
+## 9. Execution Profiles Matrix
+
+Sarathi defines three standard execution profiles via `sarathi.sankalpa.execution_profile`:
+
+| Profile | Strategy | OCR Behavior | Extraction & Validation Behavior |
+| --- | --- | --- | --- |
+| **`INSTANT`** | Throughput-optimized single pass | Bypasses heavy preprocessing; no eager crop allocation; no Tesseract fallback; standard RapidOCR resolution. | Fast single-pass native extraction; standard reconciliation heuristics. |
+| **`ACCURATE`** | Quality-optimized multi-pass | Full image preprocessing (CLAHE, deskew, binarization); targeted Tesseract 5 fallback on low-confidence spans. | Strict running balance verification, inversion detection, and multi-page deduplication. |
+| **`CUSTOM`** | Parameter-controlled execution | Execution parameters specified directly via `request.custom_options` (e.g., custom confidence threshold, explicit model overrides). | Custom validation thresholds and options. |
+
+### Recursive Prerequisite Profile Validation
+When a request specifies an execution profile, Manthan recursively validates that every required capability in the dependency chain officially supports that profile. If any transitive dependency does not support the requested profile, the planning phase fails fast with `FailureCode.UNSUPPORTED` rather than executing an inconsistent or silently downgraded pipeline.

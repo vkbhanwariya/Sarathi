@@ -72,7 +72,18 @@ Cross-cutting support during execution:
 - **Single Registry Authority**: Only Kosh stores capability declarations.
 - **Fail-Closed Security**: Kavacha validates path containment and authorizes capabilities before I/O or network operations.
 - **Local-First Boundary**: Mukha binds strictly to loopback (`127.0.0.1`). Network access is permitted only when explicitly authorized in configuration.
-- **Topology Verification**: Production code topology and `Vedas/architecture.manifest.json` are validated by architecture tests.
+---
+
+## Confidence & Quality Telemetry Contract
+
+Sarathi enforces strict integrity rules for confidence and quality observations:
+
+- **Maruti vs. Pramana**:
+  - **Maruti** records factual operational telemetry: monotonic execution durations, UTC timestamps, run/trace/span correlation, device allocation facts, and failure classification.
+  - **Pramana** records evidence-backed quality observations: confidence metrics, region/page validation outcomes, and accuracy measurements when verified reference data exists. Confidence is never relabeled as accuracy.
+- **Strict Evidence Requirement**: Every reported `ConfidenceValue` mandates a non-empty calculation `method` and a non-empty `evidence` map.
+- **Canonical Scale**: Confidence scores are represented strictly on a ratio scale (`0.0 <= score <= 1.0`); percentage formatting is presentation-only.
+- **No Fabricated Defaults**: If a capability cannot compute meaningful confidence, it reports confidence as unavailable (`None`) rather than fabricating arbitrary numbers or default success ratings.
 
 ---
 
