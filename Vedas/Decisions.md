@@ -10,7 +10,7 @@ This file records product and UI decisions agreed during planning discussions.
 
 ## Home Screen — User-Facing Task Optimization
 
-**Status:** Approved task set and order; Documents Extraction second-level tasks approved; implementation not requested
+**Status:** Approved task set and order; Documents Extraction and Bank Account Consolidation second-level tasks approved; implementation not requested
 
 The Home screen user-facing processing choices will be limited to the following four tasks, in this order:
 
@@ -60,6 +60,20 @@ The Home screen user-facing processing choices will be limited to the following 
    - Exposes the full OCR configuration surface.
    - Allows selection and control of preprocessing and post-processing options.
    - Allows OCR engine selection, including local engines and Cloud OCR options.
+
+## Bank Account Consolidation — Second-Level Tasks
+
+**Bank Account Consolidation** is a parent task. Selecting it expands the following two choices, in this order:
+
+1. **Instant Consolidation**
+   - Speed-focused consolidation mode.
+   - Uses minimal preprocessing and post-processing.
+   - Uses optimal validation suitable for the instant workflow.
+
+2. **Accurate Consolidation**
+   - Accuracy-focused consolidation mode.
+   - Uses optimal preprocessing and post-processing.
+   - Uses robust validation for higher-confidence consolidation results.
 
 ### Deferred from the Home task list
 
