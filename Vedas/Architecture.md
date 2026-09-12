@@ -83,7 +83,321 @@ Sarathi enforces strict integrity rules for confidence and quality observations:
   - **Pramana** records evidence-backed quality observations: confidence metrics, region/page validation outcomes, and accuracy measurements when verified reference data exists. Confidence is never relabeled as accuracy.
 - **Strict Evidence Requirement**: Every reported `ConfidenceValue` mandates a non-empty calculation `method` and a non-empty `evidence` map.
 - **Canonical Scale**: Confidence scores are represented strictly on a ratio scale (`0.0 <= score <= 1.0`); percentage formatting is presentation-only.
-- **No Fabricated Defaults**: If a capability cannot compute meaningful confidence, it reports confidence as unavailable (`None`) rather than fabricating arbitrary numbers or default success ratings.
+---
+
+## Canonical Project Structure
+
+```text
+sarathi/
+├── pyproject.toml
+├── uv.lock
+├── arambha.bat
+├── README.md
+├── AGENTS.md
+├── src/
+│   └── sarathi/
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── agni/
+│       │   ├── __init__.py
+│       │   ├── bootstrap.py
+│       │   ├── dispatcher.py
+│       │   ├── preflight.py
+│       │   ├── readiness.py
+│       │   └── wiring.py
+│       ├── sankalpa/
+│       │   ├── __init__.py
+│       │   ├── artifact.py
+│       │   ├── cancellation.py
+│       │   ├── capability.py
+│       │   ├── context.py
+│       │   ├── document.py
+│       │   ├── execution_profile.py
+│       │   ├── plugin.py
+│       │   ├── readiness.py
+│       │   ├── request.py
+│       │   └── result.py
+│       ├── dosh/
+│       │   ├── __init__.py
+│       │   └── errors.py
+│       ├── sutra/
+│       │   ├── __init__.py
+│       │   ├── loader.py
+│       │   └── settings.py
+│       ├── kavacha/
+│       │   ├── __init__.py
+│       │   ├── policy.py
+│       │   └── service.py
+│       ├── smriti/
+│       │   ├── __init__.py
+│       │   ├── key.py
+│       │   ├── memory.py
+│       │   ├── policy.py
+│       │   ├── serialization.py
+│       │   └── store.py
+│       ├── darpana/
+│       │   ├── __init__.py
+│       │   ├── history.py
+│       │   ├── maruti.py
+│       │   ├── pramana.py
+│       │   └── service.py
+│       ├── yantra/
+│       │   ├── __init__.py
+│       │   ├── devices.py
+│       │   ├── manager.py
+│       │   └── resources.py
+│       ├── nabhi/
+│       │   ├── __init__.py
+│       │   ├── kosh.py
+│       │   ├── manthan.py
+│       │   ├── quarantine.py
+│       │   ├── artifacts/
+│       │   │   ├── __init__.py
+│       │   │   ├── atomic_io.py
+│       │   │   ├── boundary.py
+│       │   │   ├── finalization.py
+│       │   │   ├── manifest.py
+│       │   │   ├── paths.py
+│       │   │   ├── promotion.py
+│       │   │   └── workspace.py
+│       │   └── pravaha/
+│       │       ├── __init__.py
+│       │       ├── common.py
+│       │       ├── engine.py
+│       │       ├── lifecycle.py
+│       │       └── pipeline.py
+│       ├── shakti/
+│       │   ├── __init__.py
+│       │   ├── artifact_naming.py
+│       │   ├── providers.py
+│       │   ├── text/
+│       │   │   ├── __init__.py
+│       │   │   ├── legacy_detection.py
+│       │   │   ├── markdown.py
+│       │   │   ├── span_protection.py
+│       │   │   └── typography.py
+│       │   ├── darshana/
+│       │   │   ├── __init__.py
+│       │   │   ├── capability.py
+│       │   │   ├── facts.py
+│       │   │   ├── identifier.py
+│       │   │   ├── plugin.py
+│       │   │   └── provider.py
+│       │   ├── native_extraction/
+│       │   │   ├── __init__.py
+│       │   │   ├── capability.py
+│       │   │   ├── detector.py
+│       │   │   ├── plugin.py
+│       │   │   ├── provider.py
+│       │   │   └── readers/
+│       │   │       ├── __init__.py
+│       │   │       ├── common.py
+│       │   │       ├── delimited.py
+│       │   │       ├── docx.py
+│       │   │       ├── html.py
+│       │   │       ├── pdf.py
+│       │   │       └── spreadsheet.py
+│       │   ├── ocr/
+│       │   │   ├── __init__.py
+│       │   │   ├── capability.py
+│       │   │   ├── plugin.py
+│       │   │   ├── provider.py
+│       │   │   ├── telemetry.py
+│       │   │   ├── typography.py
+│       │   │   └── engine/
+│       │   │       ├── __init__.py
+│       │   │       ├── common.py
+│       │   │       ├── coordinator.py
+│       │   │       ├── factory.py
+│       │   │       ├── openvino.py
+│       │   │       ├── parser.py
+│       │   │       ├── preprocessing.py
+│       │   │       ├── rasterize.py
+│       │   │       ├── readiness.py
+│       │   │       └── tesseract.py
+│       │   ├── translation/
+│       │   │   ├── __init__.py
+│       │   │   ├── capability.py
+│       │   │   ├── detector.py
+│       │   │   ├── engine.py
+│       │   │   ├── glossary.py
+│       │   │   ├── models.py
+│       │   │   ├── plugin.py
+│       │   │   ├── protector.py
+│       │   │   └── provider.py
+│       │   ├── font_conversion/
+│       │   │   ├── __init__.py
+│       │   │   ├── akshara.py
+│       │   │   ├── capability.py
+│       │   │   ├── converter.py
+│       │   │   ├── detector.py
+│       │   │   ├── models.py
+│       │   │   ├── plugin.py
+│       │   │   ├── protector.py
+│       │   │   ├── provider.py
+│       │   │   ├── telemetry.py
+│       │   │   └── validator.py
+│       │   ├── bank_statements/
+│       │   │   ├── __init__.py
+│       │   │   ├── capability.py
+│       │   │   ├── consolidator.py
+│       │   │   ├── converter.py
+│       │   │   ├── deduplicator.py
+│       │   │   ├── detector.py
+│       │   │   ├── mapper.py
+│       │   │   ├── models.py
+│       │   │   ├── plugin.py
+│       │   │   ├── provider.py
+│       │   │   ├── row_classifier.py
+│       │   │   ├── table_locator.py
+│       │   │   └── validator.py
+│       │   ├── statutory/
+│       │   │   ├── __init__.py
+│       │   │   ├── capability.py
+│       │   │   ├── checksums.py
+│       │   │   ├── detector.py
+│       │   │   ├── extractor.py
+│       │   │   ├── models.py
+│       │   │   ├── plugin.py
+│       │   │   └── provider.py
+│       │   ├── docx_exporter/
+│       │   │   ├── __init__.py
+│       │   │   ├── builder.py
+│       │   │   ├── constants.py
+│       │   │   ├── font_size_normalizer.py
+│       │   │   ├── scripts.py
+│       │   │   ├── styles.py
+│       │   │   └── transformer.py
+│       │   ├── mistral/
+│       │   │   ├── __init__.py
+│       │   │   ├── client.py
+│       │   │   ├── ocr.py
+│       │   │   ├── plugin.py
+│       │   │   ├── provider.py
+│       │   │   └── translation.py
+│       │   ├── gemini/
+│       │   │   ├── __init__.py
+│       │   │   ├── client.py
+│       │   │   ├── ocr.py
+│       │   │   ├── plugin.py
+│       │   │   ├── provider.py
+│       │   │   └── translation.py
+│       │   ├── azure/
+│       │   │   ├── __init__.py
+│       │   │   ├── client.py
+│       │   │   ├── ocr.py
+│       │   │   ├── plugin.py
+│       │   │   ├── provider.py
+│       │   │   └── translation.py
+│       │   └── bhashini/
+│       │       ├── __init__.py
+│       │       ├── client.py
+│       │       ├── ocr.py
+│       │       ├── plugin.py
+│       │       ├── provider.py
+│       │       └── translation.py
+│       └── mukha/
+│           ├── __init__.py
+│           ├── intake.py
+│           ├── presenter.py
+│           ├── state.py
+│           └── web/
+│               ├── __init__.py
+│               ├── app.py
+│               ├── comparison.py
+│               ├── diagnostics.py
+│               ├── native_picker.py
+│               ├── planner.py
+│               ├── preview.py
+│               ├── runner.py
+│               ├── security.py
+│               ├── server.py
+│               ├── state_builder.py
+│               ├── assets/
+│               │   └── icons.svg
+│               └── ui/
+│                   ├── index.html
+│                   ├── app.js
+│                   └── app.css
+├── ui/
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   ├── index.html
+│   └── src/
+│       ├── App.tsx
+│       ├── api.ts
+│       ├── types.ts
+│       ├── main.tsx
+│       ├── theme.css
+│       └── components/
+├── data/
+│   ├── banks/
+│   │   ├── common.yaml
+│   │   ├── hdfc.yaml
+│   │   ├── icici.yaml
+│   │   └── sbi.yaml
+│   ├── fonts/
+│   │   ├── chanakya010.json
+│   │   ├── devlys010.json
+│   │   ├── krutidev010.json
+│   │   ├── shivaji010.json
+│   │   └── shusha010.json
+│   ├── ocr/
+│   │   ├── manifest.json
+│   │   └── models/
+│   └── translation/
+│       ├── manifest.json
+│       └── glossaries/
+├── config/
+│   └── settings.toml
+├── scripts/
+│   ├── Initialize-SarathiArchitecture.ps1
+│   ├── Setup-OCRModels.ps1
+│   ├── Setup-SarathiEnvironment.ps1
+│   └── benchmarks/
+├── tests/
+│   ├── architecture/
+│   ├── agni/
+│   ├── bank_statements/
+│   ├── cancellation/
+│   ├── configuration/
+│   ├── contracts/
+│   ├── dosh/
+│   ├── font_conversion/
+│   ├── intake/
+│   ├── integration/
+│   ├── mukha/
+│   ├── nabhi/
+│   ├── native_extraction/
+│   ├── ocr/
+│   ├── security/
+│   ├── shakti/
+│   ├── smriti/
+│   ├── statutory/
+│   ├── telemetry/
+│   ├── translation/
+│   └── yantra/
+├── Input/
+├── Output/
+├── Runtime/
+│   ├── Cache/
+│   ├── Quarantine/
+│   └── Telemetry/
+└── Vedas/
+    ├── architecture.manifest.json
+    ├── architecture.manifest.schema.json
+    ├── README.md
+    ├── Architecture.md
+    ├── Capabilities.md
+    ├── Configuration.md
+    ├── Formats.md
+    ├── Troubleshooting.md
+    ├── Development.md
+    ├── Mukha_Transport.md
+    └── Cleanup_Optimization_Plan.md
+```
 
 ---
 
