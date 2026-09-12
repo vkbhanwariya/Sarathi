@@ -8,21 +8,22 @@ This file records product and UI decisions agreed during planning discussions.
 - Record only agreed decisions in this file.
 - Keep unresolved ideas clearly marked as pending rather than treating them as implementation requirements.
 
-## Home Screen Simplification
+## Home Screen — User-Facing Task Optimization
 
-**Status:** Direction approved; detailed layout pending
+**Status:** Scope approved; final task set and order pending
 
-The current Home screen is considered too cluttered and should be simplified before implementation work is requested.
+The current Home screen exposes too many processing choices to the user. Optimization work is limited to the user-facing task choices only.
 
-### Agreed direction
+### Agreed scope
 
-- Reduce visual and decision clutter on the Home screen.
-- Do not expose every provider-specific capability as an equal top-level choice.
-- Avoid duplicating the same capabilities across dropdowns, tabs, and cards in the default view.
-- Keep advanced OCR/provider/settings controls out of the default Home experience unless they are relevant to the selected task.
-- No implementation code should be changed until the simplified layout is explicitly approved.
+- Optimize only the processing tasks presented to the user.
+- Do not redesign Document Intake, Execution Plan, navigation, monitoring, review, summary, or inspector screens as part of this decision.
+- Do not change OCR parameters, provider configuration, execution profiles, or other technical controls as part of this decision unless a later decision explicitly includes them.
+- Do not expose every provider-specific implementation as an equal user-facing task when several providers perform the same underlying task.
+- Prefer clear task-oriented labels over engine/provider-oriented labels.
+- No implementation code should be changed until the final user-facing task set and order are explicitly approved.
 
-### Current runtime state
+### Current runtime task choices
 
 The Processing Action UI currently exposes 14 registered actions:
 
@@ -41,12 +42,9 @@ The Processing Action UI currently exposes 14 registered actions:
 13. Bhashini Chitrakshar OCR
 14. Bhashini IndicTrans2 Translation
 
-The same actions are additionally regrouped into Core Local, OCR, Translation, CLOUD, and All tabs. OCR selection can expose multiple technical parameters such as execution profile, model/language, preprocessing, deskew, CLAHE, binarization, Tesseract fallback, and validation.
-
 ### Pending decisions
 
-- Final set of primary Home actions.
-- Final visual order of those actions.
-- Which controls belong under Advanced Settings.
-- How cloud providers should be selected.
-- Whether the execution-plan preview should remain visible by default.
+- Final set of user-facing tasks.
+- Final wording/labels for those tasks.
+- Final order of the tasks.
+- Whether any closely related tasks should be grouped under one user-facing choice.
