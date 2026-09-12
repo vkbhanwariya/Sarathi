@@ -724,7 +724,7 @@ function Home({
     if (primaryTask === "documents_extraction") {
       if (currentSubtask === "native") return { requirement: "read_native", profile: layoutAnalysis ? "layout_preserving" : "instant" };
       if (currentSubtask === "instant_ocr") return { requirement: "ocr", profile: "instant" };
-      if (currentSubtask === "accurate_ocr") return { requirement: "ocr", profile: "accurate" };
+      if (currentSubtask === "accurate_ocr") return { requirement: "ocr", profile: preserveLayout ? "layout_preserving" : "accurate" };
       if (currentSubtask === "cloud_ocr") return { requirement: cloudOcrProvider, profile: "instant" };
       if (currentSubtask === "custom_ocr") {
         const p = String(ocrCustomParams.profile || "custom");
@@ -747,7 +747,7 @@ function Home({
       return { requirement: "translation", profile: "instant" };
     }
     return { requirement: "read_native", profile: "instant" };
-  }, [primaryTask, currentSubtask, layoutAnalysis, cloudOcrProvider, ocrCustomParams.profile]);
+  }, [primaryTask, currentSubtask, layoutAnalysis, preserveLayout, cloudOcrProvider, ocrCustomParams.profile]);
 
   const activeAction = currentBackendMapping
     ? state.available_actions.find((action) => action.action_id === currentBackendMapping.requirement)
@@ -1339,7 +1339,7 @@ function Home({
                                   <p class="action-card-desc">
                                     Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV. Automatically invokes statutory/legal extraction.
                                   </p>
-                                  <div class="subtask-options-row">
+                                  <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
                                     <label class="toggle-row mini">
                                       <input
                                         id="param-convert-legacy-fonts"
@@ -1443,7 +1443,7 @@ function Home({
                                   <p class="action-card-desc">
                                     Quality-optimized OCR with CLAHE, deskew, binarization, and selective Tesseract 5 fallback.
                                   </p>
-                                  <div class="subtask-options-row">
+                                  <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
                                     <label class="toggle-row mini">
                                       <input
                                         id="param-preserve-layout"

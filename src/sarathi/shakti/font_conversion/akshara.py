@@ -148,6 +148,8 @@ def synthesize_akshara_unicode(text: str) -> str:
 
     # Repair inadvertent typist spacing between consonant/cluster and dependent vowel matra or virama (e.g. 'क  ा' -> 'का', 'क  ्' -> 'क्')
     text = re.sub(rf"({DEVA_CONSONANTS}{DEVA_NUKTA}?)\s+({DEVA_MATRAS}|{DEVA_VIRAMA})", r"\1\2", text)
+    # Repair spacing after virama before next consonant in split conjuncts (e.g. 'क् पनी' -> 'क्पनी')
+    text = re.sub(rf"({DEVA_CONSONANTS}{DEVA_NUKTA}?{DEVA_VIRAMA})\s+({DEVA_CONSONANTS})", r"\1\2", text)
 
     # Standard NFC normalization
     return unicodedata.normalize("NFC", text)

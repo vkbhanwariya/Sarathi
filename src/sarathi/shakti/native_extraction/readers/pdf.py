@@ -17,6 +17,13 @@ from sarathi.shakti.native_extraction.readers.common import (
     PLUGIN_ID,
     STAGE_NAME,
 )
+from sarathi.shakti.text.typography import normalize_text_spacing
+
+_PDF_TEXT_FLAGS = (
+    pymupdf.TEXT_DEHYPHENATE
+    | pymupdf.TEXT_PRESERVE_WHITESPACE
+    | pymupdf.TEXT_PRESERVE_LIGATURES
+)
 
 
 def read_pdf(
@@ -61,14 +68,15 @@ def read_pdf(
         for page_idx in range(total_pages):
             page_num = page_idx + 1
             page = doc[page_idx]
-            page_text = page.get_text("text").strip()
+            raw_text = page.get_text("text", flags=_PDF_TEXT_FLAGS).strip()
+            page_text = normalize_text_spacing(raw_text)
             if page_text:
                 full_text_parts.append(page_text)
 
             # Extract text spans with font size and formatting evidence
             spans: list[TextSpan] = []
             try:
-                page_dict = page.get_text("dict")
+                page_dict = page.get_text("dict", flags=_PDF_TEXT_FLAGS)
                 for block in page_dict.get("blocks", []):
                     if "lines" in block:
                         for line in block["lines"]:

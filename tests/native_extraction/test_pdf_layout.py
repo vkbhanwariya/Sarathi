@@ -136,3 +136,23 @@ def test_native_extraction_capability_with_layout_analysis(tmp_path: Path) -> No
 
     # Provenance confirms pymupdf_layout was used
     assert any(p.evidence.get("reader") == "pymupdf_layout" for p in res.provenance)
+
+
+def test_spatial_word_reconstruction_and_paragraph_breaks() -> None:
+    """Verify that multi-span words and paragraph boundaries are accurately spaced."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((72, 72), "Statutory Audit Notice", fontsize=16)
+    page.insert_text((72, 110), "Section 1: ", fontname="helv", fontsize=12)
+    page.insert_text((135, 110), "Scope of Review", fontname="times-roman", fontsize=12)
+    page.insert_text((72, 140), "First paragraph line one.", fontsize=10)
+    page.insert_text((72, 155), "First paragraph line two.", fontsize=10)
+    page.insert_text((72, 190), "Second paragraph starts here.", fontsize=10)
+    data = doc.tobytes()
+    doc.close()
+
+    cdoc, _, _ = read_pdf_with_layout(data, "inp-spacing")
+    assert "Statutory Audit Notice" in cdoc.text
+    assert "Section 1: Scope of Review" in cdoc.text
+    assert "First paragraph line one.\nFirst paragraph line two." in cdoc.text
+    assert "\n\nSecond paragraph starts here." in cdoc.text

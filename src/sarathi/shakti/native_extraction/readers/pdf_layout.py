@@ -19,6 +19,13 @@ from sarathi.shakti.native_extraction.readers.common import (
     PLUGIN_ID,
     STAGE_NAME,
 )
+from sarathi.shakti.text.typography import normalize_text_spacing, reconstruct_line_from_spans
+
+_PDF_TEXT_FLAGS = (
+    pymupdf.TEXT_DEHYPHENATE
+    | pymupdf.TEXT_PRESERVE_WHITESPACE
+    | pymupdf.TEXT_PRESERVE_LIGATURES
+)
 
 # Semantic heading classes identified by BoxRFDGNN
 _HEADING_CLASSES = frozenset({"title", "section-header"})
@@ -80,23 +87,25 @@ def read_pdf_with_layout(
                     )
                 )
 
-            # Extract raw rich spans from page
-            raw_spans: list[tuple[TextSpan, float, float]] = []
+            # Extract raw rich lines and spans from page with font-metric whitespace preservation
+            raw_lines: list[dict[str, Any]] = []
             try:
-                page_dict = page.get_text("dict")
+                page_dict = page.get_text("dict", flags=_PDF_TEXT_FLAGS)
                 for block in page_dict.get("blocks", []):
                     if "lines" in block:
                         for line in block["lines"]:
+                            line_spans_data: list[tuple[str, tuple[float, float, float, float], float]] = []
+                            spans_objs: list[TextSpan] = []
+                            l_bbox = tuple(float(v) for v in line.get("bbox", (0.0, 0.0, 0.0, 0.0)))
                             for s in line.get("spans", []):
                                 s_text = s.get("text", "")
-                                if isinstance(s_text, str) and s_text.strip():
+                                if isinstance(s_text, str) and s_text:
                                     s_bbox = tuple(float(v) for v in s.get("bbox", (0.0, 0.0, 0.0, 0.0)))
                                     s_size = float(s.get("size", 12.0))
                                     s_font = str(s.get("font", ""))
-                                    cx = (s_bbox[0] + s_bbox[2]) / 2.0
-                                    cy = (s_bbox[1] + s_bbox[3]) / 2.0
-                                    raw_spans.append(
-                                        (
+                                    line_spans_data.append((s_text, s_bbox, s_size))
+                                    if s_text.strip():
+                                        spans_objs.append(
                                             TextSpan(
                                                 text=s_text.strip(),
                                                 bounding_box=s_bbox,
@@ -105,11 +114,19 @@ def read_pdf_with_layout(
                                                     "font_size_pt": round(s_size, 1),
                                                     "is_heading": s_size >= 14.0,
                                                 },
-                                            ),
-                                            cx,
-                                            cy,
+                                            )
                                         )
-                                    )
+                            if line_spans_data:
+                                line_str = reconstruct_line_from_spans(line_spans_data)
+                                lcx = (l_bbox[0] + l_bbox[2]) / 2.0
+                                lcy = (l_bbox[1] + l_bbox[3]) / 2.0
+                                raw_lines.append({
+                                    "bbox": l_bbox,
+                                    "cx": lcx,
+                                    "cy": lcy,
+                                    "line_text": line_str,
+                                    "spans": spans_objs,
+                                })
             except Exception:
                 warnings.append(
                     WarningRecord(
@@ -119,10 +136,11 @@ def read_pdf_with_layout(
                     )
                 )
 
-            # Map spans to GNN layout items and assign semantic labels
+            # Map lines and spans to GNN layout items and assign semantic labels
             ordered_spans: list[TextSpan] = []
             classes_detected: set[str] = set()
-            assigned_span_indices: set[int] = set()
+            assigned_line_indices: set[int] = set()
+            item_blocks: list[tuple[str, list[str]]] = []
 
             if layout_items:
                 for item_idx, item in enumerate(layout_items):
@@ -134,34 +152,43 @@ def read_pdf_with_layout(
                     is_hdg = cls_name in _HEADING_CLASSES
                     hdg_lvl = 1 if cls_name == "title" else (2 if cls_name == "section-header" else None)
 
-                    # Collect spans that lie inside this layout region
-                    for s_idx, (span, cx, cy) in enumerate(raw_spans):
-                        if s_idx not in assigned_span_indices and _point_in_bbox(cx, cy, item_bbox):
-                            assigned_span_indices.add(s_idx)
-                            meta = dict(span.metadata)
-                            meta["layout_class"] = cls_name
-                            meta["layout_order"] = item_idx
-                            if is_hdg:
-                                meta["is_heading"] = True
-                                meta["heading_level"] = hdg_lvl
-                            if is_hdr_ftr:
-                                meta["is_header_footer"] = True
+                    item_lines: list[str] = []
+                    for l_idx, line_info in enumerate(raw_lines):
+                        if l_idx not in assigned_line_indices and _point_in_bbox(line_info["cx"], line_info["cy"], item_bbox):
+                            assigned_line_indices.add(l_idx)
+                            item_lines.append(line_info["line_text"])
+                            for span in line_info["spans"]:
+                                meta = dict(span.metadata)
+                                meta["layout_class"] = cls_name
+                                meta["layout_order"] = item_idx
+                                if is_hdg:
+                                    meta["is_heading"] = True
+                                    meta["heading_level"] = hdg_lvl
+                                if is_hdr_ftr:
+                                    meta["is_header_footer"] = True
 
-                            ordered_spans.append(
-                                TextSpan(
-                                    text=span.text,
-                                    bounding_box=span.bounding_box,
-                                    confidence=span.confidence,
-                                    language=span.language,
-                                    script=span.script,
-                                    metadata=meta,
+                                ordered_spans.append(
+                                    TextSpan(
+                                        text=span.text,
+                                        bounding_box=span.bounding_box,
+                                        confidence=span.confidence,
+                                        language=span.language,
+                                        script=span.script,
+                                        metadata=meta,
+                                    )
                                 )
-                            )
+                    if item_lines:
+                        item_blocks.append((cls_name, item_lines))
 
-            # Append any unassigned spans in their original spatial order
-            for s_idx, (span, _, _) in enumerate(raw_spans):
-                if s_idx not in assigned_span_indices:
-                    ordered_spans.append(span)
+            # Append any unassigned lines in their natural spatial order
+            unassigned_lines: list[str] = []
+            for l_idx, line_info in enumerate(raw_lines):
+                if l_idx not in assigned_line_indices:
+                    unassigned_lines.append(line_info["line_text"])
+                    ordered_spans.extend(line_info["spans"])
+
+            if unassigned_lines:
+                item_blocks.append(("unassigned", unassigned_lines))
 
             # Extract tables with GNN neural table region guidance
             page_tables: list[TableData] = []
@@ -208,15 +235,20 @@ def read_pdf_with_layout(
                 except Exception:
                     pass
 
-            # Synthesize ordered page text
-            if ordered_spans:
-                if skip_header_footer:
-                    body_spans = [s for s in ordered_spans if not s.metadata.get("is_header_footer")]
-                    page_text = " ".join(s.text for s in body_spans) if body_spans else page.get_text("text").strip()
-                else:
-                    page_text = " ".join(s.text for s in ordered_spans)
+            # Synthesize ordered page text with proper line and paragraph spacing
+            block_strings: list[str] = []
+            for cls_name, lines in item_blocks:
+                if skip_header_footer and cls_name in _HEADER_FOOTER_CLASSES:
+                    continue
+                block_content = "\n".join(lines).strip()
+                if block_content:
+                    block_strings.append(block_content)
+
+            if block_strings:
+                page_text = "\n\n".join(block_strings)
             else:
-                page_text = page.get_text("text").strip()
+                raw_fallback = page.get_text("text", flags=_PDF_TEXT_FLAGS).strip()
+                page_text = normalize_text_spacing(raw_fallback)
 
             if page_text:
                 full_text_parts.append(page_text)

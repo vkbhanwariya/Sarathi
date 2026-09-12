@@ -140,7 +140,7 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     """Verify that buildRequest produces identical configuration for preview and execution."""
     app_page.locator("#btn-task-documents-extraction").click()
     accurate_ocr_card = app_page.locator("#subtask-accurate-ocr")
-    accurate_ocr_card.click()
+    accurate_ocr_card.locator(".action-card-header").click()
     expect(accurate_ocr_card).to_have_class(re.compile(r"\bselected\b"))
 
     payload = app_page.evaluate(
@@ -149,6 +149,54 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     assert payload is not None
     assert payload["requirement"] == "ocr"
     assert payload["profile"] == "accurate"
+
+
+def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
+    """Verify that layout preservation and GNN layout analysis checkboxes toggle on click and update request payload."""
+    app_page.locator("#btn-task-documents-extraction").click()
+
+    # 1. Accurate OCR: Preserve Layout toggle
+    card = app_page.locator("#subtask-accurate-ocr")
+    card.locator(".action-card-header").click()
+    chk_preserve = app_page.locator("#param-preserve-layout")
+    expect(chk_preserve).not_to_be_checked()
+
+    # Click checkbox directly
+    chk_preserve.click()
+    expect(chk_preserve).to_be_checked()
+
+    # Verify payload reflects layout_preserving profile
+    payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
+    assert payload is not None
+    assert payload["requirement"] == "ocr"
+    assert payload["profile"] == "layout_preserving"
+    assert payload["custom_options"].get("preserve_layout") is True
+
+    # Click label to toggle off
+    label_preserve = app_page.locator("label:has(#param-preserve-layout)")
+    label_preserve.click()
+    expect(chk_preserve).not_to_be_checked()
+    payload_off = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
+    assert payload_off["profile"] == "accurate"
+
+    # 2. Native Extraction: Deep Layout Analysis toggle
+    native_card = app_page.locator("#subtask-native")
+    native_card.locator(".action-card-header").click()
+    chk_gnn = app_page.locator("#param-layout-analysis")
+    expect(chk_gnn).not_to_be_checked()
+
+    chk_gnn.click()
+    expect(chk_gnn).to_be_checked()
+
+    native_payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
+    assert native_payload is not None
+    assert native_payload["requirement"] == "read_native"
+    assert native_payload["profile"] == "layout_preserving"
+    assert native_payload["custom_options"].get("layout_analysis") is True
+
+
+
+
 
 
 
