@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -199,10 +200,20 @@ def execute_request(
                 exec_ctx.cancellation_token.check_cancelled()
 
             # 6. Finalize workspace and write run-manifest.json last
+            manifest_metadata: dict[str, Any] = {
+                "total_inputs": len(request.inputs),
+                "input_ids": [inp.input_id for inp in request.inputs],
+            }
+            if "input_outcomes" in raw_result.metadata:
+                manifest_metadata["input_outcomes"] = dict(raw_result.metadata["input_outcomes"])
+            if "contributing_input_ids" in raw_result.metadata:
+                manifest_metadata["contributing_input_ids"] = list(raw_result.metadata["contributing_input_ids"])
+
             workspace.finalize(
                 success=True,
                 provenance=raw_result.provenance,
                 warnings=raw_result.warnings,
+                metadata=manifest_metadata,
             )
 
             duration_ms = max(0, (time.perf_counter_ns() - t_start_ns) // 1_000_000)
@@ -232,6 +243,8 @@ def execute_request(
 
             # 7. Return final Result with confirmed ArtifactRefs strictly from active workspace
             result_metadata = dict(raw_result.metadata)
+            result_metadata["run_id"] = exec_ctx.run_id
+            result_metadata["request_id"] = request.request_id
             if workspace.output_dir:
                 result_metadata["output_dir"] = str(workspace.output_dir.resolve())
 

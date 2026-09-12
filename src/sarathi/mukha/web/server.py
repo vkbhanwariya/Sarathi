@@ -13,6 +13,7 @@ import uvicorn
 
 from sarathi.mukha.state import (
     ApplicationViewState,
+    ArtifactOutcomeView,
     InspectorViewState,
     ReviewIntent,
     RunSummaryView,
@@ -123,8 +124,9 @@ class MukhaWebServer:
         if status == "COMPLETED":
             status = "SUCCESS"
 
-        artifacts: list[ArtifactRef] = []
+        artifacts: list[ArtifactOutcomeView] = []
         total_inputs: int | None = None
+        input_outcomes: dict[str, str] = {}
 
         if terminal.output_dir:
             manifest_path = self._agni.output_root / terminal.output_dir / "run-manifest.json"
@@ -136,14 +138,34 @@ class MukhaWebServer:
                     for art in mdata.get("artifacts", []):
                         rel_p = art.get("relative_path", "")
                         full_p = (out_dir_path / rel_p).resolve()
+                        disp_name = rel_p or art.get("artifact_id") or "artifact"
+
+                        art_ref = ArtifactRef(
+                            artifact_id=art.get("artifact_id", ""),
+                            path=full_p,
+                            role=art.get("role", "primary"),
+                            media_type=art.get("media_type", "application/octet-stream"),
+                            size_bytes=art.get("size_bytes", 0),
+                            checksum_sha256=art.get("checksum_sha256", ""),
+                        )
+                        with self._runner._lock:
+                            if terminal.run_id not in self._runner._confirmed_artifacts:
+                                self._runner._confirmed_artifacts[terminal.run_id] = {}
+                            self._runner._confirmed_artifacts[terminal.run_id][art_ref.artifact_id] = art_ref
+                            if terminal.request_id:
+                                self._runner._run_aliases[terminal.request_id] = terminal.run_id
+                                self._runner._run_aliases[terminal.run_id] = terminal.request_id
+                                if terminal.request_id not in self._runner._confirmed_artifacts:
+                                    self._runner._confirmed_artifacts[terminal.request_id] = {}
+                                self._runner._confirmed_artifacts[terminal.request_id][art_ref.artifact_id] = art_ref
+
                         artifacts.append(
-                            ArtifactRef(
+                            ArtifactOutcomeView(
                                 artifact_id=art.get("artifact_id", ""),
-                                path=full_p,
                                 role=art.get("role", "primary"),
-                                media_type=art.get("media_type", "application/octet-stream"),
+                                display_name=disp_name,
                                 size_bytes=art.get("size_bytes", 0),
-                                checksum_sha256=art.get("checksum_sha256", ""),
+                                sha256_hex=art.get("checksum_sha256", ""),
                             )
                         )
                     prov = mdata.get("provenance", [])
@@ -152,18 +174,28 @@ class MukhaWebServer:
                         for p in prov
                         if isinstance(p, dict) and p.get("source_input_id")
                     }
-                    if distinct_inputs:
+                    if mdata.get("input_outcomes") and isinstance(mdata["input_outcomes"], dict):
+                        input_outcomes = mdata["input_outcomes"]
+                    elif mdata.get("metadata", {}).get("input_outcomes") and isinstance(mdata["metadata"]["input_outcomes"], dict):
+                        input_outcomes = mdata["metadata"]["input_outcomes"]
+
+                    if input_outcomes:
+                        total_inputs = len(input_outcomes)
+                    elif distinct_inputs:
                         total_inputs = len(distinct_inputs)
                     elif mdata.get("total_inputs"):
                         total_inputs = int(mdata["total_inputs"])
                 except Exception:
                     pass
 
-        if total_inputs is None:
-            total_inputs = 1 if (status == "SUCCESS" or terminal.artifact_count > 0) else (1 if status == "FAILED" else 0)
-
-        successful_files = total_inputs if status == "SUCCESS" else 0
-        failed_files = total_inputs if status == "FAILED" else 0
+        if input_outcomes:
+            successful_files = sum(1 for s in input_outcomes.values() if s.upper() in ("SUCCESS", "WARNING", "COMPLETED"))
+            failed_files = sum(1 for s in input_outcomes.values() if s.upper() in ("FAILED", "FAILURE"))
+        else:
+            if total_inputs is None:
+                total_inputs = 1 if (status == "SUCCESS" or terminal.artifact_count > 0) else (1 if status == "FAILED" else 0)
+            successful_files = total_inputs if status == "SUCCESS" else 0
+            failed_files = total_inputs if status == "FAILED" else 0
 
         return RunSummaryView(
             run_id=terminal.run_id,
@@ -182,6 +214,7 @@ class MukhaWebServer:
                 else ()
             ),
             failures=(("Execution failed.",) if status == "FAILED" else ()),
+            request_id=terminal.request_id,
         )
 
     def get_run_history(self, limit: int = 50) -> tuple[Any, ...]:

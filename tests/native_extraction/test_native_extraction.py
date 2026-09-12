@@ -1117,3 +1117,27 @@ class TestNativeExtraction:
         assert table.headers == ("col_a", "col_b", "col_c")
         assert table.rows[0] == ("val1", "val2", "val3")
 
+    def test_unified_biff_signatures_agree_across_detectors(self, tmp_path: Path) -> None:
+        """Item 7: Darshana and Native Extraction format detectors agree on BIFF signatures."""
+        from sarathi.shakti.darshana.identifier import identify_file
+        from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_content_format
+
+        ole_magic = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        # Test synthetic BIFF signatures mentioned in review
+        test_probes = [
+            ole_magic + b"\x00" * 504 + b"\x09\x08\x08\x00" + b"\x00" * 100,
+            ole_magic + b"\x00" * 504 + b"\x09\x08\x10\x00" + b"\x00" * 100,
+            ole_magic + b"\x00" * 504 + b"\x09\x08\x02\x00" + b"\x00" * 100,
+            ole_magic + b"\x00" * 504 + b"\x09\x04\x06\x00" + b"\x00" * 100,
+            ole_magic + b"\x00" * 504 + b"Workbook" + b"\x00" * 100,
+        ]
+        for idx, probe in enumerate(test_probes):
+            probe_path = tmp_path / f"probe_{idx}.bin"
+            probe_path.write_bytes(probe)
+            darshana_facts = identify_file(probe_path)
+            native_fmt = detect_content_format(probe)
+
+            assert darshana_facts.format_name == "xls_legacy", f"Darshana failed on probe {idx}"
+            assert native_fmt == DetectedFormat.XLS_LEGACY, f"Native extraction failed on probe {idx}"
+
+

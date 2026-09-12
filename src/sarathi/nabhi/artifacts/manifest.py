@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.artifacts.paths import (
@@ -26,6 +26,7 @@ def serialize_run_manifest(
     output_dir: Path,
     provenance: Sequence[ProvenanceRecord] | None = None,
     warnings: Sequence[WarningRecord] | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> bytes:
     """Validate and serialize the run manifest according to strict schema invariants.
 
@@ -50,6 +51,22 @@ def serialize_run_manifest(
         ],
         "partial_artifacts": partial_manifest_entries,
     }
+
+    if metadata is not None:
+        if not isinstance(metadata, Mapping):
+            raise TypeError(f"metadata must be a Mapping or None, got {type(metadata).__name__}.")
+        if "total_inputs" in metadata:
+            try:
+                manifest_data["total_inputs"] = int(metadata["total_inputs"])
+            except (ValueError, TypeError):
+                pass
+        if "input_outcomes" in metadata and isinstance(metadata["input_outcomes"], Mapping):
+            safe_outcomes = {}
+            for k, v in metadata["input_outcomes"].items():
+                if isinstance(k, str) and isinstance(v, str):
+                    safe_outcomes[k] = v
+            if safe_outcomes:
+                manifest_data["input_outcomes"] = safe_outcomes
 
     # Safe provenance identity recording only (strictly validated against safe identifiers when present)
     if provenance is not None:

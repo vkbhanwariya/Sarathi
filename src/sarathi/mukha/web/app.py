@@ -347,7 +347,8 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         return _json(200, {"ok": True, "items": list(mukha.get_review_items(run_id))})
 
     async def input_preview(request: Request) -> Response:
-        status, payload = build_input_preview(mukha, request.path_params["input_id"])
+        input_id = request.path_params["input_id"]
+        status, payload = await asyncio.to_thread(build_input_preview, mukha, input_id)
         return _json(status, payload)
 
     async def input_raw(request: Request) -> Response:
@@ -364,14 +365,17 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             page = int(request.query_params.get("page", "1"))
         except ValueError:
             page = 1
-        status, payload = render_pdf_page(str(target), page)
+        status, payload = await asyncio.to_thread(render_pdf_page, str(target), page)
         return _json(status, payload)
 
     async def artifact_preview(request: Request) -> Response:
-        status, payload = build_artifact_preview(
+        run_id = request.path_params["run_id"]
+        artifact_id = request.path_params["artifact_id"]
+        status, payload = await asyncio.to_thread(
+            build_artifact_preview,
             mukha,
-            request.path_params["run_id"],
-            request.path_params["artifact_id"],
+            run_id,
+            artifact_id,
         )
         return _json(status, payload)
 

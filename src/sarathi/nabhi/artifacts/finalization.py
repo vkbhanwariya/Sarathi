@@ -109,6 +109,7 @@ def finalize_run_workspace(
             output_dir=output_dir,
             provenance=provenance,
             warnings=warnings,
+            metadata=metadata,
         )
     except DoshError as err:
         if err.code == FailureCode.EXECUTION_FAILED:

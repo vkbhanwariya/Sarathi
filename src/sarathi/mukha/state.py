@@ -249,6 +249,7 @@ class RunSummaryView:
     artifacts: tuple[ArtifactOutcomeView, ...] = ()
     warnings: tuple[str, ...] = ()
     failures: tuple[str, ...] = ()
+    request_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

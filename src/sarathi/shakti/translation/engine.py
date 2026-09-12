@@ -90,6 +90,7 @@ class CTranslate2TranslationEngine:
             try:
                 st = manifest_path.stat()
                 hasher.update(f"manifest:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                hasher.update(manifest_path.read_bytes())
             except OSError:
                 pass
         anubhava_file = self._data_root / "anubhava.toml"
@@ -97,14 +98,26 @@ class CTranslate2TranslationEngine:
             try:
                 st = anubhava_file.stat()
                 hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                hasher.update(anubhava_file.read_bytes())
             except OSError:
                 pass
+        for g_name in ("glossary.yaml", "glossary.yml"):
+            g_path = self._data_root / g_name
+            if g_path.is_file():
+                try:
+                    st = g_path.stat()
+                    hasher.update(f"{g_name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                    hasher.update(g_path.read_bytes())
+                except OSError:
+                    pass
         glossary_dir = self._data_root / "glossaries"
         if glossary_dir.is_dir():
             try:
-                for p in sorted(glossary_dir.glob("*.json")):
-                    st = p.stat()
-                    hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                for p in sorted(glossary_dir.iterdir()):
+                    if p.is_file() and p.suffix.lower() in (".json", ".yaml", ".yml"):
+                        st = p.stat()
+                        hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                        hasher.update(p.read_bytes())
             except OSError:
                 pass
         return hasher.hexdigest()[:16]

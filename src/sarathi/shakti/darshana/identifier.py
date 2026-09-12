@@ -31,10 +31,13 @@ _ZIP_MAGIC = b"PK\x03\x04"
 _EXCEL_STREAM_PATTERNS = (
     b"Workbook",
     b"Book",
+    b"\x09\x08\x10\x00",  # BIFF8 BOF variant
     b"\x09\x08\x08\x00",  # BIFF8 BOF
     b"\x09\x08\x02\x00",  # BIFF5 BOF
+    b"\x09\x08\x00\x00",  # BIFF5 BOF variant
     b"\x09\x04\x06\x00",  # BIFF4 BOF
     b"\x09\x02\x06\x00",  # BIFF2 BOF
+    b"Microsoft Excel",
 )
 
 _HTML_TAG_REGEX = re.compile(rb"<\s*(html|!doctype\s+html|head|body|table|tr|td|th)\b", re.IGNORECASE)

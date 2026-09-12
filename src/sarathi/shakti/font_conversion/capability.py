@@ -26,7 +26,7 @@ from sarathi.sankalpa import (
 from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload, transform_docx_artifact
-from sarathi.shakti.font_conversion.converter import FontConverter
+from sarathi.shakti.font_conversion.converter import _CANONICAL_ANUBHAVA_PATH, FontConverter
 from sarathi.shakti.font_conversion.detector import (
     LegacyFontDetector,
     decide_run_profile,
@@ -108,7 +108,7 @@ class FontConversionCapability:
         self._protector = TextProtector()
         self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava_path=anubhava_path, profiles=self._profiles)
         self._validator = FontConversionValidator()
-        self._anubhava_path = anubhava_path.resolve() if anubhava_path is not None else None
+        self._anubhava_path = (anubhava_path or _CANONICAL_ANUBHAVA_PATH).resolve()
         self._asset_version = self._compute_asset_version()
 
     def _compute_asset_version(self) -> str:
@@ -120,12 +120,14 @@ class FontConversionCapability:
                 for p in sorted(self._fonts_dir.glob("*.json")):
                     st = p.stat()
                     hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                    hasher.update(p.read_bytes())
             except OSError:
                 pass
         if self._anubhava_path and self._anubhava_path.is_file():
             try:
                 st = self._anubhava_path.stat()
                 hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                hasher.update(self._anubhava_path.read_bytes())
             except OSError:
                 pass
         return hasher.hexdigest()[:16]

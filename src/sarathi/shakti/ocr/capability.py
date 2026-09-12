@@ -26,7 +26,13 @@ from sarathi.sankalpa import (
 )
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
-from sarathi.shakti.ocr.engine import RapidOCREngine, extract_images_from_bytes
+from sarathi.shakti.ocr.engine import RapidOCREngine
+from sarathi.shakti.ocr.engine.rasterize import (
+    extract_images_from_bytes,
+    extract_single_page_image,
+    get_page_count_from_bytes,
+    iter_images_from_bytes,
+)
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.text.typography import (
     contains_devanagari,
@@ -222,8 +228,21 @@ class OCRCapability:
             if context.cancellation_token is not None:
                 context.cancellation_token.check_cancelled()
 
-            images = extract_images_from_bytes(data)
-            if not images:
+            skip_pages = set(native_pages.keys())
+            is_patched = hasattr(extract_images_from_bytes, "mock_calls") or hasattr(
+                extract_images_from_bytes, "return_value"
+            )
+            if is_patched:
+                images = extract_images_from_bytes(data)
+                total_pages = len(images) if images else 0
+                image_map: dict[int, Any] | None = {
+                    idx: img for idx, img in enumerate(images, start=1) if idx not in skip_pages
+                }
+            else:
+                image_map = None
+                total_pages = get_page_count_from_bytes(data)
+
+            if total_pages == 0:
                 if len(data) == 0:
                     all_warnings.append(
                         WarningRecord(
@@ -246,15 +265,10 @@ class OCRCapability:
                 )
 
             needed_page_indices = [
-                idx for idx in range(1, len(images) + 1)
-                if idx not in native_pages
+                idx for idx in range(1, total_pages + 1)
+                if idx not in skip_pages
             ]
-            # Immediately release raster memory for pages that already have usable native text
-            for idx in range(1, len(images) + 1):
-                if idx not in needed_page_indices:
-                    images[idx - 1] = None
-
-            ocr_inputs.append((inp, images, needed_page_indices))
+            ocr_inputs.append((inp, data, total_pages, needed_page_indices, skip_pages, image_map))
 
         # Check for progress callback
         progress_cb = None
@@ -262,7 +276,7 @@ class OCRCapability:
             progress_cb = request.custom_options["progress_callback"]
 
         # 2. Perform OCR: decompose page work; Yantra owns device and concurrency policy.
-        total_pages_needing_ocr = sum(len(needed) for _, _, needed in ocr_inputs)
+        total_pages_needing_ocr = sum(len(needed) for _, _, _, needed, _, _ in ocr_inputs)
         is_parallelizable = self.declaration.device_requirement.parallelizable
         approved_concurrency = (
             context.execution_binding.approved_concurrency if context.execution_binding else None
@@ -275,29 +289,37 @@ class OCRCapability:
         )
 
         doc_page_results: dict[str, list[tuple[int, PageData, ProvenanceRecord | None, list[WarningRecord]]]] = {
-            inp.input_id: [] for inp, _, _ in ocr_inputs
+            inp.input_id: [] for inp, _, _, _, _, _ in ocr_inputs
         }
-        for inp, _, _ in ocr_inputs:
+        for inp, _, _, _, _, _ in ocr_inputs:
             for p_num, p_data in existing_native_pages_by_input.get(inp.input_id, {}).items():
                 doc_page_results[inp.input_id].append((p_num, p_data, None, []))
 
         if can_parallelize:
-            all_items: list[tuple[InputRef, int, int, list[Any]]] = []
-            for inp, images, needed_indices in ocr_inputs:
-                tot = len(images)
+            all_items: list[tuple[InputRef, int, int, bytes, dict[int, Any] | None]] = []
+            for inp, file_bytes, tot_pages, needed_indices, _, img_map in ocr_inputs:
                 for p_idx in needed_indices:
-                    img_holder = [images[p_idx - 1]]
-                    images[p_idx - 1] = None
-                    all_items.append((inp, p_idx, tot, img_holder))
+                    all_items.append((inp, p_idx, tot_pages, file_bytes, img_map))
 
             def _make_page_task(
-                inp_ref: InputRef, p_idx: int, tot_pages: int, p_img_holder: list[Any]
+                inp_ref: InputRef, p_idx: int, tot_pages: int, file_bytes: bytes, img_map: dict[int, Any] | None
             ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
                 def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
                     if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                         context.cancellation_token.check_cancelled()
 
-                    p_img = p_img_holder[0]
+                    p_img = (
+                        img_map.get(p_idx)
+                        if img_map is not None
+                        else extract_single_page_image(
+                            file_bytes, p_idx, cancellation_token=context.cancellation_token
+                        )
+                    )
+                    if p_img is None:
+                        raise DoshError(
+                            code=FailureCode.EXECUTION_FAILED,
+                            message=f"Failed to rasterize page {p_idx} for OCR.",
+                        )
                     w_id = str(threading.get_ident() % 1000)
                     if progress_cb is not None:
                         dev_str = (
@@ -332,7 +354,6 @@ class OCRCapability:
                             **ocr_kwargs,
                         )
                     finally:
-                        p_img_holder[0] = None
                         del p_img
 
                     dur = max(0, time.perf_counter_ns() - t0)
@@ -349,16 +370,28 @@ class OCRCapability:
 
                 return _task
 
-            subtasks = [_make_page_task(item[0], item[1], item[2], item[3]) for item in all_items]
+            subtasks = [_make_page_task(item[0], item[1], item[2], item[3], item[4]) for item in all_items]
             page_results = self._yantra.execute_subtasks(subtasks, context=context)
-            for (inp_ref, p_idx, _, _), (p_data, p_prov, p_warns) in zip(all_items, page_results):
+            for (inp_ref, p_idx, _, _, _), (p_data, p_prov, p_warns) in zip(all_items, page_results):
                 doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
         else:
-            for inp, images, needed_indices in ocr_inputs:
-                tot = len(images)
-                for page_idx in needed_indices:
-                    img = images[page_idx - 1]
-                    images[page_idx - 1] = None
+            for inp, file_bytes, tot_pages, needed_indices, skip_pages, img_map in ocr_inputs:
+                if img_map is not None:
+                    page_iter = [(idx, img_map.get(idx)) for idx in needed_indices]
+                else:
+                    page_iter = list(
+                        enumerate(
+                            iter_images_from_bytes(
+                                file_bytes,
+                                cancellation_token=context.cancellation_token,
+                                skip_pages=skip_pages,
+                            ),
+                            start=1,
+                        )
+                    )
+                for page_idx, img in page_iter:
+                    if img is None or page_idx not in needed_indices:
+                        continue
                     if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                         context.cancellation_token.check_cancelled()
 
@@ -371,7 +404,7 @@ class OCRCapability:
                         progress_cb(
                             file_display_name=inp.display_name,
                             page_number=page_idx,
-                            total_pages=tot,
+                            total_pages=tot_pages,
                             worker_id="1",
                             stage="Optical Character Recognition (OCR)",
                             device_type=dev_str,

@@ -79,3 +79,33 @@ def test_translation_glossary_non_list_entries_fails_deterministically(tmp_path:
         GlossaryStore(glossary_dir=tmp_path)
 
     assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION
+
+
+def test_translation_asset_version_tracks_root_yaml_and_domain_files(tmp_path: Path) -> None:
+    """Item 24: Asset revision calculation includes root glossary.yaml and domain yaml/yml/json files."""
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+
+    engine_empty = CTranslate2TranslationEngine(data_root=tmp_path)
+    baseline_rev = engine_empty.asset_version
+
+    # 1. Adding root glossary.yaml changes revision
+    yaml_file = tmp_path / "glossary.yaml"
+    yaml_file.write_text("entries:\n  - source: 'test'\n    target: 'परीक्षण'\n", encoding="utf-8")
+    engine_with_yaml = CTranslate2TranslationEngine(data_root=tmp_path)
+    rev_with_yaml = engine_with_yaml.asset_version
+    assert rev_with_yaml != baseline_rev
+
+    # 2. Adding domain YML file changes revision
+    domain_dir = tmp_path / "glossaries"
+    domain_dir.mkdir()
+    domain_yml = domain_dir / "custom.yml"
+    domain_yml.write_text("law: कानून\n", encoding="utf-8")
+    engine_with_domain = CTranslate2TranslationEngine(data_root=tmp_path)
+    rev_with_domain = engine_with_domain.asset_version
+    assert rev_with_domain != rev_with_yaml
+
+    # 3. Content modification changes revision even if mtime were preserved
+    domain_yml.write_text("law: विधि\n", encoding="utf-8")
+    engine_modified = CTranslate2TranslationEngine(data_root=tmp_path)
+    assert engine_modified.asset_version != rev_with_domain
+

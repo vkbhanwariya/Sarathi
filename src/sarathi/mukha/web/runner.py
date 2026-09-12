@@ -6,6 +6,7 @@ live worker and page progress tracking, and confirmed artifact indexing.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import threading
@@ -83,6 +84,7 @@ class RunCoordinator:
         self._terminal_summary: RunSummaryView | None = None
         self._terminal_status: str | None = None
         self._confirmed_artifacts: dict[str, dict[str, ArtifactRef]] = {}
+        self._run_aliases: dict[str, str] = {}
         self._run_output_roots: dict[str, Path] = {}
         self._live_progress: dict[str, Any] = {}
         self._live_workers: dict[str, dict[str, Any]] = {}
@@ -267,15 +269,98 @@ class RunCoordinator:
             )
 
     def get_confirmed_artifact(self, run_id: str, artifact_id: str) -> ArtifactRef | None:
-        """Look up confirmed ArtifactRef by run ID and artifact ID."""
+        """Look up confirmed ArtifactRef by run ID and artifact ID with strict run scoping."""
         with self._lock:
             res = self._confirmed_artifacts.get(run_id, {}).get(artifact_id)
             if res is not None:
                 return res
-            for r_id, artifacts in self._confirmed_artifacts.items():
-                if artifact_id in artifacts:
-                    return artifacts[artifact_id]
+            aliased_id = self._run_aliases.get(run_id)
+            if aliased_id and aliased_id in self._confirmed_artifacts:
+                res = self._confirmed_artifacts[aliased_id].get(artifact_id)
+                if res is not None:
+                    return res
+
+        return self._restore_artifact_from_manifest(run_id, artifact_id)
+
+    def _restore_artifact_from_manifest(self, run_id: str, artifact_id: str) -> ArtifactRef | None:
+        """Restore an ArtifactRef from the run's on-disk manifest if not cached in memory."""
+        target_dir: Path | None = None
+        with self._lock:
+            target_dir = self._run_output_roots.get(run_id)
+            if target_dir is None and run_id in self._run_aliases:
+                target_dir = self._run_output_roots.get(self._run_aliases[run_id])
+
+        if target_dir is None and self._agni.darpana is not None:
+            terminal = self._agni.darpana.get_run_summary(run_id)
+            if terminal is not None and terminal.output_dir:
+                target_dir = (self._agni.output_root / terminal.output_dir).resolve()
+
+        if target_dir is None:
+            cand = (self._agni.output_root / run_id).resolve()
+            if cand.is_dir():
+                target_dir = cand
+
+        if target_dir is None or not target_dir.is_dir():
             return None
+
+        output_root = self._agni.output_root.resolve()
+        if target_dir != output_root and output_root not in target_dir.parents:
+            return None
+
+        manifest_path = target_dir / "run-manifest.json"
+        if not manifest_path.is_file():
+            return None
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest_data = json.load(f)
+
+            m_run_id = manifest_data.get("run_id")
+            if m_run_id and m_run_id != run_id:
+                with self._lock:
+                    is_valid_alias = (
+                        self._run_aliases.get(run_id) == m_run_id
+                        or self._run_aliases.get(m_run_id) == run_id
+                    )
+                if not is_valid_alias:
+                    if self._agni.darpana is not None:
+                        term = self._agni.darpana.get_run_summary(run_id)
+                        if term is None or (term.run_id != m_run_id and term.request_id != run_id):
+                            return None
+                    else:
+                        return None
+
+            for art in manifest_data.get("artifacts", []):
+                if art.get("artifact_id") == artifact_id:
+                    rel_p = art.get("relative_path", "")
+                    full_p = (target_dir / rel_p).resolve()
+                    if full_p != output_root and output_root not in full_p.parents:
+                        return None
+                    if not full_p.is_file():
+                        return None
+
+                    art_ref = ArtifactRef(
+                        artifact_id=art.get("artifact_id", ""),
+                        path=full_p,
+                        role=art.get("role", "primary"),
+                        media_type=art.get("media_type", "application/octet-stream"),
+                        size_bytes=art.get("size_bytes", 0),
+                        checksum_sha256=art.get("checksum_sha256", ""),
+                    )
+                    with self._lock:
+                        if run_id not in self._confirmed_artifacts:
+                            self._confirmed_artifacts[run_id] = {}
+                        self._confirmed_artifacts[run_id][artifact_id] = art_ref
+                        if m_run_id:
+                            self._run_aliases[run_id] = m_run_id
+                            self._run_aliases[m_run_id] = run_id
+                            if m_run_id not in self._confirmed_artifacts:
+                                self._confirmed_artifacts[m_run_id] = {}
+                            self._confirmed_artifacts[m_run_id][artifact_id] = art_ref
+                    return art_ref
+        except Exception:
+            return None
+        return None
 
     def start_run(
         self,
@@ -421,6 +506,9 @@ class RunCoordinator:
                             self._run_output_roots[run_id] = Path(result.metadata["output_dir"])
 
                         context_run_id = result.metadata.get("run_id")
+                        if context_run_id and str(context_run_id) != run_id:
+                            self._run_aliases[run_id] = str(context_run_id)
+                            self._run_aliases[str(context_run_id)] = run_id
                         # Populate confirmed artifacts for download
                         if result.artifacts:
                             self._confirmed_artifacts[run_id] = {art.artifact_id: art for art in result.artifacts}
@@ -460,18 +548,11 @@ class RunCoordinator:
                                 elif hasattr(item, "source_input_id") and item.source_input_id:
                                     contributing_inputs.add(str(item.source_input_id))
 
-                        # Check for aggregate result types such as BankStatementConsolidationResult
-                        from sarathi.shakti.bank_statements.models import BankStatementConsolidationResult
-
-                        is_aggregate_result = isinstance(result.data, BankStatementConsolidationResult)
-                        if is_aggregate_result and result.data is not None:
-                            for stmt in result.data.statements:
-                                for p in stmt.provenance:
-                                    if p.source_input_id:
-                                        contributing_inputs.add(p.source_input_id)
-                            # If individual statement provenance did not isolate input IDs, all request inputs contributed
-                            if not contributing_inputs:
-                                contributing_inputs.update(inp.input_id for inp in request.inputs)
+                        # Gather contributing inputs and outcomes from result metadata contract
+                        capability_outcomes = dict(result.metadata.get("input_outcomes") or {})
+                        contributing_meta = result.metadata.get("contributing_input_ids")
+                        if contributing_meta:
+                            contributing_inputs.update(str(cid) for cid in contributing_meta)
 
                         # Also gather contributing inputs from result provenance
                         if result.provenance:
@@ -493,39 +574,52 @@ class RunCoordinator:
                             w_count = input_warn_counts.get(inp.input_id, 0)
 
                             # Determine factual per-input status
-                            if len(request.inputs) > 1:
-                                has_input_doc = inp.input_id in doc_map
-                                has_input_artifact = (
-                                    any(
-                                        str(art.metadata.get("source_input_id", "")) == inp.input_id
-                                        or str(art.metadata.get("input_id", "")) == inp.input_id
-                                        or inp.input_id in (art.metadata.get("source_input_ids") or ())
-                                        for art in result.artifacts
-                                    )
-                                    if result.artifacts
-                                    else False
-                                )
-                                has_aggregate_credit = (
-                                    (is_aggregate_result or any(bool(art.metadata.get("is_aggregate")) for art in result.artifacts))
-                                    and (inp.input_id in contributing_inputs or not contributing_inputs)
-                                )
-                                has_output = has_input_doc or has_input_artifact or has_aggregate_credit
+                            if inp.input_id in capability_outcomes:
+                                explicit_status = str(capability_outcomes[inp.input_id]).upper()
+                                if explicit_status in ("SUCCESS", "COMPLETED"):
+                                    f_stat = "WARNING" if w_count > 0 else "SUCCESS"
+                                elif explicit_status in ("WARNING",):
+                                    f_stat = "WARNING"
+                                else:
+                                    f_stat = "FAILED"
                             else:
-                                has_output = (
-                                    inp.input_id in doc_map
-                                    or result.data is not None
-                                    or bool(result.artifacts)
-                                )
+                                if len(request.inputs) > 1:
+                                    has_input_doc = inp.input_id in doc_map
+                                    has_input_artifact = (
+                                        any(
+                                            str(art.metadata.get("source_input_id", "")) == inp.input_id
+                                            or str(art.metadata.get("input_id", "")) == inp.input_id
+                                            or inp.input_id in (art.metadata.get("source_input_ids") or ())
+                                            for art in result.artifacts
+                                        )
+                                        if result.artifacts
+                                        else False
+                                    )
+                                    has_aggregate_credit = (
+                                        any(bool(art.metadata.get("is_aggregate")) for art in result.artifacts)
+                                        and (inp.input_id in contributing_inputs or not contributing_inputs)
+                                    )
+                                    has_output = has_input_doc or has_input_artifact or has_aggregate_credit
+                                else:
+                                    has_output = (
+                                        inp.input_id in doc_map
+                                        or result.data is not None
+                                        or bool(result.artifacts)
+                                    )
 
-                            if not has_output:
-                                f_stat = "FAILED"
-                                failed_cnt += 1
-                            elif w_count > 0:
-                                f_stat = "WARNING"
+                                if not has_output:
+                                    f_stat = "FAILED"
+                                elif w_count > 0:
+                                    f_stat = "WARNING"
+                                else:
+                                    f_stat = "SUCCESS"
+
+                            if f_stat == "SUCCESS":
+                                successful_cnt += 1
+                            elif f_stat == "WARNING":
                                 warning_cnt += 1
                             else:
-                                f_stat = "SUCCESS"
-                                successful_cnt += 1
+                                failed_cnt += 1
 
                             info = {
                                 "input_id": inp.input_id,

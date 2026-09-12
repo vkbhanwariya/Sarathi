@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-import re
 import zipfile
 from enum import Enum
 from pathlib import Path
+
+from sarathi.shakti.darshana.identifier import (
+    _EXCEL_STREAM_PATTERNS,
+    _HTML_TABLE_REGEX,
+    _HTML_TAG_REGEX,
+    _OLE_MAGIC,
+    _PDF_MAGIC,
+    _SPREADSHEET_ML_REGEX,
+    _ZIP_MAGIC,
+)
 
 
 class DetectedFormat(Enum):
@@ -17,28 +26,6 @@ class DetectedFormat(Enum):
     SPREADSHEET_ML = "spreadsheet_ml"
     CSV_OR_TEXT = "csv_or_text"
     UNKNOWN = "unknown"
-
-
-# Signatures and patterns
-_PDF_MAGIC = b"%PDF-"
-_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
-_EXCEL_STREAM_PATTERNS = (
-    b"Workbook",
-    b"Book",
-    b"\x09\x08\x10\x00",
-    b"\x09\x08\x00\x00",
-    b"\x09\x04\x06\x00",
-    b"Microsoft Excel",
-)
-_ZIP_MAGIC = b"PK\x03\x04"
-
-_HTML_TABLE_REGEX = re.compile(rb"<\s*table[^>]*>", re.IGNORECASE)
-_HTML_TAG_REGEX = re.compile(rb"<\s*(html|doctype|head|body|table|tr|td|th)\b", re.IGNORECASE)
-_SPREADSHEET_ML_REGEX = re.compile(
-    rb"(urn:schemas-microsoft-com:office:spreadsheet|<\s*Workbook[^>]*xmlns[^>]*spreadsheet)",
-    re.IGNORECASE,
-)
-_XML_PROLOG_REGEX = re.compile(rb"^\s*<\?xml\b", re.IGNORECASE)
 
 
 def detect_content_format(data: bytes, file_path: Path | None = None) -> DetectedFormat:

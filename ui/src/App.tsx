@@ -1399,7 +1399,7 @@ function Monitor({ state, onError }: { state: ApplicationViewState; onError: (me
     <div class="screen-grid">
       <section class="panel span-2">
         <div class="section-heading">
-          <div><span class="eyebrow">Live run</span><h3>{run?.run_id || "No active run"}</h3></div>
+          <div><span class="eyebrow">Live run</span><h3 id="monitor-run-id">{run?.run_id || "No active run"}</h3></div>
           <div class="button-row">
             <span class="badge badge--active">{run?.status || "IDLE"}</span>
             <button
@@ -1452,7 +1452,7 @@ function Monitor({ state, onError }: { state: ApplicationViewState; onError: (me
                 class="button danger"
                 onClick={() => {
                   setShowCancelDialog(false);
-                  const targetId = (typeof window !== "undefined" && (window as any).sarathiState?.activeRunId) || run?.run_id;
+                  const targetId = run?.run_id;
                   if (targetId) {
                     setCancelling(true);
                     void cancelRun(targetId)
@@ -1726,7 +1726,11 @@ function Summary({ summary, onReveal, onError, onPreview }: { summary: RunSummar
     <div class="screen-grid">
       <section class="panel span-2">
         <div class="section-heading">
-          <div><span class="eyebrow">Terminal run</span><h3 id="summary-title">{formatSummaryTitle(summary.status)}</h3></div>
+          <div>
+            <span class="eyebrow">Terminal run</span>
+            <h3 id="summary-title">{formatSummaryTitle(summary.status)}</h3>
+            <span id="summary-run-id" style="display:none">{summary.run_id}</span>
+          </div>
           <div class="button-row"><span class="badge badge--active">{summary.status}</span><button class="button secondary" disabled={revealing} onClick={() => void handleReveal()} type="button">{revealing ? "Opening…" : "Open output folder"}</button></div>
         </div>
         <div class="metrics-grid compact">
@@ -1743,9 +1747,9 @@ function Summary({ summary, onReveal, onError, onPreview }: { summary: RunSummar
 
       <section class="panel span-2">
         <div class="section-heading"><div><span class="eyebrow">Output</span><h3>Confirmed artifacts</h3></div></div>
-        {summary.artifacts.length ? (
+        {(summary.artifacts ?? []).length ? (
           <div class="file-list">
-            {summary.artifacts.map((artifact) => (
+            {(summary.artifacts ?? []).map((artifact) => (
               <div class="file-row" key={artifact.artifact_id}>
                 <div class="file-icon">OUT</div>
                 <div class="file-main"><strong>{artifact.display_name}</strong><span>{artifact.role} · {formatBytes(artifact.size_bytes)}</span></div>
@@ -1762,19 +1766,19 @@ function Summary({ summary, onReveal, onError, onPreview }: { summary: RunSummar
 
       <section class="panel">
         <div class="section-heading"><div><span class="eyebrow">Stages</span><h3>Timing</h3></div></div>
-        {summary.stage_timings.length ? <div class="data-list">{summary.stage_timings.map((stage) => <div class="data-row" key={stage.stage_name}><strong>{stage.stage_name}</strong><span>{stage.call_count} calls</span><span>{formatDuration(stage.duration_ns)}</span></div>)}</div> : <p class="quiet">No stage timing records.</p>}
+        {(summary.stage_timings ?? []).length ? <div class="data-list">{(summary.stage_timings ?? []).map((stage) => <div class="data-row" key={stage.stage_name}><strong>{stage.stage_name}</strong><span>{stage.call_count} calls</span><span>{formatDuration(stage.duration_ns)}</span></div>)}</div> : <p class="quiet">No stage timing records.</p>}
       </section>
 
       <section class="panel">
         <div class="section-heading"><div><span class="eyebrow">Hardware</span><h3>Device summary</h3></div></div>
-        {summary.device_summaries.length ? <div class="data-list">{summary.device_summaries.map((device) => <div class="data-row" key={device.device_type}><strong>{device.device_type}</strong><span>{device.execution_count} executions</span><span>{formatDuration(device.avg_duration_ns)}</span><span>{formatConfidence(device.avg_confidence)}</span></div>)}</div> : <p class="quiet">No hardware execution records.</p>}
+        {(summary.device_summaries ?? []).length ? <div class="data-list">{(summary.device_summaries ?? []).map((device) => <div class="data-row" key={device.device_type}><strong>{device.device_type}</strong><span>{device.execution_count} executions</span><span>{formatDuration(device.avg_duration_ns)}</span><span>{formatConfidence(device.avg_confidence)}</span></div>)}</div> : <p class="quiet">No hardware execution records.</p>}
       </section>
 
-      {summary.warnings.length || summary.failures.length ? (
+      {((summary.warnings ?? []).length || (summary.failures ?? []).length) ? (
         <section class="panel span-2">
           <div class="section-heading"><div><span class="eyebrow">Run notes</span><h3>Warnings and failures</h3></div></div>
-          {summary.warnings.map((warning) => <p class="note warning" key={`w-${warning}`}>{warning}</p>)}
-          {summary.failures.map((failure) => <p class="note failure" key={`f-${failure}`}>{failure}</p>)}
+          {(summary.warnings ?? []).map((warning) => <p class="note warning" key={`w-${warning}`}>{warning}</p>)}
+          {(summary.failures ?? []).map((failure) => <p class="note failure" key={`f-${failure}`}>{failure}</p>)}
         </section>
       ) : null}
     </div>
@@ -2030,9 +2034,6 @@ export function App() {
       if (seq !== summarySeqRef.current || requestId !== summaryRequest.current) return;
       setSummaryOverride(summary);
       setInspectorOverride(null);
-      if (typeof window !== "undefined" && (window as any).sarathiState) {
-        (window as any).sarathiState.viewedRunId = runId;
-      }
       setHistoryOpen(false);
       setScreen("summary");
     } catch (reason) {
@@ -2091,15 +2092,10 @@ export function App() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      (window as any).sarathiState = {
-        activeRunId: state?.active_run?.run_id ?? null,
-        activeRunStatus: state?.active_run?.status ?? null,
-        viewedRunId: summary?.run_id ?? null,
-      };
       (window as any).__sarathi_load_summary = loadSummary;
       (window as any).loadRunSummary = loadSummary;
     }
-  }, [state, summary]);
+  }, [loadSummary]);
 
   const paletteCommands = useMemo(() => [
     { id: "nav-home", label: "Navigate: Griha (Home - Intake / Setup)", action: () => chooseScreen("home") },
@@ -2192,7 +2188,7 @@ export function App() {
             <div id="screen-review" class={`screen-view ${screen === "review" ? "active" : "hidden"}`}>
               <Review state={state} onError={setError} onRefresh={refresh} />
             </div>
-            <div id="screen-summary" class={`screen-view ${screen === "summary" ? "active" : "hidden"}`}>
+            <div id="screen-summary" class={`screen-view ${screen === "summary" ? "active" : "hidden"}`} data-run-id={summary?.run_id ?? ""}>
               <Summary summary={summary} onError={setError} onReveal={revealRun} onPreview={(pathOrUrl, displayName) => setPreviewTarget({ pathOrUrl, displayName })} />
             </div>
             <div id="screen-inspector" class={`screen-view ${screen === "inspector" ? "active" : "hidden"}`}>

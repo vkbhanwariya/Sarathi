@@ -176,11 +176,26 @@ class BankStatementCapability:
             WarningRecord(code=i.code, message=i.message, stage="validation") for i in consolidation.issues
         )
 
+        input_outcomes: dict[str, str] = {}
+        for s in statements:
+            for p in s.provenance:
+                if p.source_input_id:
+                    input_outcomes[p.source_input_id] = "SUCCESS"
+        for doc in docs:
+            if doc.source_input_id:
+                input_outcomes.setdefault(doc.source_input_id, "SUCCESS")
+
+        res_metadata = {
+            "input_outcomes": input_outcomes,
+            "contributing_input_ids": tuple(input_outcomes.keys()),
+        }
+
         return Result(
             data=consolidation,
             artifact_payloads=(build_parquet_artifact(consolidation), build_xlsx_artifact(consolidation)),
             provenance=tuple(all_provs),
             warnings=tuple(all_warnings),
+            metadata=res_metadata,
         )
 
     def _extract_table_data(

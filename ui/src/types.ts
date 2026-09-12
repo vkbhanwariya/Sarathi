@@ -168,6 +168,7 @@ export interface RunSummaryView {
   artifacts: readonly ArtifactOutcomeView[];
   warnings: readonly string[];
   failures: readonly string[];
+  request_id?: string | null;
 }
 
 export interface WorkerPerformanceView {
