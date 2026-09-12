@@ -583,18 +583,18 @@ export function isCoreAction(actionId: string): boolean {
   return !isCloudAction(actionId);
 }
 
-export function getActionMeta(actionId: string): { type: "local" | "cloud"; provider: string } {
-  if (actionId.startsWith("gemini_")) return { type: "cloud", provider: "Gemini Cloud" };
-  if (actionId.startsWith("azure_")) return { type: "cloud", provider: "Azure AI Cloud" };
-  if (actionId.startsWith("mistral_")) return { type: "cloud", provider: "Mistral Cloud" };
-  if (actionId.startsWith("bhashini_")) return { type: "cloud", provider: "Bhashini Cloud" };
-  if (actionId === "ocr") return { type: "local", provider: "RapidOCR Local" };
-  if (actionId === "translation") return { type: "local", provider: "IndicTrans2 Local" };
-  if (actionId === "read_native") return { type: "local", provider: "PyMuPDF Native" };
-  if (actionId === "bank_statements") return { type: "local", provider: "Statement Rules" };
-  if (actionId === "statutory") return { type: "local", provider: "Legal Patterns" };
-  if (actionId === "font_conversion") return { type: "local", provider: "Legacy Hindi" };
-  return { type: "local", provider: "Local" };
+export function getActionMeta(actionId: string): { type: "local" | "cloud"; provider: string; shortTag: string } {
+  if (actionId.startsWith("gemini_")) return { type: "cloud", provider: "Gemini Cloud", shortTag: "GEMINI" };
+  if (actionId.startsWith("azure_")) return { type: "cloud", provider: "Azure AI Cloud", shortTag: "AZURE" };
+  if (actionId.startsWith("mistral_")) return { type: "cloud", provider: "Mistral Cloud", shortTag: "MISTRAL" };
+  if (actionId.startsWith("bhashini_")) return { type: "cloud", provider: "Bhashini Cloud", shortTag: "BHASHINI" };
+  if (actionId === "ocr") return { type: "local", provider: "RapidOCR Local", shortTag: "RAPIDOCR" };
+  if (actionId === "translation") return { type: "local", provider: "IndicTrans2 Local", shortTag: "INDICTRANS2" };
+  if (actionId === "read_native") return { type: "local", provider: "PyMuPDF Native", shortTag: "PYMUPDF" };
+  if (actionId === "bank_statements") return { type: "local", provider: "Statement Rules", shortTag: "STATEMENTS" };
+  if (actionId === "statutory") return { type: "local", provider: "Legal Patterns", shortTag: "LEGAL" };
+  if (actionId === "font_conversion") return { type: "local", provider: "Legacy Hindi", shortTag: "HINDI" };
+  return { type: "local", provider: "Local", shortTag: "LOCAL" };
 }
 
 function Home({
@@ -624,6 +624,8 @@ function Home({
   const checkedPathsRef = useRef(checkedPaths);
   checkedPathsRef.current = checkedPaths;
   const [showAllInputsTable, setShowAllInputsTable] = useState(false);
+  const [intakeExpanded, setIntakeExpanded] = useState(true);
+  const [capabilityExpanded, setCapabilityExpanded] = useState(true);
   const [recursive, setRecursive] = useState(false);
   const [manualPath, setManualPath] = useState("");
   const [requirement, setRequirement] = useState(initialRequirement);
@@ -864,7 +866,7 @@ function Home({
     const meta = getActionMeta(action.action_id);
     return (
       <button
-        class={isSelected ? "action-card req-card selected" : "action-card req-card"}
+        class={`action-card req-card ${isSelected ? "selected" : ""} ${!action.is_enabled ? "disabled" : ""}`}
         data-req={action.action_id}
         data-action-id={action.action_id}
         disabled={!action.is_enabled}
@@ -873,18 +875,18 @@ function Home({
         type="button"
         title={action.is_enabled ? action.description || action.label : action.disabled_reason || "Unavailable"}
       >
-        <div class="action-card-top">
-          <span class="action-card-label">{action.label}</span>
-          <span class={`action-type-badge action-type-badge--${meta.type}`}>
-            {meta.provider}
+        <div class="action-card-header">
+          <h4 class="action-card-name">{action.label}</h4>
+          <span class={`action-tag action-tag--${meta.type} ${isSelected ? "active" : ""}`}>
+            {meta.shortTag}
           </span>
         </div>
-        <small class="action-card-desc">
+        <p class="action-card-desc">
           {action.is_enabled ? action.description || action.action_id : action.disabled_reason || "Unavailable"}
-        </small>
-        <div class="action-card-bottom">
-          <span class={`action-card-indicator ${isSelected ? "active" : ""}`} />
-          <code class="action-card-code">{action.action_id}</code>
+        </p>
+        <div class="action-card-footer">
+          <span class={`action-dot ${isSelected ? "active" : ""}`} />
+          <code class="action-code">{action.action_id}</code>
         </div>
       </button>
     );
@@ -919,457 +921,542 @@ function Home({
   const showGroupedSummary = visibleItems.length > 10 && !showAllInputsTable;
 
   return (
-    <div class="screen-grid">
-      <section class="hero panel">
-        <div class="hero__content">
-          <span class="eyebrow">Document intelligence workspace</span>
-          <h2>Process documents without losing sight of the evidence.</h2>
-          <p>Local intake, verifiable execution, automated review, and deterministic artifacts.</p>
-        </div>
-        <div class="hero__status">
-          <span class="status-dot" />
-          <div>
-            <strong>{state.startup?.is_initializing ? "Initializing" : "Ready"}</strong>
-            <span>{state.policy_label || "Local runtime"}</span>
+    <div class="screen-grid home-cockpit">
+      {/* Column 1: Document Intake */}
+      <section class="panel intake-panel">
+        <div class="panel-header">
+          <div class="panel-title-wrap">
+            <span class="panel-icon panel-icon--amber">
+              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+              </svg>
+            </span>
+            <h2 class="panel-heading">Document Intake</h2>
           </div>
-        </div>
-      </section>
-
-      <div class="metrics-grid">
-        <Metric label="Selected files" value={visibleItems.length} detail={formatBytes(totalSize)} />
-        <Metric label="Eligible" value={eligibleCount} />
-        <Metric label="Issues" value={issueCount} />
-        <Metric label="Review queue" value={state.review_queue.length} />
-      </div>
-
-      <section class="panel span-2">
-        <div class="section-heading">
-          <div><span class="eyebrow">Intake</span><h3>Select documents</h3></div>
-          <div class="button-row">
-            <button id="btn-browse-files" class="button secondary" disabled={working} onClick={() => void handleBrowse(false)} type="button">Add files</button>
-            <button id="btn-browse-folder" class="button secondary" disabled={working} onClick={() => void handleBrowse(true)} type="button">Add folder</button>
-            <button class="button ghost" disabled={working || visibleItems.length === 0} onClick={() => { setExcluded(new Set()); void refreshIntake([]); }} type="button">Clear</button>
-          </div>
-        </div>
-
-        <div class="intake-controls">
-          <label class="field grow">
-            <span>Path</span>
-            <input
-              placeholder="Paste a file or folder path"
-              value={manualPath}
-              onInput={(event) => setManualPath(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && manualPath.trim()) {
-                  void addRoots([manualPath.trim()]);
-                  setManualPath("");
-                }
-              }}
-            />
-          </label>
-          <button class="button secondary" disabled={working || !manualPath.trim()} onClick={() => { void addRoots([manualPath.trim()]); setManualPath(""); }} type="button">Add path</button>
-          <label class="toggle-row compact">
-            <input
-              type="checkbox"
-              checked={recursive}
-              onChange={(event) => {
-                const checked = event.currentTarget.checked;
-                setRecursive(checked);
-                if (roots.length) void refreshIntake(roots, checked);
-              }}
-            />
-            <span><strong>Recursive folders</strong></span>
-          </label>
-        </div>
-
-        <div class="panel-body">
-          <div class="filter-bar" style="margin-top: 14px; margin-bottom: 12px;">
-            <input id="input-files-filter" class="search-input" placeholder="Search selected documents" value={query} onInput={(event) => setQuery(event.currentTarget.value)} />
-            <div class="segmented">
-              <button id="btn-filter-all" class={filter === "all" ? "active" : ""} onClick={() => setFilter("all")} type="button">
-                All <span id="filter-all-count">{visibleItems.length}</span>
-              </button>
-              <button id="btn-filter-eligible" class={filter === "eligible" ? "active" : ""} onClick={() => setFilter("eligible")} type="button">
-                Eligible <span id="filter-eligible-count">{eligibleCount}</span>
-              </button>
-              <button id="btn-filter-issues" class={filter === "issues" ? "active" : ""} onClick={() => setFilter("issues")} type="button">
-                Issues <span id="filter-issues-count">{issueCount}</span>
-              </button>
-            </div>
-          </div>
-
-          <div id="input-grouped-summary" class={`grouped-summary-card ${showGroupedSummary ? "" : "hidden"}`}>
-            <div>
-              <strong>{visibleItems.length} documents selected</strong>
-              <span class="quiet"> · {formatBytes(totalSize)}</span>
-            </div>
-            <button id="btn-view-all-inputs" class="button secondary small" onClick={() => setShowAllInputsTable(true)} type="button">
-              View All ({visibleItems.length} files)
+          <div class="panel-header-meta">
+            <span class="count-badge">{visibleItems.length} selected ({formatBytes(totalSize)})</span>
+            <button class="icon-toggle-btn" onClick={() => setIntakeExpanded(!intakeExpanded)} type="button" aria-label="Toggle Intake Section">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={intakeExpanded ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} />
+              </svg>
             </button>
           </div>
+        </div>
 
-          <div class={`table-container input-table-container ${showGroupedSummary ? "hidden" : ""}`}>
-            {visibleItems.length > 10 && showAllInputsTable ? (
-              <div style="margin-bottom: 10px;">
-                <button id="btn-collapse-inputs" class="button ghost small" onClick={() => setShowAllInputsTable(false)} type="button">
-                  Collapse to summary
+        {intakeExpanded ? (
+          <div class="panel-body intake-panel-body">
+            {/* Quick Action Bar */}
+            <div class="intake-actions-toolbar">
+              <div class="intake-btn-group">
+                <button id="btn-browse-files" class="btn-action" disabled={working} onClick={() => void handleBrowse(false)} type="button">
+                  + Add files
+                </button>
+                <button id="btn-browse-folder" class="btn-action" disabled={working} onClick={() => void handleBrowse(true)} type="button">
+                  + Add folder
+                </button>
+                <button class="btn-clear" disabled={working || visibleItems.length === 0} onClick={() => { setExcluded(new Set()); void refreshIntake([]); }} type="button">
+                  Clear
                 </button>
               </div>
-            ) : null}
+              <label class="recursive-label">
+                <input
+                  type="checkbox"
+                  checked={recursive}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setRecursive(checked);
+                    if (roots.length) void refreshIntake(roots, checked);
+                  }}
+                />
+                <span>Recursive folders</span>
+              </label>
+            </div>
 
-            {checkedPaths.size > 0 ? (
-              <div id="selection-scope-banner" class="selection-scope-banner">
-                <span id="selection-scope-text">
-                  {checkedPaths.size === filteredItems.length && filteredItems.length > pagedItems.length
-                    ? `All ${filteredItems.length} matching documents selected`
-                    : `All ${pagedItems.filter((i) => checkedPaths.has(i.source_path || i.display_name)).length} documents on this page selected`}
-                </span>
-                <div class="button-row">
-                  {checkedPaths.size < filteredItems.length ? (
-                    <button id="btn-select-all-matching" class="button ghost small" onClick={() => setCheckedPaths(new Set(filteredItems.map((i) => i.source_path || i.display_name)))} type="button">
-                      Select all {filteredItems.length} matching documents
-                    </button>
-                  ) : null}
-                  <button id="btn-clear-selection-scope" class="button ghost small" onClick={() => setCheckedPaths(new Set())} type="button">
-                    Clear
+            {/* Path Input Bar */}
+            <div class="path-input-bar">
+              <input
+                class="path-input"
+                placeholder="Paste a file or folder path and press Enter"
+                value={manualPath}
+                onInput={(event) => setManualPath(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && manualPath.trim()) {
+                    void addRoots([manualPath.trim()]);
+                    setManualPath("");
+                  }
+                }}
+              />
+              <button
+                class="btn-add-path"
+                disabled={working || !manualPath.trim()}
+                onClick={() => { void addRoots([manualPath.trim()]); setManualPath(""); }}
+                type="button"
+              >
+                Add
+              </button>
+            </div>
+
+            {/* Search & Filter Badges */}
+            <div class="intake-search-filter-row">
+              <div class="search-input-wrap">
+                <svg class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  id="input-files-filter"
+                  class="filter-search-input"
+                  placeholder="Search selected documents..."
+                  value={query}
+                  onInput={(event) => setQuery(event.currentTarget.value)}
+                />
+              </div>
+              <div class="filter-segmented-group">
+                <button
+                  id="btn-filter-all"
+                  class={filter === "all" ? "filter-seg-btn active" : "filter-seg-btn"}
+                  onClick={() => setFilter("all")}
+                  type="button"
+                >
+                  All <span id="filter-all-count">{visibleItems.length}</span>
+                </button>
+                <button
+                  id="btn-filter-eligible"
+                  class={filter === "eligible" ? "filter-seg-btn active" : "filter-seg-btn"}
+                  onClick={() => setFilter("eligible")}
+                  type="button"
+                >
+                  Eligible <span id="filter-eligible-count">{eligibleCount}</span>
+                </button>
+                <button
+                  id="btn-filter-issues"
+                  class={filter === "issues" ? "filter-seg-btn active" : "filter-seg-btn"}
+                  onClick={() => setFilter("issues")}
+                  type="button"
+                >
+                  Issues <span id="filter-issues-count">{issueCount}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Intake Queue Summary */}
+            <div id="input-grouped-summary" class={`grouped-summary-card ${showGroupedSummary ? "" : "hidden"}`}>
+              <span class="grouped-summary-text">
+                <strong>{visibleItems.length} documents selected</strong>
+                <span class="quiet"> · {formatBytes(totalSize)}</span>
+              </span>
+              <button id="btn-view-all-inputs" class="btn-view-all" onClick={() => setShowAllInputsTable(true)} type="button">
+                View All ({visibleItems.length} files)
+              </button>
+            </div>
+
+            {/* Intake Table */}
+            <div class={`table-container input-table-container ${showGroupedSummary ? "hidden" : ""}`}>
+              {visibleItems.length > 10 && showAllInputsTable ? (
+                <div class="collapse-summary-wrap">
+                  <button id="btn-collapse-inputs" class="btn-collapse-summary" onClick={() => setShowAllInputsTable(false)} type="button">
+                    Collapse to summary
                   </button>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th style="width: 38px; text-align: center;">
-                    <input
-                      id="chk-select-all-inputs"
-                      ref={selectAllRef}
-                      type="checkbox"
-                      checked={isAllPagedChecked}
-                      onChange={(e) => {
-                        const checked = e.currentTarget.checked;
-                        setCheckedPaths((prev) => {
-                          const next = new Set(prev);
-                          for (const item of pagedItems) {
-                            const key = item.source_path || item.display_name;
-                            if (checked) next.add(key);
-                            else next.delete(key);
-                          }
-                          return next;
-                        });
-                      }}
-                    />
-                  </th>
-                  <th>Document</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="selected-inputs-tbody">
-                {visibleItems.length === 0 ? (
-                  <tr><td colSpan={4} style="text-align: center; padding: 24px; color: var(--muted);">No documents selected</td></tr>
-                ) : filteredItems.length === 0 ? (
-                  <tr><td colSpan={4} style="text-align: center; padding: 24px; color: var(--muted);">No documents match the filter query</td></tr>
-                ) : (
-                  pagedItems.map((item) => {
-                    const itemKey = item.source_path || item.display_name;
-                    const isChecked = checkedPaths.has(itemKey);
-                    return (
-                      <tr key={item.input_id} data-path={itemKey}>
-                        <td style="text-align: center;">
-                          <input
-                            type="checkbox"
-                            class="input-row-chk"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              const checked = e.currentTarget.checked;
-                              const next = new Set(checkedPathsRef.current);
-                              if (checked) next.add(itemKey);
-                              else next.delete(itemKey);
-                              checkedPathsRef.current = next;
-                              setCheckedPaths(next);
-                              if (selectAllRef.current) {
-                                const pCount = pagedItems.filter((i) => next.has(i.source_path || i.display_name)).length;
-                                selectAllRef.current.indeterminate = pCount > 0 && pCount < pagedItems.length;
-                              }
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <strong>{item.display_name}</strong>
-                          <div class="quiet">{item.source_path} · {formatBytes(item.size_bytes)}</div>
-                        </td>
-                        <td>
-                          {item.is_eligible ? (
-                            <span class="badge badge-emerald">Eligible</span>
-                          ) : (
-                            <button
-                              class="btn-issue-info badge badge-crimson"
-                              tabIndex={0}
-                              aria-label={`Issue: ${item.issue_reason || "Ineligible document"}`}
-                              type="button"
-                            >
-                              {item.issue_reason || "Issue"}
-                            </button>
-                          )}
-                        </td>
-                        <td>
-                          <div class="button-row">
-                            <button class="button ghost small" onClick={() => onPreview(`/api/inputs/${encodeURIComponent(item.input_id)}/preview`, item.display_name)} type="button">Preview</button>
-                            <a class="button ghost small" href={`/api/inputs/${encodeURIComponent(item.input_id)}/raw`} target="_blank">Open</a>
-                            <button class="button ghost small" onClick={() => void removeItem(item)} type="button">Remove</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+              {checkedPaths.size > 0 ? (
+                <div id="selection-scope-banner" class="selection-scope-banner">
+                  <span id="selection-scope-text">
+                    {checkedPaths.size === filteredItems.length && filteredItems.length > pagedItems.length
+                      ? `All ${filteredItems.length} matching documents selected`
+                      : `All ${pagedItems.filter((i) => checkedPaths.has(i.source_path || i.display_name)).length} documents on this page selected`}
+                  </span>
+                  <div class="button-row">
+                    {checkedPaths.size < filteredItems.length ? (
+                      <button id="btn-select-all-matching" class="button ghost small" onClick={() => setCheckedPaths(new Set(filteredItems.map((i) => i.source_path || i.display_name)))} type="button">
+                        Select all {filteredItems.length} matching
+                      </button>
+                    ) : null}
+                    <button id="btn-clear-selection-scope" class="button ghost small" onClick={() => setCheckedPaths(new Set())} type="button">
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
-            {filteredItems.length > pageSize ? (
-              <div class="pagination" style="margin-top: 14px; display: flex; align-items: center; justify-content: space-between;">
-                <button id="btn-input-prev" class="button ghost small" disabled={currentPage <= 1} onClick={() => setPage((v) => Math.max(1, v - 1))} type="button">Previous</button>
-                <span id="input-page-indicator">Page {currentPage} of {pageCount} ({filteredItems.length} total)</span>
-                <button id="btn-input-next" class="button ghost small" disabled={currentPage >= pageCount} onClick={() => setPage((v) => Math.min(pageCount, v + 1))} type="button">Next</button>
-              </div>
-            ) : null}
+              <table class="data-table compact-table">
+                <thead>
+                  <tr>
+                    <th style="width: 36px; text-align: center;">
+                      <input
+                        id="chk-select-all-inputs"
+                        ref={selectAllRef}
+                        type="checkbox"
+                        checked={isAllPagedChecked}
+                        onChange={(e) => {
+                          const checked = e.currentTarget.checked;
+                          setCheckedPaths((prev) => {
+                            const next = new Set(prev);
+                            for (const item of pagedItems) {
+                              const key = item.source_path || item.display_name;
+                              if (checked) next.add(key);
+                              else next.delete(key);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                    </th>
+                    <th>Document</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="selected-inputs-tbody">
+                  {visibleItems.length === 0 ? (
+                    <tr class="empty-row"><td colSpan={4} class="empty-cell">No documents selected. Click Add files or paste a path above.</td></tr>
+                  ) : filteredItems.length === 0 ? (
+                    <tr class="empty-row"><td colSpan={4} class="empty-cell">No documents match the filter query</td></tr>
+                  ) : (
+                    pagedItems.map((item) => {
+                      const itemKey = item.source_path || item.display_name;
+                      const isChecked = checkedPaths.has(itemKey);
+                      return (
+                        <tr key={item.input_id} data-path={itemKey}>
+                          <td style="text-align: center;">
+                            <input
+                              type="checkbox"
+                              class="input-row-chk"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.currentTarget.checked;
+                                const next = new Set(checkedPathsRef.current);
+                                if (checked) next.add(itemKey);
+                                else next.delete(itemKey);
+                                checkedPathsRef.current = next;
+                                setCheckedPaths(next);
+                                if (selectAllRef.current) {
+                                  const pCount = pagedItems.filter((i) => next.has(i.source_path || i.display_name)).length;
+                                  selectAllRef.current.indeterminate = pCount > 0 && pCount < pagedItems.length;
+                                }
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <div class="doc-item-cell">
+                              <strong class="doc-name">{item.display_name}</strong>
+                              <span class="doc-size">{item.source_path ? `${item.source_path} · ` : ""}{formatBytes(item.size_bytes)}</span>
+                            </div>
+                          </td>
+                          <td>
+                            {item.is_eligible ? (
+                              <span class="badge badge-emerald">Eligible</span>
+                            ) : (
+                              <button
+                                class="btn-issue-info badge badge-crimson"
+                                tabIndex={0}
+                                aria-label={`Issue: ${item.issue_reason || "Ineligible document"}`}
+                                type="button"
+                              >
+                                {item.issue_reason || "Issue"}
+                              </button>
+                            )}
+                          </td>
+                          <td style="text-align: right;">
+                            <div class="button-row compact" style="justify-content: flex-end;">
+                              <button class="button ghost mini" onClick={() => onPreview(`/api/inputs/${encodeURIComponent(item.input_id)}/preview`, item.display_name)} type="button">Preview</button>
+                              <a class="button ghost mini" href={`/api/inputs/${encodeURIComponent(item.input_id)}/raw`} target="_blank">Open</a>
+                              <button class="button ghost mini text-danger" onClick={() => void removeItem(item)} type="button">Remove</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+
+              {filteredItems.length > pageSize ? (
+                <div class="pagination" style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px;">
+                  <button id="btn-input-prev" class="button ghost small" disabled={currentPage <= 1} onClick={() => setPage((v) => Math.max(1, v - 1))} type="button">Previous</button>
+                  <span id="input-page-indicator" style="font-size: 11px;">Page {currentPage} of {pageCount} ({filteredItems.length} total)</span>
+                  <button id="btn-input-next" class="button ghost small" disabled={currentPage >= pageCount} onClick={() => setPage((v) => Math.min(pageCount, v + 1))} type="button">Next</button>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        ) : null}
       </section>
 
-      <section class="panel">
-        <div class="section-heading">
-          <div>
-            <span class="eyebrow">Capabilities</span>
-            <h3>Processing action</h3>
-          </div>
-          <div class="action-selected-pill">
-            <span class="quiet">Selected: </span>
-            <strong>{activeAction?.label || requirement}</strong>
-          </div>
-        </div>
-
-        <div class="action-category-menu" role="tablist" aria-label="Processing action categories">
-          <button
-            id="btn-cat-core"
-            class={`category-tab ${actionCategory === "core" ? "active" : ""}`}
-            onClick={() => setActionCategory("core")}
-            type="button"
-            role="tab"
-            aria-selected={actionCategory === "core"}
-          >
-            <span>⚡ Core Local</span>
-            <span class="tab-count">{coreActions.length}</span>
-          </button>
-          <button
-            id="btn-cat-ocr"
-            class={`category-tab ${actionCategory === "ocr" ? "active" : ""}`}
-            onClick={() => setActionCategory("ocr")}
-            type="button"
-            role="tab"
-            aria-selected={actionCategory === "ocr"}
-          >
-            <span>🔍 OCR</span>
-            <span class="tab-count">{ocrActions.length}</span>
-          </button>
-          <button
-            id="btn-cat-translation"
-            class={`category-tab ${actionCategory === "translation" ? "active" : ""}`}
-            onClick={() => setActionCategory("translation")}
-            type="button"
-            role="tab"
-            aria-selected={actionCategory === "translation"}
-          >
-            <span>🌐 Translation</span>
-            <span class="tab-count">{translationActions.length}</span>
-          </button>
-          <button
-            id="btn-cat-cloud"
-            class={`category-tab ${actionCategory === "cloud" ? "active" : ""}`}
-            onClick={() => setActionCategory("cloud")}
-            type="button"
-            role="tab"
-            aria-selected={actionCategory === "cloud"}
-          >
-            <span>☁ CLOUD</span>
-            <span class="tab-count">{cloudActions.length}</span>
-          </button>
-          <button
-            id="btn-cat-all"
-            class={`category-tab ${actionCategory === "all" ? "active" : ""}`}
-            onClick={() => setActionCategory("all")}
-            type="button"
-            role="tab"
-            aria-selected={actionCategory === "all"}
-          >
-            <span>All</span>
-            <span class="tab-count">{state.available_actions.length}</span>
-          </button>
-        </div>
-
-        {!isCurrentActionInView && activeAction ? (
-          <div class="active-selection-banner">
-            <div class="active-selection-info">
-              <span class="quiet">Active action:</span>
-              <strong>{activeAction.label}</strong>
-              <span class={`action-type-badge action-type-badge--${isCloudAction(activeAction.action_id) ? "cloud" : "local"}`}>
-                {getActionMeta(activeAction.action_id).provider}
-              </span>
+      {/* Column 2: Processing Capability & Execution Plan */}
+      <div class="column-action">
+        {/* Processing Action Panel */}
+        <section class="panel capability-panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <div>
+                <span class="capability-eyebrow">Capability</span>
+                <div class="capability-title-row">
+                  <span class="panel-icon panel-icon--amber">⚡</span>
+                  <h2 class="panel-heading">Processing Action</h2>
+                </div>
+              </div>
             </div>
+            <div class="capability-header-select">
+              <select
+                class="action-select-dropdown"
+                value={requirement}
+                onChange={(e) => {
+                  const found = state.available_actions.find((a) => a.action_id === e.currentTarget.value);
+                  if (found) chooseAction(found);
+                }}
+              >
+                {state.available_actions.map((act) => (
+                  <option key={act.action_id} value={act.action_id} disabled={!act.is_enabled}>
+                    {act.label} {act.is_enabled ? "" : "(Unavailable)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Capability Filter Tabs */}
+          <div class="capability-tabs-bar" role="tablist" aria-label="Processing action categories">
             <button
-              class="button ghost small"
+              id="btn-cat-core"
+              class={`cap-tab-btn ${actionCategory === "core" ? "active" : ""}`}
+              onClick={() => setActionCategory("core")}
               type="button"
-              onClick={() => setActionCategory(isCloudAction(activeAction.action_id) ? "cloud" : isOcrAction(activeAction.action_id) ? "ocr" : isTranslationAction(activeAction.action_id) ? "translation" : "core")}
+              role="tab"
+              aria-selected={actionCategory === "core"}
             >
-              View in active tab →
+              <span>⚡ Core Local</span>
+              <span class="cap-tab-count">{coreActions.length}</span>
+            </button>
+            <button
+              id="btn-cat-ocr"
+              class={`cap-tab-btn ${actionCategory === "ocr" ? "active" : ""}`}
+              onClick={() => setActionCategory("ocr")}
+              type="button"
+              role="tab"
+              aria-selected={actionCategory === "ocr"}
+            >
+              <span>🔍 OCR</span>
+              <span class="cap-tab-count">{ocrActions.length}</span>
+            </button>
+            <button
+              id="btn-cat-translation"
+              class={`cap-tab-btn ${actionCategory === "translation" ? "active" : ""}`}
+              onClick={() => setActionCategory("translation")}
+              type="button"
+              role="tab"
+              aria-selected={actionCategory === "translation"}
+            >
+              <span>🌐 Translation</span>
+              <span class="cap-tab-count">{translationActions.length}</span>
+            </button>
+            <button
+              id="btn-cat-cloud"
+              class={`cap-tab-btn ${actionCategory === "cloud" ? "active" : ""}`}
+              onClick={() => setActionCategory("cloud")}
+              type="button"
+              role="tab"
+              aria-selected={actionCategory === "cloud"}
+            >
+              <span>☁️ CLOUD</span>
+              <span class="cap-tab-count">{cloudActions.length}</span>
+            </button>
+            <button
+              id="btn-cat-all"
+              class={`cap-tab-btn cap-tab-btn--all ${actionCategory === "all" ? "active" : ""}`}
+              onClick={() => setActionCategory("all")}
+              type="button"
+              role="tab"
+              aria-selected={actionCategory === "all"}
+            >
+              <span>All {state.available_actions.length}</span>
             </button>
           </div>
-        ) : null}
 
-        {actionCategory === "core" && (
-          <div class="action-list">
-            {coreActions.map(renderActionCard)}
-          </div>
-        )}
-
-        {actionCategory === "ocr" && (
-          <div class="action-groups-container">
-            <div class="action-group-heading">
-              <span>Local OCR Engine</span>
-              <span class="subgroup-badge">{ocrActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
-            </div>
-            <div class="action-list">
-              {ocrActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
-            </div>
-
-            <div class="action-group-heading" style="margin-top: 14px;">
-              <span>Cloud OCR Services</span>
-              <span class="subgroup-badge">{ocrActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
-            </div>
-            <div class="action-list">
-              {ocrActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
-            </div>
-          </div>
-        )}
-
-        {actionCategory === "translation" && (
-          <div class="action-groups-container">
-            <div class="action-group-heading">
-              <span>Local Translation Engine</span>
-              <span class="subgroup-badge">{translationActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
-            </div>
-            <div class="action-list">
-              {translationActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
-            </div>
-
-            <div class="action-group-heading" style="margin-top: 14px;">
-              <span>Cloud Translation Services</span>
-              <span class="subgroup-badge">{translationActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
-            </div>
-            <div class="action-list">
-              {translationActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
-            </div>
-          </div>
-        )}
-
-        {actionCategory === "cloud" && (
-          <div class="action-groups-container">
-            <div class="action-group-heading">
-              <span>Cloud OCR (Optical Character Recognition)</span>
-              <span class="subgroup-badge">{cloudActions.filter((a) => isOcrAction(a.action_id)).length} models</span>
-            </div>
-            <div class="action-list">
-              {cloudActions.filter((a) => isOcrAction(a.action_id)).map(renderActionCard)}
-            </div>
-
-            <div class="action-group-heading" style="margin-top: 14px;">
-              <span>Cloud Translation (Multilingual AI)</span>
-              <span class="subgroup-badge">{cloudActions.filter((a) => isTranslationAction(a.action_id)).length} models</span>
-            </div>
-            <div class="action-list">
-              {cloudActions.filter((a) => isTranslationAction(a.action_id)).map(renderActionCard)}
-            </div>
-          </div>
-        )}
-
-        {actionCategory === "all" && (
-          <div class="action-groups-container">
-            <div class="action-group-heading">
-              <span>Core Document Extraction & Parsing</span>
-              <span class="subgroup-badge">{coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).length} actions</span>
-            </div>
-            <div class="action-list">
-              {coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).map(renderActionCard)}
-            </div>
-
-            <div class="action-group-heading" style="margin-top: 14px;">
-              <span>OCR Engines (Local & Cloud)</span>
-              <span class="subgroup-badge">{ocrActions.length} actions</span>
-            </div>
-            <div class="action-list">
-              {ocrActions.map(renderActionCard)}
-            </div>
-
-            <div class="action-group-heading" style="margin-top: 14px;">
-              <span>Translation Engines (Local & Cloud)</span>
-              <span class="subgroup-badge">{translationActions.length} actions</span>
-            </div>
-            <div class="action-list">
-              {translationActions.map(renderActionCard)}
-            </div>
-          </div>
-        )}
-
-        {activeAction?.parameters.length ? (
-          <div class="parameter-section">
-            <div class="parameter-header">
-              <span class="eyebrow">Parameters</span>
-              <h4>{activeAction.label} Options</h4>
-            </div>
-            <div class="parameter-list">
-              {activeAction.parameters.map((parameter) => (
-                <ActionParameter
-                  key={parameter.parameter_id}
-                  parameter={parameter}
-                  value={parameters[parameter.parameter_id] ?? parameter.default_value}
-                  onChange={(value) => updateParameter(parameter.parameter_id, value)}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section class="panel">
-        <div class="section-heading"><div><span class="eyebrow">Preflight</span><h3>Execution plan</h3></div></div>
-        <p class="quiet">{preflight ? `${eligibleCount} eligible · ${issueCount} issues` : "Select inputs to validate the run."}</p>
-        {plan ? (
-          <div class="plan">
-            <div class="plan-header">
-              <strong>{plan.document_count} document{plan.document_count === 1 ? "" : "s"}</strong>
-              <span class="badge badge-emerald">Plan ready</span>
-            </div>
-            <div class="plan-stages">
-              {plan.stages.map((stage, idx) => (
-                <span key={stage.name} class="stage-chip">
-                  {stage.name}
-                  {idx < plan.stages.length - 1 ? <span class="stage-arrow">→</span> : null}
+          {!isCurrentActionInView && activeAction ? (
+            <div class="active-selection-banner">
+              <div class="active-selection-info">
+                <span class="quiet">Active action:</span>
+                <strong>{activeAction.label}</strong>
+                <span class={`action-type-badge action-type-badge--${isCloudAction(activeAction.action_id) ? "cloud" : "local"}`}>
+                  {getActionMeta(activeAction.action_id).provider}
                 </span>
-              ))}
+              </div>
+              <button
+                class="button ghost small"
+                type="button"
+                onClick={() => setActionCategory(isCloudAction(activeAction.action_id) ? "cloud" : isOcrAction(activeAction.action_id) ? "ocr" : isTranslationAction(activeAction.action_id) ? "translation" : "core")}
+              >
+                View in active tab →
+              </button>
             </div>
-            {plan.devices.length ? (
-              <small class="plan-devices">
-                {plan.devices.map((device) => `${device.device_type}${device.is_available ? "" : " unavailable"}`).join(" · ")}
-              </small>
-            ) : null}
+          ) : null}
+
+          {/* Action Cards Grid */}
+          <div class="action-list-wrapper">
+            {actionCategory === "core" && (
+              <div class="action-cards-grid">
+                {coreActions.map(renderActionCard)}
+              </div>
+            )}
+
+            {actionCategory === "ocr" && (
+              <div class="action-groups-container">
+                <div class="action-group-heading">
+                  <span>Local OCR Engine</span>
+                  <span class="subgroup-badge">{ocrActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
+                </div>
+                <div class="action-cards-grid">
+                  {ocrActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
+                </div>
+
+                <div class="action-group-heading" style="margin-top: 12px;">
+                  <span>Cloud OCR Services</span>
+                  <span class="subgroup-badge">{ocrActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
+                </div>
+                <div class="action-cards-grid">
+                  {ocrActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
+                </div>
+              </div>
+            )}
+
+            {actionCategory === "translation" && (
+              <div class="action-groups-container">
+                <div class="action-group-heading">
+                  <span>Local Translation Engine</span>
+                  <span class="subgroup-badge">{translationActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
+                </div>
+                <div class="action-cards-grid">
+                  {translationActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
+                </div>
+
+                <div class="action-group-heading" style="margin-top: 12px;">
+                  <span>Cloud Translation Services</span>
+                  <span class="subgroup-badge">{translationActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
+                </div>
+                <div class="action-cards-grid">
+                  {translationActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
+                </div>
+              </div>
+            )}
+
+            {actionCategory === "cloud" && (
+              <div class="action-groups-container">
+                <div class="action-group-heading">
+                  <span>Cloud OCR</span>
+                  <span class="subgroup-badge">{cloudActions.filter((a) => isOcrAction(a.action_id)).length} models</span>
+                </div>
+                <div class="action-cards-grid">
+                  {cloudActions.filter((a) => isOcrAction(a.action_id)).map(renderActionCard)}
+                </div>
+
+                <div class="action-group-heading" style="margin-top: 12px;">
+                  <span>Cloud Translation</span>
+                  <span class="subgroup-badge">{cloudActions.filter((a) => isTranslationAction(a.action_id)).length} models</span>
+                </div>
+                <div class="action-cards-grid">
+                  {cloudActions.filter((a) => isTranslationAction(a.action_id)).map(renderActionCard)}
+                </div>
+              </div>
+            )}
+
+            {actionCategory === "all" && (
+              <div class="action-groups-container">
+                <div class="action-group-heading">
+                  <span>Core Document Extraction & Parsing</span>
+                  <span class="subgroup-badge">{coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).length} actions</span>
+                </div>
+                <div class="action-cards-grid">
+                  {coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).map(renderActionCard)}
+                </div>
+
+                <div class="action-group-heading" style="margin-top: 12px;">
+                  <span>OCR Engines (Local & Cloud)</span>
+                  <span class="subgroup-badge">{ocrActions.length} actions</span>
+                </div>
+                <div class="action-cards-grid">
+                  {ocrActions.map(renderActionCard)}
+                </div>
+
+                <div class="action-group-heading" style="margin-top: 12px;">
+                  <span>Translation Engines (Local & Cloud)</span>
+                  <span class="subgroup-badge">{translationActions.length} actions</span>
+                </div>
+                <div class="action-cards-grid">
+                  {translationActions.map(renderActionCard)}
+                </div>
+              </div>
+            )}
           </div>
-        ) : null}
-        {planError ? <div class="inline-error">{planError}</div> : null}
-        <button id="btn-start-run" class="button primary btn-primary full" disabled={working || !eligiblePaths.length || !activeAction?.is_enabled || Boolean(planError)} onClick={() => void handleStart()} type="button">
-          {working ? "Working…" : "Start document processing"}
-        </button>
-      </section>
+
+          {activeAction?.parameters.length ? (
+            <div class="parameter-section">
+              <div class="parameter-header">
+                <span class="eyebrow">Parameters</span>
+                <h4>{activeAction.label} Options</h4>
+              </div>
+              <div class="parameter-list">
+                {activeAction.parameters.map((parameter) => (
+                  <ActionParameter
+                    key={parameter.parameter_id}
+                    parameter={parameter}
+                    value={parameters[parameter.parameter_id] ?? parameter.default_value}
+                    onChange={(value) => updateParameter(parameter.parameter_id, value)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        {/* Preflight Execution Plan Card */}
+        <section class="panel execution-plan-card">
+          <div class="execution-plan-header">
+            <div>
+              <span class="preflight-eyebrow">Preflight</span>
+              <h3 class="execution-plan-title">Execution Plan</h3>
+            </div>
+            <span class="preflight-status-text">
+              {preflight ? `${eligibleCount} eligible · ${issueCount} issues` : "Select inputs to validate"}
+            </span>
+          </div>
+
+          {plan ? (
+            <div class="plan-details-box">
+              <div class="plan-header-row">
+                <strong>{plan.document_count} document{plan.document_count === 1 ? "" : "s"}</strong>
+                <span class="badge badge-emerald">Plan ready</span>
+              </div>
+              <div class="plan-stages-row">
+                {plan.stages.map((stage, idx) => (
+                  <span key={stage.name} class="stage-chip">
+                    {stage.name}
+                    {idx < plan.stages.length - 1 ? <span class="stage-arrow">→</span> : null}
+                  </span>
+                ))}
+              </div>
+              {plan.devices.length ? (
+                <small class="plan-devices">
+                  {plan.devices.map((device) => `${device.device_type}${device.is_available ? "" : " unavailable"}`).join(" · ")}
+                </small>
+              ) : null}
+            </div>
+          ) : null}
+
+          {planError ? <div class="inline-error">{planError}</div> : null}
+
+          <button
+            id="btn-start-run"
+            class="button primary btn-primary btn-start-run"
+            disabled={working || !eligiblePaths.length || !activeAction?.is_enabled || Boolean(planError)}
+            onClick={() => void handleStart()}
+            type="button"
+          >
+            <span>{working ? "Working…" : "Start document processing"}</span>
+            <span class="btn-bolt">⚡</span>
+          </button>
+        </section>
+      </div>
     </div>
   );
 }
@@ -2142,33 +2229,109 @@ export function App() {
     },
   ], [state, summary, inspector]);
 
+  const docCount = state?.input_selection?.items?.length ?? 0;
+  const eligibleCount = state?.input_selection?.items?.filter((i) => i.is_eligible).length ?? 0;
+  const totalSize = state?.input_selection?.items?.reduce((acc, i) => acc + (i.size_bytes || 0), 0) ?? 0;
+  const policyLabel = state?.policy_label || (state?.requirement && isCloudAction(state.requirement) ? "Cloud" : "Local");
+
   return (
     <div class="app-shell app-container">
-      <aside class="sidebar">
-        <div class="brand"><div class="brand-mark">S</div><div><h1>Sarathi</h1><span>V3 · Local Intelligence</span></div></div>
-        <nav aria-label="Main navigation">
-          {screens.map((item) => (
+      <aside class="sidebar" data-purpose="main-sidebar">
+        <div class="sidebar-top">
+          {/* Branding & Creator Tag */}
+          <div class="brand">
+            <div class="brand-mark">S</div>
+            <div class="brand-text">
+              <h1>Sarathi</h1>
+              <span class="brand-subtitle">Local Intelligence</span>
+              <span class="brand-creator">by : VishNu KumaR</span>
+            </div>
+          </div>
+
+          {/* Navigation Views */}
+          <nav class="sidebar-nav" aria-label="Primary Navigation">
+            {screens.map((item) => (
+              <button
+                class={screen === item.id ? "nav-item nav-tab active" : "nav-item nav-tab"}
+                data-screen={item.id}
+                onClick={() => chooseScreen(item.id)}
+                type="button"
+                key={item.id}
+              >
+                <span class="nav-glyph">{item.label.slice(0, 1)}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* Action Utilities */}
+          <div class="sidebar-actions">
             <button
-              class={screen === item.id ? "nav-item nav-tab active" : "nav-item nav-tab"}
-              data-screen={item.id}
-              onClick={() => chooseScreen(item.id)}
+              id="btn-command-palette"
+              class="sidebar-action-btn"
+              onClick={() => setPaletteOpen(true)}
+              title="Command Palette (Ctrl+P)"
               type="button"
-              key={item.id}
             >
-              <span class="nav-glyph">{item.label.slice(0, 1)}</span>
-              <span>{item.label}</span>
+              <svg class="icon-svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+              </svg>
+              <span>Commands</span>
             </button>
-          ))}
-        </nav>
-        <div class="sidebar-footer"><span class={connected ? "connection connection--live" : "connection"} /><span>{connected ? "Live state" : "Polling"}</span></div>
+            <button
+              id="btn-open-history"
+              class="sidebar-action-btn"
+              onClick={() => void openHistory()}
+              title="Activity History"
+              type="button"
+            >
+              <svg class="icon-svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>History</span>
+            </button>
+          </div>
+
+          {/* Workspace Pill */}
+          <div class="sidebar-workspace-card">
+            <div class="workspace-card-header">
+              <span class="workspace-card-title">Workspace</span>
+              <span class="workspace-card-badge">{eligibleCount} eligible</span>
+            </div>
+            <div class="workspace-card-status">
+              <span class="workspace-dot" />
+              <span>Ready</span>
+              <span class="workspace-sep">·</span>
+              <span class="workspace-mode">{policyLabel}</span>
+            </div>
+            <div class="workspace-card-stats">{docCount} docs · {formatBytes(totalSize)}</div>
+          </div>
+        </div>
+
+        {/* Engine Telemetry / Status Footer */}
+        <div class="sidebar-footer">
+          <div class="telemetry-engine-row">
+            <span class="telemetry-ping-wrap">
+              <span class="telemetry-ping" />
+              <span class="telemetry-dot" />
+            </span>
+            <span class="telemetry-label">Local Engine</span>
+            <span class="telemetry-badge">Ready</span>
+          </div>
+          <div class="telemetry-detail-row">
+            <span>{state?.requirement || "read_native"}</span>
+            <span>rev {state?.state_revision ?? "1"}</span>
+          </div>
+        </div>
       </aside>
 
       <main class="workspace app-main">
         <header class="topbar app-header">
-          <div><span class="eyebrow">Mukha</span><h2 class="screen-title">{screens.find((item) => item.id === screen)?.label}</h2></div>
+          <div class="topbar-left">
+            <span class="eyebrow">Mukha</span>
+            <h2 class="screen-title">{screens.find((item) => item.id === screen)?.label}</h2>
+          </div>
           <div class="topbar-meta">
-            <button id="btn-command-palette" class="button ghost small" onClick={() => setPaletteOpen(true)} title="Command Palette (Ctrl+P)" type="button">⌘ Palette</button>
-            <button id="btn-open-history" class="button ghost small" onClick={() => void openHistory()} type="button">History</button>
             <span class="badge">{state?.requirement || "No requirement"}</span>
             <span class="revision">rev {state?.state_revision ?? "—"}</span>
           </div>
