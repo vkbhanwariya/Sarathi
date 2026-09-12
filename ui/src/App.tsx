@@ -559,6 +559,44 @@ function DocumentPreviewModal({
   );
 }
 
+export type ActionCategory = "core" | "ocr" | "translation" | "cloud" | "all";
+
+export function isCloudAction(actionId: string): boolean {
+  return (
+    actionId.startsWith("gemini_") ||
+    actionId.startsWith("azure_") ||
+    actionId.startsWith("mistral_") ||
+    actionId.startsWith("bhashini_") ||
+    actionId.includes("cloud")
+  );
+}
+
+export function isOcrAction(actionId: string): boolean {
+  return actionId === "ocr" || actionId.endsWith("_ocr") || actionId.includes("ocr");
+}
+
+export function isTranslationAction(actionId: string): boolean {
+  return actionId === "translation" || actionId.endsWith("_translation") || actionId.includes("translation");
+}
+
+export function isCoreAction(actionId: string): boolean {
+  return !isCloudAction(actionId);
+}
+
+export function getActionMeta(actionId: string): { type: "local" | "cloud"; provider: string } {
+  if (actionId.startsWith("gemini_")) return { type: "cloud", provider: "Gemini Cloud" };
+  if (actionId.startsWith("azure_")) return { type: "cloud", provider: "Azure AI Cloud" };
+  if (actionId.startsWith("mistral_")) return { type: "cloud", provider: "Mistral Cloud" };
+  if (actionId.startsWith("bhashini_")) return { type: "cloud", provider: "Bhashini Cloud" };
+  if (actionId === "ocr") return { type: "local", provider: "RapidOCR Local" };
+  if (actionId === "translation") return { type: "local", provider: "IndicTrans2 Local" };
+  if (actionId === "read_native") return { type: "local", provider: "PyMuPDF Native" };
+  if (actionId === "bank_statements") return { type: "local", provider: "Statement Rules" };
+  if (actionId === "statutory") return { type: "local", provider: "Legal Patterns" };
+  if (actionId === "font_conversion") return { type: "local", provider: "Legacy Hindi" };
+  return { type: "local", provider: "Local" };
+}
+
 function Home({
   state,
   onStarted,
@@ -589,6 +627,10 @@ function Home({
   const [recursive, setRecursive] = useState(false);
   const [manualPath, setManualPath] = useState("");
   const [requirement, setRequirement] = useState(initialRequirement);
+  const [actionCategory, setActionCategory] = useState<ActionCategory>(() => {
+    if (isCloudAction(initialRequirement)) return "cloud";
+    return "core";
+  });
   const [parameters, setParameters] = useState<Record<string, unknown>>(
     actionDefaults(state.available_actions.find((action) => action.action_id === initialRequirement)),
   );
@@ -747,6 +789,8 @@ function Home({
       (window as any).__sarathi_set_input_page = (p: number) => setPage(p);
       (window as any).__sarathi_set_show_all = (show: boolean) => setShowAllInputsTable(show);
       (window as any).__sarathi_set_filter = (f: "all" | "eligible" | "issues") => setFilter(f);
+      (window as any).__sarathi_set_action_category = (c: ActionCategory) => setActionCategory(c);
+      (window as any).__sarathi_get_action_category = () => actionCategory;
     }
   });
 
@@ -788,6 +832,64 @@ function Home({
     });
   };
 
+  const coreActions = useMemo(
+    () => state.available_actions.filter((a) => isCoreAction(a.action_id)),
+    [state.available_actions],
+  );
+  const ocrActions = useMemo(
+    () => state.available_actions.filter((a) => isOcrAction(a.action_id)),
+    [state.available_actions],
+  );
+  const translationActions = useMemo(
+    () => state.available_actions.filter((a) => isTranslationAction(a.action_id)),
+    [state.available_actions],
+  );
+  const cloudActions = useMemo(
+    () => state.available_actions.filter((a) => isCloudAction(a.action_id)),
+    [state.available_actions],
+  );
+
+  const isCurrentActionInView = useMemo(() => {
+    if (!activeAction) return true;
+    if (actionCategory === "all") return true;
+    if (actionCategory === "core") return isCoreAction(activeAction.action_id);
+    if (actionCategory === "ocr") return isOcrAction(activeAction.action_id);
+    if (actionCategory === "translation") return isTranslationAction(activeAction.action_id);
+    if (actionCategory === "cloud") return isCloudAction(activeAction.action_id);
+    return true;
+  }, [activeAction, actionCategory]);
+
+  const renderActionCard = (action: AvailableActionView) => {
+    const isSelected = action.action_id === requirement;
+    const meta = getActionMeta(action.action_id);
+    return (
+      <button
+        class={isSelected ? "action-card req-card selected" : "action-card req-card"}
+        data-req={action.action_id}
+        data-action-id={action.action_id}
+        disabled={!action.is_enabled}
+        key={action.action_id}
+        onClick={() => chooseAction(action)}
+        type="button"
+        title={action.is_enabled ? action.description || action.label : action.disabled_reason || "Unavailable"}
+      >
+        <div class="action-card-top">
+          <span class="action-card-label">{action.label}</span>
+          <span class={`action-type-badge action-type-badge--${meta.type}`}>
+            {meta.provider}
+          </span>
+        </div>
+        <small class="action-card-desc">
+          {action.is_enabled ? action.description || action.action_id : action.disabled_reason || "Unavailable"}
+        </small>
+        <div class="action-card-bottom">
+          <span class={`action-card-indicator ${isSelected ? "active" : ""}`} />
+          <code class="action-card-code">{action.action_id}</code>
+        </div>
+      </button>
+    );
+  };
+
   const handleBrowse = async (folder: boolean) => {
     setWorking(true);
     onError(null);
@@ -819,10 +921,10 @@ function Home({
   return (
     <div class="screen-grid">
       <section class="hero panel">
-        <div>
+        <div class="hero__content">
           <span class="eyebrow">Document intelligence workspace</span>
           <h2>Process documents without losing sight of the evidence.</h2>
-          <p>Sarathi keeps intake, execution, review and artifacts in one local workflow.</p>
+          <p>Local intake, verifiable execution, automated review, and deterministic artifacts.</p>
         </div>
         <div class="hero__status">
           <span class="status-dot" />
@@ -1037,33 +1139,204 @@ function Home({
       </section>
 
       <section class="panel">
-        <div class="section-heading"><div><span class="eyebrow">Capabilities</span><h3>Processing action</h3></div></div>
-        <div class="action-list">
-          {state.available_actions.map((action) => (
-            <button
-              class={action.action_id === requirement ? "action-card req-card selected" : "action-card req-card"}
-              data-req={action.action_id}
-              data-action-id={action.action_id}
-              disabled={!action.is_enabled}
-              key={action.action_id}
-              onClick={() => chooseAction(action)}
-              type="button"
-            >
-              <span>{action.label}</span>
-              <small>{action.is_enabled ? action.description || action.action_id : action.disabled_reason || "Unavailable"}</small>
-            </button>
-          ))}
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">Capabilities</span>
+            <h3>Processing action</h3>
+          </div>
+          <div class="action-selected-pill">
+            <span class="quiet">Selected: </span>
+            <strong>{activeAction?.label || requirement}</strong>
+          </div>
         </div>
+
+        <div class="action-category-menu" role="tablist" aria-label="Processing action categories">
+          <button
+            id="btn-cat-core"
+            class={`category-tab ${actionCategory === "core" ? "active" : ""}`}
+            onClick={() => setActionCategory("core")}
+            type="button"
+            role="tab"
+            aria-selected={actionCategory === "core"}
+          >
+            <span>⚡ Core Local</span>
+            <span class="tab-count">{coreActions.length}</span>
+          </button>
+          <button
+            id="btn-cat-ocr"
+            class={`category-tab ${actionCategory === "ocr" ? "active" : ""}`}
+            onClick={() => setActionCategory("ocr")}
+            type="button"
+            role="tab"
+            aria-selected={actionCategory === "ocr"}
+          >
+            <span>🔍 OCR</span>
+            <span class="tab-count">{ocrActions.length}</span>
+          </button>
+          <button
+            id="btn-cat-translation"
+            class={`category-tab ${actionCategory === "translation" ? "active" : ""}`}
+            onClick={() => setActionCategory("translation")}
+            type="button"
+            role="tab"
+            aria-selected={actionCategory === "translation"}
+          >
+            <span>🌐 Translation</span>
+            <span class="tab-count">{translationActions.length}</span>
+          </button>
+          <button
+            id="btn-cat-cloud"
+            class={`category-tab ${actionCategory === "cloud" ? "active" : ""}`}
+            onClick={() => setActionCategory("cloud")}
+            type="button"
+            role="tab"
+            aria-selected={actionCategory === "cloud"}
+          >
+            <span>☁ CLOUD</span>
+            <span class="tab-count">{cloudActions.length}</span>
+          </button>
+          <button
+            id="btn-cat-all"
+            class={`category-tab ${actionCategory === "all" ? "active" : ""}`}
+            onClick={() => setActionCategory("all")}
+            type="button"
+            role="tab"
+            aria-selected={actionCategory === "all"}
+          >
+            <span>All</span>
+            <span class="tab-count">{state.available_actions.length}</span>
+          </button>
+        </div>
+
+        {!isCurrentActionInView && activeAction ? (
+          <div class="active-selection-banner">
+            <div class="active-selection-info">
+              <span class="quiet">Active action:</span>
+              <strong>{activeAction.label}</strong>
+              <span class={`action-type-badge action-type-badge--${isCloudAction(activeAction.action_id) ? "cloud" : "local"}`}>
+                {getActionMeta(activeAction.action_id).provider}
+              </span>
+            </div>
+            <button
+              class="button ghost small"
+              type="button"
+              onClick={() => setActionCategory(isCloudAction(activeAction.action_id) ? "cloud" : isOcrAction(activeAction.action_id) ? "ocr" : isTranslationAction(activeAction.action_id) ? "translation" : "core")}
+            >
+              View in active tab →
+            </button>
+          </div>
+        ) : null}
+
+        {actionCategory === "core" && (
+          <div class="action-list">
+            {coreActions.map(renderActionCard)}
+          </div>
+        )}
+
+        {actionCategory === "ocr" && (
+          <div class="action-groups-container">
+            <div class="action-group-heading">
+              <span>Local OCR Engine</span>
+              <span class="subgroup-badge">{ocrActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
+            </div>
+            <div class="action-list">
+              {ocrActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
+            </div>
+
+            <div class="action-group-heading" style="margin-top: 14px;">
+              <span>Cloud OCR Services</span>
+              <span class="subgroup-badge">{ocrActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
+            </div>
+            <div class="action-list">
+              {ocrActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
+            </div>
+          </div>
+        )}
+
+        {actionCategory === "translation" && (
+          <div class="action-groups-container">
+            <div class="action-group-heading">
+              <span>Local Translation Engine</span>
+              <span class="subgroup-badge">{translationActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
+            </div>
+            <div class="action-list">
+              {translationActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
+            </div>
+
+            <div class="action-group-heading" style="margin-top: 14px;">
+              <span>Cloud Translation Services</span>
+              <span class="subgroup-badge">{translationActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
+            </div>
+            <div class="action-list">
+              {translationActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
+            </div>
+          </div>
+        )}
+
+        {actionCategory === "cloud" && (
+          <div class="action-groups-container">
+            <div class="action-group-heading">
+              <span>Cloud OCR (Optical Character Recognition)</span>
+              <span class="subgroup-badge">{cloudActions.filter((a) => isOcrAction(a.action_id)).length} models</span>
+            </div>
+            <div class="action-list">
+              {cloudActions.filter((a) => isOcrAction(a.action_id)).map(renderActionCard)}
+            </div>
+
+            <div class="action-group-heading" style="margin-top: 14px;">
+              <span>Cloud Translation (Multilingual AI)</span>
+              <span class="subgroup-badge">{cloudActions.filter((a) => isTranslationAction(a.action_id)).length} models</span>
+            </div>
+            <div class="action-list">
+              {cloudActions.filter((a) => isTranslationAction(a.action_id)).map(renderActionCard)}
+            </div>
+          </div>
+        )}
+
+        {actionCategory === "all" && (
+          <div class="action-groups-container">
+            <div class="action-group-heading">
+              <span>Core Document Extraction & Parsing</span>
+              <span class="subgroup-badge">{coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).length} actions</span>
+            </div>
+            <div class="action-list">
+              {coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).map(renderActionCard)}
+            </div>
+
+            <div class="action-group-heading" style="margin-top: 14px;">
+              <span>OCR Engines (Local & Cloud)</span>
+              <span class="subgroup-badge">{ocrActions.length} actions</span>
+            </div>
+            <div class="action-list">
+              {ocrActions.map(renderActionCard)}
+            </div>
+
+            <div class="action-group-heading" style="margin-top: 14px;">
+              <span>Translation Engines (Local & Cloud)</span>
+              <span class="subgroup-badge">{translationActions.length} actions</span>
+            </div>
+            <div class="action-list">
+              {translationActions.map(renderActionCard)}
+            </div>
+          </div>
+        )}
+
         {activeAction?.parameters.length ? (
-          <div class="parameter-list">
-            {activeAction.parameters.map((parameter) => (
-              <ActionParameter
-                key={parameter.parameter_id}
-                parameter={parameter}
-                value={parameters[parameter.parameter_id] ?? parameter.default_value}
-                onChange={(value) => updateParameter(parameter.parameter_id, value)}
-              />
-            ))}
+          <div class="parameter-section">
+            <div class="parameter-header">
+              <span class="eyebrow">Parameters</span>
+              <h4>{activeAction.label} Options</h4>
+            </div>
+            <div class="parameter-list">
+              {activeAction.parameters.map((parameter) => (
+                <ActionParameter
+                  key={parameter.parameter_id}
+                  parameter={parameter}
+                  value={parameters[parameter.parameter_id] ?? parameter.default_value}
+                  onChange={(value) => updateParameter(parameter.parameter_id, value)}
+                />
+              ))}
+            </div>
           </div>
         ) : null}
       </section>
@@ -1073,9 +1346,23 @@ function Home({
         <p class="quiet">{preflight ? `${eligibleCount} eligible · ${issueCount} issues` : "Select inputs to validate the run."}</p>
         {plan ? (
           <div class="plan">
-            <strong>{plan.document_count} document{plan.document_count === 1 ? "" : "s"}</strong>
-            <span>{plan.stages.map((stage) => stage.name).join(" → ")}</span>
-            {plan.devices.length ? <small>{plan.devices.map((device) => `${device.device_type}${device.is_available ? "" : " unavailable"}`).join(" · ")}</small> : null}
+            <div class="plan-header">
+              <strong>{plan.document_count} document{plan.document_count === 1 ? "" : "s"}</strong>
+              <span class="badge badge-emerald">Plan ready</span>
+            </div>
+            <div class="plan-stages">
+              {plan.stages.map((stage, idx) => (
+                <span key={stage.name} class="stage-chip">
+                  {stage.name}
+                  {idx < plan.stages.length - 1 ? <span class="stage-arrow">→</span> : null}
+                </span>
+              ))}
+            </div>
+            {plan.devices.length ? (
+              <small class="plan-devices">
+                {plan.devices.map((device) => `${device.device_type}${device.is_available ? "" : " unavailable"}`).join(" · ")}
+              </small>
+            ) : null}
           </div>
         ) : null}
         {planError ? <div class="inline-error">{planError}</div> : null}

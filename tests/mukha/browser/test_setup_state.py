@@ -128,3 +128,77 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     assert payload["requirement"] == "ocr"
     assert payload["profile"] == "accurate"
 
+
+def test_action_category_menus_and_cloud_partitioning(app_page: Page) -> None:
+    """Verify category tabs partition core local actions and cloud actions."""
+    cat_core = app_page.locator("#btn-cat-core")
+    cat_ocr = app_page.locator("#btn-cat-ocr")
+    cat_trans = app_page.locator("#btn-cat-translation")
+    cat_cloud = app_page.locator("#btn-cat-cloud")
+    cat_all = app_page.locator("#btn-cat-all")
+
+    expect(cat_core).to_be_visible()
+    expect(cat_ocr).to_be_visible()
+    expect(cat_trans).to_be_visible()
+    expect(cat_cloud).to_be_visible()
+    expect(cat_all).to_be_visible()
+
+    # Core tab is active by default; local actions visible, cloud actions hidden
+    expect(cat_core).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".req-card[data-req='ocr']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_have_count(0)
+
+    # Switch to Cloud tab
+    cat_cloud.click()
+    expect(cat_cloud).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='gemini_translation']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='azure_ocr']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='azure_translation']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_have_count(0)
+
+    # Switch to Translation tab
+    cat_trans.click()
+    expect(cat_trans).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".req-card[data-req='translation']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='gemini_translation']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='ocr']")).to_have_count(0)
+
+    # Switch to OCR tab
+    cat_ocr.click()
+    expect(cat_ocr).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".req-card[data-req='ocr']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_have_count(0)
+
+    # Switch to All tab
+    cat_all.click()
+    expect(cat_all).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".req-card[data-req='ocr']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='translation']")).to_be_visible()
+    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_be_visible()
+
+
+def test_active_action_banner_when_browsing_other_category(app_page: Page) -> None:
+    """Verify active action banner is displayed when active action is in another tab."""
+    # Ensure OCR is selected in core tab
+    ocr_card = app_page.locator(".req-card[data-req='ocr']")
+    expect(ocr_card).to_be_visible()
+    ocr_card.click()
+    expect(ocr_card).to_have_class(re.compile(r"\bselected\b"))
+
+    # Switch to Translation tab (which does not contain OCR)
+    app_page.locator("#btn-cat-translation").click()
+    banner = app_page.locator(".active-selection-banner")
+    expect(banner).to_be_visible()
+    expect(banner).to_contain_text("Optical Character Recognition")
+
+    # Click jump button in banner to return to active tab
+    banner.locator("button").click()
+    expect(app_page.locator("#btn-cat-ocr")).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".req-card[data-req='ocr']")).to_have_class(re.compile(r"\bselected\b"))
+
+
+
