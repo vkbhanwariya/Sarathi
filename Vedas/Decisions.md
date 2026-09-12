@@ -10,7 +10,7 @@ This file records product and UI decisions agreed during planning discussions.
 
 ## Home Screen — User-Facing Task Optimization
 
-**Status:** Approved task set and order; Documents Extraction, Bank Account Consolidation, and Font Conversion second-level tasks approved; implementation not requested
+**Status:** Approved task set and order; second-level tasks approved for Documents Extraction, Bank Account Consolidation, Font Conversion, and Translation; implementation not requested
 
 The Home screen user-facing processing choices will be limited to the following four tasks, in this order:
 
@@ -83,6 +83,20 @@ The Home screen user-facing processing choices will be limited to the following 
 1. **Auto detect to Unicode**
 2. **Auto detect to Devlys**
 3. **Auto detect to Kurtidev**
+
+## Translation — Second-Level Tasks
+
+**Translation** is a parent task. Selecting it first detects the source document language automatically, then presents translation choices in this order:
+
+1. **Instant Translation**
+   - Speed-focused translation path after automatic source-language detection.
+
+2. **Sarvam AI Translation**
+   - Uses Sarvam AI as the selected translation engine after automatic source-language detection.
+
+3. **Cloud Translation Engines**
+   - After the above choices, show the available cloud translation engines as selectable subordinate options.
+   - Cloud translation providers remain under Translation rather than appearing as separate top-level Home tasks.
 
 ### Deferred from the Home task list
 
