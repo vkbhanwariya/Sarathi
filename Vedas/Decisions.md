@@ -86,23 +86,25 @@ The Home screen user-facing processing choices will be limited to the following 
 
 ## Translation — Second-Level Tasks
 
-**Translation** is a parent task. Selecting it first detects the source document language automatically, then presents translation choices in this order:
+**Translation** is a parent task. Selecting it first detects the source document language automatically, then presents exactly these five translation-engine choices, in this order:
 
-1. **Instant Translation**
-   - Speed-focused translation path after automatic source-language detection.
+1. **IndicTrans2**
+   - On-device/local translation engine.
 
-2. **Sarvam AI Translation**
-   - Uses Sarvam AI as the selected translation engine after automatic source-language detection.
+2. **OPUS-MT**
+   - On-device/local translation engine.
 
-3. **Mistral Cloud Translation**
+3. **Bhashini**
+   - Bhashini translation service/engine.
 
-4. **Google Gemini Cloud Translation**
+4. **Mistral**
+   - Mistral cloud translation engine.
 
-5. **Azure AI Translation**
+5. **Gemini**
+   - Google Gemini cloud translation engine.
 
-6. **Bhashini IndicTrans2 Translation**
-
-- Cloud translation engines are listed directly as selectable second-level choices under Translation rather than hidden behind a generic Cloud Translation entry.
+- These five are the approved Translation choices for now.
+- Sarvam AI Translation and Azure AI Translation are not part of the approved Translation list for now.
 - Provider-specific translation engines remain under Translation rather than appearing as separate top-level Home tasks.
 
 ### Deferred from the Home task list
@@ -112,10 +114,6 @@ The following are not to be presented as separate top-level Home tasks for now:
 - Optical Character Recognition (OCR)
 - Statutory & Legal Extraction
 - Mistral Cloud OCR
-- Mistral Cloud Translation
 - Google Gemini Cloud OCR
-- Google Gemini Cloud Translation
 - Azure Document Intelligence OCR
-- Azure AI Translation
 - Bhashini Chitrakshar OCR
-- Bhashini IndicTrans2 Translation
