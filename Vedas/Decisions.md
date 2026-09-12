@@ -49,8 +49,9 @@ The Home screen user-facing processing choices will be limited to the following 
 
 3. **Accurate OCR**
    - Accuracy-focused OCR mode.
-   - Uses optimal preprocessing and post-processing automatically.
+   - Uses optimal, accuracy-focused preprocessing and post-processing automatically.
    - Automatically performs selective fallback/reprocessing for OCR output with low confidence instead of applying expensive fallback indiscriminately.
+   - Provides an option to preserve the source document's layout and formatting.
 
 4. **Cloud OCR**
    - Selecting this expands the available cloud OCR providers/options.
