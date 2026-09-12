@@ -15,6 +15,7 @@
 | [`Troubleshooting.md`](Troubleshooting.md) | Diagnoses and fixes for OCR, OpenVINO, fonts, encodings, and network |
 | [`Development.md`](Development.md) | Install, run, and permanent 5-gate CI test commands |
 | [`Mukha_Transport.md`](Mukha_Transport.md) | Local ASGI web transport, SSE streaming, and security boundary |
+| [`Decisions.md`](Decisions.md) | Canonical UI/UX progressive Home task hierarchy and capability mapping |
 | [`Cleanup_Optimization_Plan.md`](Cleanup_Optimization_Plan.md) | Historical record of completed architecture and performance cleanup |
 | [`architecture.manifest.json`](architecture.manifest.json) | Machine-readable production package and component topology |
 | [`architecture.manifest.schema.json`](architecture.manifest.schema.json) | JSON schema defining production manifest rules |

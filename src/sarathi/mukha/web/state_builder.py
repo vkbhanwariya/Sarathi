@@ -346,6 +346,16 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
                 ),
             ),
         )
+    if act_id == "read_native":
+        return (
+            ActionParameterView(
+                parameter_id="statutory",
+                display_name="Statutory & Legal Extraction",
+                kind="toggle",
+                default_value=True,
+                description="Automatically extract and verify GSTIN, PAN, TAN, CIN, and CNR identifiers",
+            ),
+        )
     if act_id == "translation":
         return (
             ActionParameterView(
@@ -358,6 +368,17 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
                     ("hi_en", "Hindi → English"),
                     ("en_hi", "English → Hindi"),
                 ),
+            ),
+            ActionParameterView(
+                parameter_id="engine",
+                display_name="Translation Engine",
+                kind="select",
+                default_value="indictrans2",
+                options=(
+                    ("indictrans2", "IndicTrans2 (Local CTranslate2)"),
+                    ("opus_mt", "OPUS-MT (Local Marian CTranslate2)"),
+                ),
+                description="Local neural translation engine",
             ),
         )
     return ()

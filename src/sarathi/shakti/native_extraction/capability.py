@@ -396,10 +396,20 @@ class NativeExtractionCapability:
                         )
                     )
 
+        next_req = None
+        if needs_ocr:
+            next_req = "ocr"
+        elif (
+            request.requirement == "read_native"
+            and bool(request.custom_options and request.custom_options.get("statutory"))
+            and any(bool(d.text.strip()) or bool(d.tables) for d in extracted_docs)
+        ):
+            next_req = "statutory"
+
         return Result(
             data=result_data,
             artifact_payloads=tuple(payloads),
             warnings=tuple(all_warnings),
             provenance=tuple(all_provenance),
-            next_requirement="ocr" if needs_ocr else None,
+            next_requirement=next_req,
         )

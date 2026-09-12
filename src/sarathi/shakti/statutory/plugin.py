@@ -30,8 +30,13 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     version="2.0.0",
     display_name="Statutory & Legal Extraction",
     description="Extracts and validates GSTIN, PAN, CIN, and CNR metadata from government and legal documents.",
-    supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
-    prerequisites=(),
+    supported_profiles=(
+        ExecutionProfile.INSTANT,
+        ExecutionProfile.ACCURATE,
+        ExecutionProfile.LAYOUT_PRESERVING,
+        ExecutionProfile.CUSTOM,
+    ),
+    prerequisites=("read_native",),
     device_requirement=DeviceRequirement(
         preferred_devices=(DeviceType.CPU,),
         supported_devices=(DeviceType.CPU,),

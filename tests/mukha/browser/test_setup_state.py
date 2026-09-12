@@ -17,16 +17,35 @@ pytestmark = [pytest.mark.browser]
 
 
 def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
-    """Verify that the single-page application loads with Griha Home active."""
+    """Verify that the single-page application loads with Griha Home active and displays only Level 1 selection initially."""
     expect(app_page.locator("h1")).to_contain_text("Sarathi")
     expect(app_page.locator(".nav-tab[data-screen='home']")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#screen-home")).to_have_class(re.compile(r"\bactive\b"))
 
+    # Verify exactly 4 primary tasks are displayed in exact approved order
+    task_tabs = app_page.locator(".primary-task-tab-btn")
+    expect(task_tabs).to_have_count(4)
+    expect(app_page.locator("#btn-task-documents-extraction")).to_be_visible()
+    expect(app_page.locator("#btn-task-bank-consolidation")).to_be_visible()
+    expect(app_page.locator("#btn-task-font-conversion")).to_be_visible()
+    expect(app_page.locator("#btn-task-translation")).to_be_visible()
+
+    # On home screen, only level 1 selection is shown initially (no level 2 subtask cards visible)
+    expect(app_page.locator(".subtask-card")).to_have_count(0)
+    expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
+
+    # On selecting the respective level 1 task, the specific level 2 options are displayed
+    app_page.locator("#btn-task-documents-extraction").click()
+    expect(app_page.locator("#btn-task-documents-extraction")).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator("#subtask-native")).to_be_visible()
+    expect(app_page.locator("#subtask-instant-ocr")).to_be_visible()
+
 
 def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_server: MukhaWebServer) -> None:
     """Verify that changing an action parameter is preserved when telemetry updates arrive."""
-    ocr_card = app_page.locator(".req-card[data-req='ocr']")
-    ocr_card.click()
+    app_page.locator("#btn-task-documents-extraction").click()
+    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
+    custom_ocr_card.click()
 
     profile_select = app_page.locator("#param-profile")
     expect(profile_select).to_be_visible()
@@ -45,21 +64,23 @@ def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_serve
 
 
 def test_parameter_selection_survives_capability_switching(app_page: Page) -> None:
-    """Verify that changing requirement and returning preserves previous parameter choices."""
-    ocr_card = app_page.locator(".req-card[data-req='ocr']")
-    ocr_card.click()
+    """Verify that changing primary task/capability and returning preserves previous parameter choices."""
+    app_page.locator("#btn-task-documents-extraction").click()
+    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
+    custom_ocr_card.click()
 
     profile_select = app_page.locator("#param-profile")
     expect(profile_select).to_be_visible()
     profile_select.select_option("accurate")
     expect(profile_select).to_have_value("accurate")
 
-    # Switch to Bank Statements
-    bank_card = app_page.locator(".req-card[data-req='bank_statements']")
-    bank_card.click()
+    # Switch to Bank Account Consolidation
+    bank_tab = app_page.locator("#btn-task-bank-consolidation")
+    bank_tab.click()
+    expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
-    # Switch back to OCR
-    ocr_card.click()
+    # Switch back to Documents Extraction
+    app_page.locator("#btn-task-documents-extraction").click()
     profile_select = app_page.locator("#param-profile")
     expect(profile_select).to_be_visible()
 
@@ -69,11 +90,9 @@ def test_parameter_selection_survives_capability_switching(app_page: Page) -> No
 
 def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     """Verify that custom toggle values survive switching between capabilities."""
-    ocr_card = app_page.locator(".req-card[data-req='ocr']")
-    ocr_card.click()
-
-    profile_select = app_page.locator("#param-profile")
-    profile_select.select_option("custom")
+    app_page.locator("#btn-task-documents-extraction").click()
+    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
+    custom_ocr_card.click()
 
     # Toggle clahe checkbox
     clahe_chk = app_page.locator("#param-clahe")
@@ -81,11 +100,11 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     clahe_chk.check()
     expect(clahe_chk).to_be_checked()
 
-    # Switch to Bank Statements and back to OCR
-    bank_card = app_page.locator(".req-card[data-req='bank_statements']")
-    bank_card.click()
-    ocr_card.click()
+    # Switch to Bank Statements and back to Documents Extraction
+    app_page.locator("#btn-task-bank-consolidation").click()
+    expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
+    app_page.locator("#btn-task-documents-extraction").click()
     clahe_chk = app_page.locator("#param-clahe")
     expect(clahe_chk).to_be_visible()
     expect(clahe_chk).to_be_checked()
@@ -93,8 +112,9 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
 
 def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
     """Verify that user draft choices survive navigating to another screen and returning."""
-    ocr_card = app_page.locator(".req-card[data-req='ocr']")
-    ocr_card.click()
+    app_page.locator("#btn-task-documents-extraction").click()
+    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
+    custom_ocr_card.click()
 
     profile_select = app_page.locator("#param-profile")
     expect(profile_select).to_be_visible()
@@ -115,11 +135,10 @@ def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
 
 def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     """Verify that buildRequest produces identical configuration for preview and execution."""
-    ocr_card = app_page.locator(".req-card[data-req='ocr']")
-    ocr_card.click()
-
-    profile_select = app_page.locator("#param-profile")
-    profile_select.select_option("accurate")
+    app_page.locator("#btn-task-documents-extraction").click()
+    accurate_ocr_card = app_page.locator("#subtask-accurate-ocr")
+    accurate_ocr_card.click()
+    expect(accurate_ocr_card).to_have_class(re.compile(r"\bselected\b"))
 
     payload = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
@@ -129,76 +148,108 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     assert payload["profile"] == "accurate"
 
 
-def test_action_category_menus_and_cloud_partitioning(app_page: Page) -> None:
-    """Verify category tabs partition core local actions and cloud actions."""
-    cat_core = app_page.locator("#btn-cat-core")
-    cat_ocr = app_page.locator("#btn-cat-ocr")
-    cat_trans = app_page.locator("#btn-cat-translation")
-    cat_cloud = app_page.locator("#btn-cat-cloud")
-    cat_all = app_page.locator("#btn-cat-all")
 
-    expect(cat_core).to_be_visible()
-    expect(cat_ocr).to_be_visible()
-    expect(cat_trans).to_be_visible()
-    expect(cat_cloud).to_be_visible()
-    expect(cat_all).to_be_visible()
+def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> None:
+    """Verify that the 4 primary tasks expand into the exact approved second-level choices in Vedas/Decisions.md."""
+    # 1. Documents Extraction: Native, Instant OCR, Accurate OCR, Cloud Document AI, Custom OCR
+    doc_tab = app_page.locator("#btn-task-documents-extraction")
+    doc_tab.click()
+    expect(app_page.locator("#subtask-native")).to_be_visible()
+    expect(app_page.locator("#subtask-instant-ocr")).to_be_visible()
+    expect(app_page.locator("#subtask-accurate-ocr")).to_be_visible()
+    expect(app_page.locator("#subtask-cloud-ocr")).to_be_visible()
+    expect(app_page.locator("#subtask-custom-ocr")).to_be_visible()
 
-    # Core tab is active by default; local actions visible, cloud actions hidden
-    expect(cat_core).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".req-card[data-req='ocr']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_have_count(0)
+    # Verify cloud provider chips in Cloud Document AI
+    expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
+    expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
+    expect(app_page.locator("#chip-azure-ocr")).to_be_visible()
+    expect(app_page.locator("#chip-bhashini-ocr")).to_be_visible()
 
-    # Switch to Cloud tab
-    cat_cloud.click()
-    expect(cat_cloud).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='gemini_translation']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='azure_ocr']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='azure_translation']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_have_count(0)
+    # 2. Bank Account Consolidation: Instant Consolidation, Accurate Consolidation
+    bank_tab = app_page.locator("#btn-task-bank-consolidation")
+    bank_tab.click()
+    expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
+    expect(app_page.locator("#subtask-accurate-consolidation")).to_be_visible()
 
-    # Switch to Translation tab
-    cat_trans.click()
-    expect(cat_trans).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".req-card[data-req='translation']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='gemini_translation']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='ocr']")).to_have_count(0)
+    # 3. Font Conversion: Legacy to Unicode, Unicode to KrutiDev, Unicode to DevLys
+    font_tab = app_page.locator("#btn-task-font-conversion")
+    font_tab.click()
+    expect(app_page.locator("#subtask-legacy-to-unicode")).to_be_visible()
+    expect(app_page.locator("#subtask-unicode-to-krutidev")).to_be_visible()
+    expect(app_page.locator("#subtask-unicode-to-devlys")).to_be_visible()
+    expect(app_page.locator("#param-source-font")).to_be_visible()
 
-    # Switch to OCR tab
-    cat_ocr.click()
-    expect(cat_ocr).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".req-card[data-req='ocr']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_have_count(0)
+    # 4. Translation: Direction selector first, then 6 engines in exact order
+    trans_tab = app_page.locator("#btn-task-translation")
+    trans_tab.click()
+    expect(app_page.locator("#btn-direction-auto")).to_be_visible()
+    expect(app_page.locator("#btn-direction-hi-en")).to_be_visible()
+    expect(app_page.locator("#btn-direction-en-hi")).to_be_visible()
 
-    # Switch to All tab
-    cat_all.click()
-    expect(cat_all).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".req-card[data-req='ocr']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='gemini_ocr']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='translation']")).to_be_visible()
-    expect(app_page.locator(".req-card[data-req='bank_statements']")).to_be_visible()
+    expect(app_page.locator("#subtask-engine-indictrans2")).to_be_visible()
+    expect(app_page.locator("#subtask-engine-opus-mt")).to_be_visible()
+    expect(app_page.locator("#subtask-engine-bhashini")).to_be_visible()
+    expect(app_page.locator("#subtask-engine-gemini")).to_be_visible()
+    expect(app_page.locator("#subtask-engine-mistral")).to_be_visible()
+    expect(app_page.locator("#subtask-engine-azure")).to_be_visible()
 
 
-def test_active_action_banner_when_browsing_other_category(app_page: Page) -> None:
-    """Verify active action banner is displayed when active action is in another tab."""
-    # Ensure OCR is selected in core tab
-    ocr_card = app_page.locator(".req-card[data-req='ocr']")
-    expect(ocr_card).to_be_visible()
-    ocr_card.click()
-    expect(ocr_card).to_have_class(re.compile(r"\bselected\b"))
+def test_translation_direction_and_engine_payload(app_page: Page) -> None:
+    """Verify that translation direction and engine options map correctly to the execution payload."""
+    app_page.locator("#btn-task-translation").click()
 
-    # Switch to Translation tab (which does not contain OCR)
-    app_page.locator("#btn-cat-translation").click()
-    banner = app_page.locator(".active-selection-banner")
-    expect(banner).to_be_visible()
-    expect(banner).to_contain_text("Optical Character Recognition")
+    # Choose Hindi -> English direction
+    app_page.locator("#btn-direction-hi-en").click()
+    expect(app_page.locator("#btn-direction-hi-en")).to_have_class(re.compile(r"\bactive\b"))
 
-    # Click jump button in banner to return to active tab
-    banner.locator("button").click()
-    expect(app_page.locator("#btn-cat-ocr")).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".req-card[data-req='ocr']")).to_have_class(re.compile(r"\bselected\b"))
+    # Choose OPUS-MT engine
+    app_page.locator("#subtask-engine-opus-mt").click()
+    expect(app_page.locator("#subtask-engine-opus-mt")).to_have_class(re.compile(r"\bselected\b"))
+
+    payload = app_page.evaluate(
+        """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
+    )
+    assert payload is not None
+    assert payload["requirement"] == "translation"
+    assert payload["profile"] == "instant"
+    assert payload["custom_options"]["direction"] == "hi_en"
+    assert payload["custom_options"]["engine"] == "opus_mt"
 
 
+def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
+    """Verify that Level 1 tasks act as a collapsible accordion: expanding Level 2 on click and collapsing back when clicked again."""
+    doc_btn = app_page.locator("#btn-task-documents-extraction")
+    bank_btn = app_page.locator("#btn-task-bank-consolidation")
+
+    # Initially collapsed
+    expect(app_page.locator(".subtask-card")).to_have_count(0)
+    expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
+
+    # Click Documents Extraction to expand
+    doc_btn.click()
+    expect(doc_btn).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(re.compile(r"\bexpanded\b"))
+    expect(app_page.locator("#subtask-native")).to_be_visible()
+
+    # Click Documents Extraction again to collapse
+    doc_btn.click()
+    expect(doc_btn).not_to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(re.compile(r"\bcollapsed\b"))
+    expect(app_page.locator(".subtask-card")).to_have_count(0)
+    expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
+
+    # Click Bank Account Consolidation to expand
+    bank_btn.click()
+    expect(bank_btn).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".accordion-item[data-task='bank_consolidation']")).to_have_class(re.compile(r"\bexpanded\b"))
+    expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
+
+    # Switching to Font Conversion collapses Bank Consolidation and expands Font Conversion
+    font_btn = app_page.locator("#btn-task-font-conversion")
+    font_btn.click()
+    expect(bank_btn).not_to_have_class(re.compile(r"\bactive\b"))
+    expect(font_btn).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator("#subtask-instant-consolidation")).to_have_count(0)
+    expect(app_page.locator("#subtask-legacy-to-unicode")).to_be_visible()
 

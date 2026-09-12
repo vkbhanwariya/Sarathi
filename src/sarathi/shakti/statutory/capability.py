@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from sarathi.dosh import DoshError, FailureCode
@@ -47,14 +48,17 @@ class StatutoryCapability:
         start_time = time.monotonic()
 
         text_items: list[tuple[str, str]] = []  # (doc_id, text)
+        prior_docs_map: dict[str, CanonicalDocument] = {}
 
         # 1. Prior result handoff (e.g. from read_native or ocr)
         if prior_result is not None and prior_result.data is not None:
             if isinstance(prior_result.data, CanonicalDocument):
+                prior_docs_map[prior_result.data.document_id] = prior_result.data
                 text_items.append((prior_result.data.document_id, prior_result.data.text))
             elif isinstance(prior_result.data, (tuple, list)):
                 for d in prior_result.data:
                     if isinstance(d, CanonicalDocument):
+                        prior_docs_map[d.document_id] = d
                         text_items.append((d.document_id, d.text))
 
         # 2. Standalone direct input reading
@@ -129,12 +133,22 @@ class StatutoryCapability:
                 )
             )
 
-            canonical_doc = CanonicalDocument(
-                document_id=doc_id,
-                source_input_id=doc_id,
-                detected_type=entities.doc_type.value,
-                metadata={"statutory_entities": entities_dict},
-            )
+            if doc_id in prior_docs_map:
+                prior_doc = prior_docs_map[doc_id]
+                merged_meta = dict(prior_doc.metadata) if prior_doc.metadata else {}
+                merged_meta["statutory_entities"] = entities_dict
+                canonical_doc = replace(
+                    prior_doc,
+                    detected_type=entities.doc_type.value if entities.doc_type.value != "unknown" else prior_doc.detected_type,
+                    metadata=merged_meta,
+                )
+            else:
+                canonical_doc = CanonicalDocument(
+                    document_id=doc_id,
+                    source_input_id=doc_id,
+                    detected_type=entities.doc_type.value,
+                    metadata={"statutory_entities": entities_dict},
+                )
             extracted_docs.append(canonical_doc)
 
             for correction in entities.ocr_corrections:
@@ -156,9 +170,25 @@ class StatutoryCapability:
             },
         )
 
+        final_artifacts = (
+            tuple(prior_result.artifact_payloads) + tuple(artifacts)
+            if prior_result and prior_result.artifact_payloads
+            else tuple(artifacts)
+        )
+        final_provenance = (
+            tuple(prior_result.provenance) + (prov,)
+            if prior_result and prior_result.provenance
+            else (prov,)
+        )
+        final_warnings = (
+            tuple(prior_result.warnings) + tuple(all_warnings)
+            if prior_result and prior_result.warnings
+            else tuple(all_warnings)
+        )
+
         return Result(
             data=tuple(extracted_docs) if len(extracted_docs) > 1 else extracted_docs[0],
-            artifact_payloads=tuple(artifacts),
-            provenance=(prov,),
-            warnings=tuple(all_warnings),
+            artifact_payloads=final_artifacts,
+            provenance=final_provenance,
+            warnings=final_warnings,
         )

@@ -248,7 +248,16 @@ class TranslationCapability:
             if not full_text.strip() and doc.pages:
                 full_text = "\n".join(p.text for p in doc.pages if p.text)
 
-            req_direction = request.metadata.get("direction") if request.metadata else None
+            req_direction = (
+                request.metadata.get("direction")
+                if request.metadata
+                else (request.custom_options.get("direction") if request.custom_options else None)
+            )
+            req_engine = (
+                str(request.custom_options.get("engine", "indictrans2")).lower().strip()
+                if request.custom_options
+                else "indictrans2"
+            )
             direction = self._detector.resolve_direction(
                 full_text, requested_direction=str(req_direction) if req_direction else None
             )
@@ -266,9 +275,19 @@ class TranslationCapability:
                     if not raw or not raw.strip():
                         return raw
                     if raw not in translation_cache:
-                        translation_cache[raw] = self._engine.translate(
-                            raw, direction=direction, execution_binding=context.execution_binding
-                        )
+                        try:
+                            translation_cache[raw] = self._engine.translate(
+                                raw,
+                                direction=direction,
+                                execution_binding=context.execution_binding,
+                                engine=req_engine,
+                            )
+                        except TypeError:
+                            translation_cache[raw] = self._engine.translate(
+                                raw,
+                                direction=direction,
+                                execution_binding=context.execution_binding,
+                            )
                     return translation_cache[raw].translated_text
 
                 tgt_lang = "en" if direction == TranslationDirection.HI_TO_EN else "hi"
@@ -314,6 +333,7 @@ class TranslationCapability:
                         "protected_spans_count": prot_count,
                         "device": device_val,
                         "backend": "ctranslate2",
+                        "engine": req_engine,
                     },
                 )
 

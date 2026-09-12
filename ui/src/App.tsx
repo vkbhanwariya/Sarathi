@@ -559,7 +559,45 @@ function DocumentPreviewModal({
   );
 }
 
-export type ActionCategory = "core" | "ocr" | "translation" | "cloud" | "all";
+export type PrimaryTaskId =
+  | "documents_extraction"
+  | "bank_consolidation"
+  | "font_conversion"
+  | "translation";
+
+export interface PrimaryTaskDef {
+  id: PrimaryTaskId;
+  label: string;
+  icon: string;
+  description: string;
+}
+
+export const PRIMARY_TASKS: readonly PrimaryTaskDef[] = [
+  {
+    id: "documents_extraction",
+    label: "Documents Extraction",
+    icon: "📄",
+    description: "Native extraction, local OCR, or cloud document AI",
+  },
+  {
+    id: "bank_consolidation",
+    label: "Bank Account Consolidation",
+    icon: "🏦",
+    description: "Financial table extraction & transaction reconciliation",
+  },
+  {
+    id: "font_conversion",
+    label: "Font Conversion",
+    icon: "🔤",
+    description: "Legacy Hindi typewriter font to/from Unicode conversion",
+  },
+  {
+    id: "translation",
+    label: "Translation",
+    icon: "🌐",
+    description: "Local neural or cloud translation between Hindi and English",
+  },
+];
 
 export function isCloudAction(actionId: string): boolean {
   return (
@@ -569,32 +607,6 @@ export function isCloudAction(actionId: string): boolean {
     actionId.startsWith("bhashini_") ||
     actionId.includes("cloud")
   );
-}
-
-export function isOcrAction(actionId: string): boolean {
-  return actionId === "ocr" || actionId.endsWith("_ocr") || actionId.includes("ocr");
-}
-
-export function isTranslationAction(actionId: string): boolean {
-  return actionId === "translation" || actionId.endsWith("_translation") || actionId.includes("translation");
-}
-
-export function isCoreAction(actionId: string): boolean {
-  return !isCloudAction(actionId);
-}
-
-export function getActionMeta(actionId: string): { type: "local" | "cloud"; provider: string; shortTag: string } {
-  if (actionId.startsWith("gemini_")) return { type: "cloud", provider: "Gemini Cloud", shortTag: "GEMINI" };
-  if (actionId.startsWith("azure_")) return { type: "cloud", provider: "Azure AI Cloud", shortTag: "AZURE" };
-  if (actionId.startsWith("mistral_")) return { type: "cloud", provider: "Mistral Cloud", shortTag: "MISTRAL" };
-  if (actionId.startsWith("bhashini_")) return { type: "cloud", provider: "Bhashini Cloud", shortTag: "BHASHINI" };
-  if (actionId === "ocr") return { type: "local", provider: "RapidOCR Local", shortTag: "RAPIDOCR" };
-  if (actionId === "translation") return { type: "local", provider: "IndicTrans2 Local", shortTag: "INDICTRANS2" };
-  if (actionId === "read_native") return { type: "local", provider: "PyMuPDF Native", shortTag: "PYMUPDF" };
-  if (actionId === "bank_statements") return { type: "local", provider: "Statement Rules", shortTag: "STATEMENTS" };
-  if (actionId === "statutory") return { type: "local", provider: "Legal Patterns", shortTag: "LEGAL" };
-  if (actionId === "font_conversion") return { type: "local", provider: "Legacy Hindi", shortTag: "HINDI" };
-  return { type: "local", provider: "Local", shortTag: "LOCAL" };
 }
 
 function Home({
@@ -609,10 +621,6 @@ function Home({
   onPreview: (pathOrUrl: string, displayName: string) => void;
 }) {
   const initialRoots = state.input_selection.items.flatMap((item) => item.source_path ? [item.source_path] : []);
-  const firstEnabled = state.available_actions.find((action) => action.is_enabled);
-  const initialRequirement = state.available_actions.some((action) => action.action_id === state.requirement && action.is_enabled)
-    ? state.requirement
-    : firstEnabled?.action_id ?? "";
 
   const [roots, setRoots] = useState<string[]>(initialRoots);
   const [selection, setSelection] = useState<InputSelectionView>(state.input_selection);
@@ -625,20 +633,36 @@ function Home({
   checkedPathsRef.current = checkedPaths;
   const [showAllInputsTable, setShowAllInputsTable] = useState(false);
   const [intakeExpanded, setIntakeExpanded] = useState(true);
-  const [capabilityExpanded, setCapabilityExpanded] = useState(true);
   const [recursive, setRecursive] = useState(false);
   const [manualPath, setManualPath] = useState("");
-  const [requirement, setRequirement] = useState(initialRequirement);
-  const [actionCategory, setActionCategory] = useState<ActionCategory>(() => {
-    if (isCloudAction(initialRequirement)) return "cloud";
-    return "core";
-  });
-  const [parameters, setParameters] = useState<Record<string, unknown>>(
-    actionDefaults(state.available_actions.find((action) => action.action_id === initialRequirement)),
+
+  const [primaryTask, setPrimaryTask] = useState<PrimaryTaskId | null>(null);
+
+  const [subtaskByPrimary, setSubtaskByPrimary] = useState<Record<PrimaryTaskId, string>>(() => ({
+    documents_extraction: state.requirement === "ocr" ? "instant_ocr" : state.requirement.endsWith("_ocr") ? "cloud_ocr" : "native",
+    bank_consolidation: (state as any).profile === "accurate" ? "accurate" : "instant",
+    font_conversion: "legacy_to_unicode",
+    translation: state.requirement.endsWith("_translation")
+      ? state.requirement.replace("_translation", "")
+      : "indictrans2",
+  }));
+
+  const [cloudOcrProvider, setCloudOcrProvider] = useState<string>(
+    state.requirement.endsWith("_ocr") ? state.requirement : "gemini_ocr"
   );
-  const [paramsByAction, setParamsByAction] = useState<Record<string, Record<string, unknown>>>({
-    [initialRequirement]: actionDefaults(state.available_actions.find((action) => action.action_id === initialRequirement)),
+  const [transDirection, setTransDirection] = useState<string>("");
+  const [statutoryEnabled, setStatutoryEnabled] = useState<boolean>(true);
+  const [preserveLayout, setPreserveLayout] = useState<boolean>(false);
+  const [sourceFont, setSourceFont] = useState<string>("");
+
+  const ocrAction = state.available_actions.find((a) => a.action_id === "ocr");
+  const [ocrCustomParams, setOcrCustomParams] = useState<Record<string, unknown>>(() => {
+    const d = actionDefaults(ocrAction);
+    d.profile = "custom";
+    d.engine = "rapidocr";
+    return d;
   });
+
   const [plan, setPlan] = useState<PlanPreview | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -651,7 +675,6 @@ function Home({
     setPreflight(state.preflight);
   }, [state.input_selection, state.preflight]);
 
-  const activeAction = state.available_actions.find((action) => action.action_id === requirement);
   const visibleItems = useMemo(
     () => selection.items.filter((item) => !item.source_path || !excluded.has(item.source_path)),
     [selection.items, excluded],
@@ -689,24 +712,104 @@ function Home({
 
   useEffect(() => setPage(1), [query, filter]);
 
-  const buildRequest = (): RunRequest => {
-    const profileEl = typeof document !== "undefined" ? (document.getElementById("param-profile") as HTMLSelectElement | null) : null;
-    const domProfile = profileEl?.value;
-    const profileParameter = activeAction?.parameters.find((parameter) => parameter.parameter_id === "profile");
-    const profile = domProfile || (profileParameter
-      ? String(parameters.profile ?? profileParameter.default_value ?? "instant")
-      : "instant");
-    const customOptions: Record<string, unknown> = {};
-    for (const parameter of activeAction?.parameters ?? []) {
-      if (parameter.parameter_id === "profile") continue;
-      const el = typeof document !== "undefined" ? (document.getElementById(`param-${parameter.parameter_id}`) as HTMLInputElement | null) : null;
-      const domVal = parameter.kind === "toggle" ? el?.checked : el?.value;
-      const value = domVal ?? parameters[parameter.parameter_id] ?? parameter.default_value;
-      if (parameter.kind === "toggle") customOptions[parameter.parameter_id] = Boolean(value);
-      else if (value !== undefined && value !== null && value !== "") customOptions[parameter.parameter_id] = value;
+  const currentSubtask = primaryTask ? subtaskByPrimary[primaryTask] : undefined;
+
+  const currentBackendMapping = useMemo<{
+    requirement: string;
+    profile: string;
+  } | null>(() => {
+    if (!primaryTask || !currentSubtask) return null;
+    if (primaryTask === "documents_extraction") {
+      if (currentSubtask === "native") return { requirement: "read_native", profile: "instant" };
+      if (currentSubtask === "instant_ocr") return { requirement: "ocr", profile: "instant" };
+      if (currentSubtask === "accurate_ocr") return { requirement: "ocr", profile: "accurate" };
+      if (currentSubtask === "cloud_ocr") return { requirement: cloudOcrProvider, profile: "instant" };
+      if (currentSubtask === "custom_ocr") {
+        const p = String(ocrCustomParams.profile || "custom");
+        return { requirement: "ocr", profile: p };
+      }
+      return { requirement: "read_native", profile: "instant" };
     }
-    if (requirement === "ocr" && profile === "custom") customOptions.engine = "rapidocr";
-    return { paths: eligiblePaths, requirement, profile, recursive, custom_options: customOptions };
+    if (primaryTask === "bank_consolidation") {
+      return { requirement: "bank_statements", profile: currentSubtask === "accurate" ? "accurate" : "instant" };
+    }
+    if (primaryTask === "font_conversion") {
+      return { requirement: "font_conversion", profile: "instant" };
+    }
+    if (primaryTask === "translation") {
+      if (currentSubtask === "opus_mt") return { requirement: "translation", profile: "instant" };
+      if (currentSubtask === "bhashini") return { requirement: "bhashini_translation", profile: "instant" };
+      if (currentSubtask === "gemini") return { requirement: "gemini_translation", profile: "instant" };
+      if (currentSubtask === "mistral") return { requirement: "mistral_translation", profile: "instant" };
+      if (currentSubtask === "azure") return { requirement: "azure_translation", profile: "instant" };
+      return { requirement: "translation", profile: "instant" };
+    }
+    return { requirement: "read_native", profile: "instant" };
+  }, [primaryTask, currentSubtask, cloudOcrProvider, ocrCustomParams.profile]);
+
+  const activeAction = currentBackendMapping
+    ? state.available_actions.find((action) => action.action_id === currentBackendMapping.requirement)
+    : undefined;
+
+  const buildRequest = (): RunRequest => {
+    const req = currentBackendMapping?.requirement ?? "read_native";
+    const prof = currentBackendMapping?.profile ?? "instant";
+    const customOptions: Record<string, unknown> = {};
+
+    if (primaryTask === "documents_extraction") {
+      if (currentSubtask === "native") {
+        const statEl = typeof document !== "undefined" ? (document.getElementById("param-statutory") as HTMLInputElement | null) : null;
+        customOptions.statutory = statEl ? statEl.checked : statutoryEnabled;
+      } else if (currentSubtask === "accurate_ocr") {
+        const layEl = typeof document !== "undefined" ? (document.getElementById("param-preserve-layout") as HTMLInputElement | null) : null;
+        if (layEl ? layEl.checked : preserveLayout) {
+          customOptions.preserve_layout = true;
+        }
+      } else if (currentSubtask === "custom_ocr") {
+        customOptions.engine = "rapidocr";
+        const ocrAct = state.available_actions.find((a) => a.action_id === "ocr");
+        for (const parameter of ocrAct?.parameters ?? []) {
+          if (parameter.parameter_id === "profile") continue;
+          const el = typeof document !== "undefined" ? (document.getElementById(`param-${parameter.parameter_id}`) as HTMLInputElement | null) : null;
+          const domVal = parameter.kind === "toggle" ? el?.checked : el?.value;
+          const val = domVal !== undefined ? domVal : (ocrCustomParams[parameter.parameter_id] ?? parameter.default_value);
+          if (parameter.kind === "toggle") customOptions[parameter.parameter_id] = Boolean(val);
+          else if (val !== undefined && val !== null && val !== "") customOptions[parameter.parameter_id] = val;
+        }
+      }
+    } else if (primaryTask === "font_conversion") {
+      if (currentSubtask === "unicode_to_krutidev") {
+        customOptions.font_mode = "to_krutidev";
+        customOptions.target_script = "legacy";
+        customOptions.target_profile_id = "to_krutidev";
+      } else if (currentSubtask === "unicode_to_devlys") {
+        customOptions.font_mode = "to_devlys";
+        customOptions.target_script = "legacy";
+        customOptions.target_profile_id = "to_devlys";
+      } else {
+        customOptions.font_mode = "auto_unicode";
+        const fontEl = typeof document !== "undefined" ? (document.getElementById("param-source-font") as HTMLSelectElement | null) : null;
+        const fontVal = fontEl ? fontEl.value : sourceFont;
+        if (fontVal) customOptions.source_font = fontVal;
+      }
+    } else if (primaryTask === "translation") {
+      if (transDirection) {
+        customOptions.direction = transDirection;
+      }
+      if (currentSubtask === "opus_mt") {
+        customOptions.engine = "opus_mt";
+      } else if (currentSubtask === "indictrans2") {
+        customOptions.engine = "indictrans2";
+      }
+    }
+
+    return {
+      paths: eligiblePaths,
+      requirement: req,
+      profile: prof,
+      recursive,
+      custom_options: customOptions,
+    };
   };
 
   const buildRequestRef = useRef(buildRequest);
@@ -791,13 +894,22 @@ function Home({
       (window as any).__sarathi_set_input_page = (p: number) => setPage(p);
       (window as any).__sarathi_set_show_all = (show: boolean) => setShowAllInputsTable(show);
       (window as any).__sarathi_set_filter = (f: "all" | "eligible" | "issues") => setFilter(f);
-      (window as any).__sarathi_set_action_category = (c: ActionCategory) => setActionCategory(c);
-      (window as any).__sarathi_get_action_category = () => actionCategory;
+      (window as any).__sarathi_set_primary_task = (t: PrimaryTaskId) => setPrimaryTask(t);
+      (window as any).__sarathi_get_primary_task = () => primaryTask;
+      (window as any).__sarathi_set_subtask = (t: PrimaryTaskId, s: string) => {
+        setSubtaskByPrimary((prev) => ({ ...prev, [t]: s }));
+      };
+      (window as any).__sarathi_get_subtask = (t: PrimaryTaskId) => subtaskByPrimary[t];
+      (window as any).__sarathi_set_cloud_ocr_provider = (p: string) => setCloudOcrProvider(p);
+      (window as any).__sarathi_set_translation_direction = (d: string) => setTransDirection(d);
+      (window as any).__sarathi_set_ocr_param = (key: string, val: unknown) => {
+        setOcrCustomParams((prev) => ({ ...prev, [key]: val }));
+      };
     }
   });
 
   useEffect(() => {
-    if (!activeAction?.is_enabled || !eligiblePaths.length) {
+    if (!primaryTask || !activeAction?.is_enabled || !eligiblePaths.length) {
       setPlan(null);
       setPlanError(null);
       return;
@@ -811,86 +923,19 @@ function Home({
         });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [requirement, JSON.stringify(parameters), recursive, eligiblePaths.join("\n"), activeAction?.is_enabled]);
-
-  const chooseAction = (action: AvailableActionView) => {
-    if (!action.is_enabled) return;
-    setRequirement(action.action_id);
-    const existing = paramsByAction[action.action_id];
-    if (existing) {
-      setParameters(existing);
-    } else {
-      const defs = actionDefaults(action);
-      setParameters(defs);
-      setParamsByAction((prev) => ({ ...prev, [action.action_id]: defs }));
-    }
-  };
-
-  const updateParameter = (paramId: string, val: unknown) => {
-    setParameters((current) => {
-      const next = { ...current, [paramId]: val };
-      setParamsByAction((all) => ({ ...all, [requirement]: next }));
-      return next;
-    });
-  };
-
-  const coreActions = useMemo(
-    () => state.available_actions.filter((a) => isCoreAction(a.action_id)),
-    [state.available_actions],
-  );
-  const ocrActions = useMemo(
-    () => state.available_actions.filter((a) => isOcrAction(a.action_id)),
-    [state.available_actions],
-  );
-  const translationActions = useMemo(
-    () => state.available_actions.filter((a) => isTranslationAction(a.action_id)),
-    [state.available_actions],
-  );
-  const cloudActions = useMemo(
-    () => state.available_actions.filter((a) => isCloudAction(a.action_id)),
-    [state.available_actions],
-  );
-
-  const isCurrentActionInView = useMemo(() => {
-    if (!activeAction) return true;
-    if (actionCategory === "all") return true;
-    if (actionCategory === "core") return isCoreAction(activeAction.action_id);
-    if (actionCategory === "ocr") return isOcrAction(activeAction.action_id);
-    if (actionCategory === "translation") return isTranslationAction(activeAction.action_id);
-    if (actionCategory === "cloud") return isCloudAction(activeAction.action_id);
-    return true;
-  }, [activeAction, actionCategory]);
-
-  const renderActionCard = (action: AvailableActionView) => {
-    const isSelected = action.action_id === requirement;
-    const meta = getActionMeta(action.action_id);
-    return (
-      <button
-        class={`action-card req-card ${isSelected ? "selected" : ""} ${!action.is_enabled ? "disabled" : ""}`}
-        data-req={action.action_id}
-        data-action-id={action.action_id}
-        disabled={!action.is_enabled}
-        key={action.action_id}
-        onClick={() => chooseAction(action)}
-        type="button"
-        title={action.is_enabled ? action.description || action.label : action.disabled_reason || "Unavailable"}
-      >
-        <div class="action-card-header">
-          <h4 class="action-card-name">{action.label}</h4>
-          <span class={`action-tag action-tag--${meta.type} ${isSelected ? "active" : ""}`}>
-            {meta.shortTag}
-          </span>
-        </div>
-        <p class="action-card-desc">
-          {action.is_enabled ? action.description || action.action_id : action.disabled_reason || "Unavailable"}
-        </p>
-        <div class="action-card-footer">
-          <span class={`action-dot ${isSelected ? "active" : ""}`} />
-          <code class="action-code">{action.action_id}</code>
-        </div>
-      </button>
-    );
-  };
+  }, [
+    primaryTask,
+    currentSubtask,
+    cloudOcrProvider,
+    transDirection,
+    statutoryEnabled,
+    preserveLayout,
+    sourceFont,
+    JSON.stringify(ocrCustomParams),
+    recursive,
+    eligiblePaths.join("\n"),
+    activeAction?.is_enabled,
+  ]);
 
   const handleBrowse = async (folder: boolean) => {
     setWorking(true);
@@ -906,7 +951,7 @@ function Home({
   };
 
   const handleStart = async () => {
-    if (!activeAction?.is_enabled || !eligiblePaths.length || planError) return;
+    if (!primaryTask || !activeAction?.is_enabled || !eligiblePaths.length || planError) return;
     setWorking(true);
     onError(null);
     try {
@@ -1190,223 +1235,632 @@ function Home({
           <div class="panel-header">
             <div class="panel-title-wrap">
               <div>
-                <span class="capability-eyebrow">Capability</span>
+                <span class="capability-eyebrow">Task Selection</span>
                 <div class="capability-title-row">
                   <span class="panel-icon panel-icon--amber">⚡</span>
                   <h2 class="panel-heading">Processing Action</h2>
                 </div>
               </div>
             </div>
-            <div class="capability-header-select">
-              <select
-                class="action-select-dropdown"
-                value={requirement}
-                onChange={(e) => {
-                  const found = state.available_actions.find((a) => a.action_id === e.currentTarget.value);
-                  if (found) chooseAction(found);
-                }}
-              >
-                {state.available_actions.map((act) => (
-                  <option key={act.action_id} value={act.action_id} disabled={!act.is_enabled}>
-                    {act.label} {act.is_enabled ? "" : "(Unavailable)"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Capability Filter Tabs */}
-          <div class="capability-tabs-bar" role="tablist" aria-label="Processing action categories">
-            <button
-              id="btn-cat-core"
-              class={`cap-tab-btn ${actionCategory === "core" ? "active" : ""}`}
-              onClick={() => setActionCategory("core")}
-              type="button"
-              role="tab"
-              aria-selected={actionCategory === "core"}
-            >
-              <span>⚡ Core Local</span>
-              <span class="cap-tab-count">{coreActions.length}</span>
-            </button>
-            <button
-              id="btn-cat-ocr"
-              class={`cap-tab-btn ${actionCategory === "ocr" ? "active" : ""}`}
-              onClick={() => setActionCategory("ocr")}
-              type="button"
-              role="tab"
-              aria-selected={actionCategory === "ocr"}
-            >
-              <span>🔍 OCR</span>
-              <span class="cap-tab-count">{ocrActions.length}</span>
-            </button>
-            <button
-              id="btn-cat-translation"
-              class={`cap-tab-btn ${actionCategory === "translation" ? "active" : ""}`}
-              onClick={() => setActionCategory("translation")}
-              type="button"
-              role="tab"
-              aria-selected={actionCategory === "translation"}
-            >
-              <span>🌐 Translation</span>
-              <span class="cap-tab-count">{translationActions.length}</span>
-            </button>
-            <button
-              id="btn-cat-cloud"
-              class={`cap-tab-btn ${actionCategory === "cloud" ? "active" : ""}`}
-              onClick={() => setActionCategory("cloud")}
-              type="button"
-              role="tab"
-              aria-selected={actionCategory === "cloud"}
-            >
-              <span>☁️ CLOUD</span>
-              <span class="cap-tab-count">{cloudActions.length}</span>
-            </button>
-            <button
-              id="btn-cat-all"
-              class={`cap-tab-btn cap-tab-btn--all ${actionCategory === "all" ? "active" : ""}`}
-              onClick={() => setActionCategory("all")}
-              type="button"
-              role="tab"
-              aria-selected={actionCategory === "all"}
-            >
-              <span>All {state.available_actions.length}</span>
-            </button>
-          </div>
-
-          {!isCurrentActionInView && activeAction ? (
-            <div class="active-selection-banner">
-              <div class="active-selection-info">
-                <span class="quiet">Active action:</span>
-                <strong>{activeAction.label}</strong>
-                <span class={`action-type-badge action-type-badge--${isCloudAction(activeAction.action_id) ? "cloud" : "local"}`}>
-                  {getActionMeta(activeAction.action_id).provider}
-                </span>
+            {primaryTask ? (
+              <div class="active-task-badge-pill">
+                <span>Active:</span>
+                <strong>{PRIMARY_TASKS.find((t) => t.id === primaryTask)?.label}</strong>
+                <button
+                  id="btn-deselect-task"
+                  class="btn-deselect-task"
+                  type="button"
+                  title="Deselect task and view all primary tasks"
+                  onClick={() => setPrimaryTask(null)}
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                class="button ghost small"
-                type="button"
-                onClick={() => setActionCategory(isCloudAction(activeAction.action_id) ? "cloud" : isOcrAction(activeAction.action_id) ? "ocr" : isTranslationAction(activeAction.action_id) ? "translation" : "core")}
-              >
-                View in active tab →
-              </button>
-            </div>
-          ) : null}
-
-          {/* Action Cards Grid */}
-          <div class="action-list-wrapper">
-            {actionCategory === "core" && (
-              <div class="action-cards-grid">
-                {coreActions.map(renderActionCard)}
-              </div>
-            )}
-
-            {actionCategory === "ocr" && (
-              <div class="action-groups-container">
-                <div class="action-group-heading">
-                  <span>Local OCR Engine</span>
-                  <span class="subgroup-badge">{ocrActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
-                </div>
-                <div class="action-cards-grid">
-                  {ocrActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
-                </div>
-
-                <div class="action-group-heading" style="margin-top: 12px;">
-                  <span>Cloud OCR Services</span>
-                  <span class="subgroup-badge">{ocrActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
-                </div>
-                <div class="action-cards-grid">
-                  {ocrActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
-                </div>
-              </div>
-            )}
-
-            {actionCategory === "translation" && (
-              <div class="action-groups-container">
-                <div class="action-group-heading">
-                  <span>Local Translation Engine</span>
-                  <span class="subgroup-badge">{translationActions.filter((a) => !isCloudAction(a.action_id)).length} engine</span>
-                </div>
-                <div class="action-cards-grid">
-                  {translationActions.filter((a) => !isCloudAction(a.action_id)).map(renderActionCard)}
-                </div>
-
-                <div class="action-group-heading" style="margin-top: 12px;">
-                  <span>Cloud Translation Services</span>
-                  <span class="subgroup-badge">{translationActions.filter((a) => isCloudAction(a.action_id)).length} cloud models</span>
-                </div>
-                <div class="action-cards-grid">
-                  {translationActions.filter((a) => isCloudAction(a.action_id)).map(renderActionCard)}
-                </div>
-              </div>
-            )}
-
-            {actionCategory === "cloud" && (
-              <div class="action-groups-container">
-                <div class="action-group-heading">
-                  <span>Cloud OCR</span>
-                  <span class="subgroup-badge">{cloudActions.filter((a) => isOcrAction(a.action_id)).length} models</span>
-                </div>
-                <div class="action-cards-grid">
-                  {cloudActions.filter((a) => isOcrAction(a.action_id)).map(renderActionCard)}
-                </div>
-
-                <div class="action-group-heading" style="margin-top: 12px;">
-                  <span>Cloud Translation</span>
-                  <span class="subgroup-badge">{cloudActions.filter((a) => isTranslationAction(a.action_id)).length} models</span>
-                </div>
-                <div class="action-cards-grid">
-                  {cloudActions.filter((a) => isTranslationAction(a.action_id)).map(renderActionCard)}
-                </div>
-              </div>
-            )}
-
-            {actionCategory === "all" && (
-              <div class="action-groups-container">
-                <div class="action-group-heading">
-                  <span>Core Document Extraction & Parsing</span>
-                  <span class="subgroup-badge">{coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).length} actions</span>
-                </div>
-                <div class="action-cards-grid">
-                  {coreActions.filter((a) => !isOcrAction(a.action_id) && !isTranslationAction(a.action_id)).map(renderActionCard)}
-                </div>
-
-                <div class="action-group-heading" style="margin-top: 12px;">
-                  <span>OCR Engines (Local & Cloud)</span>
-                  <span class="subgroup-badge">{ocrActions.length} actions</span>
-                </div>
-                <div class="action-cards-grid">
-                  {ocrActions.map(renderActionCard)}
-                </div>
-
-                <div class="action-group-heading" style="margin-top: 12px;">
-                  <span>Translation Engines (Local & Cloud)</span>
-                  <span class="subgroup-badge">{translationActions.length} actions</span>
-                </div>
-                <div class="action-cards-grid">
-                  {translationActions.map(renderActionCard)}
-                </div>
-              </div>
+            ) : (
+              <span class="step-guide-badge">Step 1: Choose Primary Task</span>
             )}
           </div>
 
-          {activeAction?.parameters.length ? (
-            <div class="parameter-section">
-              <div class="parameter-header">
-                <span class="eyebrow">Parameters</span>
-                <h4>{activeAction.label} Options</h4>
-              </div>
-              <div class="parameter-list">
-                {activeAction.parameters.map((parameter) => (
-                  <ActionParameter
-                    key={parameter.parameter_id}
-                    parameter={parameter}
-                    value={parameters[parameter.parameter_id] ?? parameter.default_value}
-                    onChange={(value) => updateParameter(parameter.parameter_id, value)}
-                  />
-                ))}
+          {/* Level 1: Primary Task Hierarchy Accordion (Collapsible Level 1 & Level 2) */}
+          <div class="tasks-accordion" role="tablist" aria-label="Primary Tasks">
+            {PRIMARY_TASKS.map((task) => {
+              const isSelected = primaryTask === task.id;
+              return (
+                <div
+                  key={task.id}
+                  class={`accordion-item ${isSelected ? "expanded" : "collapsed"}`}
+                  data-task={task.id}
+                >
+                  <button
+                    id={`btn-task-${task.id.replace(/_/g, "-")}`}
+                    data-task={task.id}
+                    class={`primary-task-tab-btn accordion-header-btn ${isSelected ? "active" : ""}`}
+                    role="tab"
+                    aria-selected={isSelected}
+                    aria-expanded={isSelected}
+                    type="button"
+                    onClick={() => setPrimaryTask(isSelected ? null : task.id)}
+                  >
+                    <div class="accordion-header-left">
+                      <span class="primary-task-icon">{task.icon}</span>
+                      <div class="primary-task-info">
+                        <span class="primary-task-label">{task.label}</span>
+                        <span class="primary-task-desc">{task.description}</span>
+                      </div>
+                    </div>
+                    <div class="accordion-header-right">
+                      {isSelected ? (
+                        <span class="accordion-badge accordion-badge--active">Active</span>
+                      ) : (
+                        <span class="accordion-badge accordion-badge--hint">Click to expand</span>
+                      )}
+                      <span class={`accordion-chevron ${isSelected ? "open" : ""}`} aria-hidden="true">
+                        ▾
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Level 2: Second-Level Progressive Choices Collapsing under this Level 1 Task */}
+                  {isSelected && (
+                    <div class="accordion-body">
+                      {task.id === "documents_extraction" && (
+                        <div class="subtasks-container">
+                          <div class="subtasks-grid">
+                            {/* 1.1 Native Extraction */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "read_native");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "native";
+                              return (
+                                <div
+                                  key="native"
+                                  id="subtask-native"
+                                  data-subtask="native"
+                                  data-req="read_native"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }))}
+                                  title={isEnabled ? "Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Native Extraction</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>DIGITAL</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV. Automatically invokes statutory/legal extraction.
+                                  </p>
+                                  <div class="subtask-options-row">
+                                    <label class="toggle-row mini">
+                                      <input
+                                        id="param-statutory"
+                                        type="checkbox"
+                                        checked={statutoryEnabled}
+                                        onChange={(e) => {
+                                          setStatutoryEnabled(e.currentTarget.checked);
+                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }));
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Statutory Extraction</strong>
+                                      </span>
+                                    </label>
+                                  </div>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">read_native</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* 1.2 Instant OCR */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "ocr");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "instant_ocr";
+                              return (
+                                <div
+                                  key="instant_ocr"
+                                  id="subtask-instant-ocr"
+                                  data-subtask="instant_ocr"
+                                  data-req="ocr"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "instant_ocr" }))}
+                                  title={isEnabled ? "RapidOCR inference with OpenVINO acceleration." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Instant OCR</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>RAPIDOCR</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    RapidOCR inference with OpenVINO acceleration. Single pass, bypasses heavy preprocessing.
+                                  </p>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">ocr:instant</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* 1.3 Accurate OCR */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "ocr");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "accurate_ocr";
+                              return (
+                                <div
+                                  key="accurate_ocr"
+                                  id="subtask-accurate-ocr"
+                                  data-subtask="accurate_ocr"
+                                  data-req="ocr"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "accurate_ocr" }))}
+                                  title={isEnabled ? "Quality-optimized OCR with full preprocessing." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Accurate OCR</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>ACCURATE</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Quality-optimized OCR with CLAHE, deskew, binarization, and selective Tesseract 5 fallback.
+                                  </p>
+                                  <div class="subtask-options-row">
+                                    <label class="toggle-row mini">
+                                      <input
+                                        id="param-preserve-layout"
+                                        type="checkbox"
+                                        checked={preserveLayout}
+                                        onChange={(e) => {
+                                          setPreserveLayout(e.currentTarget.checked);
+                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "accurate_ocr" }));
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Preserve Layout</strong>
+                                      </span>
+                                    </label>
+                                  </div>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">ocr:accurate</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* 1.4 Cloud OCR */}
+                            {(() => {
+                              const cloudActs = [
+                                { id: "gemini_ocr", label: "Gemini" },
+                                { id: "mistral_ocr", label: "Mistral" },
+                                { id: "azure_ocr", label: "Azure" },
+                                { id: "bhashini_ocr", label: "Bhashini" },
+                              ];
+                              const curCloudAct = state.available_actions.find((a) => a.action_id === cloudOcrProvider);
+                              const isEnabled = curCloudAct ? curCloudAct.is_enabled : false;
+                              const isSel = currentSubtask === "cloud_ocr";
+                              return (
+                                <div
+                                  key="cloud_ocr"
+                                  id="subtask-cloud-ocr"
+                                  data-subtask="cloud_ocr"
+                                  data-req="cloud_ocr"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "cloud_ocr" }))}
+                                  title={isEnabled ? "External cloud multimodal document recognition." : (curCloudAct?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Cloud Document AI</h4>
+                                    <span class={`action-tag action-tag--cloud ${isSel ? "active" : ""}`}>CLOUD</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    External cloud multimodal document recognition with fail-closed Kavacha authorization.
+                                  </p>
+                                  <div class="cloud-provider-chips" onClick={(e) => e.stopPropagation()}>
+                                    {cloudActs.map((cp) => {
+                                      const act = state.available_actions.find((a) => a.action_id === cp.id);
+                                      const isChipAvail = act ? act.is_enabled : false;
+                                      const isChipActive = cloudOcrProvider === cp.id;
+                                      return (
+                                        <button
+                                          key={cp.id}
+                                          id={`chip-${cp.id.replace(/_/g, "-")}`}
+                                          class={`cloud-chip ${isChipActive ? "active" : ""} ${!isChipAvail ? "disabled" : ""}`}
+                                          disabled={!isChipAvail}
+                                          title={isChipAvail ? cp.label : (act?.disabled_reason || "Unavailable")}
+                                          type="button"
+                                          onClick={() => {
+                                            setCloudOcrProvider(cp.id);
+                                            setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "cloud_ocr" }));
+                                          }}
+                                        >
+                                          {cp.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">{cloudOcrProvider}</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* 1.5 Custom OCR */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "ocr");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "custom_ocr";
+                              return (
+                                <div
+                                  key="custom_ocr"
+                                  id="subtask-custom-ocr"
+                                  data-subtask="custom_ocr"
+                                  data-req="ocr"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "custom_ocr" }))}
+                                  title={isEnabled ? "Fine-grained control over OCR parameters." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Custom OCR</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>CUSTOM</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Fine-grained parameter control over OCR engine, language, and preprocessing toggles.
+                                  </p>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">ocr:custom</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          {/* Custom OCR Parameter Panel */}
+                          {currentSubtask === "custom_ocr" && ocrAction?.parameters.length ? (
+                            <div class="parameter-section">
+                              <div class="parameter-header">
+                                <span class="eyebrow">Parameters</span>
+                                <h4>Custom OCR Options</h4>
+                              </div>
+                              <div class="parameter-list">
+                                {ocrAction.parameters.map((parameter) => (
+                                  <ActionParameter
+                                    key={parameter.parameter_id}
+                                    parameter={parameter}
+                                    value={ocrCustomParams[parameter.parameter_id] ?? parameter.default_value}
+                                    onChange={(value) => {
+                                      setOcrCustomParams((prev) => ({ ...prev, [parameter.parameter_id]: value }));
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {task.id === "bank_consolidation" && (
+                        <div class="subtasks-container">
+                          <div class="subtasks-grid">
+                            {/* 2.1 Instant Consolidation */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "bank_statements");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "instant";
+                              return (
+                                <div
+                                  key="instant"
+                                  id="subtask-instant-consolidation"
+                                  data-subtask="instant"
+                                  data-req="bank_statements"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, bank_consolidation: "instant" }))}
+                                  title={isEnabled ? "Throughput-optimized financial statement parsing." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Instant Consolidation</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>FAST</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Throughput-optimized parsing and standard reconciliation heuristics across financial statements.
+                                  </p>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">bank_statements:instant</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* 2.2 Accurate Consolidation */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "bank_statements");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "accurate";
+                              return (
+                                <div
+                                  key="accurate"
+                                  id="subtask-accurate-consolidation"
+                                  data-subtask="accurate"
+                                  data-req="bank_statements"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, bank_consolidation: "accurate" }))}
+                                  title={isEnabled ? "Strict running balance verification and deduplication." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Accurate Consolidation</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>ACCURATE</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Strict running balance verification, debit/credit inversion detection, and multi-page pagination deduplication.
+                                  </p>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">bank_statements:accurate</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
+
+                      {task.id === "font_conversion" && (
+                        <div class="subtasks-container">
+                          <div class="subtasks-grid">
+                            {/* 3.1 Legacy to Unicode */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "font_conversion");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "legacy_to_unicode";
+                              return (
+                                <div
+                                  key="legacy_to_unicode"
+                                  id="subtask-legacy-to-unicode"
+                                  data-subtask="legacy_to_unicode"
+                                  data-req="font_conversion"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, font_conversion: "legacy_to_unicode" }))}
+                                  title={isEnabled ? "Auto-detects legacy Hindi font encodings and converts to Unicode." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Legacy to Unicode</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>UNICODE</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Auto-detects non-Unicode Indian font encodings (KrutiDev, DevLys, Chanakya, Shusha, Shivaji) and converts to standardized Unicode Devanagari.
+                                  </p>
+                                  <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
+                                    <label class="field mini" style={{ margin: 0 }}>
+                                      <span style={{ fontSize: "11px" }}>Source Font Hint</span>
+                                      <select
+                                        id="param-source-font"
+                                        value={sourceFont}
+                                        onChange={(e) => setSourceFont(e.currentTarget.value)}
+                                        style={{ padding: "3px 6px", fontSize: "11px" }}
+                                      >
+                                        <option value="">Auto-Detect Source Font</option>
+                                        <option value="krutidev010">KrutiDev 010 / DevLys</option>
+                                        <option value="chanakya010">Chanakya</option>
+                                        <option value="shusha010">Shusha</option>
+                                        <option value="shivaji010">Shivaji</option>
+                                      </select>
+                                    </label>
+                                  </div>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">font_conversion:auto_unicode</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* 3.2 Unicode to KrutiDev */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "font_conversion");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "unicode_to_krutidev";
+                              return (
+                                <div
+                                  key="unicode_to_krutidev"
+                                  id="subtask-unicode-to-krutidev"
+                                  data-subtask="unicode_to_krutidev"
+                                  data-req="font_conversion"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, font_conversion: "unicode_to_krutidev" }))}
+                                  title={isEnabled ? "Reverses Unicode Devanagari text into legacy KrutiDev 010." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Unicode to KrutiDev</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>KRUTIDEV</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Reverses Unicode Devanagari text into legacy KrutiDev 010 typewriter encoding using precompiled reverse transducers.
+                                  </p>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">font_conversion:to_krutidev</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* 3.3 Unicode to DevLys */}
+                            {(() => {
+                              const act = state.available_actions.find((a) => a.action_id === "font_conversion");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "unicode_to_devlys";
+                              return (
+                                <div
+                                  key="unicode_to_devlys"
+                                  id="subtask-unicode-to-devlys"
+                                  data-subtask="unicode_to_devlys"
+                                  data-req="font_conversion"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, font_conversion: "unicode_to_devlys" }))}
+                                  title={isEnabled ? "Reverses Unicode Devanagari text into legacy DevLys 010." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">Unicode to DevLys</h4>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>DEVLYS</span>
+                                  </div>
+                                  <p class="action-card-desc">
+                                    Reverses Unicode Devanagari text into legacy DevLys 010 typewriter encoding using precompiled reverse transducers.
+                                  </p>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">font_conversion:to_devlys</code>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
+
+                      {task.id === "translation" && (
+                        <div class="subtasks-container">
+                          {/* Direction selector first */}
+                          <div class="translation-direction-toolbar" role="group" aria-label="Translation Direction">
+                            <button
+                              id="btn-direction-auto"
+                              data-dir=""
+                              class={`direction-seg-btn ${transDirection === "" ? "active" : ""}`}
+                              type="button"
+                              onClick={() => setTransDirection("")}
+                            >
+                              ⚡ Auto-Detect Language Direction
+                            </button>
+                            <button
+                              id="btn-direction-hi-en"
+                              data-dir="hi_en"
+                              class={`direction-seg-btn ${transDirection === "hi_en" ? "active" : ""}`}
+                              type="button"
+                              onClick={() => setTransDirection("hi_en")}
+                            >
+                              Hindi → English
+                            </button>
+                            <button
+                              id="btn-direction-en-hi"
+                              data-dir="en_hi"
+                              class={`direction-seg-btn ${transDirection === "en_hi" ? "active" : ""}`}
+                              type="button"
+                              onClick={() => setTransDirection("en_hi")}
+                            >
+                              English → Hindi
+                            </button>
+                          </div>
+
+                          {/* 6 Engine Choices */}
+                          <div class="subtasks-grid">
+                            {[
+                              {
+                                id: "indictrans2",
+                                actionId: "indictrans2_translation",
+                                label: "IndicTrans2 (Local)",
+                                tag: "INDICTRANS2",
+                                isCloud: false,
+                                desc: "AI4Bharat IndicTrans2 local Transformer. Optimized for high-fidelity 22 Indian languages.",
+                                code: "indictrans2_translation",
+                              },
+                              {
+                                id: "opus_mt",
+                                actionId: "translation",
+                                label: "Helsinki OPUS-MT (Local)",
+                                tag: "OPUS-MT",
+                                isCloud: false,
+                                desc: "Fast Marian-based neural translation engine running fully offline and local.",
+                                code: "translation:opus_mt",
+                              },
+                              {
+                                id: "bhashini",
+                                actionId: "bhashini_translation",
+                                label: "Bhashini (Cloud)",
+                                tag: "BHASHINI",
+                                isCloud: true,
+                                desc: "Government of India Bhashini National Language Translation Mission API. Authorized by Kavacha.",
+                                code: "bhashini_translation",
+                              },
+                              {
+                                id: "gemini",
+                                actionId: "gemini_translation",
+                                label: "Google Gemini (Cloud)",
+                                tag: "GEMINI",
+                                isCloud: true,
+                                desc: "Google Gemini multimodal translation adapter. High context multilingual reasoning.",
+                                code: "gemini_translation",
+                              },
+                              {
+                                id: "mistral",
+                                actionId: "mistral_translation",
+                                label: "Mistral (Cloud)",
+                                tag: "MISTRAL",
+                                isCloud: true,
+                                desc: "Mistral AI European cloud translation adapter. Authorized by Kavacha.",
+                                code: "mistral_translation",
+                              },
+                              {
+                                id: "azure",
+                                actionId: "azure_translation",
+                                label: "Azure AI (Cloud)",
+                                tag: "AZURE",
+                                isCloud: true,
+                                desc: "Microsoft Azure AI Translator cloud service. Enterprise translation backbone.",
+                                code: "azure_translation",
+                              },
+                            ].map((eng) => {
+                              const act = state.available_actions.find((a) => a.action_id === eng.actionId);
+                              const isEnabled = act ? act.is_enabled : false;
+                              const isSel = currentSubtask === eng.id;
+                              return (
+                                <div
+                                  key={eng.id}
+                                  id={`subtask-engine-${eng.id.replace(/_/g, "-")}`}
+                                  data-subtask={eng.id}
+                                  data-req={eng.actionId}
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => {
+                                    setSubtaskByPrimary((prev) => ({ ...prev, translation: eng.id }));
+                                  }}
+                                  title={isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <div class="action-card-header">
+                                    <h4 class="action-card-name">{eng.label}</h4>
+                                    <span class={`action-tag ${eng.isCloud ? "action-tag--cloud" : ""} ${isSel ? "active" : ""}`}>
+                                      {eng.tag}
+                                    </span>
+                                  </div>
+                                  <p class="action-card-desc">{isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}</p>
+                                  <div class="action-card-footer">
+                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
+                                    <code class="action-code">{eng.code}</code>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* If no Level 1 task is selected, show instructional prompt */}
+          {!primaryTask && (
+            <div id="level1-empty-prompt" class="level1-empty-prompt">
+              <span class="level1-prompt-icon">👆</span>
+              <div class="level1-prompt-text">
+                <strong>Select a Primary Task Above</strong>
+                <p>Choose one of the four primary tasks above to view its specific methods, engines, and configuration options.</p>
               </div>
             </div>
-          ) : null}
+          )}
         </section>
 
         {/* Preflight Execution Plan Card */}
@@ -1417,11 +1871,18 @@ function Home({
               <h3 class="execution-plan-title">Execution Plan</h3>
             </div>
             <span class="preflight-status-text">
-              {preflight ? `${eligibleCount} eligible · ${issueCount} issues` : "Select inputs to validate"}
+              {!primaryTask ? "Select a task above" : preflight ? `${eligibleCount} eligible · ${issueCount} issues` : "Select inputs to validate"}
             </span>
           </div>
 
-          {plan ? (
+          {!primaryTask ? (
+            <div class="empty-state" style={{ padding: "20px 14px" }}>
+              <strong>No Task Selected</strong>
+              <p class="quiet" style={{ margin: "4px 0 0 0", fontSize: "12px" }}>
+                Select a primary task above to view options and preview execution.
+              </p>
+            </div>
+          ) : plan ? (
             <div class="plan-details-box">
               <div class="plan-header-row">
                 <strong>{plan.document_count} document{plan.document_count === 1 ? "" : "s"}</strong>
@@ -1448,11 +1909,11 @@ function Home({
           <button
             id="btn-start-run"
             class="button primary btn-primary btn-start-run"
-            disabled={working || !eligiblePaths.length || !activeAction?.is_enabled || Boolean(planError)}
+            disabled={working || !primaryTask || !eligiblePaths.length || !activeAction?.is_enabled || Boolean(planError)}
             onClick={() => void handleStart()}
             type="button"
           >
-            <span>{working ? "Working…" : "Start document processing"}</span>
+            <span>{working ? "Working…" : !primaryTask ? "Select a Task to Start" : "Start document processing"}</span>
             <span class="btn-bolt">⚡</span>
           </button>
         </section>

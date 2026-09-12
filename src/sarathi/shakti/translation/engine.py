@@ -57,6 +57,7 @@ class TranslatorBackend(Protocol):
         sentences: Sequence[str],
         direction: TranslationDirection,
         execution_binding: ExecutionBinding | None = None,
+        **kwargs: Any,
     ) -> list[str] | tuple[list[str], str]:
         """Translate a batch of sentences."""
         ...
@@ -186,22 +187,36 @@ class CTranslate2TranslationEngine:
                     sentences: Sequence[str],
                     direction: TranslationDirection,
                     execution_binding: ExecutionBinding | None = None,
+                    engine: str = "indictrans2",
+                    **kwargs: Any,
                 ) -> tuple[list[str], str]:
                     # Native model inference using CTranslate2 and SentencePiece
                     dir_key = direction.value
-                    model_info = self._manifest.get("models", {}).get(dir_key)
-                    if not model_info:
-                        raise DoshError(
-                            code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                            message=f"Model for direction '{dir_key}' not declared in manifest.",
-                        )
-                    model_path = self._root / "models" / dir_key
-                    spm_path = model_path / "spm.model"
-                    if not model_path.exists() or not spm_path.exists():
-                        raise DoshError(
-                            code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                            message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
-                        )
+                    norm_engine = str(engine or "indictrans2").lower().strip()
+                    if norm_engine == "opus_mt":
+                        model_path = self._root / "models" / "opus_mt" / dir_key
+                        if not model_path.exists():
+                            model_path = self._root / "models" / f"opus_{dir_key}"
+                        spm_path = model_path / "spm.model"
+                        if not model_path.exists() or not spm_path.exists():
+                            raise DoshError(
+                                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                                message=f"Model assets for OPUS-MT translation direction '{dir_key}' are missing or incomplete.",
+                            )
+                    else:
+                        model_info = self._manifest.get("models", {}).get(dir_key)
+                        if not model_info:
+                            raise DoshError(
+                                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                                message=f"Model for direction '{dir_key}' not declared in manifest.",
+                            )
+                        model_path = self._root / "models" / dir_key
+                        spm_path = model_path / "spm.model"
+                        if not model_path.exists() or not spm_path.exists():
+                            raise DoshError(
+                                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                                message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
+                            )
 
                     device = "cpu"
                     device_index = 0
@@ -270,6 +285,7 @@ class CTranslate2TranslationEngine:
         text: str,
         direction: TranslationDirection = TranslationDirection.HI_TO_EN,
         execution_binding: ExecutionBinding | None = None,
+        engine: str = "indictrans2",
     ) -> TranslationResult:
         """Translate normalized Unicode text via CTranslate2 with span protection and glossary."""
         src_lang = Language.HINDI if direction == TranslationDirection.HI_TO_EN else Language.ENGLISH
@@ -279,6 +295,8 @@ class CTranslate2TranslationEngine:
         if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
             target_device = execution_binding.backend_device_id or "cuda"
 
+        norm_engine = str(engine or "indictrans2").lower().strip()
+
         if not text or not text.strip():
             return TranslationResult(
                 translated_text=text,
@@ -286,7 +304,7 @@ class CTranslate2TranslationEngine:
                 target_language=tgt_lang,
                 direction=direction,
                 protected_spans_count=0,
-                metadata={"device": target_device, "backend": "ctranslate2"},
+                metadata={"device": target_device, "backend": "ctranslate2", "engine": norm_engine},
             )
 
         # 1. Retrieve domain glossary mappings for this direction
@@ -311,7 +329,14 @@ class CTranslate2TranslationEngine:
 
         # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)
         backend = self._ensure_backend()
-        backend_res = backend.translate_sentences(prepared_sentences, direction, execution_binding=execution_binding)
+        try:
+            backend_res = backend.translate_sentences(
+                prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
+            )
+        except TypeError:
+            backend_res = backend.translate_sentences(
+                prepared_sentences, direction, execution_binding=execution_binding
+            )
 
         if isinstance(backend_res, tuple) and len(backend_res) == 2:
             translated_sentences, factual_device = backend_res
@@ -334,5 +359,6 @@ class CTranslate2TranslationEngine:
                 "sentences_count": len(raw_sentences),
                 "device": factual_device,
                 "backend": "ctranslate2",
+                "engine": norm_engine,
             },
         )

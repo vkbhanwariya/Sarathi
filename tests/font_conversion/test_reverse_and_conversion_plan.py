@@ -134,3 +134,45 @@ def test_strict_source_input_id_matching_no_positional_fallback(tmp_path: Path) 
     # Because source_input_id did not match inp-actual-id, transform_docx_artifact was NOT invoked on inp,
     # and instead doc was converted as standard CanonicalDocument payload
     assert len(res.artifact_payloads) == 2  # txt payload + synthesized docx payload
+
+
+def test_font_conversion_to_krutidev_and_devlys_modes() -> None:
+    """Verify font_conversion supports font_mode='to_krutidev' and 'to_devlys' in custom_options."""
+    cap = FontConversionCapability()
+
+    unicode_doc = CanonicalDocument(
+        document_id="doc-uni",
+        source_input_id="inp-uni",
+        text="भारत सरकार",
+    )
+    prior = Result(data=unicode_doc)
+
+    # 1. to_krutidev mode
+    req_kruti = Request(
+        request_id="req-kruti",
+        requirement="font_conversion",
+        inputs=(InputRef("inp-uni", Path("uni.txt"), "uni.txt", 10),),
+        custom_options={"font_mode": "to_krutidev"},
+    )
+    ctx_kruti = ExecutionContext("run-k", "req-kruti", "t-k", "s-k")
+    res_kruti = cap.execute(req_kruti, ctx_kruti, prior_result=prior)
+
+    assert res_kruti.data is not None
+    assert isinstance(res_kruti.data, CanonicalDocument)
+    assert res_kruti.data.text == "Hkkjr ljdkj"
+    assert res_kruti.data.detected_type == "legacy_font_document"
+
+    # 2. to_devlys mode
+    req_devlys = Request(
+        request_id="req-devlys",
+        requirement="font_conversion",
+        inputs=(InputRef("inp-uni", Path("uni.txt"), "uni.txt", 10),),
+        custom_options={"font_mode": "to_devlys"},
+    )
+    ctx_devlys = ExecutionContext("run-d", "req-devlys", "t-d", "s-d")
+    res_devlys = cap.execute(req_devlys, ctx_devlys, prior_result=prior)
+
+    assert res_devlys.data is not None
+    assert isinstance(res_devlys.data, CanonicalDocument)
+    assert res_devlys.data.text == "Hkkjr ljdkj"
+    assert res_devlys.data.detected_type == "legacy_font_document"

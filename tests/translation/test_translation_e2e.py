@@ -203,3 +203,42 @@ def test_translation_batch_documents_and_spans() -> None:
 
     # Artifacts created for both documents
     assert len(res.artifact_payloads) == 4
+
+
+def test_translation_opus_mt_engine_forwarding_and_dependency_check(tmp_path: Path) -> None:
+    """Verify TranslationCapability forwards engine='opus_mt' and engine fails closed if assets missing."""
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine, TranslatorBackend
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    received_engine: list[str] = []
+
+    class MockCustomBackend(TranslatorBackend):
+        def translate_sentences(self, sentences: list[str], direction, execution_binding=None, engine: str = "indictrans2", **kwargs) -> tuple[list[str], str]:
+            received_engine.append(engine)
+            return [f"OPUS:{s}" for s in sentences], "opus_model"
+
+    mock_cap = TranslationCapability(backend=MockCustomBackend())
+    doc = CanonicalDocument(document_id="d1", source_input_id="i1", text="परीक्षण")
+    req = Request(
+        request_id="r1",
+        requirement="translation",
+        inputs=(InputRef("i1", Path("1.txt"), "1.txt", 10),),
+        custom_options={"engine": "opus_mt"},
+    )
+    ctx = ExecutionContext("r1", "req1", "t1", "s1")
+    res = mock_cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert res.data is not None
+    assert "opus_mt" in received_engine
+    assert "OPUS:परीक्षण" in res.data.text
+
+    # Native engine validation without downloaded opus assets fails closed with DEPENDENCY_UNAVAILABLE
+    empty_data_dir = tmp_path / "empty_trans"
+    empty_data_dir.mkdir(parents=True, exist_ok=True)
+    (empty_data_dir / "models").mkdir(parents=True, exist_ok=True)
+    (empty_data_dir / "manifest.json").write_text('{"version": "1.0"}', encoding="utf-8")
+    native_engine = CTranslate2TranslationEngine(data_root=empty_data_dir)
+    with pytest.raises(DoshError) as excinfo:
+        native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="opus_mt")
+    assert excinfo.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
+    assert "OPUS-MT" in excinfo.value.message
