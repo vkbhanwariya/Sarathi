@@ -208,19 +208,6 @@ foreach ($packageDirectory in $packageDirectories) {
     Add-FileIfMissing (Join-Path $packageDirectory '__init__.py') ''
 }
 
-$pyproject = @'
-[project]
-name = "sarathi"
-version = "2.0.0"
-description = "Local, plugin-first document intelligence system"
-requires-python = "==3.13.15"
-dependencies = []
-
-[build-system]
-requires = ["uv_build>=0.12.7,<0.13"]
-build-backend = "uv_build"
-'@
-
 $gitignore = @'
 .venv/
 __pycache__/
@@ -238,8 +225,11 @@ Runtime/
 '@
 
 Add-FileIfMissing '.python-version' "3.13.15"
-Add-FileIfMissing 'pyproject.toml' $pyproject
 Add-FileIfMissing '.gitignore' $gitignore
+
+if (-not (Test-Path -LiteralPath (Join-Path $resolvedRoot 'pyproject.toml'))) {
+    Write-Warning 'pyproject.toml is absent. Ensure the canonical Sarathi pyproject.toml is placed at the project root.'
+}
 
 Write-Host "Sarathi scaffold complete: $resolvedRoot"
 Write-Host "Created directories: $createdDirectories"

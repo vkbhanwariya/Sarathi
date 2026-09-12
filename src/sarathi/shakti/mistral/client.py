@@ -9,8 +9,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import urllib.error
-import urllib.request
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -65,26 +63,17 @@ class MistralClient:
                 resp = client.post(url, headers=headers, content=body_bytes)
                 status_code = resp.status_code
                 resp_text = resp.text
-        except ImportError:
-            # Standard library fallback
-            req = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
-            try:
-                with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:
-                    status_code = resp.status
-                    resp_text = resp.read().decode("utf-8")
-            except urllib.error.HTTPError as http_err:
-                status_code = http_err.code
-                try:
-                    resp_text = http_err.read().decode("utf-8")
-                except Exception:
-                    resp_text = ""
-            except (urllib.error.URLError, TimeoutError) as net_err:
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Network timeout or connection error while connecting to Mistral API.",
-                ) from net_err
+        except ImportError as imp_err:
+            raise DoshError(
+                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                message="HTTP transport dependency (httpx) is not installed.",
+            ) from imp_err
+        except httpx.TimeoutException as net_err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Network timeout while connecting to Mistral API.",
+            ) from net_err
         except Exception as exc:
-            # Sanitize generic httpx errors
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Network communication error while connecting to Mistral API.",

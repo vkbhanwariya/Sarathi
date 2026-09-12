@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
@@ -121,9 +122,49 @@ class MukhaWebServer:
         status = terminal.status.upper()
         if status == "COMPLETED":
             status = "SUCCESS"
-        total_inputs = max(1, terminal.artifact_count) if status == "SUCCESS" else terminal.artifact_count
-        successful_files = terminal.artifact_count if status == "SUCCESS" else 0
-        failed_files = 1 if status == "FAILED" else 0
+
+        artifacts: list[ArtifactRef] = []
+        total_inputs: int | None = None
+
+        if terminal.output_dir:
+            manifest_path = self._agni.output_root / terminal.output_dir / "run-manifest.json"
+            if manifest_path.is_file():
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        mdata = json.load(f)
+                    out_dir_path = self._agni.output_root / terminal.output_dir
+                    for art in mdata.get("artifacts", []):
+                        rel_p = art.get("relative_path", "")
+                        full_p = (out_dir_path / rel_p).resolve()
+                        artifacts.append(
+                            ArtifactRef(
+                                artifact_id=art.get("artifact_id", ""),
+                                path=full_p,
+                                role=art.get("role", "primary"),
+                                media_type=art.get("media_type", "application/octet-stream"),
+                                size_bytes=art.get("size_bytes", 0),
+                                checksum_sha256=art.get("checksum_sha256", ""),
+                            )
+                        )
+                    prov = mdata.get("provenance", [])
+                    distinct_inputs = {
+                        p.get("source_input_id")
+                        for p in prov
+                        if isinstance(p, dict) and p.get("source_input_id")
+                    }
+                    if distinct_inputs:
+                        total_inputs = len(distinct_inputs)
+                    elif mdata.get("total_inputs"):
+                        total_inputs = int(mdata["total_inputs"])
+                except Exception:
+                    pass
+
+        if total_inputs is None:
+            total_inputs = 1 if (status == "SUCCESS" or terminal.artifact_count > 0) else (1 if status == "FAILED" else 0)
+
+        successful_files = total_inputs if status == "SUCCESS" else 0
+        failed_files = total_inputs if status == "FAILED" else 0
+
         return RunSummaryView(
             run_id=terminal.run_id,
             status=status,
@@ -134,12 +175,13 @@ class MukhaWebServer:
             failed_files=failed_files,
             quarantined_count=0,
             retry_count=0,
+            artifacts=tuple(artifacts),
             warnings=(
                 tuple(f"Execution warning {index + 1}" for index in range(terminal.warning_count))
                 if terminal.warning_count
                 else ()
             ),
-            failures=("Execution failed." if status == "FAILED" else ()),
+            failures=(("Execution failed.",) if status == "FAILED" else ()),
         )
 
     def get_run_history(self, limit: int = 50) -> tuple[Any, ...]:

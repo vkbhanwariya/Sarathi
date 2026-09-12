@@ -61,11 +61,9 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
 
         matched = False
 
-        for existing_idx in candidate_indices:
-            existing = unique[existing_idx]
+        def _check_candidate(existing: Transaction) -> tuple[bool, bool, bool]:
             ex_desc = existing.description.strip()
             ex_ref = (existing.reference_number or existing.cheque_number or "").strip()
-
             desc_matches = (ex_desc == tx_desc)
             contradiction = False
 
@@ -97,7 +95,7 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 contradiction = True
 
             if contradiction:
-                continue
+                return False, False, True
 
             has_matching_ref = bool(ex_ref and tx_ref and ex_ref == tx_ref)
             has_matching_bal = bool(
@@ -106,7 +104,15 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 and existing.running_balance == tx.running_balance
             )
 
-            if has_matching_ref or has_matching_bal:
+            is_proven = has_matching_ref or has_matching_bal
+            is_probable = desc_matches and not is_proven
+            return is_proven, is_probable, False
+
+        # Pass 1: scan all candidates for proven duplicates first
+        for existing_idx in candidate_indices:
+            existing = unique[existing_idx]
+            is_proven, _, contradiction = _check_candidate(existing)
+            if not contradiction and is_proven:
                 merged_provenance = existing.provenance + tuple(p for p in tx.provenance if p not in existing.provenance)
                 surviving = Transaction(
                     transaction_date=existing.transaction_date,
@@ -140,8 +146,13 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 )
                 matched = True
                 break
-            else:
-                if desc_matches:
+
+        # Pass 2: fall back to probable duplicate matching if no proven duplicate was found
+        if not matched:
+            for existing_idx in candidate_indices:
+                existing = unique[existing_idx]
+                _, is_probable, contradiction = _check_candidate(existing)
+                if not contradiction and is_probable:
                     warn_issue = ValidationIssue(
                         code="PROBABLE_DUPLICATE_TRANSACTION",
                         message="Identical date, amount, and narration without reference number or running balance.",

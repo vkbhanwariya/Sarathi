@@ -71,7 +71,9 @@ def read_xlsx(
                 )
             )
     except (python_calamine.CalamineError, BadZipFile):
-        # Fallback to openpyxl
+        # Fallback to openpyxl: discard partial first-reader results before fallback
+        tables.clear()
+        provenances.clear()
         reader_used = "openpyxl"
         warnings.append(
             WarningRecord(

@@ -393,7 +393,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             page = int(request.query_params.get("page", "1"))
         except ValueError:
             page = 1
-        status, payload = render_pdf_page(str(art_ref.path), page)
+        status, payload = await asyncio.to_thread(render_pdf_page, str(art_ref.path), page)
         return _json(status, payload)
 
     async def generic_preview(request: Request) -> Response:
@@ -403,7 +403,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         safe, error = _is_safe_preview_path(path_value)
         if not safe:
             return _json(400 if "traversal" in (error or "") else 403, {"ok": False, "error": error})
-        status, payload = build_document_preview(path_value)
+        status, payload = await asyncio.to_thread(build_document_preview, path_value)
         return _json(status, payload)
 
     async def generic_preview_raw(request: Request) -> Response:
@@ -426,7 +426,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             page = int(request.query_params.get("page", "1"))
         except ValueError:
             page = 1
-        status, payload = render_pdf_page(path_value, page)
+        status, payload = await asyncio.to_thread(render_pdf_page, path_value, page)
         return _json(status, payload)
 
     async def run_inspector(request: Request) -> Response:
@@ -487,13 +487,13 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         )
 
     async def browse_files(_: Request) -> Response:
-        result = NativePicker.browse_files()
+        result = await asyncio.to_thread(NativePicker.browse_files)
         if not result.is_available:
             return _json(200, {"ok": False, "error": result.error_message})
         return _json(200, {"ok": True, "paths": list(result.paths)})
 
     async def browse_folder(_: Request) -> Response:
-        result = NativePicker.browse_folder()
+        result = await asyncio.to_thread(NativePicker.browse_folder)
         if not result.is_available:
             return _json(200, {"ok": False, "error": result.error_message})
         return _json(200, {"ok": True, "paths": list(result.paths)})
@@ -510,7 +510,8 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             return _json(400, {"ok": False, "error": "'recursive' must be a boolean."})
         paths = [Path(path) for path in raw_paths if isinstance(path, str) and path.strip()]
         try:
-            inputs, selection, preflight = MukhaPresenter.intake_from_paths(
+            inputs, selection, preflight = await asyncio.to_thread(
+                MukhaPresenter.intake_from_paths,
                 paths,
                 kavacha=mukha.kavacha,
                 runtime_root=mukha.runtime_root,

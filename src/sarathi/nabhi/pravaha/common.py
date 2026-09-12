@@ -28,12 +28,18 @@ def authorize_capability(kavacha: Kavacha | None, registry: Kosh, cap: Capabilit
             kavacha.authorize(plugin.security)
 
 
-def compute_input_hash(request: Request, capability: Capability, context: ExecutionContext) -> str:
+def compute_input_hash(
+    request: Request,
+    capability: Capability,
+    context: ExecutionContext,
+    fingerprint: str | None = None,
+) -> str:
     """Compute a deterministic, privacy-safe hash identifying the canonical execution attempt.
 
     Reuses the canonical input fingerprint from Smriti combined with execution scope.
     """
-    fingerprint = compute_input_fingerprint(request.inputs)
+    if fingerprint is None:
+        fingerprint = compute_input_fingerprint(request.inputs)
     clean_options = (
         {k: v for k, v in request.custom_options.items() if not callable(v) and k != "progress_callback"}
         if request.custom_options

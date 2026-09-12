@@ -1089,3 +1089,92 @@ def test_consistent_json_error_for_unknown_api_endpoints(web_server: MukhaWebSer
     res = json.loads(data.decode("utf-8"))
     assert res["ok"] is False
     assert "error" in res
+
+
+def test_failed_historical_summary_failures_is_sequence(web_server: MukhaWebServer) -> None:
+    """Item 16 (E03): Failed historical summary must return failures as a list of strings for UI .map()."""
+    from sarathi.darpana.history import TerminalRunSummary
+
+    run_id = "run_failseq1"
+    term = TerminalRunSummary(
+        run_id=run_id,
+        request_id=run_id,
+        requirement="ocr",
+        profile="accurate",
+        status="failed",
+        start_time_utc="2026-09-08T11:00:00.000000Z",
+        completed_at_utc="2026-09-08T11:00:01.000000Z",
+        duration_ms=1000,
+        artifact_count=0,
+        warning_count=0,
+    )
+    web_server.agni.darpana.record_run_summary(term)
+
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/summary")
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    summary = res["summary"]
+    assert summary["status"] == "FAILED"
+    assert isinstance(summary["failures"], list)
+    assert len(summary["failures"]) == 1
+    assert summary["failures"][0] == "Execution failed."
+
+
+def test_inspector_historical_run_does_not_borrow_active_status(web_server: MukhaWebServer) -> None:
+    """Item 21 (E08): Viewing inspector for inactive run uses its own terminal status and duration."""
+    from sarathi.darpana.history import TerminalRunSummary
+
+    run_a = "run_hist_a_ok"
+    term_a = TerminalRunSummary(
+        run_id=run_a,
+        request_id=run_a,
+        requirement="ocr",
+        profile="accurate",
+        status="completed",
+        start_time_utc="2026-09-08T11:00:00.000000Z",
+        completed_at_utc="2026-09-08T11:00:03.000000Z",
+        duration_ms=3000,
+        artifact_count=1,
+        warning_count=0,
+    )
+    web_server.agni.darpana.record_run_summary(term_a)
+
+    # Set runner's active snapshot to a cancelled terminal run
+    with web_server._runner._lock:
+        web_server._runner._active_run_id = "run_b_cancelled"
+        web_server._runner._terminal_status = "CANCELLED"
+
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_a}/inspector")
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    inspector = res["inspector"]
+    assert inspector["status"] == "SUCCESS"
+    assert inspector["elapsed_ns"] == 3_000_000_000
+
+
+def test_state_builder_derives_policy_label(web_server: MukhaWebServer) -> None:
+    """Item 25 (E12): ApplicationViewState derives policy_label dynamically from Kavacha."""
+    from sarathi.kavacha.policy import SecurityPolicy
+    from sarathi.kavacha.service import Kavacha
+
+    # Default is local only
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["state"]["policy_label"] == "Local only"
+
+    # When external processing is allowed, policy_label reports Cloud enabled
+    web_server.agni._kavacha = Kavacha(
+        SecurityPolicy(
+            allow_pii_access=True,
+            allow_network_access=True,
+            allow_external_processing=True,
+            allowed_secrets=(),
+        )
+    )
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["state"]["policy_label"] == "Cloud enabled"

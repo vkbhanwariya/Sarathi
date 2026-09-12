@@ -79,6 +79,39 @@ class CTranslate2TranslationEngine:
         self._protector = protector or TranslationProtector()
         self._initialized_backend: TranslatorBackend | None = None
         self._backend_lock: threading.Lock = threading.Lock()
+        self._asset_version: str = self._compute_asset_version()
+
+    def _compute_asset_version(self) -> str:
+        import hashlib
+
+        hasher = hashlib.sha256()
+        manifest_path = self._data_root / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                st = manifest_path.stat()
+                hasher.update(f"manifest:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+            except OSError:
+                pass
+        anubhava_file = self._data_root / "anubhava.toml"
+        if anubhava_file.is_file():
+            try:
+                st = anubhava_file.stat()
+                hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+            except OSError:
+                pass
+        glossary_dir = self._data_root / "glossaries"
+        if glossary_dir.is_dir():
+            try:
+                for p in sorted(glossary_dir.glob("*.json")):
+                    st = p.stat()
+                    hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+            except OSError:
+                pass
+        return hasher.hexdigest()[:16]
+
+    @property
+    def asset_version(self) -> str:
+        return self._asset_version
 
     def _ensure_backend(self) -> TranslatorBackend:
         """Validate local CTranslate2 model manifest/assets and initialize backend."""

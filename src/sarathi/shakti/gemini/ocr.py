@@ -8,7 +8,6 @@ with a standardized confidence matrix.
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -26,24 +25,11 @@ from sarathi.sankalpa import (
     TextSpan,
 )
 from sarathi.shakti.artifact_naming import format_artifact_filename
+from sarathi.shakti.artifact_naming import infer_cloud_media_type as _infer_media_type
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.gemini.client import GeminiClient
 from sarathi.shakti.gemini.plugin import GEMINI_OCR_DECLARATION
 from sarathi.shakti.text.markdown import extract_markdown_tables
-
-
-def _infer_media_type(path: Path) -> str:
-    """Infer media type from file extension."""
-    ext = path.suffix.lower()
-    if ext == ".pdf":
-        return "application/pdf"
-    if ext in (".jpg", ".jpeg"):
-        return "image/jpeg"
-    if ext == ".png":
-        return "image/png"
-    if ext == ".webp":
-        return "image/webp"
-    return "application/octet-stream"
 
 
 class GeminiOCRCapability:

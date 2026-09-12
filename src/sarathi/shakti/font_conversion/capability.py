@@ -108,6 +108,31 @@ class FontConversionCapability:
         self._protector = TextProtector()
         self._converter = FontConverter(fonts_dir=self._fonts_dir, anubhava_path=anubhava_path, profiles=self._profiles)
         self._validator = FontConversionValidator()
+        self._anubhava_path = anubhava_path.resolve() if anubhava_path is not None else None
+        self._asset_version = self._compute_asset_version()
+
+    def _compute_asset_version(self) -> str:
+        import hashlib
+
+        hasher = hashlib.sha256()
+        if self._fonts_dir.is_dir():
+            try:
+                for p in sorted(self._fonts_dir.glob("*.json")):
+                    st = p.stat()
+                    hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+            except OSError:
+                pass
+        if self._anubhava_path and self._anubhava_path.is_file():
+            try:
+                st = self._anubhava_path.stat()
+                hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+            except OSError:
+                pass
+        return hasher.hexdigest()[:16]
+
+    @property
+    def asset_version(self) -> str:
+        return self._asset_version
 
     def execute(
         self,

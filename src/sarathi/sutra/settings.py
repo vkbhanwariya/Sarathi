@@ -76,10 +76,6 @@ class Settings:
             return None
         return val
 
-    def section(self, name: str) -> Mapping[str, Any] | None:
-        """Alias for get_section."""
-        return self.get_section(name)
-
     def __getitem__(self, key: str) -> Any:
         """Get a top-level configuration value by key."""
         return self._data[key]

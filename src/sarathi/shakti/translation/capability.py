@@ -62,6 +62,10 @@ class TranslationCapability:
             protector=self._protector,
         )
 
+    @property
+    def asset_version(self) -> str:
+        return getattr(self._engine, "asset_version", "")
+
     def _record_telemetry(
         self,
         context: ExecutionContext,

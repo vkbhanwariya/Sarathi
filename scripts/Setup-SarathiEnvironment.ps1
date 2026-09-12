@@ -97,7 +97,7 @@ if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
 
 $pyprojectPath = Join-Path $resolvedRoot 'pyproject.toml'
 if (-not (Test-Path -LiteralPath $pyprojectPath -PathType Leaf)) {
-    throw 'pyproject.toml is missing. Run Initialize-SarathiArchitecture.ps1 first.'
+    throw 'pyproject.toml is missing. Ensure you are running from a cloned Sarathi repository.'
 }
 
 function Resolve-UvExecutable {

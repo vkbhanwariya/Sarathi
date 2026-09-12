@@ -16,7 +16,6 @@ class TestSettings:
         assert s.data == {}
         assert s.sections == ()
         assert s.get_section("telemetry") is None
-        assert s.section("telemetry") is None
         assert "input_root" not in s
         with pytest.raises(KeyError):
             _ = s["input_root"]
@@ -62,7 +61,6 @@ class TestSettings:
     def test_section_absent_returns_none_without_inventing_defaults(self) -> None:
         s = Settings({"version": "2.0.0"})
         assert s.get_section("non_existent_section") is None
-        assert s.section("non_existent_section") is None
 
     def test_section_on_scalar_returns_none(self) -> None:
         s = Settings({"scalar_key": "scalar_value"})
@@ -106,7 +104,7 @@ output_root = "Output"
         assert telem["level"] == "INFO"
         assert telem["exporters"] == ("console", "jsonl")
 
-        storage = settings.section("storage")
+        storage = settings.get_section("storage")
         assert storage is not None
         assert storage["input_root"] == "Input"
 

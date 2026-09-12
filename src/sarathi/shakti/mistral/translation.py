@@ -16,12 +16,11 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ExecutionContext,
-    InputRef,
     ProvenanceRecord,
     Request,
     Result,
 )
-from sarathi.shakti.artifact_naming import format_artifact_filename
+from sarathi.shakti.artifact_naming import format_artifact_filename, resolve_source_input
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.mistral.client import MistralClient
 from sarathi.shakti.mistral.plugin import MISTRAL_TRANSLATION_DECLARATION
@@ -106,28 +105,31 @@ class MistralTranslationCapability:
             )
 
         translated_docs: list[CanonicalDocument] = []
-        all_payloads: list[ArtifactPayload] = []
+        translated_docs = []
+        all_payloads = []
+        trans_memo: dict[tuple[str, str, str, str], str] = {}
+
+        def _call_translate(text: str) -> str:
+            memo_key = (text, source_lang, target_lang, model)
+            if memo_key not in trans_memo:
+                trans_memo[memo_key] = self._client.chat_translate(
+                    text=text,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    model=model,
+                )
+            return trans_memo[memo_key]
 
         for doc in docs_to_process:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
 
-            translated_text = self._client.chat_translate(
-                text=doc.text,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                model=model,
-            )
+            translated_text = _call_translate(doc.text)
 
             new_pages = []
             for page in doc.pages:
                 if page.text and page.text.strip():
-                    page_text = self._client.chat_translate(
-                        text=page.text,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        model=model,
-                    )
+                    page_text = _call_translate(page.text)
                 else:
                     page_text = ""
                 new_pages.append(replace(page, text=page_text))
@@ -149,22 +151,11 @@ class MistralTranslationCapability:
             )
             translated_docs.append(trans_doc)
 
-            matching_inp = next(
-                (inp for inp in request.inputs if inp.input_id == doc.source_input_id),
-                None,
+            matching_inp = resolve_source_input(
+                request.inputs,
+                source_input_id=doc.source_input_id,
+                document_id=doc.document_id,
             )
-            if matching_inp is None:
-                matching_inp = next(
-                    (inp for inp in request.inputs if inp.input_id in doc.document_id),
-                    request.inputs[0]
-                    if request.inputs
-                    else InputRef(
-                        input_id=doc.document_id,
-                        source_path=Path(f"{doc.document_id}.txt"),
-                        display_name=f"{doc.document_id}.txt",
-                        size_bytes=0,
-                    ),
-                )
 
             txt_name = format_artifact_filename(
                 matching_inp,

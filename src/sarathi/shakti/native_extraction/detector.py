@@ -22,6 +22,14 @@ class DetectedFormat(Enum):
 # Signatures and patterns
 _PDF_MAGIC = b"%PDF-"
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_EXCEL_STREAM_PATTERNS = (
+    b"Workbook",
+    b"Book",
+    b"\x09\x08\x10\x00",
+    b"\x09\x08\x00\x00",
+    b"\x09\x04\x06\x00",
+    b"Microsoft Excel",
+)
 _ZIP_MAGIC = b"PK\x03\x04"
 
 _HTML_TABLE_REGEX = re.compile(rb"<\s*table[^>]*>", re.IGNORECASE)
@@ -47,7 +55,20 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
         return DetectedFormat.PDF
 
     # 2. OLE / Legacy BIFF .xls detection
-    if data.startswith(_OLE_MAGIC) or data.startswith(b"\x09\x08"):
+    # OLE magic alone proves compound container, not specifically Excel.
+    # Require Excel stream / BOF signatures in header buffer to identify as XLS.
+    if data.startswith(_OLE_MAGIC):
+        scan_buf = data[:8192]
+        if any(pat in scan_buf for pat in _EXCEL_STREAM_PATTERNS):
+            return DetectedFormat.XLS_LEGACY
+        return DetectedFormat.UNKNOWN
+
+    # Standalone raw BIFF stream without OLE header
+    if (
+        data.startswith(b"\x09\x08")
+        or data.startswith(b"\x09\x04")
+        or data.startswith(b"\x09\x02")
+    ):
         return DetectedFormat.XLS_LEGACY
 
     # 3. ZIP / DOCX / XLSX / XLSM detection

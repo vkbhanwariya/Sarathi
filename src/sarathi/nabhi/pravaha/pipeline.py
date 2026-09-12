@@ -31,7 +31,7 @@ from sarathi.sankalpa import (
     Result,
     WarningRecord,
 )
-from sarathi.smriti import SmritiCache, compute_cache_key
+from sarathi.smriti import SmritiCache, compute_cache_key, compute_input_fingerprint
 from sarathi.yantra import Yantra
 
 if TYPE_CHECKING:
@@ -92,6 +92,7 @@ def execute_pipeline(
         return res
 
     while True:
+        stage_fingerprint = compute_input_fingerprint(current_request.inputs)
         # Pre-execution validation: validate all planned capabilities against Kosh and executable bindings
         validated_capabilities: list[Capability] = []
         for cap_id in current_plan.capability_ids:
@@ -159,11 +160,13 @@ def execute_pipeline(
                     context={"cancelled": True},
                 )
 
-            input_hash = compute_input_hash(current_request, cap, current_ctx)
-            quar_id = f"quar-{input_hash[:16]}"
+            input_hash: str | None = None
+            quar_id: str | None = None
 
             # Check if attempt is already terminal in quarantine
             if quarantine_store is not None:
+                input_hash = compute_input_hash(current_request, cap, current_ctx, fingerprint=stage_fingerprint)
+                quar_id = f"quar-{input_hash[:16]}"
                 existing_rec = quarantine_store.get_record(quar_id)
                 if existing_rec is not None and existing_rec.status == QuarantineStatus.TERMINAL:
                     raise DoshError(
@@ -189,6 +192,7 @@ def execute_pipeline(
                     cap.declaration.version,
                     prior_result=prior_result,
                     asset_version=cap_asset_ver,
+                    fingerprint=stage_fingerprint,
                 )
                 t_start_ns = time.perf_counter_ns()
                 cached_result, cache_tier = smriti.get_with_tier(cache_key)
@@ -368,6 +372,8 @@ def execute_pipeline(
                                 registry=registry,
                             )
                             prior_result = _sync_warnings(retry_res)
+                            if current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled:
+                                current_ctx.cancellation_token.check_cancelled()
                             if smriti is not None and cache_key is not None:
                                 try:
                                     smriti.put(cache_key, prior_result)
@@ -407,6 +413,8 @@ def execute_pipeline(
                                 raise retry_err
 
             if prior_result.next_requirement is not None:
+                if current_ctx.cancellation_token is not None and current_ctx.cancellation_token.is_cancelled:
+                    current_ctx.cancellation_token.check_cancelled()
                 break
             else:
                 completed_capability_ids.add(cap.declaration.capability_id)

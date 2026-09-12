@@ -28,28 +28,11 @@ def test_cancel_dialog_copy_truthfulness(app_page: Page) -> None:
 
 
 def test_indeterminate_progress_rendering(app_page: Page) -> None:
-    """Verify indeterminate progress has indeterminate class and no invented percentage."""
-    res = app_page.evaluate(
-        """async () => {
-            const container = document.getElementById("top-progress-container");
-            const bar = document.getElementById("top-progress-bar");
-            const stage = document.getElementById("top-progress-stage");
-            const pct = document.getElementById("top-progress-pct");
-            window.__renderProgressBar(container, bar, stage, pct, { kind: "indeterminate" }, { stageText: "Preparing model..." });
-            return {
-                isIndeterminate: container.classList.contains("indeterminate"),
-                ariaBusy: container.getAttribute("aria-busy"),
-                hasValueNow: container.hasAttribute("aria-valuenow"),
-                pctText: pct.textContent,
-                stageText: stage.textContent,
-            };
-        }"""
-    )
-    assert res["isIndeterminate"] is True
-    assert res["ariaBusy"] == "true"
-    assert res["hasValueNow"] is False
-    assert res["pctText"] == ""
-    assert res["stageText"] == "Preparing model..."
+    """Verify indeterminate progress has indeterminate class and no invented percentage in Preact DOM."""
+    container = app_page.locator("#top-progress-container")
+    expect(container).to_have_attribute("aria-busy", "true")
+    assert "indeterminate" in (container.get_attribute("class") or "")
+    assert container.get_attribute("aria-valuenow") is None
 
 
 def test_measured_zero_vs_missing_formatting(app_page: Page) -> None:
@@ -66,6 +49,7 @@ def test_measured_zero_vs_missing_formatting(app_page: Page) -> None:
                 missingBytes: mod.formatBytes(null),
                 unknownStatus: mod.formatStatus("SOME_FUTURE_STATE").label,
                 cancelledStatus: mod.formatStatus("CANCELLED").label,
+                warningStatus: mod.formatStatus("WARNING").label,
             };
         }"""
     )
@@ -77,6 +61,7 @@ def test_measured_zero_vs_missing_formatting(app_page: Page) -> None:
     assert res["missingBytes"] == "—"
     assert "SOME_FUTURE_STATE" in res["unknownStatus"]
     assert res["cancelledStatus"] == "Run Cancelled"
+    assert res["warningStatus"] == "Completed with Warnings"
 
 
 def test_summary_terminal_outcome_titles(app_page: Page) -> None:
@@ -84,13 +69,14 @@ def test_summary_terminal_outcome_titles(app_page: Page) -> None:
     titles = app_page.evaluate(
         """async () => {
             const results = {};
-            for (const st of ["SUCCESS", "PARTIAL", "CANCELLED", "QUARANTINED", "FAILED"]) {
+            for (const st of ["SUCCESS", "WARNING", "PARTIAL", "CANCELLED", "QUARANTINED", "FAILED"]) {
                 results[st] = window.__formatSummaryTitle(st);
             }
             return results;
         }"""
     )
     assert titles["SUCCESS"] == "Run Completed Successfully"
+    assert titles["WARNING"] == "Run Completed with Warnings"
     assert titles["PARTIAL"] == "Run Completed with Warnings"
     assert titles["CANCELLED"] == "Run Cancelled"
     assert titles["QUARANTINED"] == "Run Quarantined"

@@ -141,7 +141,7 @@ class TestSharedTypographyBoundary:
 
     def test_shared_typography_and_specialized_font_conversion(self) -> None:
         """Keep one neutral typography contract without flattening calibrated font conversion."""
-        from sarathi.shakti.font_conversion.font_size_normalizer import (
+        from sarathi.shakti.docx_exporter.font_size_normalizer import (
             get_font_size_adjustment,
             normalize_font_name,
             normalize_font_size,

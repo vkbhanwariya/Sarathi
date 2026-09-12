@@ -2,7 +2,7 @@
 
 Sarathi is a local-first document intelligence application for extracting, understanding, translating, converting, and consolidating documents. The current package version is `3.0.0.dev0` and the Python runtime baseline is `>=3.13,<3.14`.
 
-The repository is intentionally simple: `development` is the active integration branch and `main` is the stable branch. Changes are completed and validated on `development`, then promoted to `main` only after the permanent CI gates pass.
+The repository works directly on `main`. All changes are validated against the 5 permanent CI gates.
 
 ## What Sarathi does
 

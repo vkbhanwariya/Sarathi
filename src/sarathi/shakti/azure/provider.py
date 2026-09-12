@@ -70,6 +70,16 @@ class AzureProvider(PluginProvider):
         }
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:
+        try:
+            import httpx  # noqa: F401
+        except ImportError:
+            unavail = CapabilityReadiness(
+                ready=False,
+                status=ReadinessStatus.DEPENDENCY_UNAVAILABLE,
+                reason="HTTP transport dependency (httpx) is not installed.",
+            )
+            return {"azure_ocr": unavail, "azure_translation": unavail}
+
         client = _build_client(services)
         if client.is_configured:
             ocr_ready = CapabilityReadiness(

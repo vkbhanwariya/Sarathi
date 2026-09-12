@@ -93,6 +93,10 @@ class OCRCapability:
         self._yantra: Yantra | None = yantra
         self._darpana: Darpana | None = darpana
 
+    @property
+    def asset_version(self) -> str:
+        return getattr(self._engine, "asset_version", "")
+
     def _record_page_telemetry(
         self,
         context: ExecutionContext,
@@ -192,9 +196,20 @@ class OCRCapability:
         existing_native_pages_by_input: dict[str, dict[int, PageData]] = {}
 
         for inp in request.inputs:
+            if context.cancellation_token is not None:
+                context.cancellation_token.check_cancelled()
+
             if (usable_doc := prior_docs.get(inp.input_id)) and _is_usable_document(usable_doc):
                 empty_or_usable_docs[inp.input_id] = usable_doc
                 continue
+
+            native_pages: dict[int, PageData] = {}
+            if inp.input_id in prior_docs:
+                prior_doc = prior_docs[inp.input_id]
+                for p in prior_doc.pages:
+                    if _is_usable_page(p):
+                        native_pages[p.page_number] = p
+            existing_native_pages_by_input[inp.input_id] = native_pages
 
             try:
                 data = inp.source_path.read_bytes()
@@ -203,6 +218,9 @@ class OCRCapability:
                     code=FailureCode.EXECUTION_FAILED,
                     message="Failed to read source input file.",
                 ) from exc
+
+            if context.cancellation_token is not None:
+                context.cancellation_token.check_cancelled()
 
             images = extract_images_from_bytes(data)
             if not images:
@@ -227,18 +245,15 @@ class OCRCapability:
                     message="Unsupported content format for OCR.",
                 )
 
-            native_pages: dict[int, PageData] = {}
-            if inp.input_id in prior_docs:
-                prior_doc = prior_docs[inp.input_id]
-                for p in prior_doc.pages:
-                    if _is_usable_page(p):
-                        native_pages[p.page_number] = p
-            existing_native_pages_by_input[inp.input_id] = native_pages
-
             needed_page_indices = [
                 idx for idx in range(1, len(images) + 1)
                 if idx not in native_pages
             ]
+            # Immediately release raster memory for pages that already have usable native text
+            for idx in range(1, len(images) + 1):
+                if idx not in needed_page_indices:
+                    images[idx - 1] = None
+
             ocr_inputs.append((inp, images, needed_page_indices))
 
         # Check for progress callback
@@ -267,20 +282,22 @@ class OCRCapability:
                 doc_page_results[inp.input_id].append((p_num, p_data, None, []))
 
         if can_parallelize:
-            all_items: list[tuple[InputRef, int, int, Any]] = []
+            all_items: list[tuple[InputRef, int, int, list[Any]]] = []
             for inp, images, needed_indices in ocr_inputs:
                 tot = len(images)
                 for p_idx in needed_indices:
-                    img = images[p_idx - 1]
-                    all_items.append((inp, p_idx, tot, img))
+                    img_holder = [images[p_idx - 1]]
+                    images[p_idx - 1] = None
+                    all_items.append((inp, p_idx, tot, img_holder))
 
             def _make_page_task(
-                inp_ref: InputRef, p_idx: int, tot_pages: int, p_img: Any
+                inp_ref: InputRef, p_idx: int, tot_pages: int, p_img_holder: list[Any]
             ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
                 def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
                     if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                         context.cancellation_token.check_cancelled()
 
+                    p_img = p_img_holder[0]
                     w_id = str(threading.get_ident() % 1000)
                     if progress_cb is not None:
                         dev_str = (
@@ -307,12 +324,17 @@ class OCRCapability:
                         ocr_kwargs["cancellation_token"] = context.cancellation_token
 
                     t0 = time.perf_counter_ns()
-                    p_data, p_prov, _, p_warns = self._engine.ocr_page(
-                        p_img,
-                        p_idx,
-                        inp_ref.input_id,
-                        **ocr_kwargs,
-                    )
+                    try:
+                        p_data, p_prov, _, p_warns = self._engine.ocr_page(
+                            p_img,
+                            p_idx,
+                            inp_ref.input_id,
+                            **ocr_kwargs,
+                        )
+                    finally:
+                        p_img_holder[0] = None
+                        del p_img
+
                     dur = max(0, time.perf_counter_ns() - t0)
                     self._record_page_telemetry(
                         context=context,
@@ -336,6 +358,7 @@ class OCRCapability:
                 tot = len(images)
                 for page_idx in needed_indices:
                     img = images[page_idx - 1]
+                    images[page_idx - 1] = None
                     if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                         context.cancellation_token.check_cancelled()
 
@@ -364,12 +387,15 @@ class OCRCapability:
                         seq_kwargs["cancellation_token"] = context.cancellation_token
 
                     t0 = time.perf_counter_ns()
-                    page_data, prov, _, page_warnings = self._engine.ocr_page(
-                        img,
-                        page_idx,
-                        inp.input_id,
-                        **seq_kwargs,
-                    )
+                    try:
+                        page_data, prov, _, page_warnings = self._engine.ocr_page(
+                            img,
+                            page_idx,
+                            inp.input_id,
+                            **seq_kwargs,
+                        )
+                    finally:
+                        del img
                     dur = max(0, time.perf_counter_ns() - t0)
                     self._record_page_telemetry(
                         context=context,

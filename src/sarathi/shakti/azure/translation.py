@@ -12,13 +12,12 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ExecutionContext,
-    InputRef,
     PageData,
     ProvenanceRecord,
     Request,
     Result,
 )
-from sarathi.shakti.artifact_naming import format_artifact_filename
+from sarathi.shakti.artifact_naming import format_artifact_filename, resolve_source_input
 from sarathi.shakti.azure.client import AzureClient
 from sarathi.shakti.azure.plugin import AZURE_TRANSLATION_DECLARATION
 from sarathi.shakti.docx_exporter import build_docx_payload
@@ -87,27 +86,29 @@ class AzureTranslationCapability:
 
         translated_docs: list[CanonicalDocument] = []
         all_payloads: list[ArtifactPayload] = []
+        trans_memo: dict[tuple[str, str, str], str] = {}
+
+        def _call_translate(text: str) -> str:
+            memo_key = (text, source_lang, target_lang)
+            if memo_key not in trans_memo:
+                trans_memo[memo_key] = self._client.translate_text(
+                    text=text,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                )
+            return trans_memo[memo_key]
 
         for doc_id, doc_or_str in docs_to_translate:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
 
             orig_text = doc_or_str.text if isinstance(doc_or_str, CanonicalDocument) else str(doc_or_str)
-
-            translated_text = self._client.translate_text(
-                text=orig_text,
-                source_lang=source_lang,
-                target_lang=target_lang,
-            )
+            translated_text = _call_translate(orig_text)
 
             new_pages: list[PageData] = []
             if isinstance(doc_or_str, CanonicalDocument) and doc_or_str.pages:
                 for p in doc_or_str.pages:
-                    p_trans = self._client.translate_text(
-                        text=p.text,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                    )
+                    p_trans = _call_translate(p.text)
                     new_pages.append(replace(p, text=p_trans))
 
             metadata = dict(doc_or_str.metadata) if isinstance(doc_or_str, CanonicalDocument) else {}
@@ -134,9 +135,10 @@ class AzureTranslationCapability:
             )
             translated_docs.append(trans_doc)
 
-            matching_inp = next(
-                (inp for inp in request.inputs if inp.input_id in doc_id),
-                request.inputs[0] if request.inputs else InputRef(input_id=doc_id, source_path=Path(f"{doc_id}.txt"), display_name=f"{doc_id}.txt", size_bytes=0),
+            matching_inp = resolve_source_input(
+                request.inputs,
+                source_input_id=doc_or_str.source_input_id if isinstance(doc_or_str, CanonicalDocument) else None,
+                document_id=doc_id,
             )
             txt_name = format_artifact_filename(matching_inp, "azure_translated", "txt", all_inputs=request.inputs)
             docx_name = format_artifact_filename(matching_inp, "azure_translated", "docx", all_inputs=request.inputs)

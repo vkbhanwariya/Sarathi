@@ -1064,3 +1064,56 @@ class TestNativeExtraction:
         # Incomplete native extraction must escalate to OCR
         assert res.next_requirement == "ocr"
         assert any(w.code == "NATIVE_EXTRACTION_EMPTY" for w in res.warnings)
+
+    def test_multiline_prose_is_page_text_not_table(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        """Item 10: Multi-line plain prose without delimiter/table structure is treated as text in pages, not a 1-column table."""
+        prose_file = tmp_path / "prose.txt"
+        prose_file.write_text("This is line one of a story.\nThis is line two of the story.\nLine three concludes it.\n", encoding="utf-8")
+
+        req = Request(
+            request_id="req-prose",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-prose",
+                    source_path=prose_file,
+                    display_name="prose.txt",
+                    size_bytes=prose_file.stat().st_size,
+                ),
+            ),
+        )
+        res = capability.execute(req, context)
+        doc = res.data
+        assert len(doc.tables) == 0
+        assert len(doc.pages) == 1
+        assert "This is line one of a story." in doc.pages[0].text
+        assert "Line three concludes it." in doc.pages[0].text
+
+    def test_tsv_parsed_as_table(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        """Item 10: Tab-separated values file is recognized as table."""
+        tsv_file = tmp_path / "data.tsv"
+        tsv_file.write_text("col_a\tcol_b\tcol_c\nval1\tval2\tval3\n", encoding="utf-8")
+
+        req = Request(
+            request_id="req-tsv",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-tsv",
+                    source_path=tsv_file,
+                    display_name="data.tsv",
+                    size_bytes=tsv_file.stat().st_size,
+                ),
+            ),
+        )
+        res = capability.execute(req, context)
+        doc = res.data
+        assert len(doc.tables) == 1
+        table = doc.tables[0]
+        assert table.headers == ("col_a", "col_b", "col_c")
+        assert table.rows[0] == ("val1", "val2", "val3")
+

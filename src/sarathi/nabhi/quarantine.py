@@ -25,7 +25,6 @@ from typing import Any, Mapping
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.artifacts.atomic_io import _write_bytes_atomically
 from sarathi.sankalpa import ExecutionContext, Request
-from sarathi.sutra import Settings
 
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -117,18 +116,6 @@ class RetryPolicy:
         if not isinstance(failure_code, FailureCode):
             return False
         return failure_code in self.retryable_codes and current_attempt < self.max_retries
-
-    @classmethod
-    def from_settings(cls, settings: Settings | None) -> RetryPolicy:
-        """Derive a RetryPolicy from Sutra settings if present, or return zero retries."""
-        if settings is None:
-            return cls(max_retries=0)
-        if not isinstance(settings, Settings):
-            raise TypeError(f"settings must be a Settings instance or None, got {type(settings).__name__}.")
-
-        pipeline_sec = settings.get_section("pipeline") or {}
-        max_retries = pipeline_sec.get("max_retries", 0)
-        return cls(max_retries=int(max_retries))
 
 
 @dataclass(frozen=True, slots=True)

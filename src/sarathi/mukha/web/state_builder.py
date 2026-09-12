@@ -6,6 +6,7 @@ typed view contracts for the interactive Web UI.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -52,6 +53,29 @@ def query_run_history(agni: Agni, limit: int = 50) -> tuple[Any, ...]:
             stat_mapped = "SUCCESS" if stat_upper == "COMPLETED" else stat_upper
             dur_ms = getattr(h, "duration_ms", 0) or 0
             art_cnt = getattr(h, "artifact_count", 0) or 0
+            t_inputs = getattr(h, "input_count", None)
+            if t_inputs is None:
+                out_dir = getattr(h, "output_dir", None)
+                if out_dir and hasattr(agni, "output_root"):
+                    manifest_path = agni.output_root / out_dir / "run-manifest.json"
+                    if manifest_path.is_file():
+                        try:
+                            with open(manifest_path, "r", encoding="utf-8") as f:
+                                mdata = json.load(f)
+                            prov = mdata.get("provenance", [])
+                            distinct = {
+                                p.get("source_input_id")
+                                for p in prov
+                                if isinstance(p, dict) and p.get("source_input_id")
+                            }
+                            if distinct:
+                                t_inputs = len(distinct)
+                            elif mdata.get("total_inputs"):
+                                t_inputs = int(mdata["total_inputs"])
+                        except Exception:
+                            pass
+            if t_inputs is None:
+                t_inputs = art_cnt or 1
             projected.append(
                 {
                     "run_id": getattr(h, "run_id", ""),
@@ -64,7 +88,7 @@ def query_run_history(agni: Agni, limit: int = 50) -> tuple[Any, ...]:
                     "duration_ms": dur_ms,
                     "wall_time_ns": dur_ms * 1_000_000,
                     "artifact_count": art_cnt,
-                    "total_inputs": art_cnt,
+                    "total_inputs": t_inputs,
                     "warning_count": getattr(h, "warning_count", 0) or 0,
                     "output_dir": getattr(h, "output_dir", None),
                 }
@@ -151,13 +175,35 @@ def build_inspector_view(
     is_alive = snapshot.is_alive
     start_ns = snapshot.start_ns if is_active else 0
 
+    hist_summary = runner.get_run_summary(run_id)
+    if hist_summary is None and hasattr(agni, "darpana") and agni.darpana is not None:
+        hist_summary = agni.darpana.get_run_summary(run_id)
+
     maruti_recs, pramana_recs = get_run_telemetry(agni, run_id)
-    if not maruti_recs and not pramana_recs and not is_active:
+    if not maruti_recs and not pramana_recs and not is_active and hist_summary is None:
         return None
 
-    status = "RUNNING" if (is_active and is_alive) else (term_status or "COMPLETED")
-    now_ns = time.perf_counter_ns()
-    elapsed_ns = max(0, now_ns - start_ns) if start_ns > 0 else 0
+    if is_active:
+        status = "RUNNING" if is_alive else (term_status or "COMPLETED")
+        now_ns = time.perf_counter_ns()
+        elapsed_ns = max(0, now_ns - start_ns) if start_ns > 0 else 0
+    else:
+        if hist_summary is not None:
+            raw_s = getattr(hist_summary, "status", "COMPLETED")
+            status = raw_s.upper() if isinstance(raw_s, str) else "COMPLETED"
+            if status == "COMPLETED":
+                status = "SUCCESS"
+            dur_ms = getattr(hist_summary, "duration_ms", 0)
+            wall_ns = getattr(hist_summary, "wall_time_ns", 0)
+            if wall_ns and wall_ns > 0:
+                elapsed_ns = int(wall_ns)
+            elif dur_ms and dur_ms > 0:
+                elapsed_ns = int(dur_ms) * 1_000_000
+            else:
+                elapsed_ns = 0
+        else:
+            status = "COMPLETED"
+            elapsed_ns = 0
 
     import shutil
 
@@ -388,8 +434,9 @@ def build_application_view_state(
                     f_stage = "Pending"
                     f_elapsed = None
             else:
-                if f_prog and f_prog.get("status"):
-                    f_status = f_prog.get("status")
+                f_prog_status = f_prog.get("status") if f_prog else None
+                if f_prog_status in ("SUCCESS", "WARNING", "FAILED", "CANCELLED"):
+                    f_status = f_prog_status
                     f_stage = f_prog.get("stage", "Completed")
                     f_elapsed = f_prog.get("duration_ns")
                 elif status in ("SUCCESS", "WARNING"):
@@ -397,23 +444,13 @@ def build_application_view_state(
                     f_stage = "Completed"
                     f_elapsed = f_prog.get("duration_ns") if f_prog else None
                 elif status == "CANCELLED":
-                    if f_prog and f_prog.get("status") in ("SUCCESS", "WARNING"):
-                        f_status = f_prog.get("status")
-                        f_stage = "Completed"
-                        f_elapsed = f_prog.get("duration_ns")
-                    else:
-                        f_status = "CANCELLED"
-                        f_stage = "Cancelled"
-                        f_elapsed = None
+                    f_status = "CANCELLED"
+                    f_stage = "Cancelled"
+                    f_elapsed = f_prog.get("duration_ns") if f_prog else None
                 else:
-                    if f_prog and f_prog.get("status") in ("SUCCESS", "WARNING"):
-                        f_status = f_prog.get("status")
-                        f_stage = "Completed"
-                        f_elapsed = f_prog.get("duration_ns")
-                    else:
-                        f_status = "FAILED"
-                        f_stage = "Failed"
-                        f_elapsed = None
+                    f_status = "FAILED"
+                    f_stage = "Failed"
+                    f_elapsed = f_prog.get("duration_ns") if f_prog else None
 
             files_list.append(
                 FileRunView(
@@ -540,10 +577,16 @@ def build_application_view_state(
             for it in review_items
         )
 
+    policy_label = "Local only"
+    if hasattr(agni, "kavacha") and agni.kavacha is not None:
+        pol = getattr(agni.kavacha, "policy", None)
+        if pol is not None and getattr(pol, "allow_external_processing", False):
+            policy_label = "Cloud enabled"
+
     return ApplicationViewState(
         current_screen=current_screen,
         requirement=active_req.requirement if active_req else "read_native",
-        policy_label="Local only",
+        policy_label=policy_label,
         input_selection=input_sel,
         active_run=active_run_view,
         review_queue=review_queue,

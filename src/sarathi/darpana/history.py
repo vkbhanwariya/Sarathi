@@ -326,11 +326,11 @@ class TerminalRunHistoryStore:
         return ()
 
     def get(self, run_id: str) -> TerminalRunSummary | None:
-        """Find a specific terminal run by run_id."""
+        """Find a specific terminal run by run_id or request_id."""
         if not isinstance(run_id, str) or not run_id.strip():
             return None
         for run in self.query(limit=self._max_records):
-            if run.run_id == run_id:
+            if run.run_id == run_id or run.request_id == run_id:
                 return run
         return None
 

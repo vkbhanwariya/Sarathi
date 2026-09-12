@@ -42,10 +42,7 @@ Sarathi is a local document-processing application. Prefer direct, maintainable 
 
 ## Change workflow
 
-The repository has two working branches:
-
-- `development`: active development;
-- `main`: stable and validated.
+The repository works directly on `main`: stable and validated.
 
 Do not create routine feature, cleanup, migration, or temporary branches. For cross-cutting changes:
 

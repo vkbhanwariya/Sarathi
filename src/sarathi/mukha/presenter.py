@@ -158,30 +158,6 @@ class MukhaPresenter:
         return {}
 
     @staticmethod
-    def build_startup_view(
-        is_initializing: bool,
-        current_stage: str,
-        elapsed_ns: int,
-        maruti_records: Sequence[MarutiRecord] = (),
-        is_failed: bool = False,
-        failure_message: str | None = None,
-    ) -> StartupViewState:
-        """Build Screen 0 Overlay: Aarambha - Startup Progress presentation state."""
-        stages: list[tuple[str, str, int | None]] = []
-        for r in maruti_records:
-            if r.component == "bootstrap" or "init" in r.phase_name or "bootstrap" in r.phase_name:
-                st = "completed" if r.outcome == "success" else ("cancelled" if r.outcome == "cancelled" else "failed")
-                stages.append((r.phase_name, st, r.duration_ns))
-        return StartupViewState(
-            is_initializing=is_initializing,
-            current_stage=current_stage,
-            elapsed_ns=elapsed_ns,
-            stages=tuple(stages),
-            is_failed=is_failed,
-            failure_message=failure_message,
-        )
-
-    @staticmethod
     def build_review_view(
         items: Sequence[ReviewItemView],
     ) -> tuple[ReviewItemView, ...]:

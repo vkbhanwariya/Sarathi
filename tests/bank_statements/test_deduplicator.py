@@ -548,3 +548,54 @@ def test_cross_statement_deduplication_and_exports() -> None:
     assert len(df) == 3
     assert df["description"].to_list() == ["Groceries Store", "Salary Credit Corp", "Internet Bill"]
     assert df["credit"].to_list()[1] == Decimal("50000.00")
+
+
+def test_proven_duplicate_scanned_before_probable_duplicate() -> None:
+    """Item 14: Proven duplicate is matched and collapsed even when a probable duplicate was registered first."""
+    import datetime
+
+    from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
+    from sarathi.shakti.bank_statements.models import AccountIdentity, DuplicateDecision, Transaction
+
+    ident = AccountIdentity(bank_name="Test Bank", account_fingerprint="acc-123")
+    dt = datetime.date(2026, 1, 1)
+
+    # Tx1: has no reference
+    tx1 = Transaction(
+        transaction_date=dt,
+        description="ATM Withdrawal",
+        bank_name="Test Bank",
+        debit=Decimal("1000.00"),
+        credit=None,
+        account_identity=ident,
+    )
+    # Tx2: has reference 'REF100'
+    tx2 = Transaction(
+        transaction_date=dt,
+        description="ATM Withdrawal",
+        bank_name="Test Bank",
+        debit=Decimal("1000.00"),
+        credit=None,
+        reference_number="REF100",
+        account_identity=ident,
+    )
+    # Tx3: also has reference 'REF100' (proven duplicate of Tx2)
+    tx3 = Transaction(
+        transaction_date=dt,
+        description="ATM Withdrawal",
+        bank_name="Test Bank",
+        debit=Decimal("1000.00"),
+        credit=None,
+        reference_number="REF100",
+        account_identity=ident,
+    )
+
+    res = deduplicate_transactions([tx1, tx2, tx3])
+    # Tx1 (unique), Tx2 (unique + merged with Tx3) -> exactly 2 unique transactions
+    assert len(res.unique_transactions) == 2
+    # The duplicate of Tx3 must be proven duplicate with Tx2, not probable duplicate with Tx1
+    proven_dups = [d for d in res.duplicates if d[2] == DuplicateDecision.PROVEN_DUPLICATE]
+    assert len(proven_dups) == 1
+    assert proven_dups[0][0].reference_number == "REF100"
+    assert proven_dups[0][1].reference_number == "REF100"
+

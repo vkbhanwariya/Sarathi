@@ -30,12 +30,9 @@ ocr = [
 ]
 translation = [
     "ctranslate2>=4.8.0",
-    "regex>=2026.9.3",
     "sentencepiece>=0.2.2",
 ]
-font_conversion = [
-    "regex>=2026.9.3",
-]
+font_conversion = []
 cloud = [
     "httpx>=0.28.1",
 ]

@@ -2,7 +2,7 @@
 
 import pytest
 
-from sarathi.shakti.translation.typography import (
+from sarathi.shakti.text.typography import (
     DEVANAGARI_FONT,
     ENGLISH_FONT,
     contains_devanagari,

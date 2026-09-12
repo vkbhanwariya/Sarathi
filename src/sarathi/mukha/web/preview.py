@@ -33,16 +33,17 @@ def build_document_preview(path_str: str) -> tuple[int, dict[str, Any]]:
     # 1. Text & Code preview
     if ext in (".txt", ".csv", ".tsv", ".json", ".log", ".md", ".xml", ".html", ".py", ".yaml", ".yml"):
         try:
-            raw_bytes = target_file.read_bytes()
+            with open(target_file, "rb") as f:
+                raw_bytes = f.read(262144)
             content: str | None = None
             for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
                 try:
-                    content = raw_bytes[:262144].decode(enc)
+                    content = raw_bytes.decode(enc)
                     break
                 except UnicodeDecodeError:
                     continue
             if content is None:
-                content = raw_bytes[:262144].decode("utf-8", errors="replace")
+                content = raw_bytes.decode("utf-8", errors="replace")
 
             if ext in (".csv", ".tsv"):
                 delimiter = "\t" if ext == ".tsv" else ","

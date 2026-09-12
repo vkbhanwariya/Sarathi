@@ -7,7 +7,6 @@ TableData, and TXT/DOCX artifacts.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -26,23 +25,10 @@ from sarathi.sankalpa import (
     TextSpan,
 )
 from sarathi.shakti.artifact_naming import format_artifact_filename
+from sarathi.shakti.artifact_naming import infer_cloud_media_type as _infer_media_type
 from sarathi.shakti.azure.client import AzureClient
 from sarathi.shakti.azure.plugin import AZURE_OCR_DECLARATION
 from sarathi.shakti.docx_exporter import build_docx_payload
-
-
-def _infer_media_type(path: Path) -> str:
-    """Infer media type from file extension."""
-    ext = path.suffix.lower()
-    if ext == ".pdf":
-        return "application/pdf"
-    if ext in (".jpg", ".jpeg"):
-        return "image/jpeg"
-    if ext == ".png":
-        return "image/png"
-    if ext == ".webp":
-        return "image/webp"
-    return "application/octet-stream"
 
 
 def _parse_azure_tables(raw_tables: list[dict[str, Any]]) -> list[TableData]:

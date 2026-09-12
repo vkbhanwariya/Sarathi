@@ -157,9 +157,11 @@ def compute_cache_key(
     prior_result: Result | None = None,
     custom_options: Mapping[str, object] | None = None,
     asset_version: str = "",
+    fingerprint: str | None = None,
 ) -> CacheKey:
     """Compute canonical deterministic cache key for a capability execution attempt."""
-    fingerprint = compute_input_fingerprint(request.inputs)
+    if fingerprint is None:
+        fingerprint = compute_input_fingerprint(request.inputs)
     options = custom_options if custom_options is not None else request.custom_options
     clean_options = (
         {k: v for k, v in options.items() if not callable(v) and k != "progress_callback"}

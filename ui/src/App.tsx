@@ -81,6 +81,7 @@ export function formatStatus(status: string | null | undefined): { label: string
       return { label: "Run Cancelled", badgeClass: "badge-crimson" };
     case "FAILED":
       return { label: "Run Failed (FAILED)", badgeClass: "badge-crimson" };
+    case "WARNING":
     case "PARTIAL":
       return { label: "Completed with Warnings", badgeClass: "badge-amber" };
     case "QUARANTINED":
@@ -93,35 +94,11 @@ export function formatStatus(status: string | null | undefined): { label: string
 export function formatSummaryTitle(status: string): string {
   switch (status) {
     case "SUCCESS": return "Run Completed Successfully";
+    case "WARNING":
     case "PARTIAL": return "Run Completed with Warnings";
     case "CANCELLED": return "Run Cancelled";
     case "QUARANTINED": return "Run Quarantined";
     default: return `Run Failed (${status})`;
-  }
-}
-
-export function renderProgressBar(
-  container: HTMLElement | null,
-  bar: HTMLElement | null,
-  stage: HTMLElement | null,
-  pct: HTMLElement | null,
-  progress: { kind?: string; percentage?: number },
-  context?: { stageText?: string },
-) {
-  if (!container) return;
-  if (progress.kind === "indeterminate") {
-    container.classList.add("indeterminate");
-    container.setAttribute("aria-busy", "true");
-    container.removeAttribute("aria-valuenow");
-    if (pct) pct.textContent = "";
-    if (stage) stage.textContent = context?.stageText || "Processing...";
-  } else {
-    container.classList.remove("indeterminate");
-    container.setAttribute("aria-busy", "false");
-    const val = progress.percentage ?? 0;
-    container.setAttribute("aria-valuenow", String(val));
-    if (pct) pct.textContent = `${val}%`;
-    if (stage) stage.textContent = context?.stageText || "Processing...";
   }
 }
 
@@ -133,7 +110,6 @@ if (typeof window !== "undefined") {
     formatStatus,
   };
   (window as any).__formatSummaryTitle = formatSummaryTitle;
-  (window as any).__renderProgressBar = renderProgressBar;
 }
 
 function Metric({ label, value, detail }: { label: string; value: string | number; detail?: string }) {
@@ -1189,7 +1165,7 @@ function Monitor({ state, onError }: { state: ApplicationViewState; onError: (me
                 class="button danger"
                 onClick={() => {
                   setShowCancelDialog(false);
-                  const targetId = (window as any).sarathiState?.activeRunId || run?.run_id;
+                  const targetId = (typeof window !== "undefined" && (window as any).sarathiState?.activeRunId) || run?.run_id;
                   if (targetId) {
                     setCancelling(true);
                     void cancelRun(targetId)

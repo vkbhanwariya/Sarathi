@@ -66,3 +66,54 @@ def format_artifact_filename(
         return f"{clean_stem}{qualifier}_{clean_suffix}.{ext}"
 
     return f"{clean_stem}_{clean_suffix}.{ext}"
+
+
+def infer_cloud_media_type(path: Path) -> str:
+    """Infer cloud provider media type from file extension."""
+    ext = path.suffix.lower()
+    if ext == ".pdf":
+        return "application/pdf"
+    if ext in (".jpg", ".jpeg"):
+        return "image/jpeg"
+    if ext == ".png":
+        return "image/png"
+    if ext == ".webp":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def resolve_source_input(
+    inputs: Sequence[InputRef],
+    source_input_id: str | None = None,
+    document_id: str | None = None,
+) -> InputRef:
+    """Resolve the canonical source InputRef by exact identity.
+
+    Rules:
+    1. Match exact source_input_id if provided.
+    2. Match exact document_id against input_id.
+    3. If single input in request, return that input.
+    4. Never match by substring (e.g. 'input-1' in 'input-10').
+    5. If missing or ambiguous, return explicit fallback InputRef without guessing.
+    """
+    if source_input_id:
+        for inp in inputs:
+            if inp.input_id == source_input_id:
+                return inp
+
+    if document_id:
+        for inp in inputs:
+            if inp.input_id == document_id:
+                return inp
+
+    if len(inputs) == 1:
+        return inputs[0]
+
+    fallback_id = source_input_id or document_id or "unknown"
+    return InputRef(
+        input_id=fallback_id,
+        source_path=Path(f"{fallback_id}.txt"),
+        display_name=f"{fallback_id}.txt",
+        size_bytes=0,
+    )
+

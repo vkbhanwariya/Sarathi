@@ -132,6 +132,10 @@ def execute_retry_attempt(
                 prior_result=prior_result,
             )
 
+        token = retry_ctx.cancellation_token or request.cancellation_token
+        if token is not None and token.is_cancelled:
+            token.check_cancelled()
+
         with quarantine_transition_scope(
             darpana=darpana,
             context=retry_ctx,

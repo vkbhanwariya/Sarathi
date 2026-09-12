@@ -12,13 +12,12 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ExecutionContext,
-    InputRef,
     PageData,
     ProvenanceRecord,
     Request,
     Result,
 )
-from sarathi.shakti.artifact_naming import format_artifact_filename
+from sarathi.shakti.artifact_naming import format_artifact_filename, resolve_source_input
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.gemini.client import GeminiClient
 from sarathi.shakti.gemini.plugin import GEMINI_TRANSLATION_DECLARATION
@@ -97,29 +96,30 @@ class GeminiTranslationCapability:
 
         translated_docs: list[CanonicalDocument] = []
         all_payloads: list[ArtifactPayload] = []
+        trans_memo: dict[tuple[str, str, str, str], str] = {}
+
+        def _call_translate(text: str) -> str:
+            memo_key = (text, source_lang, target_lang, model)
+            if memo_key not in trans_memo:
+                trans_memo[memo_key] = self._client.chat_translate(
+                    text=text,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    model=model,
+                )
+            return trans_memo[memo_key]
 
         for doc_id, doc_or_str in docs_to_translate:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                 context.cancellation_token.check_cancelled()
 
             orig_text = doc_or_str.text if isinstance(doc_or_str, CanonicalDocument) else str(doc_or_str)
-
-            translated_text = self._client.chat_translate(
-                text=orig_text,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                model=model,
-            )
+            translated_text = _call_translate(orig_text)
 
             new_pages: list[PageData] = []
             if isinstance(doc_or_str, CanonicalDocument) and doc_or_str.pages:
                 for p in doc_or_str.pages:
-                    p_trans = self._client.chat_translate(
-                        text=p.text,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        model=model,
-                    )
+                    p_trans = _call_translate(p.text)
                     new_pages.append(replace(p, text=p_trans))
 
             metadata = dict(doc_or_str.metadata) if isinstance(doc_or_str, CanonicalDocument) else {}
@@ -147,9 +147,10 @@ class GeminiTranslationCapability:
             )
             translated_docs.append(trans_doc)
 
-            matching_inp = next(
-                (inp for inp in request.inputs if inp.input_id in doc_id),
-                request.inputs[0] if request.inputs else InputRef(input_id=doc_id, source_path=Path(f"{doc_id}.txt"), display_name=f"{doc_id}.txt", size_bytes=0),
+            matching_inp = resolve_source_input(
+                request.inputs,
+                source_input_id=doc_or_str.source_input_id if isinstance(doc_or_str, CanonicalDocument) else None,
+                document_id=doc_id,
             )
             txt_name = format_artifact_filename(matching_inp, "gemini_translated", "txt", all_inputs=request.inputs)
             docx_name = format_artifact_filename(matching_inp, "gemini_translated", "docx", all_inputs=request.inputs)

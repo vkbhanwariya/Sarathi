@@ -82,23 +82,16 @@ class BhashiniClient:
                 resp = client.post(self._pipeline_url, headers=headers, content=body_bytes)
                 status_code = resp.status_code
                 resp_text = resp.text
-        except ImportError:
-            import urllib.error
-            import urllib.request
-
-            req = urllib.request.Request(self._pipeline_url, data=body_bytes, headers=headers, method="POST")
-            try:
-                with urllib.request.urlopen(req, timeout=self._timeout_seconds) as response:
-                    status_code = response.getcode()
-                    resp_text = response.read().decode("utf-8")
-            except urllib.error.HTTPError as http_err:
-                status_code = http_err.code
-                resp_text = http_err.read().decode("utf-8", errors="replace")
-            except urllib.error.URLError as url_err:
-                raise DoshError(
-                    code=FailureCode.RESOURCE_UNAVAILABLE,
-                    message="Network connection to Bhashini API failed.",
-                ) from url_err
+        except ImportError as imp_err:
+            raise DoshError(
+                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                message="HTTP transport dependency (httpx) is not installed.",
+            ) from imp_err
+        except httpx.TimeoutException as exc:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Network timeout while connecting to Bhashini API.",
+            ) from exc
         except Exception as exc:
             sanitized = str(exc).replace(api_key, "[REDACTED]").replace(inf_key, "[REDACTED]")
             raise DoshError(

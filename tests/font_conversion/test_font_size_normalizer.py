@@ -2,7 +2,7 @@
 
 import pytest
 
-from sarathi.shakti.font_conversion.font_size_normalizer import (
+from sarathi.shakti.docx_exporter.font_size_normalizer import (
     FontSizeAdjustment,
     get_font_size_adjustment,
     normalize_font_name,

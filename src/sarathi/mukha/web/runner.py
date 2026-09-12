@@ -143,11 +143,19 @@ class RunCoordinator:
             return None
 
     def get_run_summary(self, run_id: str) -> RunSummaryView | None:
-        """Retrieve terminal run summary by run ID."""
+        """Retrieve terminal run summary by run ID or request ID."""
         with self._lock:
-            if self._terminal_summary and self._terminal_summary.run_id == run_id:
+            if self._terminal_summary and (
+                self._terminal_summary.run_id == run_id
+                or getattr(self._terminal_summary, "request_id", None) == run_id
+            ):
                 return self._terminal_summary
-            return self._run_summaries.get(run_id)
+            if run_id in self._run_summaries:
+                return self._run_summaries[run_id]
+            for s in self._run_summaries.values():
+                if getattr(s, "run_id", None) == run_id or getattr(s, "request_id", None) == run_id:
+                    return s
+            return None
 
     def apply_review_intent(self, intent: ReviewIntent) -> bool:
         """Apply and record a human review decision, failing closed on invalid intents."""
@@ -261,7 +269,13 @@ class RunCoordinator:
     def get_confirmed_artifact(self, run_id: str, artifact_id: str) -> ArtifactRef | None:
         """Look up confirmed ArtifactRef by run ID and artifact ID."""
         with self._lock:
-            return self._confirmed_artifacts.get(run_id, {}).get(artifact_id)
+            res = self._confirmed_artifacts.get(run_id, {}).get(artifact_id)
+            if res is not None:
+                return res
+            for r_id, artifacts in self._confirmed_artifacts.items():
+                if artifact_id in artifacts:
+                    return artifacts[artifact_id]
+            return None
 
     def start_run(
         self,
@@ -406,9 +420,12 @@ class RunCoordinator:
                         if result.metadata.get("output_dir"):
                             self._run_output_roots[run_id] = Path(result.metadata["output_dir"])
 
+                        context_run_id = result.metadata.get("run_id")
                         # Populate confirmed artifacts for download
                         if result.artifacts:
                             self._confirmed_artifacts[run_id] = {art.artifact_id: art for art in result.artifacts}
+                            if context_run_id and str(context_run_id) != run_id:
+                                self._confirmed_artifacts[str(context_run_id)] = self._confirmed_artifacts[run_id]
 
                         # Correlate warnings per input
                         input_warn_counts: dict[str, int] = {inp.input_id: 0 for inp in request.inputs}
@@ -430,12 +447,37 @@ class RunCoordinator:
 
                         # Map produced document outputs to inputs
                         doc_map: dict[str, Any] = {}
+                        contributing_inputs: set[str] = set()
+
                         if isinstance(result.data, CanonicalDocument):
                             doc_map[result.data.source_input_id] = result.data
+                            contributing_inputs.add(result.data.source_input_id)
                         elif isinstance(result.data, (tuple, list)):
-                            for doc in result.data:
-                                if isinstance(doc, CanonicalDocument):
-                                    doc_map[doc.source_input_id] = doc
+                            for item in result.data:
+                                if isinstance(item, CanonicalDocument):
+                                    doc_map[item.source_input_id] = item
+                                    contributing_inputs.add(item.source_input_id)
+                                elif hasattr(item, "source_input_id") and item.source_input_id:
+                                    contributing_inputs.add(str(item.source_input_id))
+
+                        # Check for aggregate result types such as BankStatementConsolidationResult
+                        from sarathi.shakti.bank_statements.models import BankStatementConsolidationResult
+
+                        is_aggregate_result = isinstance(result.data, BankStatementConsolidationResult)
+                        if is_aggregate_result and result.data is not None:
+                            for stmt in result.data.statements:
+                                for p in stmt.provenance:
+                                    if p.source_input_id:
+                                        contributing_inputs.add(p.source_input_id)
+                            # If individual statement provenance did not isolate input IDs, all request inputs contributed
+                            if not contributing_inputs:
+                                contributing_inputs.update(inp.input_id for inp in request.inputs)
+
+                        # Also gather contributing inputs from result provenance
+                        if result.provenance:
+                            for p in result.provenance:
+                                if p.source_input_id:
+                                    contributing_inputs.add(p.source_input_id)
 
                         successful_cnt = 0
                         warning_cnt = 0
@@ -457,16 +499,17 @@ class RunCoordinator:
                                     any(
                                         str(art.metadata.get("source_input_id", "")) == inp.input_id
                                         or str(art.metadata.get("input_id", "")) == inp.input_id
-                                        or (
-                                            inp.source_path is not None
-                                            and inp.source_path.stem in art.path.name
-                                        )
+                                        or inp.input_id in (art.metadata.get("source_input_ids") or ())
                                         for art in result.artifacts
                                     )
                                     if result.artifacts
                                     else False
                                 )
-                                has_output = has_input_doc or has_input_artifact
+                                has_aggregate_credit = (
+                                    (is_aggregate_result or any(bool(art.metadata.get("is_aggregate")) for art in result.artifacts))
+                                    and (inp.input_id in contributing_inputs or not contributing_inputs)
+                                )
+                                has_output = has_input_doc or has_input_artifact or has_aggregate_credit
                             else:
                                 has_output = (
                                     inp.input_id in doc_map
@@ -521,6 +564,8 @@ class RunCoordinator:
                         self._terminal_status = overall_status
                         self._terminal_summary = summary
                         self._run_summaries[run_id] = summary
+                        if context_run_id and str(context_run_id) != run_id:
+                            self._run_summaries[str(context_run_id)] = summary
                 except DoshError as dosh_err:
                     is_cancelled = (
                         (request.cancellation_token and request.cancellation_token.is_cancelled)
@@ -546,6 +591,11 @@ class RunCoordinator:
                         pramana_records=pramana_recs,
                     )
                     with self._lock:
+                        for inp in request.inputs:
+                            curr = self._file_progress.get(inp.input_id) or self._file_progress.get(inp.display_name)
+                            if curr and curr.get("status") in ("RUNNING", "PENDING"):
+                                curr["status"] = status
+                                curr["stage"] = "Cancelled" if is_cancelled else "Failed"
                         self._terminal_status = status
                         self._terminal_summary = summary
                         self._run_summaries[run_id] = summary
@@ -563,12 +613,22 @@ class RunCoordinator:
                         pramana_records=pramana_recs,
                     )
                     with self._lock:
+                        for inp in request.inputs:
+                            curr = self._file_progress.get(inp.input_id) or self._file_progress.get(inp.display_name)
+                            if curr and curr.get("status") in ("RUNNING", "PENDING"):
+                                curr["status"] = "FAILED"
+                                curr["stage"] = "Failed"
                         self._terminal_status = "FAILED"
                         self._terminal_summary = summary
                         self._run_summaries[run_id] = summary
                 finally:
                     with self._lock:
                         if self._terminal_summary is None:
+                            for inp in request.inputs:
+                                curr = self._file_progress.get(inp.input_id) or self._file_progress.get(inp.display_name)
+                                if curr and curr.get("status") in ("RUNNING", "PENDING"):
+                                    curr["status"] = "FAILED"
+                                    curr["stage"] = "Failed"
                             maruti_recs, pramana_recs = get_run_telemetry(self._agni, run_id)
                             wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
                             self._terminal_status = "FAILED"

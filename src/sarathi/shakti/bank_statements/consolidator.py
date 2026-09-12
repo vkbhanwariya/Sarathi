@@ -23,6 +23,7 @@ from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
     BankStatementConsolidationResult,
+    DuplicateDecision,
     Transaction,
     ValidationIssue,
     ValidationStatus,
@@ -62,12 +63,19 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
             dedup_res = deduplicate_transactions(group_valid_txns)
             deduped_valid_txns.extend(dedup_res.unique_transactions)
             for orig, dup, decision, reason in dedup_res.duplicates:
+                if decision == DuplicateDecision.PROVEN_DUPLICATE:
+                    msg = f"Duplicate transaction eliminated across statements: {reason}"
+                    sev = "info"
+                else:
+                    msg = f"Probable duplicate transaction retained across statements: {reason}"
+                    sev = "warning"
                 all_issues.append(
                     ValidationIssue(
                         code="CROSS_STATEMENT_DUPLICATE",
-                        message=f"Duplicate transaction eliminated across statements: {reason}",
-                        severity="info",
+                        message=msg,
+                        severity=sev,
                         context={
+                            "decision": decision.value,
                             "description": dup.description,
                             "date": dup.transaction_date.isoformat(),
                             "amount": str(dup.debit if dup.debit is not None else dup.credit),
