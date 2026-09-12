@@ -10,7 +10,7 @@ This file records product and UI decisions agreed during planning discussions.
 
 ## Home Screen — User-Facing Task Optimization
 
-**Status:** Approved task set and order; implementation not requested
+**Status:** Approved task set and order; Documents Extraction expansion behavior approved; implementation not requested
 
 The Home screen user-facing processing choices will be limited to the following four tasks, in this order:
 
@@ -35,6 +35,12 @@ The Home screen user-facing processing choices will be limited to the following 
 2. **Bank Account Consolidation**
 3. **Font Conversion**
 4. **Translation**
+
+### Documents Extraction interaction
+
+- **Documents Extraction** is a parent user-facing task.
+- Selecting **Documents Extraction** should reveal a second, expandable task level underneath it.
+- The exact child tasks/options inside this expanded level are still pending and must be decided separately before implementation.
 
 ### Deferred from the Home task list
 
