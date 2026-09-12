@@ -10,7 +10,7 @@ This file records product and UI decisions agreed during planning discussions.
 
 ## Home Screen — User-Facing Task Optimization
 
-**Status:** Approved task set and order; Documents Extraction and Bank Account Consolidation second-level tasks approved; implementation not requested
+**Status:** Approved task set and order; Documents Extraction, Bank Account Consolidation, and Font Conversion second-level tasks approved; implementation not requested
 
 The Home screen user-facing processing choices will be limited to the following four tasks, in this order:
 
@@ -74,6 +74,14 @@ The Home screen user-facing processing choices will be limited to the following 
    - Accuracy-focused consolidation mode.
    - Uses optimal preprocessing and post-processing.
    - Uses robust validation for higher-confidence consolidation results.
+
+## Font Conversion — Second-Level Tasks
+
+**Font Conversion** is a parent task. Selecting it expands the following three choices, in this order:
+
+1. **Auto detect to Unicode**
+2. **Auto detect to Devlys**
+3. **Auto detect to Kurtidev**
 
 ### Deferred from the Home task list
 
