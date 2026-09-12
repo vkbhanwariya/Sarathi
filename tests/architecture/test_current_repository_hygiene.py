@@ -13,8 +13,12 @@ CURRENT_DOCS = {
     "README.md",
     "Architecture.md",
     "Capabilities.md",
-    "Mukha_Transport.md",
     "Cleanup_Optimization_Plan.md",
+    "Configuration.md",
+    "Development.md",
+    "Formats.md",
+    "Mukha_Transport.md",
+    "Troubleshooting.md",
 }
 STALE_DOC_NAME_PARTS = (
     "Sarathi_" + "V1",

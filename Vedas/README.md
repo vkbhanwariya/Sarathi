@@ -1,30 +1,40 @@
 # Vedas — Sarathi Engineering Guide
 
-`Vedas/` is the current engineering documentation for Sarathi. It explains the architecture that exists now, the responsibilities of each subsystem, the supported capability families, the local web transport, and the ordered cleanup roadmap.
+`Vedas/` contains the engineering documentation for Sarathi. It provides the single source of truth for architectural ownership, capabilities, configuration, formats, troubleshooting, and developer workflows.
 
-## Start here
+---
 
-| Document | Use it for |
+## Documentation Index
+
+| Document | Topic |
 | --- | --- |
-| [`Architecture.md`](Architecture.md) | Runtime flow, subsystem ownership, boundaries, and invariants |
-| [`Capabilities.md`](Capabilities.md) | Current document-processing capability families and provider model |
-| [`Mukha_Transport.md`](Mukha_Transport.md) | Local web server, HTTP/SSE ownership, and security boundary |
-| [`Cleanup_Optimization_Plan.md`](Cleanup_Optimization_Plan.md) | Ordered cleanup phases and acceptance gates |
-| [`architecture.manifest.json`](architecture.manifest.json) | Machine-readable production topology |
-| [`architecture.manifest.schema.json`](architecture.manifest.schema.json) | Schema for the architecture manifest |
+| [`Architecture.md`](Architecture.md) | Canonical subsystem ownership, runtime flow, and invariants |
+| [`Capabilities.md`](Capabilities.md) | Capability specifications, inputs, outputs, fallbacks, and limitations |
+| [`Configuration.md`](Configuration.md) | Typed Sutra configuration keys, defaults, and cloud settings |
+| [`Formats.md`](Formats.md) | Supported document, spreadsheet, delimited, and font formats |
+| [`Troubleshooting.md`](Troubleshooting.md) | Diagnoses and fixes for OCR, OpenVINO, fonts, encodings, and network |
+| [`Development.md`](Development.md) | Install, run, and permanent 5-gate CI test commands |
+| [`Mukha_Transport.md`](Mukha_Transport.md) | Local ASGI web transport, SSE streaming, and security boundary |
+| [`Cleanup_Optimization_Plan.md`](Cleanup_Optimization_Plan.md) | Historical record of completed architecture and performance cleanup |
+| [`architecture.manifest.json`](architecture.manifest.json) | Machine-readable production package and component topology |
+| [`architecture.manifest.schema.json`](architecture.manifest.schema.json) | JSON schema defining production manifest rules |
 
-## Source-of-truth rule
+---
 
-Current code, tests, configuration, and Vedas must agree. The manifest is authoritative for production package topology; the prose documents explain responsibilities and behavior. If implementation and prose diverge, fix the disagreement in the same change rather than preserving contradictory guidance.
+## Canonical Architecture Summary
 
-Historical generation-specific specifications are not active requirements. Git history preserves provenance; the Vedas tree contains only current operating documentation.
+- **Agni**: Application composition, bootstrap, and process lifecycle.
+- **Sankalpa**: Shared request/result contracts and document models.
+- **Kosh**: Registry for capability and plugin declarations.
+- **Manthan**: Planning authority for resolving requirements and profiles.
+- **Pravaha**: Execution engine for executing resolved plans.
+- **Shakti**: Document-processing capabilities and provider adapters.
+- **Kavacha**: Security authorization, path containment, and privacy enforcement.
+- **Smriti**: Optional deterministic result caching.
+- **Darpana**: Telemetry, quality observations, and execution history.
+- **Sutra**: Runtime settings loading and typed configuration.
+- **Mukha**: Local web transport, presentation state, and UI.
+- **Dosh**: Shared error taxonomy and failure codes.
 
-## Architecture in one paragraph
-
-Agni composes the application. Kosh stores capability/plugin declarations. Manthan resolves requested work into an executable plan. Pravaha executes that plan. Shakti implements document capabilities. Yantra provides execution/device resources. Kavacha authorizes security/privacy-sensitive boundaries. Smriti is optional cache state. Darpana records runtime/quality history. Mukha presents the application through a local-only web/API layer. Sankalpa, Sutra, and Dosh provide contracts, settings, and errors.
-
-The `sarathi.nabhi` package is a physical namespace for Kosh, Manthan, Pravaha, and artifacts/quarantine. It does not replace those ownership boundaries.
-
-## Documentation standard
-
-A document is current only when a new maintainer can use it without reading Git history to discover which statements still apply. Avoid speculative components, obsolete module inventories, migration-only instructions, and historical product labels in current docs.
+`sarathi.nabhi` is a physical namespace containing Kosh, Manthan, Pravaha, and artifact utilities; it is not a separate decision authority.
+Generic hardware execution policy belongs to Yantra; domain-specific document behavior stays within the owning Shakti capability.
