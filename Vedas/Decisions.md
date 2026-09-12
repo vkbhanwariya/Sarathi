@@ -94,9 +94,16 @@ The Home screen user-facing processing choices will be limited to the following 
 2. **Sarvam AI Translation**
    - Uses Sarvam AI as the selected translation engine after automatic source-language detection.
 
-3. **Cloud Translation Engines**
-   - After the above choices, show the available cloud translation engines as selectable subordinate options.
-   - Cloud translation providers remain under Translation rather than appearing as separate top-level Home tasks.
+3. **Mistral Cloud Translation**
+
+4. **Google Gemini Cloud Translation**
+
+5. **Azure AI Translation**
+
+6. **Bhashini IndicTrans2 Translation**
+
+- Cloud translation engines are listed directly as selectable second-level choices under Translation rather than hidden behind a generic Cloud Translation entry.
+- Provider-specific translation engines remain under Translation rather than appearing as separate top-level Home tasks.
 
 ### Deferred from the Home task list
 
