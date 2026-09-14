@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
 from sarathi.mukha.state import InputSelectionView, ReviewIntent, RunSummaryView
-from sarathi.mukha.web.security import _format_public_error
+from sarathi.mukha.web.security import _format_public_error, _sanitize_message
 from sarathi.mukha.web.state_builder import get_reviewable_warnings, get_run_telemetry
 from sarathi.sankalpa import (
     ArtifactRef,
@@ -701,7 +701,18 @@ class RunCoordinator:
                         self._terminal_status = status
                         self._terminal_summary = summary
                         self._run_summaries[run_id] = summary
-                except Exception:
+                except Exception as exc:
+                    import traceback
+
+                    traceback.print_exc()
+                    sanitized_detail = _sanitize_message(
+                        str(exc).strip().splitlines()[-1] if str(exc).strip() else ""
+                    )
+                    failure_msg = (
+                        f"EXECUTION_FAILED: {type(exc).__name__}: {sanitized_detail}"
+                        if sanitized_detail
+                        else "EXECUTION_FAILED: An internal error occurred during processing."
+                    )
                     maruti_recs, pramana_recs = get_run_telemetry(self._agni, run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
                     summary = MukhaPresenter.build_summary_view(
@@ -710,7 +721,7 @@ class RunCoordinator:
                         wall_time_ns=wall_time_ns,
                         request=request,
                         result=None,
-                        failures=("EXECUTION_FAILED: An internal error occurred during processing.",),
+                        failures=(failure_msg,),
                         maruti_records=maruti_recs,
                         pramana_records=pramana_recs,
                     )

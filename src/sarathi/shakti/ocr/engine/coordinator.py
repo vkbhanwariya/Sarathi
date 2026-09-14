@@ -45,6 +45,8 @@ from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
 class RapidOCREngine:
     """Instance-owned RapidOCR + OpenVINO engine adapter."""
 
+    _infer_lock: threading.RLock = threading.RLock()
+
     def __init__(
         self,
         data_root: Path | None = None,
@@ -56,7 +58,7 @@ class RapidOCREngine:
         self._model_labels: dict[str, str] = {}
         self._default_lang: str = default_lang
         self._init_lock: threading.Lock = threading.Lock()
-        self._local: threading.local = threading.local()
+        self._infer_lock: threading.RLock = threading.RLock()
         self._verified_model_paths: dict[str, str] = {}
         self._asset_version: str = self._compute_asset_version()
 
@@ -90,30 +92,20 @@ class RapidOCREngine:
         if self._engine is not None:
             return self._engine
 
-        if not hasattr(self._local, "engines"):
-            self._local.engines = {}
-
         engine_key, _ = resolve_engine_keys(lang, default_lang=self._default_lang)
         target_device = resolve_target_device(execution_binding)
         cache_key = f"{engine_key}:{target_device}"
 
-        if cache_key in self._local.engines:
-            return self._local.engines[cache_key]
-
         if cache_key in self._engines:
-            cand = self._engines[cache_key]
-            if getattr(cand, "_owner_thread", None) == threading.get_ident():
-                return cand
-            return cand
-
+            return self._engines[cache_key]
         if engine_key in self._engines:
             return self._engines[engine_key]
 
         with self._init_lock:
-            if cache_key in self._local.engines:
-                return self._local.engines[cache_key]
             if cache_key in self._engines:
                 return self._engines[cache_key]
+            if engine_key in self._engines:
+                return self._engines[engine_key]
 
             engine_inst, cache_key, eng_key, label = build_rapidocr_instance(
                 data_root=self._data_root,
@@ -123,9 +115,6 @@ class RapidOCREngine:
                 default_lang=self._default_lang,
             )
 
-            if not hasattr(self._local, "engines"):
-                self._local.engines = {}
-            self._local.engines[cache_key] = engine_inst
             self._engines[cache_key] = engine_inst
             self._engines[eng_key] = engine_inst
             self._model_labels[cache_key] = label
@@ -215,10 +204,11 @@ class RapidOCREngine:
         else:
             use_cls_flag = True
 
-        try:
-            output = engine(img_arr, use_cls=use_cls_flag)
-        except TypeError:
-            output = engine(img_arr)
+        with self._infer_lock:
+            try:
+                output = engine(img_arr, use_cls=use_cls_flag)
+            except TypeError:
+                output = engine(img_arr)
 
         if cancellation_token is not None and cancellation_token.is_cancelled:
             cancellation_token.check_cancelled()
@@ -293,7 +283,8 @@ class RapidOCREngine:
 
                     try:
                         # Re-recognize using the EXACT same recognizer instance
-                        retry_out = engine(crop, use_det=False, use_cls=False)
+                        with self._infer_lock:
+                            retry_out = engine(crop, use_det=False, use_cls=False)
                         if retry_out and getattr(retry_out, "txts", None) and getattr(retry_out, "scores", None):
                             r_txts = list(retry_out.txts)
                             r_scores = list(retry_out.scores)
