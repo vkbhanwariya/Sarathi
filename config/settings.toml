@@ -1,0 +1,50 @@
+# Sarathi - Canonical Runtime Settings Configuration
+# Sutra Configuration System
+
+[storage]
+input_root = "Input"
+output_root = "Output"
+runtime_root = "Runtime"
+
+[pipeline]
+max_retries = 0
+
+[security]
+allow_pii_access = true
+allow_network_access = true
+allow_external_processing = true
+allowed_secrets = [
+    "AZURE_API_KEY",
+    "AZURE_ENDPOINT",
+    "BHASHINI_API_KEY",
+    "BHASHINI_INFERENCE_KEY",
+    "BHASHINI_USER_ID",
+    "GEMINI_API_KEY",
+    "MISTRAL_API_KEY",
+]
+
+[telemetry]
+history_enabled = false
+live_buffer_capacity = 256
+history_path = "history.jsonl"
+
+[hardware]
+detect_accelerators = true
+gpu_capacity_per_device = 8
+
+[mistral]
+model_ocr = "mistral-ocr-latest"
+model_translation = "mistral-large-latest"
+timeout_seconds = 60
+
+[gemini]
+model_ocr = "gemini-2.5-flash"
+model_translation = "gemini-2.5-flash"
+timeout_seconds = 60
+
+[azure]
+api_version = "2024-11-30"
+timeout_seconds = 60
+
+[bhashini]
+timeout_seconds = 60

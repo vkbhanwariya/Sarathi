@@ -1,0 +1,492 @@
+"""Shruti - Native Extraction Executable Capability."""
+
+from __future__ import annotations
+
+import csv
+import time
+import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING, Any, Callable
+from zipfile import BadZipFile
+
+if TYPE_CHECKING:
+    from sarathi.darpana import Darpana
+
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.sankalpa import (
+    ArtifactIntent,
+    ArtifactPayload,
+    CanonicalDocument,
+    CapabilityDeclaration,
+    ExecutionContext,
+    ExecutionProfile,
+    ProvenanceRecord,
+    Request,
+    Result,
+    WarningRecord,
+)
+from sarathi.shakti.artifact_naming import format_artifact_filename
+from sarathi.shakti.docx_exporter import build_docx_payload
+from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_content_format
+from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+
+
+def read_pdf(
+    data: bytes,
+    input_id: str,
+    use_layout: bool = False,
+    skip_header_footer: bool = False,
+) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
+    """Load the PDF reader only when a PDF is actually processed."""
+    from sarathi.shakti.native_extraction.readers.pdf import read_pdf as _read_pdf
+
+    return _read_pdf(data, input_id, use_layout=use_layout, skip_header_footer=skip_header_footer)
+
+
+def _get_reader(
+    fmt: DetectedFormat,
+) -> tuple[
+    Callable[[bytes, str], tuple[CanonicalDocument, list[ProvenanceRecord], list[WarningRecord]]],
+    tuple[type[BaseException], ...],
+] | None:
+    """Return the concrete reader and its expected parse errors for one detected format."""
+    match fmt:
+        case DetectedFormat.PDF:
+            import pymupdf
+
+            return read_pdf, (pymupdf.FileDataError, pymupdf.EmptyFileError)
+        case DetectedFormat.DOCX:
+            from sarathi.shakti.native_extraction.readers.docx import read_docx
+
+            return read_docx, (BadZipFile, ET.ParseError)
+        case DetectedFormat.XLSX:
+            import openpyxl.utils.exceptions
+            import python_calamine
+
+            from sarathi.shakti.native_extraction.readers.spreadsheet import read_xlsx
+
+            return read_xlsx, (
+                openpyxl.utils.exceptions.InvalidFileException,
+                BadZipFile,
+                python_calamine.CalamineError,
+                ET.ParseError,
+                UnicodeDecodeError,
+            )
+        case DetectedFormat.XLS_LEGACY:
+            import xlrd
+
+            from sarathi.shakti.native_extraction.readers.spreadsheet import read_xls_legacy
+
+            return read_xls_legacy, (xlrd.biffh.XLRDError,)
+        case DetectedFormat.HTML_TABLE:
+            from sarathi.shakti.native_extraction.readers.html import read_html_table
+
+            return read_html_table, (UnicodeDecodeError,)
+        case DetectedFormat.SPREADSHEET_ML:
+            from sarathi.shakti.native_extraction.readers.spreadsheet import read_spreadsheet_ml
+
+            return read_spreadsheet_ml, (ET.ParseError, UnicodeDecodeError)
+        case DetectedFormat.CSV_OR_TEXT:
+            from sarathi.shakti.native_extraction.readers.delimited import read_csv_or_text
+
+            return read_csv_or_text, (csv.Error, UnicodeDecodeError)
+        case _:
+            return None
+
+
+def _has_usable_content(doc: CanonicalDocument) -> bool:
+    """Check whether a CanonicalDocument contains usable text or table data across all pages."""
+    if doc.pages:
+        for p in doc.pages:
+            p_text = bool(p.text and p.text.strip())
+            p_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in p.tables)
+            if not (p_text or p_tables):
+                return False
+        return True
+    has_text = bool(doc.text and doc.text.strip())
+    has_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables)
+    return has_text or has_tables
+
+
+class NativeExtractionCapability:
+    """Canonical executable capability for Shruti Native Extraction."""
+
+    def __init__(
+        self,
+        declaration: CapabilityDeclaration = CAPABILITY_DECLARATION,
+        darpana: Darpana | None = None,
+        font_converter: Any | None = None,
+    ) -> None:
+        self.declaration: CapabilityDeclaration = declaration
+        self._darpana: Darpana | None = darpana
+        self._font_converter = font_converter
+
+    def _record_telemetry(
+        self,
+        context: ExecutionContext,
+        inp: Any,
+        doc: CanonicalDocument,
+        dur_ns: int,
+        is_usable: bool = True,
+    ) -> None:
+        """Record fine-grained worker performance and page/region quality telemetry in Darpana."""
+        if self._darpana is None:
+            return
+        from datetime import datetime, timezone
+
+        from sarathi.darpana import MarutiRecord, PramanaRecord
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
+        dev_i = str(context.execution_binding.device_id) if context.execution_binding else "0"
+        page_cnt = max(1, len(doc.pages))
+
+        self._darpana.record_maruti(
+            MarutiRecord(
+                run_id=context.run_id,
+                request_id=context.request_id,
+                trace_id=context.trace_id,
+                span_id=context.span_id,
+                phase_name="worker_execution",
+                component="shakti.native_extraction",
+                timestamp_utc=now_iso,
+                duration_ns=dur_ns,
+                outcome="success",
+                attributes={
+                    "worker_id": f"cpu-worker-{dev_i}",
+                    "device_type": dev_t,
+                    "device_id": dev_i,
+                    "pages_processed": page_cnt,
+                    "file_display_name": inp.display_name,
+                },
+            )
+        )
+
+        # Do not emit quality observations unless document is usable
+        if not is_usable:
+            return
+
+        for p in (doc.pages or ()):
+            self._darpana.record_pramana(
+                PramanaRecord(
+                    run_id=context.run_id,
+                    request_id=context.request_id,
+                    trace_id=context.trace_id,
+                    span_id=context.span_id,
+                    capability_id="native_extraction",
+                    stage="read_native",
+                    timestamp_utc=now_iso,
+                    subject_id=f"{doc.document_id}:p{p.page_number}",
+                    confidence=None,
+                    attributes={
+                        "level": "page",
+                        "page_number": p.page_number,
+                        "file_display_name": inp.display_name,
+                        "region_count": len(p.spans) + len(p.tables),
+                        "min_confidence": None,
+                        "max_confidence": None,
+                    },
+                )
+            )
+            for s_idx, span in enumerate(p.spans[:30]):
+                self._darpana.record_pramana(
+                    PramanaRecord(
+                        run_id=context.run_id,
+                        request_id=context.request_id,
+                        trace_id=context.trace_id,
+                        span_id=context.span_id,
+                        capability_id="native_extraction",
+                        stage="read_native",
+                        timestamp_utc=now_iso,
+                        subject_id=f"{doc.document_id}:p{p.page_number}:s{s_idx}",
+                        confidence=None,
+                        attributes={
+                            "level": "region",
+                            "region_id": f"p{p.page_number}_span_{s_idx + 1}",
+                            "page_number": p.page_number,
+                            "file_display_name": inp.display_name,
+                            "region_type": "text",
+                        },
+                    )
+                )
+
+    def execute(
+        self,
+        request: Request,
+        context: ExecutionContext,
+        prior_result: Result | None = None,
+    ) -> Result:
+        """Execute byte-first native extraction across request inputs.
+
+        Returns canonical Document/Table data on success, escalates to OCR if native
+        content is empty or unreadable, and raises DoshError(FailureCode.UNSUPPORTED)
+        on unsupported binary content.
+        """
+        if not isinstance(request, Request):
+            raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
+        if not isinstance(context, ExecutionContext):
+            raise TypeError(f"context must be an ExecutionContext instance, got {type(context).__name__}.")
+        if prior_result is not None and not isinstance(prior_result, Result):
+            raise TypeError(f"prior_result must be a Result instance or None, got {type(prior_result).__name__}.")
+
+        extracted_docs: list[CanonicalDocument] = []
+        all_provenance: list[ProvenanceRecord] = []
+        all_warnings: list[WarningRecord] = []
+        needs_ocr = False
+
+        progress_cb = None
+        if request.custom_options and callable(request.custom_options.get("progress_callback")):
+            progress_cb = request.custom_options["progress_callback"]
+
+        for inp in request.inputs:
+            if progress_cb is not None:
+                progress_cb(
+                    file_display_name=inp.display_name or inp.input_id,
+                    page_number=1,
+                    total_pages=1,
+                    worker_id="1",
+                    stage="Native Document Extraction",
+                    device_type="CPU",
+                    input_id=inp.input_id,
+                )
+
+            # Read input file bytes
+            try:
+                data = inp.source_path.read_bytes()
+            except OSError as exc:
+                # File I/O error or missing file
+                raise DoshError(
+                    code=FailureCode.EXECUTION_FAILED,
+                    message="Failed to read source input file.",
+                ) from exc
+
+            # Detect format by inspecting content bytes
+            fmt = detect_content_format(data, inp.source_path)
+
+            if fmt == DetectedFormat.UNKNOWN:
+                # If file is empty, report warning without false OCR handoff
+                if len(data) == 0:
+                    all_warnings.append(
+                        WarningRecord(
+                            code="EMPTY_INPUT",
+                            message="Input file is empty.",
+                            stage="read_native",
+                        )
+                    )
+                    empty_doc = CanonicalDocument(
+                        document_id=f"doc-{inp.input_id}",
+                        source_input_id=inp.input_id,
+                    )
+                    extracted_docs.append(empty_doc)
+                    continue
+
+                # Genuinely unsupported binary format
+                raise DoshError(
+                    code=FailureCode.UNSUPPORTED,
+                    message="Unsupported content format for native extraction.",
+                )
+
+            reader_info = _get_reader(fmt)
+            if reader_info is None:
+                raise DoshError(
+                    code=FailureCode.UNSUPPORTED,
+                    message="Unsupported content format for native extraction.",
+                )
+            reader, parse_exceptions = reader_info
+
+            use_layout = bool(
+                request.profile == ExecutionProfile.LAYOUT_PRESERVING
+                or (request.custom_options and request.custom_options.get("layout_analysis"))
+            )
+            skip_header_footer = (
+                bool(request.custom_options.get("skip_header_footer"))
+                if (request.custom_options and "skip_header_footer" in request.custom_options)
+                else True
+            )
+
+            # Route to concrete native readers with honest parse error handling
+            try:
+                t0 = time.perf_counter_ns()
+                if fmt == DetectedFormat.PDF:
+                    doc, provs, warns = reader(
+                        data,
+                        inp.input_id,
+                        use_layout=use_layout,
+                        skip_header_footer=skip_header_footer,
+                    )
+                else:
+                    doc, provs, warns = reader(data, inp.input_id)
+                dur = max(0, time.perf_counter_ns() - t0)
+                extracted_docs.append(doc)
+                all_provenance.extend(provs)
+                all_warnings.extend(warns)
+
+                usable = _has_usable_content(doc)
+                if not usable:
+                    # Empty native content -> escalate to OCR only for OCR-capable format (PDF)
+                    if fmt == DetectedFormat.PDF:
+                        needs_ocr = True
+                        all_warnings.append(
+                            WarningRecord(
+                                code="NATIVE_EXTRACTION_EMPTY",
+                                message="No usable native text or tables found in document. Escalating to OCR.",
+                                stage="read_native",
+                            )
+                        )
+                    else:
+                        all_warnings.append(
+                            WarningRecord(
+                                code="NATIVE_EXTRACTION_EMPTY",
+                                message="No usable native text or tables found in document.",
+                                stage="read_native",
+                            )
+                        )
+
+                self._record_telemetry(context, inp, doc, dur, is_usable=usable)
+
+            except DoshError:
+                raise
+            except parse_exceptions:
+                # Corrupted or unparseable document -> escalate to OCR only for OCR-capable format (PDF)
+                if fmt == DetectedFormat.PDF:
+                    needs_ocr = True
+                    all_warnings.append(
+                        WarningRecord(
+                            code="NATIVE_PARSE_ERROR",
+                            message="Failed to parse document content natively. Escalating to OCR.",
+                            stage="read_native",
+                        )
+                    )
+                else:
+                    all_warnings.append(
+                        WarningRecord(
+                            code="NATIVE_PARSE_ERROR",
+                            message="Failed to parse document content natively.",
+                            stage="read_native",
+                        )
+                    )
+                corrupt_doc = CanonicalDocument(
+                    document_id=f"doc-{inp.input_id}",
+                    source_input_id=inp.input_id,
+                )
+                extracted_docs.append(corrupt_doc)
+
+        # Convert legacy Indian font encodings to Unicode Devanagari if enabled
+        convert_legacy = True
+        if request.custom_options is not None and "convert_legacy_fonts" in request.custom_options:
+            convert_legacy = bool(request.custom_options["convert_legacy_fonts"])
+
+        if convert_legacy and not needs_ocr and extracted_docs:
+            font_hint = None
+            if request.custom_options:
+                font_hint = request.custom_options.get("font_hint") or request.custom_options.get("font_profile")
+
+            if self._font_converter is None:
+                from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+                self._font_converter = FontConversionCapability(darpana=self._darpana)
+
+            converted_docs: list[CanonicalDocument] = []
+            for doc in extracted_docs:
+                try:
+                    conv_res = self._font_converter.convert_document(doc, font_hint=font_hint)
+                    if (
+                        conv_res.detected_profile is not None
+                        or len(conv_res.profiles_used) > 0
+                        or conv_res.metrics.runs_converted > 0
+                    ):
+                        converted_docs.append(conv_res.document)
+                        all_provenance.append(
+                            ProvenanceRecord(
+                                source_input_id=doc.source_input_id,
+                                capability_id="font_conversion",
+                                stage="convert_legacy_fonts",
+                                evidence={"profile": conv_res.detected_profile or list(conv_res.profiles_used)},
+                            )
+                        )
+                        for w in conv_res.warnings:
+                            if w.code != "NO_LEGACY_FONT_DETECTED":
+                                all_warnings.append(w)
+                    else:
+                        converted_docs.append(doc)
+                except Exception as exc:
+                    # In case of unexpected conversion error, preserve original extracted doc and record warning
+                    all_warnings.append(
+                        WarningRecord(
+                            stage="native_extraction_font_conversion",
+                            message=f"Font conversion failed on document '{doc.document_id}': {exc}",
+                            code="FONT_CONVERSION_FAILED",
+                            input_id=doc.source_input_id or doc.document_id,
+                        )
+                    )
+                    converted_docs.append(doc)
+            extracted_docs = converted_docs
+
+        result_data: Any = extracted_docs[0] if len(extracted_docs) == 1 else tuple(extracted_docs)
+
+        payloads: list[ArtifactPayload] = []
+        if not needs_ocr:
+            for idx, (inp, doc) in enumerate(zip(request.inputs, extracted_docs)):
+                has_content = bool(doc.text.strip()) or bool(doc.tables) or any(p.text.strip() or p.tables for p in doc.pages)
+                if has_content:
+                    txt_name = format_artifact_filename(inp, "extracted", "txt", all_inputs=request.inputs, index=idx)
+                    docx_name = format_artifact_filename(inp, "extracted", "docx", all_inputs=request.inputs, index=idx)
+                    if doc.text.strip():
+                        if len(doc.pages) > 1:
+                            page_sections = []
+                            for p in doc.pages:
+                                heading = f"--- Page {p.page_number} ---"
+                                if p.text:
+                                    page_sections.append(f"{heading}\n{p.text}")
+                                else:
+                                    page_sections.append(heading)
+                            txt_content = "\n\n".join(page_sections)
+                        else:
+                            txt_content = doc.text
+                    elif doc.tables:
+                        table_lines = []
+                        for t in doc.tables:
+                            if t.headers:
+                                table_lines.append(" | ".join(str(c) for c in t.headers))
+                            for r in t.rows:
+                                table_lines.append(" | ".join(str(c) for c in r))
+                        txt_content = "\n".join(table_lines)
+                    else:
+                        txt_content = ""
+                    payloads.append(
+                        ArtifactPayload(
+                            intent=ArtifactIntent(
+                                name=txt_name,
+                                role="extracted_text",
+                                media_type="text/plain",
+                            ),
+                            content=txt_content.encode("utf-8"),
+                        )
+                    )
+                    payloads.append(
+                        build_docx_payload(
+                            doc=doc,
+                            filename=docx_name,
+                            role="extracted_document",
+                        )
+                    )
+
+        next_req = None
+        resume_self = False
+        if needs_ocr:
+            next_req = "ocr"
+            resume_self = bool(request.custom_options and request.custom_options.get("statutory"))
+        elif (
+            request.requirement == "read_native"
+            and bool(request.custom_options and request.custom_options.get("statutory"))
+            and any(bool(d.text.strip()) or bool(d.tables) for d in extracted_docs)
+        ):
+            next_req = "statutory"
+
+        return Result(
+            data=result_data,
+            artifact_payloads=tuple(payloads),
+            warnings=tuple(all_warnings),
+            provenance=tuple(all_provenance),
+            next_requirement=next_req,
+            resume_self=resume_self,
+        )

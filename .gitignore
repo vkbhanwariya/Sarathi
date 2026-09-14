@@ -1,0 +1,83 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+nosetests.xml
+test-results/
+playwright-report/
+
+# Build & Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+
+# Frontend
+node_modules/
+.npm/
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# Sarathi Local Storage Roots
+Input/
+Output/
+Runtime/
+
+# Antigravity & Agent Caches / Scratch
+.antigravity/
+.gemini/
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.temp
+scratch/
+
+# Machine Learning Models & Binary Weights
+*.onnx
+*.onnx_data
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.pb
+*.tflite
+models/
+data/ocr/models/*.onnx

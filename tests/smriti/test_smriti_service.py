@@ -1,0 +1,210 @@
+"""Tests for Smriti Two-Tier (L1 Memory + L2 SQLite) Cache Service."""
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from sarathi.sankalpa import CanonicalDocument, ExecutionProfile, InputRef, Request, Result
+from sarathi.smriti.key import compute_cache_key
+from sarathi.smriti.store import SmritiCache
+
+
+@dataclass(frozen=True)
+class UnsupportedDataType:
+    val: str
+
+
+def test_l1_l2_two_tier_caching_and_promotion(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "Cache"
+    cache = SmritiCache(cache_dir=cache_dir)
+
+    inp = InputRef(input_id="inp-1", source_path=tmp_path / "a.txt", display_name="a.txt", size_bytes=100)
+    req = Request(request_id="req-1", requirement="read_native", inputs=(inp,), profile=ExecutionProfile.INSTANT)
+    key = compute_cache_key(req, "read_native", "1.0.0")
+
+    doc = CanonicalDocument(document_id="doc-1", source_input_id="inp-1", text="Cached text payload")
+    orig_res = Result(data=doc)
+
+    # Miss before put
+    res, tier = cache.get_with_tier(key)
+    assert res is None
+    assert tier is None
+
+    # Put into cache (populates L1 and L2)
+    cache.put(key, orig_res)
+
+    # L1 Hit
+    l1_res, l1_tier = cache.get_with_tier(key)
+    assert l1_res is not None
+    assert l1_tier == "l1"
+    assert isinstance(l1_res.data, CanonicalDocument)
+    assert l1_res.data.text == "Cached text payload"
+
+    # Invalidate only L1 to verify L2 persistence and promotion
+    cache._l1.invalidate()
+    assert len(cache._l1) == 0
+
+    # L2 Hit (promotes to L1)
+    promoted_res, promoted_tier = cache.get_with_tier(key)
+    assert promoted_res is not None
+    assert promoted_tier == "l2"
+    assert isinstance(promoted_res.data, CanonicalDocument)
+    assert promoted_res.data.text == "Cached text payload"
+    assert len(cache._l1) == 1
+
+
+def test_unsupported_result_skipped_without_corrupting_cache(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "Cache"
+    cache = SmritiCache(cache_dir=cache_dir)
+
+    inp = InputRef(input_id="inp-1", source_path=tmp_path / "a.txt", display_name="a.txt", size_bytes=100)
+    req = Request(request_id="req-1", requirement="custom", inputs=(inp,), profile=ExecutionProfile.INSTANT)
+    key = compute_cache_key(req, "custom", "1.0.0")
+
+    unsupported_res = Result(data=UnsupportedDataType(val="custom"))
+
+    # Put unsupported result: must be safely skipped
+    cache.put(key, unsupported_res)
+
+    # Cache get must return None rather than data=None
+    res = cache.get(key)
+    assert res is None
+
+
+def test_invalidation_by_capability(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "Cache"
+    cache = SmritiCache(cache_dir=cache_dir)
+
+    inp = InputRef(input_id="inp-1", source_path=tmp_path / "a.txt", display_name="a.txt", size_bytes=100)
+    req = Request(request_id="req-1", requirement="read_native", inputs=(inp,), profile=ExecutionProfile.INSTANT)
+    key_native = compute_cache_key(req, "read_native", "1.0.0")
+    key_ocr = compute_cache_key(req, "ocr", "1.0.0")
+
+    res = Result(data=CanonicalDocument(document_id="d-1", source_input_id="inp-1", text="text"))
+
+    cache.put(key_native, res)
+    cache.put(key_ocr, res)
+
+    count = cache.invalidate(capability_id="read_native")
+    assert count >= 1
+
+    assert cache.get(key_native) is None
+    assert cache.get(key_ocr) is not None
+
+
+def test_memory_cache_defensive_deep_copy() -> None:
+    """L1 isolates nested mutable metadata on both put and get."""
+    from sarathi.smriti.memory import MemoryCache
+
+    source_items = ["original"]
+    doc = CanonicalDocument(
+        document_id="d-iso",
+        source_input_id="inp-1",
+        text="original",
+        metadata={"items": source_items},
+    )
+    inp = InputRef(input_id="inp-1", source_path=Path("dummy.txt"), display_name="dummy.txt", size_bytes=10)
+    req = Request(request_id="r-iso", requirement="read_native", inputs=(inp,))
+    key = compute_cache_key(req, "read_native", "1.0.0")
+
+    cache = MemoryCache()
+    cache.put(key, Result(data=doc))
+    source_items.append("source-mutated")
+
+    first = cache.get(key)
+    assert first is not None
+    assert first.data.metadata["items"] == ["original"]
+
+    first.data.metadata["items"].append("retrieved-mutated")
+    second = cache.get(key)
+    assert second is not None
+    assert second.data.metadata["items"] == ["original"]
+
+
+def test_smriti_l2_to_l1_promotion_preserves_created_at(tmp_path: Path) -> None:
+    """Verify promotion from L2 to L1 preserves the original creation timestamp."""
+    import time
+
+    from sarathi.smriti.store import SmritiCache
+
+    cache = SmritiCache(cache_dir=tmp_path)
+    doc = CanonicalDocument(document_id="d-ts", source_input_id="inp-1", text="text")
+    inp = InputRef(input_id="inp-1", source_path=tmp_path / "a.txt", display_name="a.txt", size_bytes=10)
+    req = Request(request_id="r-ts", requirement="read_native", inputs=(inp,))
+    key = compute_cache_key(req, "read_native", "1.0.0")
+
+    orig_res = Result(data=doc)
+    cache.put(key, orig_res)
+
+    # Clear L1 memory tier so next lookup hits L2
+    cache._l1.invalidate()
+    assert len(cache._l1) == 0
+
+    # Retrieve from L2 and promote to L1
+    res, tier = cache.get_with_tier(key)
+    assert tier == "l2"
+    assert res is not None
+
+    # L1 must now hold the promoted entry with the L2 creation timestamp
+    l1_entry = cache._l1._cache.get(key.key_hash)
+    assert l1_entry is not None
+    # Timestamp must not be artificially advanced
+    assert l1_entry.created_at <= time.time()
+
+
+def test_metadata_stype_dictionary_collision_safe_roundtrip() -> None:
+    """Verify user metadata dictionary containing '__stype__' serializes and deserializes safely."""
+    from sarathi.smriti.serialization import deserialize_result, serialize_result
+
+    user_meta = {"__stype__": "custom_payload", "val": 42, "description": "test"}
+    doc = CanonicalDocument(
+        document_id="d-stype",
+        source_input_id="inp-1",
+        metadata={"user_dict": user_meta},
+    )
+    orig_res = Result(data=doc)
+    serialized = serialize_result(orig_res)
+    deserialized = deserialize_result(serialized)
+
+    assert isinstance(deserialized.data, CanonicalDocument)
+    assert deserialized.data.metadata["user_dict"] == user_meta
+
+
+def test_smriti_cache_clear_purges_both_tiers(tmp_path: Path) -> None:
+    """Verify SmritiCache.clear() purges entries across both L1 memory and L2 SQLite tiers."""
+    cache_dir = tmp_path / "Cache"
+    cache = SmritiCache(cache_dir=cache_dir)
+
+    inp = InputRef(input_id="inp-clr", source_path=tmp_path / "clr.txt", display_name="clr.txt", size_bytes=50)
+    req = Request(request_id="req-clr", requirement="read_native", inputs=(inp,))
+    key = compute_cache_key(req, "read_native", "1.0.0")
+
+    doc = CanonicalDocument(document_id="doc-clr", source_input_id="inp-clr", text="test-clear")
+    orig_res = Result(data=doc)
+    cache.put(key, orig_res)
+
+    assert cache.get(key) is not None
+
+    cleared_count = cache.clear()
+    assert cleared_count >= 1
+    assert cache.get(key) is None
+
+
+def test_importing_smriti_does_not_patch_global_deepcopy_dispatch() -> None:
+    """Verify importing Smriti memory does not monkey-patch standard library copy dispatch."""
+    import subprocess
+    import sys
+
+    code = """
+import copy
+from types import MappingProxyType
+before = copy._deepcopy_dispatch.get(MappingProxyType)
+import sarathi.smriti.memory
+assert copy._deepcopy_dispatch.get(MappingProxyType) is before
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr

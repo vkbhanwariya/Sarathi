@@ -1,0 +1,81 @@
+[project]
+name = "sarathi"
+version = "3.0.0.dev0"
+description = "Local document intelligence system"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "charset-normalizer>=3.5.1",
+    "openpyxl>=3.1.5",
+    "polars>=1.44.1",
+    "pymupdf==1.28.2",
+    "python-calamine>=0.8.2",
+    "pyyaml>=6.0.3",
+    "starlette>=1.6.0,<2",
+    "uvicorn>=0.52.1,<0.53",
+    "xlrd>=2.0.2",
+]
+
+[project.scripts]
+sarathi = "sarathi.__main__:main"
+
+[project.optional-dependencies]
+ocr = [
+    "numpy>=2.0.0",
+    "opencv-python-headless>=5.0.0,<5.1.0",
+    "openvino>=2026.3.0",
+    "pillow>=12.0.0",
+    "rapidocr>=3.9.2",
+]
+translation = [
+    "ctranslate2>=4.8.0",
+    "sentencepiece>=0.2.2",
+]
+font_conversion = []
+layout = [
+    "pymupdf-layout==1.28.2",
+]
+cloud = [
+    "httpx>=0.28.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+exclude-dependencies = [
+    { package = { name = "rapidocr" }, dependencies = ["opencv-python"] },
+]
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.26.0",
+    "pytest>=9.1.1",
+    "pytest-playwright>=0.9.0",
+    "ruff>=0.16.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-ra -q --tb=short --show-capture=no"
+markers = [
+    "unit: marks isolated deterministic unit tests",
+    "contract: marks public data or API contract tests",
+    "integration: marks multi-component runtime integration tests",
+    "browser: marks Playwright browser interaction tests",
+    "architecture: marks lightweight architecture sanity checks",
+    "performance: marks wall-clock timing or scalability benchmarks",
+    "real_model: marks tests that require downloading or running real neural model weights (deselect with '-m \"not real_model\"')",
+    "model_asset: marks tests that require local model asset files",
+    "slow: marks intentionally slower integration or end-to-end tests",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

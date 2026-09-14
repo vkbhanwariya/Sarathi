@@ -1,0 +1,545 @@
+"""Unit tests for Nabhi — Core Kernel: Manthan Capability Resolver."""
+
+from pathlib import Path
+
+import pytest
+
+from sarathi.dosh import DoshError, FailureCode
+from sarathi.nabhi import Kosh
+from sarathi.nabhi.manthan import CapabilityPlan, Manthan
+from sarathi.sankalpa import (
+    CapabilityDeclaration,
+    ExecutionProfile,
+    InputRef,
+    PluginInfo,
+    Request,
+    SecurityDeclaration,
+)
+
+
+@pytest.fixture
+def sample_plugin() -> PluginInfo:
+    return PluginInfo(
+        plugin_id="shakti.ocr",
+        name="OCR Plugin",
+        version="2.0.0",
+        security=SecurityDeclaration(),
+        capabilities=("ocr",),
+    )
+
+
+@pytest.fixture
+def sample_capability() -> CapabilityDeclaration:
+    return CapabilityDeclaration(
+        capability_id="ocr",
+        plugin_id="shakti.ocr",
+        version="2.0.0",
+        supported_profiles=(ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
+        supported_input_types=("application/pdf", "image/png"),
+    )
+
+
+@pytest.fixture
+def sample_request() -> Request:
+    return Request(
+        request_id="req-123",
+        requirement="ocr",
+        inputs=(
+            InputRef(
+                input_id="inp-1",
+                source_path=Path("doc.pdf"),
+                display_name="Document",
+                size_bytes=1024,
+                media_type="application/pdf",
+            ),
+        ),
+        profile=ExecutionProfile.INSTANT,
+    )
+
+
+@pytest.fixture
+def kosh(sample_plugin: PluginInfo, sample_capability: CapabilityDeclaration) -> Kosh:
+    registry = Kosh()
+    registry.register_plugin(sample_plugin)
+    registry.register_capability(sample_capability)
+    return registry
+
+
+class TestCapabilityPlanContract:
+    def test_valid_plan_creation(self) -> None:
+        plan = CapabilityPlan(request_id="req-1", capability_ids=("ocr",))
+        assert plan.request_id == "req-1"
+        assert plan.capability_ids == ("ocr",)
+        assert isinstance(plan.capability_ids, tuple)
+
+    def test_plan_immutability(self) -> None:
+        plan = CapabilityPlan(request_id="req-1", capability_ids=("ocr",))
+        with pytest.raises(Exception):
+            plan.request_id = "req-2"  # type: ignore
+        with pytest.raises(Exception):
+            plan.capability_ids = ("other",)  # type: ignore
+
+    def test_invalid_plan_arguments(self) -> None:
+        with pytest.raises(ValueError, match="request_id must be a non-empty string"):
+            CapabilityPlan(request_id="   ", capability_ids=("ocr",))
+
+        with pytest.raises(TypeError, match="capability_ids must be an ordered sequence"):
+            CapabilityPlan(request_id="req-1", capability_ids={"ocr"})  # type: ignore
+
+        with pytest.raises(ValueError, match="capability_ids cannot be empty"):
+            CapabilityPlan(request_id="req-1", capability_ids=())
+
+        with pytest.raises(ValueError, match="capability_ids\\[0\\] must be a non-empty string"):
+            CapabilityPlan(request_id="req-1", capability_ids=("",))
+
+
+class TestManthanResolver:
+    def test_exact_successful_resolution(self, kosh: Kosh, sample_request: Request) -> None:
+        manthan = Manthan(kosh)
+        assert manthan.registry is kosh
+        plan = manthan.resolve(sample_request)
+
+        assert isinstance(plan, CapabilityPlan)
+        assert plan.request_id == "req-123"
+        assert plan.capability_ids == ("ocr",)
+
+    def test_unsupported_requirement_rejected(self, kosh: Kosh) -> None:
+        request = Request(
+            request_id="req-unknown",
+            requirement="unknown_requirement",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("file.txt"),
+                    display_name="File",
+                    size_bytes=100,
+                    media_type="text/plain",
+                ),
+            ),
+        )
+        manthan = Manthan(kosh)
+
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(request)
+
+        err = exc_info.value
+        assert err.code is FailureCode.UNSUPPORTED
+        assert "No capability registered for requirement 'unknown_requirement'" in err.message
+
+    def test_unsupported_execution_profile_rejected(self, kosh: Kosh, sample_request: Request) -> None:
+        # Request a profile not supported by "ocr" (which supports INSTANT, ACCURATE)
+        req_profile = Request(
+            request_id="req-profile",
+            requirement="ocr",
+            inputs=sample_request.inputs,
+            profile=ExecutionProfile.LAYOUT_PRESERVING,
+        )
+        manthan = Manthan(kosh)
+
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req_profile)
+
+        err = exc_info.value
+        assert err.code is FailureCode.UNSUPPORTED
+        assert "does not support requested execution profile 'layout_preserving'" in err.message
+
+    def test_declared_input_type_mismatch_rejected(self, kosh: Kosh) -> None:
+        # Capability supports ("application/pdf", "image/png"); request provides "text/plain"
+        req_mismatch = Request(
+            request_id="req-mismatch",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("file.txt"),
+                    display_name="File",
+                    size_bytes=100,
+                    media_type="text/plain",
+                ),
+            ),
+        )
+        manthan = Manthan(kosh)
+
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req_mismatch)
+
+        err = exc_info.value
+        assert err.code is FailureCode.UNSUPPORTED
+        assert "Input 'inp-1' media type 'text/plain' is not supported" in err.message
+
+    def test_missing_media_type_rejected_when_capability_declares_supported_inputs(self, kosh: Kosh) -> None:
+        req_no_media = Request(
+            request_id="req-no-media",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("doc.pdf"),
+                    display_name="Doc",
+                    size_bytes=500,
+                    media_type=None,
+                ),
+            ),
+        )
+        manthan = Manthan(kosh)
+
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req_no_media)
+
+        err = exc_info.value
+        assert err.code is FailureCode.UNSUPPORTED
+        assert "Input 'inp-1' is missing media_type" in err.message
+
+    def test_capability_with_no_input_types_allows_any_media_type(self) -> None:
+        registry = Kosh()
+        plugin = PluginInfo(
+            plugin_id="generic.plugin",
+            name="Generic Plugin",
+            version="1.0.0",
+            capabilities=("generic",),
+        )
+        cap = CapabilityDeclaration(
+            capability_id="generic",
+            plugin_id="generic.plugin",
+            version="1.0.0",
+            supported_profiles=(ExecutionProfile.INSTANT,),
+            supported_input_types=(),  # No declared input types
+        )
+        registry.register_plugin(plugin)
+        registry.register_capability(cap)
+
+        req = Request(
+            request_id="req-any",
+            requirement="generic",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("file.xyz"),
+                    display_name="Custom",
+                    size_bytes=50,
+                    media_type=None,
+                ),
+            ),
+        )
+        manthan = Manthan(registry)
+        plan = manthan.resolve(req)
+        assert plan.capability_ids == ("generic",)
+
+    def test_invalid_public_arguments_reject_before_registry_access(self, kosh: Kosh) -> None:
+        with pytest.raises(TypeError, match="registry must be a Kosh instance"):
+            Manthan(registry="bad_registry")  # type: ignore
+
+        with pytest.raises(TypeError, match="registry must be a Kosh instance"):
+            Manthan(registry=None)  # type: ignore
+
+        manthan = Manthan(kosh)
+        with pytest.raises(TypeError, match="request must be a Request instance"):
+            manthan.resolve("not_a_request")  # type: ignore
+
+    def test_media_type_case_insensitive(self, kosh: Kosh) -> None:
+        req_upper = Request(
+            request_id="req-upper",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("doc.pdf"),
+                    display_name="Doc",
+                    size_bytes=500,
+                    media_type="APPLICATION/PDF",
+                ),
+            ),
+        )
+        manthan = Manthan(kosh)
+        plan = manthan.resolve(req_upper)
+        assert plan.capability_ids == ("ocr",)
+
+    def test_multiple_inputs_all_must_match(self, kosh: Kosh) -> None:
+        req_multi = Request(
+            request_id="req-multi",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-1",
+                    source_path=Path("doc1.pdf"),
+                    display_name="Doc 1",
+                    size_bytes=500,
+                    media_type="application/pdf",
+                ),
+                InputRef(
+                    input_id="inp-2",
+                    source_path=Path("doc2.png"),
+                    display_name="Doc 2",
+                    size_bytes=300,
+                    media_type="image/png",
+                ),
+            ),
+        )
+        manthan = Manthan(kosh)
+        plan = manthan.resolve(req_multi)
+        assert plan.capability_ids == ("ocr",)
+
+    def test_manthan_does_not_mutate_kosh(self, kosh: Kosh, sample_request: Request) -> None:
+        # Record baseline state of Kosh
+        plugins_before = kosh.plugins()
+        caps_before = kosh.capabilities()
+        count_before = len(kosh)
+
+        manthan = Manthan(kosh)
+        plan = manthan.resolve(sample_request)
+
+        assert plan.capability_ids == ("ocr",)
+        # Verify Kosh remains completely unchanged
+        assert len(kosh) == count_before
+        assert kosh.plugins() == plugins_before
+        assert kosh.capabilities() == caps_before
+
+    def test_recursive_topological_resolution_with_pruning(self) -> None:
+        """Transitive dependencies are resolved in recursive topological order with redundant prereqs pruned."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="topo.plugin",
+            name="Topo Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_a", "cap_b", "cap_c"),
+        )
+        registry.register_plugin(p)
+
+        # cap_c has no prereqs
+        # cap_b requires cap_c
+        # cap_a requires cap_b and cap_c (cap_c is redundant transitive)
+        c_cap = CapabilityDeclaration("cap_c", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,))
+        b_cap = CapabilityDeclaration("cap_b", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_c",))
+        a_cap = CapabilityDeclaration(
+            "cap_a", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_b", "cap_c")
+        )
+
+        registry.register_capability(c_cap)
+        registry.register_capability(b_cap)
+        registry.register_capability(a_cap)
+
+        manthan = Manthan(registry)
+        req = Request(
+            request_id="req-topo",
+            requirement="cap_a",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+        )
+        plan = manthan.resolve(req)
+        assert plan.capability_ids == ("cap_c", "cap_b", "cap_a")
+
+    def test_cycle_detection_raises_validation_failed(self) -> None:
+        """Dependency cycle cap_a -> cap_b -> cap_a raises structured VALIDATION_FAILED error."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="cycle.plugin",
+            name="Cycle Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_a", "cap_b"),
+        )
+        registry.register_plugin(p)
+
+        a_cap = CapabilityDeclaration("cap_a", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_b",))
+        b_cap = CapabilityDeclaration("cap_b", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",))
+        registry.register_capability(a_cap)
+        registry.register_capability(b_cap)
+
+        manthan = Manthan(registry)
+        req = Request(
+            request_id="req-cycle",
+            requirement="cap_a",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+        )
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Circular prerequisite dependency cycle detected" in exc_info.value.message
+
+    def test_self_prerequisite_raises_validation_failed(self) -> None:
+        """Self-prerequisite cap_a -> cap_a raises structured VALIDATION_FAILED error."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="self.plugin",
+            name="Self Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_a",),
+        )
+        registry.register_plugin(p)
+
+        a_cap = CapabilityDeclaration("cap_a", "self.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",))
+        registry.register_capability(a_cap)
+
+        manthan = Manthan(registry)
+        req = Request(
+            request_id="req-self",
+            requirement="cap_a",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+        )
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req)
+        assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+        assert "Self-prerequisite detected" in exc_info.value.message
+
+    def test_recursive_prerequisite_profile_mismatch_raises_unsupported(self) -> None:
+        """When a parent capability supports a profile but a transitive prerequisite does not, fail-fast with UNSUPPORTED."""
+        registry = Kosh()
+        p = PluginInfo(
+            plugin_id="profile.plugin",
+            name="Profile Plugin",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("cap_child", "cap_parent"),
+        )
+        registry.register_plugin(p)
+
+        # Child only supports INSTANT
+        child_cap = CapabilityDeclaration(
+            "cap_child",
+            "profile.plugin",
+            "1.0.0",
+            (ExecutionProfile.INSTANT,),
+        )
+        # Parent supports both INSTANT and ACCURATE
+        parent_cap = CapabilityDeclaration(
+            "cap_parent",
+            "profile.plugin",
+            "1.0.0",
+            (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE),
+            prerequisites=("cap_child",),
+        )
+        registry.register_capability(child_cap)
+        registry.register_capability(parent_cap)
+
+        manthan = Manthan(registry)
+
+        # 1. Successful resolution when profile matches both (INSTANT)
+        req_instant = Request(
+            request_id="req-ok",
+            requirement="cap_parent",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+            profile=ExecutionProfile.INSTANT,
+        )
+        plan_instant = manthan.resolve(req_instant)
+        assert plan_instant.capability_ids == ("cap_child", "cap_parent")
+
+        # 2. Rejection when requested profile is unsupported by recursive prerequisite
+        req_accurate = Request(
+            request_id="req-fail",
+            requirement="cap_parent",
+            inputs=(InputRef("inp-1", Path("f.pdf"), "f.pdf", 10),),
+            profile=ExecutionProfile.ACCURATE,
+        )
+        with pytest.raises(DoshError) as exc_info:
+            manthan.resolve(req_accurate)
+
+        err = exc_info.value
+        assert err.code is FailureCode.UNSUPPORTED
+        assert "Prerequisite capability 'cap_child' required by 'cap_parent' does not support requested execution profile 'accurate'" in err.message
+
+
+def test_capability_plan_rejects_duplicate_stage_ids() -> None:
+    """Invariant: CapabilityPlan strictly prohibits duplicate capability stage identifiers."""
+    with pytest.raises(ValueError, match="Duplicate capability stage 'ocr' in CapabilityPlan is prohibited."):
+        CapabilityPlan(
+            request_id="req-dup-test",
+            capability_ids=("read_native", "ocr", "ocr"),
+        )
+
+
+def test_continuation_resolution_filters_completed_and_preserves_pending_order() -> None:
+    registry = Kosh()
+    registry.register_plugin(
+        PluginInfo(
+            plugin_id="continuation.plugin",
+            name="Continuation Plugin",
+            version="1.0.0",
+            capabilities=("prep", "next_cap", "resume_cap"),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "prep",
+            "continuation.plugin",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "next_cap",
+            "continuation.plugin",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+            prerequisites=("prep",),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "resume_cap",
+            "continuation.plugin",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+        )
+    )
+
+    request = Request(
+        request_id="req-continuation",
+        requirement="resume_cap",
+        inputs=(InputRef("inp-1", Path("doc.pdf"), "doc.pdf", 10),),
+        profile=ExecutionProfile.LAYOUT_PRESERVING,
+    )
+
+    continuation_request, plan = Manthan(registry).resolve_continuation(
+        request,
+        "next_cap",
+        completed_capability_ids={"prep"},
+        remaining_capability_ids=("resume_cap",),
+    )
+
+    assert request.requirement == "resume_cap"
+    assert continuation_request.requirement == "next_cap"
+    assert continuation_request.profile is ExecutionProfile.LAYOUT_PRESERVING
+    assert plan.capability_ids == ("next_cap", "resume_cap")
+
+
+def test_continuation_resolution_rejects_profile_mismatch_without_downgrade() -> None:
+    registry = Kosh()
+    registry.register_plugin(
+        PluginInfo(
+            plugin_id="profile.continuation",
+            name="Profile Continuation",
+            version="1.0.0",
+            capabilities=("current_cap", "instant_only"),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "current_cap",
+            "profile.continuation",
+            "1.0.0",
+            (ExecutionProfile.LAYOUT_PRESERVING,),
+        )
+    )
+    registry.register_capability(
+        CapabilityDeclaration(
+            "instant_only",
+            "profile.continuation",
+            "1.0.0",
+            (ExecutionProfile.INSTANT,),
+        )
+    )
+
+    request = Request(
+        request_id="req-profile-continuation",
+        requirement="current_cap",
+        inputs=(InputRef("inp-1", Path("doc.pdf"), "doc.pdf", 10),),
+        profile=ExecutionProfile.LAYOUT_PRESERVING,
+    )
+
+    with pytest.raises(DoshError) as exc_info:
+        Manthan(registry).resolve_continuation(request, "instant_only")
+
+    assert exc_info.value.code is FailureCode.UNSUPPORTED
+    assert "does not support requested execution profile 'layout_preserving'" in exc_info.value.message

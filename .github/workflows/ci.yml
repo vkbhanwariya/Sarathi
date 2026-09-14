@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Compilation
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Bytecode compilation check
+        run: uv run python -m compileall -q src tests scripts
+
+      - name: Ruff lint check
+        run: uv run ruff check .
+
+  architecture:
+    name: Architecture Sanity
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Run architecture tests only
+        run: uv run --group dev pytest -q tests/architecture
+
+  frontend:
+    name: Mukha UI TypeScript
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install locked frontend dependencies
+        run: npm ci
+
+      - name: Typecheck and build Mukha UI
+        run: npm run build
+
+  test:
+    name: Unit & Integration Tests
+    needs: [lint]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      - name: Provision verified OCR models
+        shell: pwsh
+        run: ./tools/scripts/Setup-OCRModels.ps1
+
+      - name: Run deterministic test suite
+        run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture"
+
+  browser:
+    name: Browser Tests
+    needs: [lint, frontend]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install locked frontend dependencies
+        run: npm ci
+        working-directory: ui
+
+      - name: Build and publish Mukha UI assets
+        run: npm run build
+        working-directory: ui
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      - name: Provision verified OCR models
+        shell: pwsh
+        run: ./tools/scripts/Setup-OCRModels.ps1
+
+      - name: Install Playwright browsers
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run browser test suite
+        run: uv run --group dev --all-extras pytest -q -m browser

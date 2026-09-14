@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "engine": "indictrans2",
+  "runtime": "ctranslate2",
+  "license": "MIT",
+  "description": "IndicTrans2 distilled 200M bilingual translation models for Hindi <-> English",
+  "models": {
+    "hi-en": {
+      "model_id": "ai4bharat/indictrans2-indic-en-dist-200M",
+      "source_lang": "hin_Deva",
+      "target_lang": "eng_Latn",
+      "quantization": "int8"
+    },
+    "en-hi": {
+      "model_id": "ai4bharat/indictrans2-en-indic-dist-200M",
+      "source_lang": "eng_Latn",
+      "target_lang": "hin_Deva",
+      "quantization": "int8"
+    }
+  }
+}
