@@ -21,7 +21,6 @@ from sarathi.sankalpa import (
     ExecutionProfile,
     PageData,
     ProvenanceRecord,
-    TableData,
     TextSpan,
     WarningRecord,
 )
@@ -335,15 +334,17 @@ class RapidOCREngine:
                         pass
 
         # Layout and table reconstruction
-        detected_tables: tuple[TableData, ...] = ()
-        if profile == ExecutionProfile.LAYOUT_PRESERVING or bool(
-            custom_options and custom_options.get("preserve_layout")
-        ):
-            final_page_text, detected_tables = reconstruct_layout(img_arr, spans, preserve_layout=True)
-        else:
-            final_page_text = "\n".join(lines)
+        is_layout_mode = (
+            profile == ExecutionProfile.LAYOUT_PRESERVING
+            or bool(custom_options and custom_options.get("preserve_layout"))
+        )
+        final_page_text, detected_tables = reconstruct_layout(
+            img_arr,
+            spans,
+            preserve_layout=is_layout_mode,
+        )
 
-        if not final_page_text.strip():
+        if not final_page_text.strip() and not detected_tables:
             warnings.append(
                 WarningRecord(
                     code="OCR_EMPTY_PAGE",

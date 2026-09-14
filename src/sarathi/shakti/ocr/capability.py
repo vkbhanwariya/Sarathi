@@ -27,6 +27,7 @@ from sarathi.sankalpa import (
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine
+from sarathi.shakti.ocr.engine.layout import group_paragraphs
 from sarathi.shakti.ocr.engine.rasterize import (
     extract_single_page_image,
     get_page_count_from_bytes,
@@ -37,8 +38,8 @@ from sarathi.shakti.text.typography import (
     classify_page_lines,
     contains_devanagari,
     detect_running_headers_footers,
+    normalize_header_template,
     normalize_size,
-    normalize_text_spacing,
     output_font,
 )
 
@@ -504,11 +505,25 @@ class OCRCapability:
                         if footer_lines:
                             p_meta["footer"] = "\n".join(footer_lines)
 
-                        p_text = (
-                            normalize_text_spacing("\n".join(body_lines))
-                            if skip_header_footer and (header_lines or footer_lines)
-                            else p.text
-                        )
+                        if skip_header_footer and (header_lines or footer_lines):
+                            eff_h = max(100.0, float(p_height))
+                            hdr_cutoff = eff_h * 0.20
+                            ftr_cutoff = eff_h * (1.0 - 0.12)
+                            body_spans = []
+                            for s in p.spans:
+                                if not s.bounding_box or not s.text:
+                                    body_spans.append(s)
+                                    continue
+                                tmpl = normalize_header_template(s.text.strip())
+                                sy0, sy1 = s.bounding_box[1], s.bounding_box[3]
+                                if (sy1 <= hdr_cutoff or sy0 <= hdr_cutoff * 0.75) and tmpl in header_templates:
+                                    continue
+                                if (sy0 >= ftr_cutoff or sy1 >= ftr_cutoff * 1.05) and tmpl in footer_templates:
+                                    continue
+                                body_spans.append(s)
+                            p_text = group_paragraphs(body_spans) if body_spans else ""
+                        else:
+                            p_text = p.text
                         clean_pages.append(
                             PageData(
                                 page_number=p.page_number,

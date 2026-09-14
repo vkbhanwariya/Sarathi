@@ -8,7 +8,9 @@ from neural text recognition. Owns:
 
 from __future__ import annotations
 
+import re
 import statistics
+from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
@@ -16,6 +18,20 @@ import numpy as np
 from sarathi.sankalpa import TableData, TextSpan
 from sarathi.shakti.ocr.engine.parser import sort_reading_order_xycut
 from sarathi.shakti.text.typography import normalize_text_spacing
+
+_LIST_BULLET_RE = re.compile(
+    r"^(\s*([•\-\*–—]|(\d+|[a-zA-Z]|[ivxIVX]+|[०-९]+|[क-ह])[\.\)\/\-]))\s+"
+)
+
+
+@dataclass
+class _VisualLine:
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    text: str
+    max_h: float
 
 
 def _spans_inside_box(
@@ -72,20 +88,19 @@ def _cluster_spans_into_grid(
     if not rows:
         return (), ()
 
-    # 3. Detect column partition positions across all rows
-    col_x_centers: list[float] = []
+    # 3. Detect column partition positions across all rows using start edges (x0)
+    col_x_starts: list[float] = []
     for r in rows:
         for s in r:
             if s.bounding_box:
-                col_x_centers.append((s.bounding_box[0] + s.bounding_box[2]) / 2.0)
+                col_x_starts.append(s.bounding_box[0])
 
-    if not col_x_centers:
+    if not col_x_starts:
         return (), ()
 
-    # Find distinct column buckets
-    col_x_centers.sort()
-    col_clusters: list[list[float]] = [[col_x_centers[0]]]
-    for x in col_x_centers[1:]:
+    col_x_starts.sort()
+    col_clusters: list[list[float]] = [[col_x_starts[0]]]
+    for x in col_x_starts[1:]:
         if abs(x - statistics.mean(col_clusters[-1])) < 35.0:
             col_clusters[-1].append(x)
         else:
@@ -101,9 +116,9 @@ def _cluster_spans_into_grid(
         for s in r:
             if not s.bounding_box:
                 continue
-            cx = (s.bounding_box[0] + s.bounding_box[2]) / 2.0
+            sx0 = s.bounding_box[0]
             # Find nearest column anchor
-            best_c = min(range(num_cols), key=lambda ci: abs(col_anchors[ci] - cx))
+            best_c = min(range(num_cols), key=lambda ci: abs(col_anchors[ci] - sx0))
             if row_cells[best_c]:
                 row_cells[best_c] += " " + s.text.strip()
             else:
@@ -133,7 +148,7 @@ def detect_ruled_tables(
         import cv2
 
         h, w = image_arr.shape[:2]
-        if h < 50 or w < 50:
+        if h < 40 or w < 40:
             return (), set()
 
         gray = cv2.cvtColor(image_arr, cv2.COLOR_RGB2GRAY) if len(image_arr.shape) == 3 else image_arr.copy()
@@ -142,8 +157,8 @@ def detect_ruled_tables(
         )
 
         # Resolution-adaptive kernel sizing relative to image dimensions
-        w_kernel_len = max(20, w // 40)
-        h_kernel_len = max(20, h // 40)
+        w_kernel_len = max(15, min(w // 30, 50))
+        h_kernel_len = max(10, min(h // 30, 50))
 
         h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (w_kernel_len, 1))
         v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, h_kernel_len))
@@ -156,54 +171,188 @@ def detect_ruled_tables(
 
         total_area = float(h * w)
         t_idx = 1
+        candidate_boxes: list[tuple[float, float, float, float]] = []
 
+        # 1. From combined grid contours
         for cnt in contours:
             x, y, cw, ch = cv2.boundingRect(cnt)
             cnt_area = float(cw * ch)
-            # Table must occupy at least 3% of page area and have reasonable height/width
-            if cnt_area >= 0.03 * total_area and cw >= 80 and ch >= 40:
-                table_box = (float(x), float(y), float(x + cw), float(y + ch))
-                t_spans = []
-                for s_idx, span in enumerate(spans):
-                    if span.bounding_box is None:
-                        continue
-                    sx0, sy0, sx1, sy1 = span.bounding_box
-                    cx = (sx0 + sx1) / 2.0
-                    cy = (sy0 + sy1) / 2.0
-                    if x <= cx <= (x + cw) and y <= cy <= (y + ch):
-                        t_spans.append(span)
-                        consumed_indices.add(s_idx)
+            if cnt_area >= 0.005 * total_area and cw >= 60 and ch >= 30:
+                candidate_boxes.append((float(x), float(y), float(x + cw), float(y + ch)))
 
-                if t_spans:
-                    headers, data_rows = _cluster_spans_into_grid(t_spans)
-                    if headers or data_rows:
-                        tables.append(
-                            TableData(
-                                name=f"Table {t_idx}",
-                                headers=headers,
-                                rows=data_rows,
-                                metadata={
-                                    "bounding_box": table_box,
-                                    "kind": "ruled_table",
-                                },
-                            )
+        # 2. Check if horizontal-only rules enclose spans
+        h_contours, _ = cv2.findContours(h_lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        h_line_rects = [cv2.boundingRect(c) for c in h_contours]
+        wide_h_lines = sorted([r for r in h_line_rects if r[2] >= 60], key=lambda r: r[1])
+        if len(wide_h_lines) >= 2:
+            top_line = wide_h_lines[0]
+            bottom_line = wide_h_lines[-1]
+            t_bx0 = float(min(r[0] for r in wide_h_lines))
+            t_by0 = float(top_line[1])
+            t_bx1 = float(max(r[0] + r[2] for r in wide_h_lines))
+            t_by1 = float(bottom_line[1] + bottom_line[3])
+            if (t_by1 - t_by0) >= 30 and (t_bx1 - t_bx0) >= 60:
+                overlap = any(
+                    (max(0.0, min(cb[2], t_bx1) - max(cb[0], t_bx0)) * max(0.0, min(cb[3], t_by1) - max(cb[1], t_by0)))
+                    > 0.5 * (t_bx1 - t_bx0) * (t_by1 - t_by0)
+                    for cb in candidate_boxes
+                )
+                if not overlap:
+                    candidate_boxes.append((t_bx0, t_by0, t_bx1, t_by1))
+
+        # For each candidate box, find matching spans and cluster into table
+        for table_box in candidate_boxes:
+            t_spans: list[TextSpan] = []
+            t_span_indices: list[int] = []
+            bx0, by0, bx1, by1 = table_box
+            for s_idx, span in enumerate(spans):
+                if s_idx in consumed_indices or span.bounding_box is None:
+                    continue
+                sx0, sy0, sx1, sy1 = span.bounding_box
+                cx = (sx0 + sx1) / 2.0
+                cy = (sy0 + sy1) / 2.0
+                if (bx0 - 5.0) <= cx <= (bx1 + 5.0) and (by0 - 5.0) <= cy <= (by1 + 5.0):
+                    t_spans.append(span)
+                    t_span_indices.append(s_idx)
+
+            if len(t_spans) >= 3:
+                headers, data_rows = _cluster_spans_into_grid(t_spans)
+                if headers and data_rows and len(headers) >= 2:
+                    tables.append(
+                        TableData(
+                            name=f"Table {t_idx}",
+                            headers=headers,
+                            rows=data_rows,
+                            metadata={
+                                "bounding_box": table_box,
+                                "kind": "ruled_table",
+                            },
                         )
-                        t_idx += 1
+                    )
+                    consumed_indices.update(t_span_indices)
+                    t_idx += 1
     except Exception:
         pass
 
     return tuple(tables), consumed_indices
 
 
+def detect_borderless_tables(
+    spans: Sequence[TextSpan],
+    consumed_indices: set[int],
+    start_table_idx: int = 1,
+) -> tuple[tuple[TableData, ...], set[int]]:
+    """Detect borderless tables via coordinate-based row and column clustering.
+
+    Analyzes unconsumed spans to detect regular 2D tabular arrangements (at least 2 columns
+    and at least 2 rows) sharing vertically aligned column boundaries with horizontal gutters.
+    """
+    unconsumed = [
+        (idx, s)
+        for idx, s in enumerate(spans)
+        if idx not in consumed_indices and s.bounding_box is not None and s.text and s.text.strip()
+    ]
+    if len(unconsumed) < 4:
+        return (), set()
+
+    # 1. Cluster unconsumed spans into horizontal visual rows
+    sorted_spans = sorted(unconsumed, key=lambda it: it[1].bounding_box[1])  # sort by y0
+    rows: list[list[tuple[int, TextSpan]]] = []
+    curr_row: list[tuple[int, TextSpan]] = [sorted_spans[0]]
+    curr_y0 = sorted_spans[0][1].bounding_box[1]
+    curr_y1 = sorted_spans[0][1].bounding_box[3]
+
+    for idx, s in sorted_spans[1:]:
+        sy0, sy1 = s.bounding_box[1], s.bounding_box[3]
+        s_h = max(1.0, sy1 - sy0)
+        overlap = max(0.0, min(curr_y1, sy1) - max(curr_y0, sy0))
+        if overlap >= 0.45 * s_h:
+            curr_row.append((idx, s))
+            curr_y0 = min(curr_y0, sy0)
+            curr_y1 = max(curr_y1, sy1)
+        else:
+            rows.append(sorted(curr_row, key=lambda it: it[1].bounding_box[0]))
+            curr_row = [(idx, s)]
+            curr_y0, curr_y1 = sy0, sy1
+    if curr_row:
+        rows.append(sorted(curr_row, key=lambda it: it[1].bounding_box[0]))
+
+    if len(rows) < 2:
+        return (), set()
+
+    tables: list[TableData] = []
+    new_consumed: set[int] = set()
+    t_idx = start_table_idx
+
+    i = 0
+    while i < len(rows):
+        if len(rows[i]) < 2:
+            i += 1
+            continue
+
+        candidate_rows = [rows[i]]
+        cand_y1 = max(item[1].bounding_box[3] for item in rows[i])
+        j = i + 1
+
+        while j < len(rows):
+            r = rows[j]
+            r_y0 = min(item[1].bounding_box[1] for item in r)
+            r_y1 = max(item[1].bounding_box[3] for item in r)
+            gap = r_y0 - cand_y1
+            row_h = r_y1 - r_y0
+
+            if gap > max(25.0, 2.0 * row_h):
+                break
+
+            if len(r) >= 2:
+                candidate_rows.append(r)
+                cand_y1 = max(cand_y1, r_y1)
+                j += 1
+            else:
+                break
+
+        if len(candidate_rows) >= 2:
+            t_items = [item for r in candidate_rows for item in r]
+            t_spans = [item[1] for item in t_items]
+            t_indices = [item[0] for item in t_items]
+
+            headers, data_rows = _cluster_spans_into_grid(t_spans)
+            if headers and data_rows and len(headers) >= 2:
+                bx0 = min(s.bounding_box[0] for s in t_spans)
+                by0 = min(s.bounding_box[1] for s in t_spans)
+                bx1 = max(s.bounding_box[2] for s in t_spans)
+                by1 = max(s.bounding_box[3] for s in t_spans)
+
+                tables.append(
+                    TableData(
+                        name=f"Table {t_idx}",
+                        headers=headers,
+                        rows=data_rows,
+                        metadata={
+                            "bounding_box": (bx0, by0, bx1, by1),
+                            "kind": "borderless_table",
+                        },
+                    )
+                )
+                new_consumed.update(t_indices)
+                t_idx += 1
+                i = j
+                continue
+
+        i += 1
+
+    return tuple(tables), new_consumed
+
+
 def reconstruct_layout(
-    image_arr: np.ndarray,
+    image_arr: np.ndarray | None,
     spans: Sequence[TextSpan],
     preserve_layout: bool = True,
 ) -> tuple[str, tuple[TableData, ...]]:
     """Reconstruct structured layout: detect tables, partition columns, and group paragraphs.
 
     Args:
-        image_arr: Full page image array.
+        image_arr: Full page image array (or None if unavailable).
         spans: Extracted text spans from OCR.
         preserve_layout: Whether to run deep layout reconstruction and table extraction.
 
@@ -213,16 +362,35 @@ def reconstruct_layout(
     if not spans:
         return "", ()
 
-    detected_tables: tuple[TableData, ...] = ()
+    detected_tables: list[TableData] = []
     consumed_indices: set[int] = set()
 
     if preserve_layout:
-        detected_tables, consumed_indices = detect_ruled_tables(image_arr, spans)
+        # 1. Ruled tables via OpenCV morphology
+        if image_arr is not None and isinstance(image_arr, np.ndarray) and image_arr.size > 0:
+            ruled_tables, ruled_consumed = detect_ruled_tables(image_arr, spans)
+            detected_tables.extend(ruled_tables)
+            consumed_indices.update(ruled_consumed)
+
+        # 2. Borderless tables via coordinate-based row and column clustering
+        borderless_tables, borderless_consumed = detect_borderless_tables(
+            spans,
+            consumed_indices,
+            start_table_idx=len(detected_tables) + 1,
+        )
+        detected_tables.extend(borderless_tables)
+        consumed_indices.update(borderless_consumed)
 
     # Filter out spans consumed by detected tables so they are not jumbled in body paragraphs
-    body_spans = [s for idx, s in enumerate(spans) if idx not in consumed_indices and s.text and s.text.strip()]
+    body_spans = [
+        s for idx, s in enumerate(spans)
+        if idx not in consumed_indices and s.text and s.text.strip()
+    ]
     if not body_spans and not detected_tables:
         body_spans = list(spans)
+
+    if not body_spans:
+        return "", tuple(detected_tables)
 
     # Sort body spans into natural 2D reading order using Recursive XY-Cut
     ordered_spans = sort_reading_order_xycut(body_spans)
@@ -230,19 +398,20 @@ def reconstruct_layout(
     # Group into lines and paragraphs
     paragraphs = group_paragraphs(ordered_spans)
 
-    return paragraphs, detected_tables
+    return paragraphs, tuple(detected_tables)
 
 
 def group_paragraphs(spans: Sequence[TextSpan]) -> str:
     """Group ordered text spans into cohesive paragraphs based on geometry and line heights."""
-    if not spans:
+    valid_spans = [s for s in spans if s.text and s.text.strip()]
+    if not valid_spans:
         return ""
 
     # 1. Cluster spans on similar horizontal baselines into visual lines
-    lines: list[tuple[float, float, str]] = []  # (top_y, bottom_y, text)
-    curr_line_spans: list[TextSpan] = [spans[0]]
+    lines: list[_VisualLine] = []
+    curr_line_spans: list[TextSpan] = [valid_spans[0]]
 
-    for s in spans[1:]:
+    for s in valid_spans[1:]:
         if s.bounding_box is None:
             curr_line_spans.append(s)
             continue
@@ -253,10 +422,10 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
 
         sy0, sy1 = s.bounding_box[1], s.bounding_box[3]
         py0, py1 = prev_box[1], prev_box[3]
-        line_h = max(1.0, py1 - py0)
+        line_h = max(1.0, min(py1 - py0, sy1 - sy0))
         v_overlap = max(0.0, min(py1, sy1) - max(py0, sy0))
 
-        if v_overlap >= 0.5 * line_h:
+        if v_overlap >= 0.45 * line_h:
             curr_line_spans.append(s)
         else:
             sorted_line = sorted(
@@ -265,9 +434,20 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
             )
             line_str = " ".join(it.text.strip() for it in sorted_line if it.text.strip())
             if line_str:
+                x0_min = min((it.bounding_box[0] for it in sorted_line if it.bounding_box), default=0.0)
                 y0_min = min((it.bounding_box[1] for it in sorted_line if it.bounding_box), default=0.0)
+                x1_max = max((it.bounding_box[2] for it in sorted_line if it.bounding_box), default=0.0)
                 y1_max = max((it.bounding_box[3] for it in sorted_line if it.bounding_box), default=0.0)
-                lines.append((y0_min, y1_max, line_str))
+                lines.append(
+                    _VisualLine(
+                        x0=x0_min,
+                        y0=y0_min,
+                        x1=x1_max,
+                        y1=y1_max,
+                        text=line_str,
+                        max_h=max(1.0, y1_max - y0_min),
+                    )
+                )
             curr_line_spans = [s]
 
     if curr_line_spans:
@@ -277,31 +457,70 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
         )
         line_str = " ".join(it.text.strip() for it in sorted_line if it.text.strip())
         if line_str:
+            x0_min = min((it.bounding_box[0] for it in sorted_line if it.bounding_box), default=0.0)
             y0_min = min((it.bounding_box[1] for it in sorted_line if it.bounding_box), default=0.0)
+            x1_max = max((it.bounding_box[2] for it in sorted_line if it.bounding_box), default=0.0)
             y1_max = max((it.bounding_box[3] for it in sorted_line if it.bounding_box), default=0.0)
-            lines.append((y0_min, y1_max, line_str))
+            lines.append(
+                _VisualLine(
+                    x0=x0_min,
+                    y0=y0_min,
+                    x1=x1_max,
+                    y1=y1_max,
+                    text=line_str,
+                    max_h=max(1.0, y1_max - y0_min),
+                )
+            )
 
     if not lines:
         return ""
 
     # Compute median line height to determine paragraph breaks
-    heights = [ln[1] - ln[0] for ln in lines if (ln[1] - ln[0]) > 0]
+    heights = [ln.max_h for ln in lines if ln.max_h > 0]
     median_h = statistics.median(heights) if heights else 15.0
-    paragraph_break_threshold = max(18.0, median_h * 1.45)
+    widths = [ln.x1 - ln.x0 for ln in lines if (ln.x1 - ln.x0) > 0]
+    max_w = max(widths) if widths else 100.0
+    min_x0 = min((ln.x0 for ln in lines), default=0.0)
+    max_x1 = max((ln.x1 for ln in lines), default=100.0)
 
-    # 2. Join lines into paragraphs
+    # 2. Join lines into paragraphs based on geometry
     para_blocks: list[str] = []
-    curr_block: list[str] = [lines[0][2]]
-    last_y1 = lines[0][1]
+    curr_block: list[str] = [lines[0].text]
+    prev = lines[0]
 
-    for y0, y1, text in lines[1:]:
-        gap = y0 - last_y1
-        if gap >= paragraph_break_threshold:
+    for curr in lines[1:]:
+        gap = curr.y0 - prev.y1
+
+        # 1. Vertical gap exceeds paragraph pitch
+        is_large_gap = gap >= max(10.0, median_h * 1.25)
+
+        # 2. Heading line
+        is_heading = (curr.max_h >= 1.35 * median_h) or curr.text.startswith(("# ", "## ", "### "))
+        was_heading = (prev.max_h >= 1.35 * median_h) or prev.text.startswith(("# ", "## ", "### "))
+
+        # 3. List bullet item
+        is_list_item = bool(_LIST_BULLET_RE.match(curr.text))
+
+        # 4. Previous line ended significantly early (terminal line of paragraph)
+        is_prev_short = (
+            (prev.x1 < max_x1 - 2.5 * median_h)
+            and ((prev.x1 - prev.x0) < 0.70 * max_w)
+            and (gap >= 0.3 * median_h)
+            and not was_heading
+        )
+
+        # 5. Indentation at the start of a paragraph
+        is_indented = (curr.x0 >= min_x0 + 1.5 * median_h) and (gap >= 0.5 * median_h)
+
+        # 6. Horizontal column jump
+        is_column_jump = (curr.x0 > prev.x1 + 30.0) or (curr.y0 < prev.y0 - 2.0 * median_h)
+
+        if is_large_gap or is_heading or was_heading or is_list_item or is_prev_short or is_indented or is_column_jump:
             para_blocks.append(" ".join(curr_block))
-            curr_block = [text]
+            curr_block = [curr.text]
         else:
-            curr_block.append(text)
-        last_y1 = max(last_y1, y1)
+            curr_block.append(curr.text)
+        prev = curr
 
     if curr_block:
         para_blocks.append(" ".join(curr_block))
@@ -311,6 +530,7 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
 
 
 __all__ = [
+    "detect_borderless_tables",
     "detect_ruled_tables",
     "group_paragraphs",
     "reconstruct_layout",
