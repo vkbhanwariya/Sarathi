@@ -212,12 +212,12 @@ sarathi/
 │       │   │   ├── provider.py        # Provider factory for local OCR registration
 │       │   │   ├── telemetry.py       # Emits Pramana quality and Maruti timing telemetry for OCR runs
 │       │   │   ├── typography.py      # Bounding box line-height, heading inference, and font size estimation
-│       │   │   └── engine/            # RapidOCR & NE-OCR neural recognition engine
+│       │   │   └── engine/            # RapidOCR neural recognition engine (OpenVINO accelerated)
 │       │   │       ├── __init__.py    # OCR engine namespace
 │       │   │       ├── common.py      # Shared OCR engine data structures and bounding box primitives
 │       │   │       ├── coordinator.py # Multi-page document OCR orchestration and page worker dispatch
 │       │   │       ├── factory.py     # Instantiates RapidOCR inference sessions bound to target devices
-│       │   │       ├── ne_ocr.py      # Targeted NE-OCR (86M ViTSTR ONNX) high-precision Devanagari fallback
+│       │   │       ├── layout.py      # Spatial reading order reconstruction and Recursive XY-Cut partitioning
 │       │   │       ├── openvino.py    # OpenVINO device patching, model compilation cache, and telemetry opt-out
 │       │   │       ├── parser.py      # Converts raw OCR boxes and text into TextSpan and TableData structures
 │       │   │       ├── preprocessing.py# Adaptive image enhancement (CLAHE, deskew, binarization)
@@ -365,7 +365,6 @@ sarathi/
 │   ├── scripts/                       # Operational PowerShell automation scripts
 │   │   ├── Setup-OCRModels.ps1        # Automated model downloader, provisioner, and SHA-256 verifier (CI)
 │   │   └── update_sarathi.ps1         # Interactive environment and dependency manager (uv bootstrap, sync)
-│   ├── export_ne_ocr_onnx.py          # Ephemeral offline ONNX model exporter for NE-OCR (DocTR ViTSTR)
 │   └── benchmark_ocr_and_font.py      # Performance and accuracy measurement harness
 ├── tests/                             # Automated test suite
 │   ├── architecture/                  # Subsystem boundary, manifest sync, and hygiene tests
@@ -513,7 +512,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - **`engine/`**:
     - [`coordinator.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/coordinator.py): Multi-page OCR orchestration.
     - [`factory.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/factory.py): Instantiates RapidOCR sessions with target devices.
-    - [`ne_ocr.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/ne_ocr.py): High-precision NE-OCR (86M ViTSTR ONNX) Devanagari fallback adapter.
+    - [`layout.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/layout.py): Spatial reading order reconstruction and Recursive XY-Cut partitioning.
     - [`openvino.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/openvino.py): OpenVINO device patching, model compilation caching, and telemetry opt-out.
     - [`parser.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/parser.py): Converts RapidOCR raw output into canonical `TextSpan` and `TableData`.
     - [`preprocessing.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/preprocessing.py): Image preprocessing (CLAHE, deskew, binarization).
@@ -593,7 +592,6 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
 
 ### 13. Developer & Engineering Tools (`tools/`)
 - [`benchmark_ocr_and_font.py`](file:///e:/Sarathi/tools/benchmark_ocr_and_font.py): Performance and accuracy benchmark suite comparing OCR engines and font transducers against reference data.
-- [`export_ne_ocr_onnx.py`](file:///e:/Sarathi/tools/export_ne_ocr_onnx.py): Ephemeral offline conversion utility exporting MWirelabs/ne-ocr (DocTR ViTSTR) to ONNX format without introducing PyTorch into production dependencies.
 - **`scripts/`**:
-  - [`Setup-OCRModels.ps1`](file:///e:/Sarathi/tools/scripts/Setup-OCRModels.ps1): Automated model downloader, provisioner, and SHA-256 verifier ensuring declared RapidOCR and NE-OCR model assets match `data/ocr/manifest.json`.
+  - [`Setup-OCRModels.ps1`](file:///e:/Sarathi/tools/scripts/Setup-OCRModels.ps1): Automated model downloader, provisioner, and SHA-256 verifier ensuring declared OpenVINO OCR model assets match `data/ocr/manifest.json`.
   - [`update_sarathi.ps1`](file:///e:/Sarathi/tools/scripts/update_sarathi.ps1): Interactive environment and dependency manager providing uv bootstrapping, root `.venv` synchronization, PyPI update audits, and lockfile maintenance.

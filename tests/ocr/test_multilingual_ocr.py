@@ -146,3 +146,32 @@ def test_multilingual_ocr_preserves_mixed_hindi_tokens() -> None:
     assert any("दिनांक" in line for line in lines)
     assert any("कुल राशि" in line for line in lines)
     assert any("₹ 45,250/-" in line for line in lines)
+
+
+def test_language_routing_hindi_variants(tmp_path: Path) -> None:
+    """Proves 'hi', 'hindi', and 'devanagari' all route to PP-OCRv5-Devanagari."""
+    from sarathi.shakti.ocr.engine.factory import resolve_engine_keys
+
+    for lang in ("hi", "hindi", "devanagari", "HI", "Hindi"):
+        eng_key, rec_key = resolve_engine_keys(lang)
+        assert eng_key == "devanagari"
+        assert rec_key == "rec_devanagari"
+
+
+def test_language_routing_english_variants() -> None:
+    """Proves 'en', 'eng', 'english', and 'latin' all route to PP-OCRv6 Small."""
+    from sarathi.shakti.ocr.engine.factory import resolve_engine_keys
+
+    for lang in ("en", "eng", "english", "latin", "EN", "English", "v6", "en_v6"):
+        eng_key, rec_key = resolve_engine_keys(lang)
+        assert eng_key == "v6_en"
+        assert rec_key == "rec_v6_en"
+
+
+def test_mixed_hindi_english_default_routing(tmp_path: Path) -> None:
+    """Proves mixed Hindi+English documents default to PP-OCRv5-Devanagari recognizer."""
+    from sarathi.shakti.ocr.engine.factory import resolve_engine_keys
+
+    eng_key, rec_key = resolve_engine_keys(None)
+    assert eng_key == "devanagari"
+    assert rec_key == "rec_devanagari"

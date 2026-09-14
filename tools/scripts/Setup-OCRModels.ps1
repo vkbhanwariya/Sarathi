@@ -1,21 +1,14 @@
 <#
 .SYNOPSIS
-Provisions and verifies declared RapidOCR and NE-OCR ONNX model assets for Sarathi.
+Provisions and verifies declared RapidOCR ONNX model assets for Sarathi.
 
 .DESCRIPTION
 Reads data/ocr/manifest.json and ensures all required OCR model assets exist under
-data/ocr/models/ and strictly match their expected SHA-256 checksums. Optional
-assets are verified when present or when supplied via -SourceDir, but a missing
-optional asset does not fail provisioning. Fails closed on any required-model
-or downloaded-file integrity discrepancy.
+data/ocr/models/ and strictly match their expected SHA-256 checksums. Fails closed
+on any model or downloaded-file integrity discrepancy.
 
-Standard RapidOCR models (det, rec, rec_devanagari, rec_v6_en, cls) are
+Standard RapidOCR models (det, cls, rec_devanagari, rec_v6_en) are
 downloaded directly from the version-pinned upstream repository.
-
-The optional NE-OCR Devanagari fallback model (ne_ocr.onnx and ne_ocr_vocab.json)
-can be exported into data/ocr/models/ using an ephemeral uv environment:
-    uv run --with torch --with python-doctr --with huggingface_hub python tools/export_ne_ocr_onnx.py
-or provisioned automatically by passing the -InstallNeOcr switch to this script.
 
 .PARAMETER ProjectRoot
 Optional path to Sarathi repository root. Defaults to script parent's parent.
@@ -26,22 +19,11 @@ If specified, only verifies existing model files on disk without downloading.
 .PARAMETER SourceDir
 Optional directory containing pre-downloaded ONNX models to copy and verify.
 
-.PARAMETER InstallNeOcr
-If specified, exports and provisions the optional NE-OCR Devanagari fallback model
-using tools/export_ne_ocr_onnx.py in an ephemeral uv environment.
-
 .EXAMPLE
 .\tools\scripts\Setup-OCRModels.ps1 -VerifyOnly
 
 .EXAMPLE
 .\tools\scripts\Setup-OCRModels.ps1 -SourceDir C:\Downloads\OCRModels
-
-.EXAMPLE
-.\tools\scripts\Setup-OCRModels.ps1 -InstallNeOcr
-
-.EXAMPLE
-# Manual offline export of NE-OCR fallback weights:
-uv run --with torch --with python-doctr --with huggingface_hub python tools/export_ne_ocr_onnx.py
 #>
 
 [CmdletBinding()]
@@ -53,10 +35,7 @@ param(
     [switch] $VerifyOnly,
 
     [Parameter()]
-    [string] $SourceDir = '',
-
-    [Parameter()]
-    [switch] $InstallNeOcr
+    [string] $SourceDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,7 +80,6 @@ if (-not (Test-Path -LiteralPath $modelsDir -PathType Container)) {
 $upstreamBaseUrl = 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2'
 $modelRelativePaths = @{
     det            = 'onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx'
-    rec            = 'onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx'
     rec_devanagari = 'onnx/PP-OCRv5/rec/devanagari_PP-OCRv5_rec_mobile.onnx'
     rec_v6_en      = 'onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx'
     cls            = 'onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx'
@@ -164,7 +142,6 @@ foreach ($prop in $models) {
         if ($VerifyOnly) {
             if ($isOptional) {
                 Write-Host "MISSING (optional)" -ForegroundColor Yellow
-                Write-Host "       To install NE-OCR fallback, run: uv run --with torch --with python-doctr --with huggingface_hub python tools/export_ne_ocr_onnx.py" -ForegroundColor DarkGray
                 $skippedOptionalModels++
             } else {
                 Write-Host "MISSING" -ForegroundColor Red
@@ -179,23 +156,6 @@ foreach ($prop in $models) {
             $srcFile = Join-Path $SourceDir $filename
             Copy-Item -LiteralPath $srcFile -Destination $destPath -Force
             $sourced = $true
-        } elseif ($key -eq 'ne_ocr') {
-            if ($InstallNeOcr) {
-                Write-Host "Exporting via uv (ephemeral environment)... " -ForegroundColor Cyan
-                $exportScript = Join-Path $root 'tools\export_ne_ocr_onnx.py'
-                & uv run --with torch --with python-doctr --with huggingface_hub python $exportScript --output-dir $modelsDir
-                if ($LASTEXITCODE -ne 0) {
-                    throw "Failed to export NE-OCR model via tools/export_ne_ocr_onnx.py (exit code $LASTEXITCODE)."
-                }
-                $sourced = $true
-            } else {
-                Write-Host "SKIPPED (optional model)" -ForegroundColor Yellow
-                Write-Host "       To install NE-OCR Devanagari fallback, run:" -ForegroundColor Cyan
-                Write-Host "         uv run --with torch --with python-doctr --with huggingface_hub python tools/export_ne_ocr_onnx.py" -ForegroundColor Gray
-                Write-Host "       or re-run this script with -InstallNeOcr" -ForegroundColor Gray
-                $skippedOptionalModels++
-                continue
-            }
         } else {
             if (-not $modelRelativePaths.ContainsKey($key)) {
                 if ($isOptional) {
@@ -247,11 +207,4 @@ if ($validRequiredModels -ne $totalRequiredModels) {
         exit 1
     }
     throw "Failed to provision all required OCR models."
-}
-
-if ($totalOptionalModels -gt 0 -and $validOptionalModels -lt $totalOptionalModels) {
-    Write-Host "Note: Optional NE-OCR fallback model is not provisioned." -ForegroundColor Yellow
-    Write-Host "To install NE-OCR Devanagari fallback, run:" -ForegroundColor Cyan
-    Write-Host "  uv run --with torch --with python-doctr --with huggingface_hub python tools/export_ne_ocr_onnx.py" -ForegroundColor Gray
-    Write-Host "or: .\tools\scripts\Setup-OCRModels.ps1 -InstallNeOcr" -ForegroundColor Gray
 }

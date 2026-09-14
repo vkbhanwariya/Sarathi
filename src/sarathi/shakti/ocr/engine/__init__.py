@@ -1,4 +1,4 @@
-"""RapidOCR + PP-OCRv5/v6 + OpenVINO Engine Package Façade."""
+"""RapidOCR + OpenVINO Engine Package Façade."""
 
 from __future__ import annotations
 
@@ -14,7 +14,11 @@ from sarathi.shakti.ocr.engine.coordinator import (
     _parse_rapidocr_output,
     check_ocr_readiness,
 )
-from sarathi.shakti.ocr.engine.ne_ocr import NEOCRFallbackAdapter
+from sarathi.shakti.ocr.engine.layout import (
+    detect_ruled_tables,
+    group_paragraphs,
+    reconstruct_layout,
+)
 from sarathi.shakti.ocr.engine.openvino import (
     _resolve_target_device,
     disable_openvino_telemetry,
@@ -42,7 +46,6 @@ __all__ = [
     "ALL_SUPPORTED_LANGS",
     "DEV_LANGS",
     "EN_LANGS",
-    "NEOCRFallbackAdapter",
     "RapidOCREngine",
     "V6_LANGS",
     "_ALL_SUPPORTED_LANGS",
@@ -51,14 +54,17 @@ __all__ = [
     "apply_clahe",
     "check_ocr_readiness",
     "deskew_image",
+    "detect_ruled_tables",
     "disable_openvino_telemetry",
     "extract_images_from_bytes",
     "filter_english_and_numbers",
+    "group_paragraphs",
     "is_low_contrast_image",
     "is_safe_filename",
     "iter_images_from_bytes",
     "patch_rapidocr_openvino_device",
     "preprocess_ocr_image",
+    "reconstruct_layout",
     "remove_stamp_artifacts",
     "resolve_target_device",
     "sort_reading_order_xycut",

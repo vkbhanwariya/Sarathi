@@ -65,6 +65,7 @@ def _is_usable_document(doc: CanonicalDocument) -> bool:
 
 _FLOAT_CUSTOM_OPTIONS: frozenset[str] = frozenset({
     "fallback_threshold",
+    "retry_threshold",
     "review_threshold",
 })
 _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
@@ -78,6 +79,8 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
     "english_numbers_only",
     "remove_stamps",
     "inpaint_stamps",
+    "retry_enabled",
+    "retry_threshold",
     "fallback_enabled",
     "fallback_threshold",
     "review_threshold",
@@ -93,6 +96,7 @@ _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "lang",
     "progress_callback",
     "fallback_threshold",
+    "retry_threshold",
     "review_threshold",
 }
 
@@ -195,12 +199,12 @@ class OCRCapability:
             opt_lang = request.custom_options.get("lang")
             if opt_lang is not None:
                 clean_lang = str(opt_lang).lower().strip()
-                from sarathi.shakti.ocr.engine import _ALL_SUPPORTED_LANGS
+                from sarathi.shakti.ocr.engine import ALL_SUPPORTED_LANGS
 
-                if clean_lang not in _ALL_SUPPORTED_LANGS:
+                if clean_lang not in ALL_SUPPORTED_LANGS:
                     raise DoshError(
                         code=FailureCode.VALIDATION_FAILED,
-                        message=f"Requested OCR language '{opt_lang}' is not supported. Supported languages: 'devanagari', 'en_v6', 'en'.",
+                        message=f"Requested OCR language '{opt_lang}' is not supported. Supported languages: 'devanagari', 'hi', 'en_v6', 'en'.",
                     )
 
         # Inspect prior_result for existing usable native documents using structural pattern matching

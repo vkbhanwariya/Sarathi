@@ -289,15 +289,11 @@ def build_inspector_view(
             status = "COMPLETED"
             elapsed_ns = 0
 
-    from sarathi.shakti.ocr.engine.ne_ocr import NEOCRFallbackAdapter
-
-    ne_ocr_avail = NEOCRFallbackAdapter().is_available()
     system_facts = (
         ("Loopback Host", host),
         ("Port", str(port)),
         ("Runtime Root", str(agni.runtime_root)),
         ("Output Root", str(agni.output_root)),
-        ("NE-OCR Fallback", "Available" if ne_ocr_avail else "Unavailable"),
     )
 
 

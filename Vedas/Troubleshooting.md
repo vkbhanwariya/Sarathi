@@ -8,14 +8,14 @@ Concise fixes for common operational and runtime issues in Sarathi.
 
 ### Symptoms
 - Capability readiness reports `Unavailable (Required OCR model asset is missing)`.
-- Runtime errors indicating missing ONNX weights (`det`, `rec`, `cls`, `rec_devanagari`, `rec_v6_en`, `ne_ocr.onnx`).
+- Runtime errors indicating missing ONNX weights (`det`, `cls`, `rec_devanagari`, `rec_v6_en`).
 
 ### Fix
-- **Provision RapidOCR & NE-OCR ONNX Models**: Run the model provisioning script to verify and download missing models to `data/ocr/models/`:
+- **Provision OpenVINO OCR Models**: Run the model provisioning script to verify and download missing models to `data/ocr/models/`:
   ```powershell
   powershell -ExecutionPolicy Bypass -File tools\scripts\Setup-OCRModels.ps1
   ```
-- Verify that `manifest.json`, model weights, and `ne_ocr_vocab.json` are present in `data/ocr/`.
+- Verify that `manifest.json` and all 4 declared model weights are present in `data/ocr/models/`.
 
 
 ---

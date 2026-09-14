@@ -577,8 +577,8 @@ class MukhaPresenter:
                 pr.attributes.get("fallback_applied")
                 or (pr.confidence is not None and getattr(pr.confidence, "evidence", None) and pr.confidence.evidence.get("fallback_applied"))
             )
-            raw_eng = pr.attributes.get("fallback_engine") or "NE-OCR"
-            fallback_eng = "NE-OCR" if raw_eng in ("ne_ocr", "NE-OCR") else str(raw_eng)
+            raw_eng = pr.attributes.get("fallback_engine") or pr.attributes.get("retry_engine") or "Same-Engine"
+            fallback_eng = "Same-Engine Retry" if raw_eng in ("same_engine", "rapidocr", "retry") else ("NE-OCR" if raw_eng in ("ne_ocr", "NE-OCR") else str(raw_eng))
             orig_conf = pr.attributes.get("original_confidence")
             conf_gain = pr.attributes.get("confidence_gain")
 

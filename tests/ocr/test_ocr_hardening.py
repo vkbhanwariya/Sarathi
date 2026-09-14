@@ -42,7 +42,6 @@ from sarathi.sankalpa import (
 from sarathi.shakti.native_extraction.capability import NativeExtractionCapability
 from sarathi.shakti.ocr import OCRCapability, check_ocr_readiness
 from sarathi.shakti.ocr.engine import (
-    NEOCRFallbackAdapter,
     RapidOCREngine,
     _resolve_target_device,
 )
@@ -57,35 +56,23 @@ class DummyOutput:
         self.scores = scores or []
 
 
-class DummyNEOCR(NEOCRFallbackAdapter):
-    def __init__(self, available: bool = True, return_tuple: tuple[str, float | None] | None = ("राजस्थान", 0.95)):
-        super().__init__(model_path=None, vocab_path=None)
-        self._avail = available
-        self._return = return_tuple
-        self.last_cropped_img = None
-        self.last_cropped_size = None
-
-    def is_available(self) -> bool:
-        return self._avail
-
-    def recognize_crop(self, image: Any) -> tuple[str, float | None]:
-        self.last_cropped_img = image
-        if hasattr(image, "size"):
-            self.last_cropped_size = image.size
-        if self._return is None:
-            raise DoshError(FailureCode.EXECUTION_FAILED, "Fallback failed")
-        return self._return
-
-
 def test_instant_profile_never_invokes_fallback() -> None:
-    """Instant profile must never invoke fallback, even for low-confidence spans."""
-    ne_adapter = DummyNEOCR(available=True, return_tuple=("FALLBACK", 0.99))
-    engine = RapidOCREngine(ne_ocr_adapter=ne_adapter, default_lang="hi")
-    engine._engine = lambda _arr: DummyOutput(
-        txts=["राज"],
-        boxes=[[(10, 10), (80, 10), (80, 30), (10, 30)]],
-        scores=[0.40],
-    )
+    """Instant profile must never invoke retry, even for low-confidence spans."""
+    engine = RapidOCREngine(default_lang="hi")
+    retry_invoked = False
+
+    def mock_call(arr, **kwargs):
+        nonlocal retry_invoked
+        if kwargs.get("use_det") is False:
+            retry_invoked = True
+            return DummyOutput(txts=["FALLBACK"], boxes=[], scores=[0.99])
+        return DummyOutput(
+            txts=["राज"],
+            boxes=[[(10, 10), (80, 10), (80, 30), (10, 30)]],
+            scores=[0.40],
+        )
+
+    engine._engine = mock_call
 
     cap = OCRCapability(engine=engine)
     img = Image.new("RGB", (200, 100), color=(255, 255, 255))
@@ -107,11 +94,12 @@ def test_instant_profile_never_invokes_fallback() -> None:
         mp.setattr(Path, "open", fake_open)
         res = cap.execute(req, ctx)
 
-    # Prove fallback was bypassed
+    # Prove retry was bypassed
     doc = res.data if isinstance(res.data, CanonicalDocument) else res.data[0]
     page = doc.pages[0]
+    assert not retry_invoked
     assert page.text == "राज"
-    assert page.metadata["validation_outcome"] != "fallback_improved"
+    assert page.metadata["validation_outcome"] != "retry_improved"
 
 
 def test_instant_page_does_not_materialize_unused_fallback_image() -> None:
@@ -159,18 +147,22 @@ def test_instant_profile_bypasses_preprocessing_when_requested() -> None:
     mock_prep.assert_not_called()
 
 
-def test_accurate_fallback_crops_from_preprocessed_image_space() -> None:
-    """Accurate fallback crops must originate from processed image space matching RapidOCR bounding boxes."""
-    ne_adapter = DummyNEOCR(available=True, return_tuple=("राजस्थान", 0.92))
-    engine = RapidOCREngine(ne_ocr_adapter=ne_adapter, default_lang="hi")
+def test_accurate_weak_crop_retry_from_preprocessed_image_space() -> None:
+    """Accurate mode weak-crop retry must crop from preprocessed image space matching RapidOCR bounding boxes."""
+    engine = RapidOCREngine(default_lang="hi")
+    crops_seen: list[Any] = []
 
-    # RapidOCR returns box within a 300x150 image space
-    engine._engine = lambda _arr: DummyOutput(
-        txts=["राज"],
-        boxes=[[(50, 40), (150, 40), (150, 80), (50, 80)]],
-        scores=[0.55],
-    )
+    def mock_engine(arr, **kwargs):
+        if kwargs.get("use_det") is False:
+            crops_seen.append(arr)
+            return DummyOutput(txts=["राजस्थान"], boxes=[], scores=[0.92])
+        return DummyOutput(
+            txts=["राज"],
+            boxes=[[(50, 40), (150, 40), (150, 80), (50, 80)]],
+            scores=[0.55],
+        )
 
+    engine._engine = mock_engine
     img = Image.new("RGB", (300, 150), color=(255, 255, 255))
     page_data, prov, conf, warns = engine.ocr_page(
         image=img,
@@ -180,16 +172,13 @@ def test_accurate_fallback_crops_from_preprocessed_image_space() -> None:
         custom_options={"deskew": True, "clahe": False},
     )
 
-    assert ne_adapter.last_cropped_img is not None
-    assert ne_adapter.last_cropped_size is not None
-    crop_w, crop_h = ne_adapter.last_cropped_size
-    # Box was 50..150 (width 100) + 2px padding on each side = 104
-    # Box was 40..80 (height 40) + 2px padding on each side = 44
-    assert crop_w == 104
-    assert crop_h == 44
-    assert prov.evidence["validation_outcome"] == "fallback_improved"
-    assert prov.evidence["fallback_applied"] is True
-    assert conf is None  # rapidocr_mean cleared when fallback applied
+    assert len(crops_seen) == 1
+    # 50..150 (width 100) + 3px padding on each side = 106
+    # 40..80 (height 40) + 3px padding on each side = 46
+    assert crops_seen[0].shape[1] == 106
+    assert crops_seen[0].shape[0] == 46
+    assert prov.evidence["validation_outcome"] == "retry_improved"
+    assert prov.evidence["retry_applied"] is True
 
 
 def test_custom_profile_rebuilds_all_evidence_on_binarize_pass() -> None:
@@ -453,15 +442,17 @@ def test_ocr_engine_npu_binding_passes_npu_to_rapidocr(tmp_path: Path) -> None:
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(
         '{"models": {"det": {"filename": "det.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
-        '"rec": {"filename": "rec.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
-        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
+        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_devanagari": {"filename": "rec_devanagari.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_v6_en": {"filename": "rec_v6_en.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
         encoding="utf-8",
     )
     models_dir = tmp_path / "models"
     models_dir.mkdir()
     (models_dir / "det.onnx").write_bytes(b"")
-    (models_dir / "rec.onnx").write_bytes(b"")
     (models_dir / "cls.onnx").write_bytes(b"")
+    (models_dir / "rec_devanagari.onnx").write_bytes(b"")
+    (models_dir / "rec_v6_en.onnx").write_bytes(b"")
 
     engine = RapidOCREngine(data_root=tmp_path)
     npu_b = ExecutionBinding("npu-0", DeviceType.NPU, "openvino", "NPU.0")
@@ -487,15 +478,17 @@ def test_ocr_engine_initialization_failure_raises_dosh_error(tmp_path: Path) -> 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(
         '{"models": {"det": {"filename": "det.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
-        '"rec": {"filename": "rec.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
-        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
+        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_devanagari": {"filename": "rec_devanagari.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_v6_en": {"filename": "rec_v6_en.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
         encoding="utf-8",
     )
     models_dir = tmp_path / "models"
     models_dir.mkdir()
     (models_dir / "det.onnx").write_bytes(b"")
-    (models_dir / "rec.onnx").write_bytes(b"")
     (models_dir / "cls.onnx").write_bytes(b"")
+    (models_dir / "rec_devanagari.onnx").write_bytes(b"")
+    (models_dir / "rec_v6_en.onnx").write_bytes(b"")
 
     engine = RapidOCREngine(data_root=tmp_path)
     npu_b = ExecutionBinding("npu-0", DeviceType.NPU, "openvino", "NPU")
@@ -690,8 +683,8 @@ def test_xycut_prevents_column_interleaving() -> None:
     assert [s.text for s in ordered] == [s.text for s in expected_order]
 
 
-def test_ne_ocr_fallback_number_preservation_and_non_deva_bypass() -> None:
-    """Verify fallback skips non-Devanagari spans and rejects number-corrupting replacements."""
+def test_weak_crop_retry_number_preservation_and_digit_guard() -> None:
+    """Verify weak-crop retry rejects number-corrupting replacements and accepts digit-preserving ones."""
     from types import SimpleNamespace
 
     from PIL import Image
@@ -699,55 +692,39 @@ def test_ne_ocr_fallback_number_preservation_and_non_deva_bypass() -> None:
     from sarathi.sankalpa import ExecutionProfile
     from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
 
-    mock_ne_ocr = MagicMock()
-    mock_ne_ocr.is_available.return_value = True
-
-    engine = RapidOCREngine(ne_ocr_adapter=mock_ne_ocr)
-
+    engine = RapidOCREngine(default_lang="hi")
     img = Image.new("RGB", (200, 200), color="white")
 
-    # Case 1: Pure English alphanumeric span (confidence < 0.90) - should NOT trigger fallback
-    mock_rapidocr = MagicMock()
-    # RapidOCR returns a low-confidence English invoice code
-    mock_rapidocr.return_value = SimpleNamespace(
-        txts=["INV-2024"],
-        boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
-        scores=[0.60],
-    )
+    # Case 1: Devanagari span with digits where retry corrupts the digits (100 -> 999)
+    def mock_corrupt(arr, **kwargs):
+        if kwargs.get("use_det") is False:
+            return SimpleNamespace(txts=["रकम 999"], scores=[0.95])
+        return SimpleNamespace(
+            txts=["रकम 100"],
+            boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
+            scores=[0.50],
+        )
 
-    with patch.object(engine, "_get_engine", return_value=mock_rapidocr):
-        p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
-        # NE-OCR should NOT have been called for purely English/ASCII span
-        mock_ne_ocr.recognize_crop.assert_not_called()
-        assert p_data.spans[0].text == "INV-2024"
+    engine._engine = mock_corrupt
+    p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
+    assert p_data.spans[0].text == "रकम 100"
+    assert p_data.spans[0].confidence == 0.50
 
-    # Case 2: Devanagari span with digits where fallback changes the digits (100 -> 999)
-    mock_ne_ocr.reset_mock()
-    mock_rapidocr.return_value = SimpleNamespace(
-        txts=["रकम 100"],
-        boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
-        scores=[0.70],
-    )
-    # NE-OCR returns higher confidence (0.95) but altered digits (999)
-    mock_ne_ocr.recognize_crop.return_value = ("रकम 999", 0.95)
+    # Case 2: Devanagari span with digits where retry preserves digits (Devanagari १०० -> 100)
+    def mock_preserve(arr, **kwargs):
+        if kwargs.get("use_det") is False:
+            return SimpleNamespace(txts=["रकम १००"], scores=[0.95])
+        return SimpleNamespace(
+            txts=["रकम 100"],
+            boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
+            scores=[0.50],
+        )
 
-    with patch.object(engine, "_get_engine", return_value=mock_rapidocr):
-        p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
-        # Fallback was called but replacement rejected due to digit mismatch
-        mock_ne_ocr.recognize_crop.assert_called_once()
-        assert p_data.spans[0].text == "रकम 100"
-        assert p_data.spans[0].confidence == 0.70
-
-    # Case 3: Devanagari span with digits where fallback preserves digits (Devanagari १०० -> 100)
-    mock_ne_ocr.reset_mock()
-    mock_ne_ocr.recognize_crop.return_value = ("रकम १००", 0.95)
-
-    with patch.object(engine, "_get_engine", return_value=mock_rapidocr):
-        p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
-        mock_ne_ocr.recognize_crop.assert_called_once()
-        assert p_data.spans[0].text == "रकम १००"
-        assert p_data.spans[0].confidence == 0.95
-        assert p_data.spans[0].metadata.get("fallback_applied") is True
+    engine._engine = mock_preserve
+    p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
+    assert p_data.spans[0].text == "रकम १००"
+    assert p_data.spans[0].confidence == 0.95
+    assert p_data.spans[0].metadata.get("retry_applied") is True
 
 
 def test_json_export_preserves_metadata_and_tables() -> None:
@@ -828,15 +805,17 @@ def test_factory_sets_rec_text_score_zero(tmp_path: Path) -> None:
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(
         '{"models": {"det": {"filename": "det.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
-        '"rec": {"filename": "rec.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
-        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
+        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_devanagari": {"filename": "rec_devanagari.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_v6_en": {"filename": "rec_v6_en.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
         encoding="utf-8",
     )
     models_dir = tmp_path / "models"
     models_dir.mkdir()
     (models_dir / "det.onnx").write_bytes(b"")
-    (models_dir / "rec.onnx").write_bytes(b"")
     (models_dir / "cls.onnx").write_bytes(b"")
+    (models_dir / "rec_devanagari.onnx").write_bytes(b"")
+    (models_dir / "rec_v6_en.onnx").write_bytes(b"")
 
     captured_params = {}
 

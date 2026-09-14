@@ -113,7 +113,6 @@ def test_ocr_page_profile_preprocessing_logic() -> None:
     engine = RapidOCREngine.__new__(RapidOCREngine)
     engine._default_lang = "en"
     engine._model_labels = {}
-    engine._ne_ocr = mock.MagicMock(is_available=lambda: False)
     mock_runner = mock.MagicMock(return_value=None)
     engine._get_engine = mock.MagicMock(return_value=mock_runner)
 

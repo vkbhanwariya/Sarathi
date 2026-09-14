@@ -133,7 +133,13 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                     pass
             elif device_name in ("GPU", "NPU") or "GPU" in device_name or "NPU" in device_name:
                 try:
-                    core.set_property(device_name, {"INFERENCE_PRECISION_HINT": "f16"})
+                    core.set_property(
+                        device_name,
+                        {
+                            "INFERENCE_PRECISION_HINT": "f16",
+                            "PERFORMANCE_HINT": "LATENCY",
+                        },
+                    )
                 except Exception:
                     pass
 

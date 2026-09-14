@@ -283,7 +283,7 @@ class TestOCRDeclarations:
         assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
         assert "Local OCR model manifest has an invalid structure." in exc_info.value.message
 
-    @pytest.mark.parametrize("missing_key", ["det", "rec", "cls"])
+    @pytest.mark.parametrize("missing_key", ["det", "rec_v6_en", "rec_devanagari", "cls"])
     def test_manifest_missing_individual_model_key_raises_safe_dosherror(
         self, missing_key: str, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -295,9 +295,13 @@ class TestOCRDeclarations:
                 "filename": "ch_PP-OCRv5_det_mobile.onnx",
                 "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
             },
-            "rec": {
-                "filename": "ch_PP-OCRv5_rec_mobile.onnx",
-                "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+            "rec_v6_en": {
+                "filename": "PP-OCRv6_rec_small.onnx",
+                "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+            },
+            "rec_devanagari": {
+                "filename": "devanagari_PP-OCRv5_rec_mobile.onnx",
+                "sha256": "d6f0a906580e3fa6b324a318718f1f31f268b6ea8ef985f91c2012a37f52c91e",
             },
             "cls": {
                 "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
@@ -322,14 +326,14 @@ class TestOCRDeclarations:
         with pytest.raises(DoshError) as exc_info:
             cap.execute(req, context)
         assert exc_info.value.code is FailureCode.DEPENDENCY_UNAVAILABLE
-        assert "is missing required model entry." in exc_info.value.message
+        assert "is missing required model entry" in exc_info.value.message
 
     @pytest.mark.parametrize(
         ("missing_model", "custom_options"),
         [
             ("det", {}),
             ("rec_devanagari", {}),
-            ("rec", {"lang": "en"}),
+            ("rec_v6_en", {"lang": "en"}),
             ("cls", {}),
         ],
     )
@@ -404,7 +408,7 @@ class TestOCRDeclarations:
         [
             ("det", {}),
             ("rec_devanagari", {}),
-            ("rec", {"lang": "en"}),
+            ("rec_v6_en", {"lang": "en"}),
             ("cls", {}),
         ],
     )
@@ -448,7 +452,7 @@ class TestOCRDeclarations:
         [
             ("det", {}),
             ("rec_devanagari", {}),
-            ("rec", {"lang": "en"}),
+            ("rec_v6_en", {"lang": "en"}),
             ("cls", {}),
         ],
     )
@@ -613,9 +617,9 @@ class TestOCRDeclarations:
                             "filename": "../secret_file.onnx",
                             "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
                         },
-                        "rec": {
-                            "filename": "ch_PP-OCRv5_rec_mobile.onnx",
-                            "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+                        "rec_v6_en": {
+                            "filename": "PP-OCRv6_rec_small.onnx",
+                            "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
                         },
                         "rec_devanagari": {
                             "filename": "devanagari_PP-OCRv5_rec_mobile.onnx",
@@ -662,9 +666,9 @@ class TestOCRDeclarations:
                             "filename": "/etc/shadow.onnx",
                             "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
                         },
-                        "rec": {
-                            "filename": "ch_PP-OCRv5_rec_mobile.onnx",
-                            "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+                        "rec_v6_en": {
+                            "filename": "PP-OCRv6_rec_small.onnx",
+                            "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
                         },
                         "rec_devanagari": {
                             "filename": "devanagari_PP-OCRv5_rec_mobile.onnx",
@@ -709,9 +713,9 @@ class TestOCRDeclarations:
                 {
                     "models": {
                         "det": {"filename": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "INVALID_CHECKSUM_NOT_64_HEX"},
-                        "rec": {
-                            "filename": "ch_PP-OCRv5_rec_mobile.onnx",
-                            "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+                        "rec_v6_en": {
+                            "filename": "PP-OCRv6_rec_small.onnx",
+                            "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
                         },
                         "rec_devanagari": {
                             "filename": "devanagari_PP-OCRv5_rec_mobile.onnx",
@@ -1269,14 +1273,7 @@ class TestOCRDeclarations:
         self, context: ExecutionContext, tmp_path: Path
     ) -> None:
         canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        mock_ne = MagicMock()
-        mock_ne.is_available.return_value = True
-        mock_ne.recognize_crop.side_effect = DoshError(
-            code=FailureCode.EXECUTION_FAILED,
-            message="NE-OCR fallback execution failed.",
-        )
-
-        engine = RapidOCREngine(data_root=canonical_src, ne_ocr_adapter=mock_ne, default_lang="hi")
+        engine = RapidOCREngine(data_root=canonical_src, default_lang="hi")
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test_weak.png"
@@ -1301,25 +1298,26 @@ class TestOCRDeclarations:
             mock_output = MagicMock()
             mock_output.txts = ("कमजोर",)
             mock_output.boxes = ([[0.0, 0.0], [50.0, 0.0], [50.0, 20.0], [0.0, 20.0]],)
-            mock_output.scores = (0.50,)  # Weak confidence (< 0.65) triggers fallback
-            mock_instance.return_value = mock_output
+            mock_output.scores = (0.50,)  # Weak confidence (< 0.65) triggers retry
+
+            def side_effect(*args, **kwargs):
+                if kwargs.get("use_det") is False:
+                    # Retry recognizer fails unexpectedly
+                    raise RuntimeError("Weak crop recognizer error")
+                return mock_output
+
+            mock_instance.side_effect = side_effect
             mock_rapidocr.return_value = mock_instance
 
             res = cap.execute(req, context)
             assert isinstance(res, Result)
             assert "कमजोर" in res.data.text
-            warn_codes = [w.code for w in res.warnings]
-            assert "OCR_FALLBACK_FAILED" in warn_codes
 
     def test_ocr_layout_preserving_profile_triggers_accurate_fallback(self, tmp_path: Path, monkeypatch) -> None:
-        """Verify LAYOUT_PRESERVING profile enables accurate NE-OCR fallback."""
+        """Verify LAYOUT_PRESERVING profile triggers same-engine weak crop retry."""
         from sarathi.sankalpa import ExecutionProfile, InputRef, Request, Result
         from sarathi.shakti.ocr.capability import OCRCapability
         from sarathi.shakti.ocr.engine import RapidOCREngine
-
-        mock_ne = MagicMock()
-        mock_ne.is_available.return_value = True
-        mock_ne.recognize_crop.return_value = ("सुधरा", 0.92)
 
         context = ExecutionContext(
             run_id="test-run-lp",
@@ -1329,7 +1327,7 @@ class TestOCRDeclarations:
         )
 
         canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        engine = RapidOCREngine(data_root=canonical_src, ne_ocr_adapter=mock_ne, default_lang="hi")
+        engine = RapidOCREngine(data_root=canonical_src, default_lang="hi")
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test_lp.png"
@@ -1355,13 +1353,22 @@ class TestOCRDeclarations:
             mock_output.txts = ("कमजोर",)
             mock_output.boxes = ([[0.0, 0.0], [50.0, 0.0], [50.0, 20.0], [0.0, 20.0]],)
             mock_output.scores = (0.50,)
-            mock_instance.return_value = mock_output
+
+            retry_output = MagicMock()
+            retry_output.txts = ("सुधरा",)
+            retry_output.scores = (0.92,)
+
+            def side_effect(*args, **kwargs):
+                if kwargs.get("use_det") is False:
+                    return retry_output
+                return mock_output
+
+            mock_instance.side_effect = side_effect
             mock_rapidocr.return_value = mock_instance
 
             res = cap.execute(req, context)
             assert isinstance(res, Result)
             assert "सुधरा" in res.data.text
-            assert mock_ne.recognize_crop.called
 
 
 def test_recursive_xycut_multi_column_reading_order() -> None:

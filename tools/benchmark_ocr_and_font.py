@@ -2,7 +2,7 @@
 
 Measures:
 1. OCR: Cold vs warm latency, 150/200/300 DPI accuracy and memory, preprocessing impact,
-   character filtering data loss, and NE-OCR cross-engine confidence vs ground truth.
+   character filtering data loss, and same-engine weak-crop retry verification.
 2. Font Conversion: Sub-stage latency, DOCX double-conversion overhead, repeated protection
    integrity, split-matra order dependence, and Devanagari structural defects.
 """
@@ -227,18 +227,21 @@ def run_ocr_benchmarks() -> dict[str, Any]:
     print(f"  Deskew OFF: {dur_off:.2f} ms (CER: {cer_off:.4f})")
     print(f"  Deskew ON:  {dur_on:.2f} ms (CER: {cer_on:.4f}) -> Overhead: +{overhead_ms:.2f} ms")
 
-    # E. NE-OCR Fallback Ground Truth vs Confidence Comparison
-    print("\n--- E. NE-OCR Fallback: Confidence Comparison Reality ---")
-    if getattr(engine, "ne_ocr_adapter", None) and engine.ne_ocr_adapter.is_available():
-        # Create a slightly degraded crop: "15/08/2024"
-        crop_img = test_img.crop((60, 160, 450, 220))
-        ne_res = engine.ne_ocr_adapter.recognize_crop(crop_img)
-        if ne_res:
-            ne_text, ne_conf = ne_res
-            print(f"  NE-OCR Crop Output: {ne_text!r} (Reported Conf: {ne_conf})")
-            results["ne_ocr_test"] = {"text": ne_text, "conf": ne_conf}
-    else:
-        print("  NE-OCR adapter unavailable for crop test.")
+    # E. Weak-Crop Same-Engine Retry Verification
+    print("\n--- E. Weak-Crop Same-Engine Retry Verification ---")
+    try:
+        import numpy as np
+
+        crop_arr = np.array(test_img.crop((60, 160, 450, 220)))
+        retry_res = engine._retry_weak_crop(crop_arr, "devanagari", min_confidence=0.0)
+        if retry_res:
+            retried_text, retried_conf = retry_res
+            print(f"  Weak Crop Retried Output: {retried_text!r} (Reported Conf: {retried_conf:.4f})")
+            results["weak_crop_retry_test"] = {"text": retried_text, "conf": retried_conf}
+        else:
+            print("  No text recovered or weak crop filtered.")
+    except Exception as exc:
+        print(f"  Weak crop retry check skipped: {exc}")
 
     return results
 

@@ -15,13 +15,14 @@
       "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
       "size_bytes": 4819576
     },
-    "rec": {
-      "filename": "ch_PP-OCRv5_rec_mobile.onnx",
-      "ocr_version": "PP-OCRv5",
-      "task_type": "rec",
+    "cls": {
+      "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+      "ocr_version": "PP-OCRv2.0",
+      "task_type": "cls",
+      "role": "text_direction_classifier",
       "model_type": "mobile",
-      "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
-      "size_bytes": 16631306
+      "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+      "size_bytes": 585532
     },
     "rec_devanagari": {
       "filename": "devanagari_PP-OCRv5_rec_mobile.onnx",
@@ -38,26 +39,6 @@
       "model_type": "small",
       "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
       "size_bytes": 21234383
-    },
-    "cls": {
-      "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
-      "ocr_version": "PP-OCRv2.0",
-      "task_type": "cls",
-      "role": "text_direction_classifier",
-      "model_type": "mobile",
-      "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
-      "size_bytes": 585532
-    },
-    "ne_ocr": {
-      "filename": "ne_ocr.onnx",
-      "ocr_version": "DocTR-ViTSTR",
-      "task_type": "rec",
-      "role": "devanagari_selective_fallback",
-      "model_type": "base",
-      "optional": true,
-      "source": "MWirelabs/ne-ocr",
-      "sha256": "9b8a9bc626c7fa1b5a5f70b93160887922ca90f5132a506c03444d5a66cb8c23",
-      "size_bytes": 344300068
     }
   }
 }
