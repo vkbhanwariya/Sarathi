@@ -4,39 +4,9 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from typing import TYPE_CHECKING, Any
 
 from sarathi.mukha.web.server import MukhaWebServer
-
-if TYPE_CHECKING:
-    pass
-
-
-def _http_get(url: str) -> tuple[int, bytes, dict[str, str]]:
-    req = urllib.request.Request(url, headers={"Host": "127.0.0.1"})
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            status = resp.status
-            data = resp.read()
-            headers = {k.lower(): v for k, v in resp.getheaders()}
-            return status, data, headers
-    except urllib.error.HTTPError as err:
-        return err.code, err.read(), {k.lower(): v for k, v in err.headers.items()}
-
-
-def _http_post(url: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    payload = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Content-Type": "application/json", "Host": "127.0.0.1"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as err:
-        return err.code, json.loads(err.read().decode("utf-8"))
+from tests.mukha.conftest import _http_get, _http_post
 
 
 def test_state_endpoint_includes_version_and_revision(web_server: MukhaWebServer) -> None:

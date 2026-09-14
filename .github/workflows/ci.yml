@@ -31,7 +31,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Bytecode compilation check
-        run: uv run python -m compileall -q src tests scripts
+        run: uv run python -m compileall -q src tests tools
 
       - name: Ruff lint check
         run: uv run ruff check .
@@ -56,7 +56,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Run architecture tests only
-        run: uv run --group dev pytest -q tests/architecture
+        run: uv run --group dev pytest -q -m "architecture"
 
   frontend:
     name: Mukha UI TypeScript
@@ -107,6 +107,9 @@ jobs:
 
       - name: Run deterministic test suite
         run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture"
+
+      - name: Run real model validation suite
+        run: uv run --group dev --all-extras pytest -q -m "real_model"
 
   browser:
     name: Browser Tests

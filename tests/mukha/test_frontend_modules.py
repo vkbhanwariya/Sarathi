@@ -2,21 +2,8 @@
 
 from __future__ import annotations
 
-import urllib.request
-
 from sarathi.mukha.web.server import MukhaWebServer
-
-
-def _http_get(url: str) -> tuple[int, bytes, dict[str, str]]:
-    req = urllib.request.Request(url, headers={"Host": "127.0.0.1"})
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            status = resp.status
-            data = resp.read()
-            headers = {k.lower(): v for k, v in resp.getheaders()}
-            return status, data, headers
-    except urllib.error.HTTPError as err:
-        return err.code, err.read(), {k.lower(): v for k, v in err.headers.items()}
+from tests.mukha.conftest import _http_get
 
 
 def test_root_serves_preact_shell(web_server: MukhaWebServer) -> None:

@@ -9,8 +9,6 @@ Validates:
 
 from __future__ import annotations
 
-import urllib.error
-import urllib.request
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,18 +16,7 @@ import pytest
 
 from sarathi.mukha.web.server import MukhaWebServer
 from sarathi.sankalpa import ArtifactRef
-
-
-def _http_get(url: str) -> tuple[int, dict[str, str], bytes]:
-    """Helper to perform HTTP GET returning status, headers dict, and raw body."""
-    req = urllib.request.Request(url, headers={"Host": "127.0.0.1"})
-    try:
-        with urllib.request.urlopen(req) as resp:
-            headers = {key.lower(): value for key, value in resp.headers.items()}
-            return resp.status, headers, resp.read()
-    except urllib.error.HTTPError as err:
-        headers = {key.lower(): value for key, value in err.headers.items()}
-        return err.code, headers, err.read()
+from tests.mukha.conftest import _http_get
 
 
 @pytest.fixture
@@ -74,7 +61,7 @@ def test_confirmed_artifact_streamed(artifact_server: tuple[MukhaWebServer, Path
     )
 
     with patch.object(server, "get_confirmed_artifact", return_value=art_ref):
-        status, headers, body = _http_get(
+        status, body, headers = _http_get(
             f"http://127.0.0.1:{server.resolved_port}/api/runs/{run_id}/artifacts/{art_ref.artifact_id}"
         )
 

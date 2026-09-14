@@ -32,6 +32,33 @@ SEARCH_ROOTS = ("src", "tests", "tools", "config", "data", "ui", "Vedas")
 STALE_CONTENT = re.compile(r"(?:Sarathi[ _-]?V[12](?:\b|_)|(?<![A-Za-z0-9])V[12](?![A-Za-z0-9]))")
 
 
+BINARY_EXTENSIONS = {
+    ".bin",
+    ".dll",
+    ".dylib",
+    ".exe",
+    ".gif",
+    ".gz",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".onnx",
+    ".otf",
+    ".pdf",
+    ".pkl",
+    ".png",
+    ".pt",
+    ".pth",
+    ".so",
+    ".tar",
+    ".ttf",
+    ".webp",
+    ".woff",
+    ".woff2",
+    ".zip",
+}
+
+
 def _iter_text_files():
     for root_name in SEARCH_ROOTS:
         base = ROOT / root_name
@@ -39,6 +66,8 @@ def _iter_text_files():
             continue
         for path in base.rglob("*"):
             if not path.is_file() or path.resolve() == SELF:
+                continue
+            if path.suffix.lower() in BINARY_EXTENSIONS:
                 continue
             if any(part in {"node_modules", "dist", ".venv", "__pycache__"} for part in path.parts):
                 continue

@@ -2,65 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import time
-import urllib.request
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from sarathi.mukha.web import MukhaWebServer
 from sarathi.sankalpa import ArtifactRef, CanonicalDocument, Result, WarningRecord
-
-
-def _http_get(url: str) -> tuple[int, dict[str, Any]]:
-    """Helper to perform HTTP GET returning JSON with retry on Windows socket abort."""
-    req = urllib.request.Request(url)
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                body = resp.read().decode("utf-8")
-                return resp.status, json.loads(body)
-        except (ConnectionResetError, ConnectionAbortedError, OSError):
-            if attempt < 3:
-                time.sleep(0.1 * (attempt + 1))
-                continue
-            raise
-    return 500, {"error": "request failed"}
-
-
-def _http_post(url: str, data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    """Helper to perform HTTP POST returning JSON with retry on Windows socket abort."""
-    payload = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                body = resp.read().decode("utf-8")
-                return resp.status, json.loads(body)
-        except urllib.error.HTTPError as err:
-            body = err.read().decode("utf-8")
-            return err.code, json.loads(body)
-        except (ConnectionResetError, ConnectionAbortedError, OSError):
-            if attempt < 3:
-                time.sleep(0.1 * (attempt + 1))
-                continue
-            raise
-    return 500, {"error": "request failed"}
-
-
-def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 2.0) -> None:
-    deadline = time.time() + max_seconds
-    while time.time() < deadline:
-        if not web_server.is_busy():
-            return
-        time.sleep(0.01)
+from tests.mukha.conftest import _http_get_json as _http_get
+from tests.mukha.conftest import _http_post, _wait_for_idle
 
 
 class TestProgressFidelity:

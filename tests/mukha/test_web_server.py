@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -15,74 +16,7 @@ import pytest
 from sarathi.agni import Agni
 from sarathi.mukha.web import MukhaWebServer
 from sarathi.mukha.web.native_picker import NativePickerResult
-
-
-def _http_get(url: str, headers: dict[str, str] | None = None) -> tuple[int, bytes, dict[str, str]]:
-    """Helper to perform HTTP GET request."""
-    req_headers = {"Connection": "close"}
-    if headers:
-        req_headers.update(headers)
-    for attempt in range(5):
-        req = urllib.request.Request(url, headers=req_headers)
-        try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                headers_dict = {key.title(): value for key, value in resp.headers.items()}
-                return resp.status, resp.read(), headers_dict
-        except urllib.error.HTTPError as err:
-            return err.code, err.read(), {key.title(): value for key, value in err.headers.items()}
-        except (urllib.error.URLError, ConnectionError, OSError):
-            if headers and any(k.lower() in ("origin", "host") for k in headers):
-                return 403, b"", {}
-            if attempt < 4:
-                time.sleep(0.15 * (attempt + 1))
-                continue
-            return 500, b"", {}
-    return 500, b"", {}
-
-
-def _http_post(url: str, data: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
-    """Helper to perform HTTP POST request with JSON payload."""
-    payload = json.dumps(data).encode("utf-8")
-    req_headers = {"Content-Type": "application/json", "Connection": "close"}
-    if headers:
-        req_headers.update(headers)
-
-    for attempt in range(5):
-        req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                body = resp.read().decode("utf-8")
-                return resp.status, json.loads(body)
-        except urllib.error.HTTPError as err:
-            try:
-                body = err.read().decode("utf-8")
-                return err.code, json.loads(body)
-            except Exception:
-                return err.code, {"error": str(err.reason)}
-        except (urllib.error.URLError, ConnectionError, OSError) as e:
-            # Server forcibly closed connection due to oversized payload
-            if len(payload) > 1_000_000:
-                return 413, {"error": str(e)}
-            # Explicit invalid Host or Origin header rejections from loopback security
-            if headers and any(k.lower() in ("origin", "host") for k in headers):
-                return 403, {"error": str(e)}
-            # Retry on transient Windows ephemeral socket teardown or early bind
-            if attempt < 4:
-                time.sleep(0.15 * (attempt + 1))
-                continue
-            return 500, {"error": str(e)}
-        except Exception as e:
-            return 500, {"error": str(e)}
-    return 500, {"error": "Request failed after retry"}
-
-
-def _wait_for_idle(web_server: MukhaWebServer, max_seconds: float = 3.0) -> None:
-    """Poll until the server runner finishes background execution."""
-    deadline = time.time() + max_seconds
-    while time.time() < deadline:
-        if not web_server.is_busy():
-            return
-        time.sleep(0.01)
+from tests.mukha.conftest import _http_get, _http_post, _wait_for_idle
 
 
 class TestMukhaWebServerSecurityAndStatic:
@@ -1268,3 +1202,53 @@ def test_state_builder_derives_policy_label(web_server: MukhaWebServer) -> None:
     assert status == 200
     res = json.loads(data.decode("utf-8"))
     assert res["state"]["policy_label"] == "Cloud enabled"
+
+
+def test_concurrent_intake_does_not_block_server_lock(tmp_path: Path) -> None:
+    """Intake discovery must run outside server lock to prevent blocking concurrent status queries."""
+    import threading
+    from unittest.mock import MagicMock
+
+    from sarathi.sankalpa import ExecutionProfile
+
+    mock_agni = MagicMock()
+    mock_agni.output_root = tmp_path / "output"
+    mock_agni.runtime_root = tmp_path / "runtime"
+    mock_agni.kavacha = None
+    mock_agni.kosh.capabilities.return_value = ()
+
+    server = MukhaWebServer(mock_agni, host="127.0.0.1", port=0)
+
+    # Mock intake_from_paths with a controlled delay
+    def delayed_intake(*args: Any, **kwargs: Any) -> Any:
+        time.sleep(0.1)
+        return (), MagicMock(items=()), MagicMock(eligible_count=0)
+
+    t1_started = threading.Event()
+    lock_acquisition_time: float = -1.0
+
+    def run_intake() -> None:
+        t1_started.set()
+        server.start_run(
+            paths=[tmp_path],
+            requirement="read_native",
+            profile=ExecutionProfile.INSTANT,
+        )
+
+    with patch("sarathi.mukha.presenter.MukhaPresenter.intake_from_paths", side_effect=delayed_intake):
+        t1 = threading.Thread(target=run_intake)
+        t1.start()
+
+        t1_started.wait()
+        time.sleep(0.02)  # ensure t1 is inside delayed_intake
+
+        # Thread 2 attempts to query server status while t1 is inside intake
+        t2_start = time.perf_counter()
+        is_busy = server.is_busy()
+        lock_acquisition_time = time.perf_counter() - t2_start
+
+        t1.join()
+
+    # Thread 2 must acquire the lock immediately (< 30ms), not blocked for 100ms by intake
+    assert is_busy is False
+    assert lock_acquisition_time < 0.05, f"Lock acquisition took {lock_acquisition_time:.4f}s; intake held the lock!"

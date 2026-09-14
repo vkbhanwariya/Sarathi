@@ -30,15 +30,17 @@ def test_header_height_and_tokens(app_page: Page) -> None:
             const root = document.documentElement;
             const style = window.getComputedStyle(root);
             return {
-                bgMain: style.getPropertyValue('--bg-main').trim(),
-                bgPanel: style.getPropertyValue('--bg-panel').trim(),
-                textPrimary: style.getPropertyValue('--text-primary').trim(),
+                bg: style.getPropertyValue('--bg').trim(),
+                surface: style.getPropertyValue('--surface').trim(),
+                text: style.getPropertyValue('--text').trim(),
+                primary: style.getPropertyValue('--primary').trim(),
             };
         }"""
     )
-    assert tokens["bgMain"].lower() == "#0b0f19"
-    assert tokens["bgPanel"].lower() == "#1e293b"
-    assert tokens["textPrimary"].lower() == "#f1f5f9"
+    assert tokens["bg"].lower() == "#f8fafc"
+    assert tokens["surface"].lower() == "#ffffff"
+    assert tokens["text"].lower() == "#0f172a"
+    assert tokens["primary"].lower() == "#166534"
 
 
 def test_table_density_and_padding(app_page: Page) -> None:

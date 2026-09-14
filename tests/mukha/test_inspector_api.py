@@ -2,46 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from sarathi.mukha.web import MukhaWebServer
 from sarathi.sankalpa import Result
-
-
-def _http_get(url: str) -> tuple[int, dict[str, Any]]:
-    """Helper to perform HTTP GET returning JSON."""
-    req = urllib.request.Request(url)
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            body = resp.read().decode("utf-8")
-            return resp.status, json.loads(body)
-    except urllib.error.HTTPError as err:
-        raw = err.read().decode("utf-8")
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            parsed = {"error": str(err.reason)}
-        return err.code, parsed
-
-
-def _http_post(url: str, data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    """Helper to perform HTTP POST returning JSON."""
-    payload = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=5.0) as resp:
-        body = resp.read().decode("utf-8")
-        return resp.status, json.loads(body)
+from tests.mukha.conftest import _http_get_json as _http_get
+from tests.mukha.conftest import _http_post
 
 
 class TestInspectorApi:

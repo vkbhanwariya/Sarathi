@@ -271,6 +271,24 @@ def test_layout_preserving_profile_executes_successfully(tmp_path: Path) -> None
     assert len(res.data.pages) >= 1
     assert "OFFICIAL GOVERNMENT" in res.data.text
 
+    page = res.data.pages[0]
+    assert len(page.spans) >= 3, f"Expected at least 3 detected text lines, got {len(page.spans)}"
+
+    # Validate coordinate retention for each span
+    for span in page.spans:
+        assert span.bounding_box is not None, f"Span '{span.text}' missing bounding_box"
+        assert len(span.bounding_box) == 4
+        x0, y0, x1, y1 = span.bounding_box
+        assert x1 > x0 and y1 > y0, f"Invalid span bounding box dimensions: {span.bounding_box}"
+
+    # Verify spatial reading order: top line precedes middle line which precedes bottom line
+    top_y = page.spans[0].bounding_box[1]
+    mid_y = page.spans[1].bounding_box[1]
+    bot_y = page.spans[2].bounding_box[1]
+    assert top_y < mid_y < bot_y, (
+        f"Spans must be sorted top-to-bottom: top_y={top_y}, mid_y={mid_y}, bot_y={bot_y}"
+    )
+
 
 def test_custom_profile_validation_rejects_unsupported_engine(tmp_path: Path) -> None:
     img_path = tmp_path / "doc.png"
@@ -320,6 +338,7 @@ def test_custom_profile_executes_valid_options(tmp_path: Path) -> None:
     assert isinstance(result.data, CanonicalDocument)
 
 
+@pytest.mark.real_model
 def test_accurate_profile_offline_target_platform_e2e(tmp_path: Path) -> None:
     """Target platform (Windows 11 x64) offline E2E test for Accurate OCR execution.
 

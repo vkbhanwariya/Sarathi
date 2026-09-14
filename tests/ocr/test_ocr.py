@@ -122,6 +122,7 @@ class TestOCRDeclarations:
             ExecutionProfile.CUSTOM,
         )
 
+    @pytest.mark.real_model
     def test_real_image_ocr_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -1195,16 +1196,14 @@ class TestOCRDeclarations:
         assert "read_native" in stages
         assert "ocr" in stages
 
-    def test_ocr_extra_absence_skips_module(self) -> None:
-        """Verify that when any OCR optional dependency is absent, find_spec returns None and skips."""
+    def test_ocr_dependency_absence_reports_unavailable(self) -> None:
+        """Verify that when an OCR dependency is absent, check_ocr_readiness reports unavailable."""
+        from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
+
         with patch("importlib.util.find_spec", return_value=None):
-            specs = [
-                importlib.util.find_spec("rapidocr"),
-                importlib.util.find_spec("openvino"),
-                importlib.util.find_spec("PIL"),
-                importlib.util.find_spec("numpy"),
-            ]
-            assert all(s is None for s in specs)
+            is_ready, reason = check_ocr_readiness()
+            assert is_ready is False
+            assert "Missing required OCR Python libraries" in reason
 
     def test_ocr_multi_page_demarcation_and_progress(self, context: ExecutionContext, tmp_path: Path) -> None:
         """Verify multi-page OCR creates page demarcations and invokes progress_callback."""

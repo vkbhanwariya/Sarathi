@@ -243,6 +243,7 @@ def test_english_numeric_spans_bypass_ne_ocr_and_retain_rapidocr_text() -> None:
     assert "fallback_applied" not in provenance.evidence
 
 
+@pytest.mark.real_model
 def test_ne_ocr_concurrent_worker_inference() -> None:
     """NE-OCR must support concurrent multi-worker recognize_crop calls without collisions."""
     import concurrent.futures

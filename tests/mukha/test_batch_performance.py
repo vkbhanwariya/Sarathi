@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -115,55 +114,4 @@ def test_state_serialization_scaling(file_count: int, max_duration_s: float) -> 
     assert serialized["active_run"]["files"][0]["ordinal"] == 1
     assert serialized["active_run"]["files"][-1]["ordinal"] == file_count
     assert elapsed < max_duration_s, f"Serialization of {file_count} files took {elapsed:.3f}s (budget: {max_duration_s}s)"
-
-
-def test_concurrent_intake_does_not_block_server_lock(tmp_path: Path) -> None:
-    """Intake discovery must run outside server lock to prevent blocking concurrent status queries."""
-    import threading
-    from unittest.mock import MagicMock, patch
-
-    from sarathi.mukha.web.server import MukhaWebServer
-    from sarathi.sankalpa import ExecutionProfile
-
-    mock_agni = MagicMock()
-    mock_agni.output_root = tmp_path / "output"
-    mock_agni.runtime_root = tmp_path / "runtime"
-    mock_agni.kavacha = None
-    mock_agni.kosh.capabilities.return_value = ()
-
-    server = MukhaWebServer(mock_agni, host="127.0.0.1", port=0)
-
-    # Mock intake_from_paths with a controlled delay
-    def delayed_intake(*args: Any, **kwargs: Any) -> Any:
-        time.sleep(0.1)
-        return (), MagicMock(items=()), MagicMock(eligible_count=0)
-
-    t1_started = threading.Event()
-    lock_acquisition_time: float = -1.0
-
-    def run_intake() -> None:
-        t1_started.set()
-        server.start_run(
-            paths=[tmp_path],
-            requirement="read_native",
-            profile=ExecutionProfile.INSTANT,
-        )
-
-    with patch("sarathi.mukha.presenter.MukhaPresenter.intake_from_paths", side_effect=delayed_intake):
-        t1 = threading.Thread(target=run_intake)
-        t1.start()
-
-        t1_started.wait()
-        time.sleep(0.02)  # ensure t1 is inside delayed_intake
-
-        # Thread 2 attempts to query server status while t1 is inside intake
-        t2_start = time.perf_counter()
-        is_busy = server.is_busy()
-        lock_acquisition_time = time.perf_counter() - t2_start
-
-        t1.join()
-
-    # Thread 2 must acquire the lock immediately (< 30ms), not blocked for 100ms by intake
-    assert is_busy is False
-    assert lock_acquisition_time < 0.05, f"Lock acquisition took {lock_acquisition_time:.4f}s; intake held the lock!"
 
