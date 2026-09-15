@@ -190,6 +190,7 @@ class TestOCRDeclarations:
         assert prov.evidence["profile"] == "instant"
         assert prov.source_file is None
 
+    @pytest.mark.real_model
     def test_explicit_injected_data_root(self, context: ExecutionContext, tmp_path: Path) -> None:
         canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
         custom_data_dir = tmp_path / "custom_data_root"

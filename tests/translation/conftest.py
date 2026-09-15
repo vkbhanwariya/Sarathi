@@ -27,15 +27,22 @@ class DeterministicTestBackend:
     """Test-local deterministic translator adapter matching verified bilingual corpus."""
 
     def __init__(self, corpus_path: Path = _FIXTURE_PATH) -> None:
+        from sarathi.shakti.translation.glossary import GlossaryStore
+        from sarathi.shakti.translation.protector import TranslationProtector
+
         self._corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+        self._glossary = GlossaryStore()
+        self._protector = TranslationProtector()
 
     def translate_sentences(
         self,
         sentences: Sequence[str],
         direction: TranslationDirection,
         execution_binding: Any = None,
+        **kwargs: Any,
     ) -> list[str]:
         results = []
+        glossary_terms = self._glossary.get_terms(direction)
         for s in sentences:
             placeholders = _PUA_RE.findall(s)
             norm_s = _PUA_RE.sub("__SLOT__", s.strip())
@@ -47,23 +54,18 @@ class DeterministicTestBackend:
                 src = item["source"].strip()
                 tgt = item["target"].strip()
 
-                from sarathi.shakti.translation.glossary import GlossaryStore
-                from sarathi.shakti.translation.protector import TranslationProtector
-
-                glossary = GlossaryStore()
-                protector = TranslationProtector()
-                p_src, p_spans = protector.protect(src, glossary_mappings=glossary.get_terms(direction))
+                p_src, p_spans = self._protector.protect(src, glossary_mappings=glossary_terms)
                 norm_p_src = _PUA_RE.sub("__SLOT__", p_src.strip())
 
                 norm_src = _slotize(src)
-                glossary_src = _slotize(glossary.apply_glossary(src, direction))
+                glossary_src = _slotize(self._glossary.apply_glossary(src, direction))
 
                 if (
                     norm_s == norm_p_src
                     or norm_s == norm_src
                     or s.strip() == src
                     or norm_s == glossary_src
-                    or s.strip() == glossary.apply_glossary(src, direction).strip()
+                    or s.strip() == self._glossary.apply_glossary(src, direction).strip()
                 ):
                     out_sent = tgt
                     for span in p_spans:
