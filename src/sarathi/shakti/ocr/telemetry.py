@@ -75,7 +75,7 @@ def record_ocr_page_telemetry(
     }
     if page_data.metadata and page_data.metadata.get("fallback_applied"):
         page_attrs["fallback_applied"] = True
-        page_attrs["fallback_engine"] = page_data.metadata.get("fallback_engine", "ne_ocr")
+        page_attrs["fallback_engine"] = page_data.metadata.get("fallback_engine", "same_engine_retry")
         page_attrs["fallback_improved_count"] = page_data.metadata.get("fallback_improved_count", 0)
         page_attrs["fallback_intercepted_count"] = page_data.metadata.get("fallback_intercepted_count", 0)
         fb_delta = page_data.metadata.get("raw_confidence_score_delta", page_data.metadata.get("fallback_total_gain", 0.0))
@@ -84,7 +84,7 @@ def record_ocr_page_telemetry(
         page_evidence["fallback_applied"] = True
 
     page_method = (
-        "rapidocr+ne_ocr_fallback"
+        "rapidocr+same_engine_retry"
         if (page_data.metadata and page_data.metadata.get("fallback_applied"))
         else "rapidocr"
     )
@@ -119,7 +119,7 @@ def record_ocr_page_telemetry(
         is_fallback = bool(span_meta.get("fallback_applied", False))
         orig_c = span_meta.get("original_confidence")
         delta = span_meta.get("raw_confidence_score_delta", span_meta.get("confidence_gain"))
-        reg_method = "ne_ocr_fallback" if is_fallback else "rapidocr_line"
+        reg_method = "same_engine_retry" if is_fallback else "rapidocr_line"
 
         reg_attrs: dict[str, Any] = {
             "level": "region",
@@ -138,7 +138,7 @@ def record_ocr_page_telemetry(
         }
         if is_fallback:
             reg_attrs["fallback_applied"] = True
-            reg_attrs["fallback_engine"] = span_meta.get("fallback_engine", "ne_ocr")
+            reg_attrs["fallback_engine"] = span_meta.get("fallback_engine", "same_engine_retry")
             if orig_c is not None:
                 reg_attrs["original_confidence"] = orig_c
                 reg_evidence["original_confidence"] = orig_c
@@ -151,7 +151,7 @@ def record_ocr_page_telemetry(
                 reg_evidence["raw_confidence_score_delta"] = delta
                 reg_evidence["confidence_gain"] = delta
             reg_evidence["fallback_applied"] = True
-            reg_evidence["fallback_engine"] = span_meta.get("fallback_engine", "ne_ocr")
+            reg_evidence["fallback_engine"] = span_meta.get("fallback_engine", "same_engine_retry")
 
         span_cv = (
             ConfidenceValue(

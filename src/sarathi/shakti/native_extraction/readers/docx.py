@@ -89,7 +89,7 @@ def read_docx(
                     p_count += 1
                     p_runs_text: list[str] = []
                     run_count = 0
-                    for r in elem.findall(_R_TAG):
+                    for r in elem.iter(_R_TAG):
                         r_text = "".join(t.text for t in r.findall(_T_TAG) if t.text)
                         if r_text:
                             run_count += 1

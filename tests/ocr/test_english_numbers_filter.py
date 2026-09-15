@@ -49,6 +49,12 @@ def test_filter_english_and_numbers_unit() -> None:
     # 4. Mixed text keeps English and numbers
     assert filter_english_and_numbers("Branch शाखा 001") == "Branch 001"
 
+    # 5. Structural bullets, dashes, and typographic quotes must be preserved for list reconstruction
+    assert filter_english_and_numbers("• Item 1: Alpha") == "• Item 1: Alpha"
+    assert filter_english_and_numbers("– Section A: 100") == "– Section A: 100"
+    assert filter_english_and_numbers("— Clause B: 200") == "— Clause B: 200"
+    assert filter_english_and_numbers("“Notice” 2026") == "“Notice” 2026"
+
 
 @pytest.mark.real_model
 def test_ocr_engine_routes_to_ppocrv6(tmp_path: Path) -> None:

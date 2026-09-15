@@ -72,12 +72,10 @@ def read_html_table(
                     evidence={"reader": "beautifulsoup4", "table_name": str(table_name), "row_count": len(rows)},
                 )
             )
-        pages: tuple[PageData, ...] = ()
-        doc_text = ""
-    else:
-        # Fallback to plain text extracted from body
-        doc_text = soup.get_text(separator="\n", strip=True)
-        pages = (PageData(page_number=1, text=doc_text),)
+    body_text = soup.get_text(separator="\n", strip=True)
+    if body_text:
+        pages = (PageData(page_number=1, text=body_text),)
+        doc_text = body_text
         provenances.append(
             ProvenanceRecord(
                 source_input_id=input_id,
@@ -88,6 +86,9 @@ def read_html_table(
                 evidence={"reader": "beautifulsoup4", "type": "html_text"},
             )
         )
+    else:
+        pages = ()
+        doc_text = ""
 
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",
@@ -95,6 +96,6 @@ def read_html_table(
         pages=pages,
         tables=tuple(tables),
         text=doc_text,
-        detected_type="html_table",
+        detected_type="html_table" if tables else "html_text",
     )
     return canonical_doc, tuple(provenances), tuple(warnings)

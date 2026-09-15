@@ -15,7 +15,7 @@ from typing import Any
 from sarathi.sankalpa import TextSpan, WarningRecord
 from sarathi.shakti.ocr.engine.common import STAGE_NAME
 
-_ALPHANUMERIC_FILTER_RE = re.compile(r"[^\x20-\x7E₹€£\n\r\t]")
+_ALPHANUMERIC_FILTER_RE = re.compile(r"[^\x20-\x7E₹€£\n\r\t•–—“”‘’]")
 _HAS_ENGLISH_OR_DIGIT_RE = re.compile(r"[A-Za-z0-9]")
 
 

@@ -98,16 +98,12 @@ class RapidOCREngine:
 
         if cache_key in self._engines:
             return self._engines[cache_key]
-        if engine_key in self._engines:
-            return self._engines[engine_key]
 
         with self._init_lock:
             if cache_key in self._engines:
                 return self._engines[cache_key]
-            if engine_key in self._engines:
-                return self._engines[engine_key]
 
-            engine_inst, cache_key, eng_key, label = build_rapidocr_instance(
+            engine_inst, cache_key, _eng_key, label = build_rapidocr_instance(
                 data_root=self._data_root,
                 lang=lang,
                 target_device=target_device,
@@ -116,9 +112,7 @@ class RapidOCREngine:
             )
 
             self._engines[cache_key] = engine_inst
-            self._engines[eng_key] = engine_inst
             self._model_labels[cache_key] = label
-            self._model_labels[eng_key] = label
             return engine_inst
 
     def ocr_page(
@@ -313,6 +307,7 @@ class RapidOCREngine:
                                         metadata={
                                             "retry_applied": True,
                                             "fallback_applied": True,
+                                            "fallback_engine": "same_engine_retry",
                                             "original_confidence": span.confidence,
                                             "replacement_confidence": r_conf,
                                             "confidence_gain": gain,
@@ -382,8 +377,9 @@ class RapidOCREngine:
             model_label = self._model_labels.get(cache_key) or self._model_labels.get(f"v6_en:{target_device}") or "PP-OCRv6"
 
         page_confidence: ConfidenceValue | None = None
-        if conf_scores and not has_invalid_confidence and len(conf_scores) == len(spans):
-            avg_score = sum(conf_scores) / len(conf_scores)
+        final_confs = [s.confidence for s in spans if s.confidence is not None]
+        if final_confs and not has_invalid_confidence and len(final_confs) == len(spans):
+            avg_score = sum(final_confs) / len(final_confs)
             page_confidence = ConfidenceValue(
                 score=round(float(avg_score), 4),
                 method="rapidocr_mean",
@@ -392,7 +388,7 @@ class RapidOCREngine:
                     "backend": "openvino",
                     "device": target_device,
                     "model": model_label,
-                    "box_count": len(conf_scores),
+                    "box_count": len(final_confs),
                 },
             )
 
@@ -425,6 +421,7 @@ class RapidOCREngine:
             "retry_improved_count": retry_improved_count,
             "retry_total_gain": round(retry_total_gain, 4),
             "fallback_applied": retry_applied,
+            "fallback_engine": "same_engine_retry" if retry_applied else "none",
             "fallback_improved_count": retry_improved_count,
             "fallback_total_gain": round(retry_total_gain, 4),
         }

@@ -54,6 +54,40 @@ class TestOCREngineDeviceBinding:
         assert conf is not None
         assert conf.evidence["device"] == "GPU"
 
+    def test_engine_cache_strictly_isolated_between_cpu_and_gpu(self) -> None:
+        mock_gpu = MagicMock()
+        mock_cpu = MagicMock()
+        mock_gpu.return_value = MagicMock(txts=["GPU Text"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.99])
+        mock_cpu.return_value = MagicMock(txts=["CPU Text"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.95])
+
+        engine = RapidOCREngine()
+        engine._engines["v6_en:GPU"] = mock_gpu
+        engine._model_labels["v6_en:GPU"] = "PP-OCRv6-GPU"
+        engine._engines["v6_en:CPU"] = mock_cpu
+        engine._model_labels["v6_en:CPU"] = "PP-OCRv6-CPU"
+
+        img = Image.new("RGB", (100, 40), color="white")
+        binding_cpu = ExecutionBinding(
+            device_id="cpu-0",
+            device_type=DeviceType.CPU,
+            backend="openvino",
+            backend_device_id="CPU",
+        )
+        binding_gpu = ExecutionBinding(
+            device_id="gpu-0",
+            device_type=DeviceType.GPU,
+            backend="openvino",
+            backend_device_id="GPU",
+        )
+
+        p_cpu, prov_cpu, _, _ = engine.ocr_page(img, 1, "in-1", custom_options={"lang": "en"}, execution_binding=binding_cpu)
+        assert p_cpu.text == "CPU Text"
+        assert prov_cpu.evidence["device"] == "CPU"
+
+        p_gpu, prov_gpu, _, _ = engine.ocr_page(img, 1, "in-1", custom_options={"lang": "en"}, execution_binding=binding_gpu)
+        assert p_gpu.text == "GPU Text"
+        assert prov_gpu.evidence["device"] == "GPU"
+
     def test_engine_defaults_to_cpu_when_no_binding(self) -> None:
         mock_rapidocr = MagicMock()
         mock_output = MagicMock()

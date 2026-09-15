@@ -170,6 +170,9 @@ def verify_ocr_manifest_and_models(
     return verified_paths
 
 
+_READINESS_VERIFIED_CACHE: dict[str, str] = {}
+
+
 def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
     """Verify that all required OCR dependencies, manifest, and model files are factually valid.
 
@@ -184,7 +187,11 @@ def check_ocr_readiness(data_root: Path | None = None) -> tuple[bool, str]:
             return False, "Unavailable (Missing required OCR Python libraries)"
 
     try:
-        verify_ocr_manifest_and_models(data_root=data_root, target_keys=REQUIRED_MODEL_KEYS)
+        verify_ocr_manifest_and_models(
+            data_root=data_root,
+            target_keys=REQUIRED_MODEL_KEYS,
+            verified_cache=_READINESS_VERIFIED_CACHE,
+        )
         return True, "Ready (RapidOCR + OpenVINO)"
     except DoshError as exc:
         return False, f"Unavailable ({exc.message})"

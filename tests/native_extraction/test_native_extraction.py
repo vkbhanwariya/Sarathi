@@ -256,7 +256,10 @@ class TestNativeExtraction:
         doc_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
-    <w:p><w:r><w:t>First Paragraph in Word</w:t></w:r></w:p>
+    <w:p>
+      <w:r><w:t>First Paragraph in Word</w:t></w:r>
+      <w:hyperlink><w:r><w:t> with a link</w:t></w:r></w:hyperlink>
+    </w:p>
     <w:tbl>
       <w:tr>
         <w:tc><w:p><w:r><w:t>Header1</w:t></w:r></w:p></w:tc>
@@ -291,7 +294,7 @@ class TestNativeExtraction:
         doc = res.data
         assert isinstance(doc, CanonicalDocument)
         assert doc.detected_type == "docx"
-        assert "First Paragraph in Word" in doc.text
+        assert "First Paragraph in Word with a link" in doc.text
         assert len(doc.tables) == 1
         assert doc.tables[0].headers == ("Header1", "Header2")
         assert doc.tables[0].rows == (("Val1", "Val2"),)
