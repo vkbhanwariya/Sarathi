@@ -1,171 +1,93 @@
-# Agent Rules for Sarathi (Simplified)
+# Agent Rules for Sarathi (Streamlined & Authoritative)
 
 Sarathi is a local document-processing application. Prefer direct, modular, maintainable code over framework-like internal architecture.
 
-**Authority:** `AGENTS.md`, the current `README.md`, and only the relevant Vedas docs. Nothing else.
+**Authority:** `AGENTS.md`, `README.md`, and active Vedas docs. Nothing else.
 
 ## Priorities
 
-1. **Modularity** — small, single-responsibility modules; no duplicate or repeated logic.
+1. **Modularity** — single responsibility per module; zero duplicate or repeated logic.
 2. Correct and accurate user-visible document processing.
 3. Performance — backed by measurement, not assumption.
 4. Clear ownership and a small mental model.
-5. Reliable tests around real behavior.
-6. Security and privacy at actual I/O boundaries.
-7. Token-efficient execution — the fewest reads, edits, and tool calls that still satisfy priorities 1–6.
-
-## Core Principle
-
-> Central infrastructure has one source of truth. Plan before editing, propagate core changes through every affected boundary, validate at the right scope, and never call unverified work "done." Save tokens and iterations — never correctness, accuracy, or verification.
-
-## Design Principles
-
-**Modularity First**
-Modularity is the top design priority — everything else gets easier when it holds.
-
-- One responsibility has one owner, in one small, cohesive module.
-- Every capability has one explicit entry, dependency, result, and failure path.
-- Split by responsibility, not for abstraction's sake — don't create a module just to have one.
-- Broken, dangling, duplicate, bypass, or hidden alternate wiring is rejected.
-- Shared infrastructure is implemented once, globally — capabilities never rebuild it locally.
-- Superseded managers, contracts, stores, and execution paths are removed in the same change — old and new never coexist.
-- Pravaha alone owns failure isolation, quarantine, and retry.
-
-**No Duplicate, No Repetitive Code**
-
-- The same logic is written once. A repeated block is a signal to extract it into a shared, owned function or module — not to copy-paste it again.
-- Before writing new logic, check whether an existing module already does it.
-- A second near-identical implementation of the same behavior gets refactored, not accepted.
-
-**No Overengineering**
-Build only what's needed now — no speculative managers, frameworks, services, or abstraction layers ahead of demonstrated need.
-
-**Modern Tools — Only When ROI Is High**
-
-- Prefer modern, actively maintained languages, libraries, and tools over custom or legacy ones — but only adopt something new when the payoff (correctness, maintainability, performance, security) clearly beats the migration and learning cost.
-- Novelty alone is never a reason to rewrite working code.
-- When proposing a new dependency or tool, state the concrete ROI as part of the plan: what it replaces, what it saves.
-
-**Tiny Core, Plugin Features**
-Nabhi (core kernel) handles plugins, capabilities, lifecycle, and execution. Shakti (plugin ecosystem) holds all document-intelligence logic — OCR, translation, banking, conversion, extraction.
-
-**Where Things Belong**
-
-- Prefer plain modules, functions, dataclasses, and mature libraries. Add a manager/service/registry only when it owns real state or policy.
-- Domain behavior stays in the owning Shakti capability.
-- Shared contracts live in Sankalpa only when multiple real consumers need them.
-- Planning lives in Manthan; execution lives in Pravaha.
-- Generic device/concurrency policy lives in Yantra; capability-specific workload behavior stays with the capability.
-- HTTP/API translation lives in Mukha — document-processing decisions never move into the web layer.
-- Security stays fail-closed at actual I/O/capability boundaries.
+5. Reliable tests around real behavior; no overtesting or audit dumping grounds.
+6. Security and privacy fail-closed at actual I/O boundaries.
+7. Token & tool efficiency — minimal reads, edits, and tool round-trips satisfying priorities 1–6.
 
 ## Subsystem Ownership
 
-| Subsystem | Owns |
+| Subsystem | Canonical Ownership |
 | --- | --- |
 | `agni` | Composition and process lifecycle |
 | `sankalpa` | Shared request/result/document contracts |
-| `nabhi` | Physical namespace holding Kosh, Manthan, Pravaha, and artifact/quarantine support |
-| — Kosh | Declarations and registry storage |
-| — Manthan | Initial and continuation planning |
-| — Pravaha | Execution of the plan Manthan returns |
-| `shakti` | Document-processing capabilities and provider adapters |
-| `yantra` | Execution/device resource helpers |
+| `nabhi` | Physical namespace for Kosh (registry), Manthan (planner), Pravaha (executor), artifact/quarantine |
+| `shakti` | Document-processing capabilities and provider adapters (OCR, translation, banking, font conversion, native extraction) |
+| `yantra` | Execution and device/accelerator resource helpers |
 | `kavacha` | Security authorization and path/privacy checks at real boundaries |
 | `smriti` | Optional result cache |
-| `darpana` | Runtime/quality events and history |
-| `sutra` | Runtime settings |
-| `mukha` | Presentation, local web transport, frontend state |
+| `darpana` | Runtime/quality telemetry events and history |
+| `sutra` | Runtime configuration |
+| `mukha` | Presentation, local web transport, and frontend state |
 | `dosh` | Shared error vocabulary |
 
-`nabhi` is a namespace, not a second decision authority — never add a second registry, planner, execution engine, device-policy owner, or security gateway.
+*Rule:* `nabhi` is a namespace, not a second decision authority. Never create duplicate registries, planners, execution engines, or device policies.
 
 ## Canonical Architecture & Manifest
 
-- `Vedas/architecture.manifest.json` declares production topology. Code topology and the manifest change together.
-- Every top-level subsystem under `src/sarathi` must be declared in the manifest; its immediate modules/packages must appear as that subsystem's `components`.
-- The manifest is not an inventory of private implementation files, assets, CSS, or fixtures.
-- A new architectural layer needs a concrete current responsibility — prefer deletion or an existing owner over a new wrapper.
-- Architecture tests must fail when production topology and the manifest diverge.
+- `Vedas/architecture.manifest.json` defines production topology. Code topology and manifest change together.
+- Every top-level subsystem under `src/sarathi` must be in the manifest; its immediate modules appear as `components`.
+- Manifest tests (`pytest -q -m architecture`) must fail if code topology and manifest diverge.
 
 ## Core Rules
 
-1. **Plan before touching core code.** Identify the canonical owner, affected contracts, callers, wiring, caches, and tests. Get explicit approval before editing.
-2. **Check overengineering & ROI before proposing changes.** Never introduce speculative abstractions, redundant layers, wrapper services, or unvetted dependencies. For any new dependency or major structural change, the implementation proposal MUST explicitly present:
-   - What it replaces vs. what it introduces (dependency tree footprint, memory/runtime cost, maintenance overhead).
-   - Concrete ROI: measurable improvement in correctness, speed, security, or maintainability vs. migration/learning costs.
-   - Simpler existing alternatives explored and why built-in/existing repository tools are insufficient.
-   - Demonstrated current need vs. speculative future need.
-   Present this evaluation clearly to the user for sign-off on every implementation proposal.
-3. **One owner, one path.** No parallel managers, registries, caches, retries, or hidden fallbacks. Everything else consumes the core decision — it never reimplements it.
-4. **Propagate core changes completely.** A change isn't done until every contract, caller, wiring point, serializer, and test agrees. Delete superseded code in the same change — old and new never coexist.
-5. **Preserve state across every path.** Fresh run, cache hit, resume, retry, and serialize/deserialize must all produce the same result. No field silently drops.
-6. **Respect subsystem ownership.** Use injected services and Sankalpa contracts. Don't bypass Kosh, Manthan, Pravaha, Yantra, Darpana, Kavacha, or Nabhi when one of them is the declared owner.
-7. **Fail safe, stay honest.** Validate inputs before mutating state. Never leak document contents, local paths, secrets, or raw exceptions. Never invent defaults, confidence, or availability — unknown stays unknown.
-8. **Tests follow the architecture, not the reverse.** If a test contradicts `AGENTS.md`, the README, or a locked Veda, fix the test — not production behavior.
-9. **No fake success.** "Done" means it ran *and* was verified. Partial, skipped, degraded, or uncommitted work is never reported as success.
-10. **Stop and ask** when a prerequisite is missing or scope changes — don't improvise around it.
-11. **New files or folders need explicit approval first.** No unapproved structural changes.
-12. **Before every commit:** compile the changed files, run the targeted tests, `git diff --check`.
-13. **Phase large changes:** contract → implementation → wiring → tests → integration. Validate each phase before starting the next.
-14. **Before calling anything complete,** confirm: one owner remains, no duplicate paths exist, contracts match implementation, and report the commit hash, files touched, and tests run.
+1. **Plan before editing.** Identify canonical owner, contracts, callers, wiring, caches, and tests. Get explicit approval before editing.
+2. **Overengineering & ROI Check.** Never introduce speculative abstractions, redundant wrappers, or unvetted dependencies. Implementation proposals MUST show:
+   - What it replaces vs. introduces (dependency footprint, memory, maintenance).
+   - Concrete ROI: measurable correctness, speed, security, or maintainability gain.
+   - Simpler alternatives explored and why repository tools are insufficient.
+3. **One owner, one path.** Single canonical implementation. Delete superseded managers, contracts, stores, and execution paths in the same change — old and new never coexist.
+4. **Propagate completely.** A change is incomplete until contracts, callers, wiring, serializers, and tests agree.
+5. **Preserve state across paths.** Fresh run, cache hit, retry, and serialize/deserialize must yield identical results.
+6. **Respect subsystem ownership.** Plan in Manthan, execute in Pravaha, manage resources in Yantra, authorize in Kavacha, record in Darpana. Capabilities never duplicate shared infrastructure.
+7. **Fail safe, stay honest.** Validate inputs fail-closed. Never leak document content, paths, or secrets. Never invent fake defaults, confidence, or availability.
+8. **Tests follow architecture, not the reverse.** Fix tests contradicting architecture, never weaken production invariants.
+9. **No fake success.** "Done" requires actual execution and verification.
+10. **Single main branch workflow.** Work directly on `main` — no feature or cleanup branches.
 
-## Change Workflow
+## Fast Validation & Tool Efficiency
 
-- Single main branch. All work happens directly on it — no feature, cleanup, migration, or temporary branches.
-- For cross-cutting changes, in order:
-  1. Preserve user-visible behavior and public payloads.
-  2. Identify the canonical owner.
-  3. Make one coherent simplification.
-  4. Migrate all callers, tests, configuration, and documentation.
-  5. Remove obsolete paths instead of keeping permanent compatibility duplicates.
-  6. Update the architecture manifest when topology or ownership changes.
-  7. Search globally for stale names, imports, or configuration.
-  8. Run targeted checks, then all permanent CI gates.
-  9. Commit only when the exact final tree is green.
+### 1. Compound Pre-Commit Fast Gate
+Before every commit, execute the compound check to validate compilation, lint, and formatting in a single tool turn:
+```powershell
+uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check
+```
 
-## Context & Token Discipline
+### 2. Test Execution Ladder ("Test Impact, Not Anxiety")
+Run scoped tests during development; full suite only at milestones:
 
-Token efficiency is a standing constraint, not an afterthought — the smallest sufficient context and the smallest sufficient action always wins over a broader default.
+| Scope of Change | Command |
+| :--- | :--- |
+| **Focused fix / unit** | `uv run --group dev pytest <path> -x -q` (fail fast on first error) |
+| **Subsystem / Capability** | `uv run --group dev pytest tests/<subsystem>/ -q` |
+| **Architecture Gate** | `uv run --group dev pytest -q -m architecture` (instant ~1.4s) |
+| **Milestone / Full Suite** | `uv run --group dev pytest` (fast deterministic suite, ~44s) |
+| **Heavy Model Pipelines** | `uv run --group dev pytest -m real_model` (run only when changing neural OCR/models) |
 
-- Read only: canonical owner → relevant contract/spec → direct callers → affected tests. Don't reread what's already in context.
-- For a specific error or failing test, view ~10 lines around the failing line — not the whole file.
-- Never poll task status in a loop; the system resumes reactively.
-- Batch related searches instead of repeating round-trips.
+- **On failure:** Fix defect → re-run failing test with `-x` → run file → run subsystem → full suite at milestone.
+- **Anti-overtesting:** Never create catch-all audit dump files (`test_*_resilience.py`, `test_*_integrity.py`). All tests belong to their canonical subsystem owner.
+- **Reporting:** Keep a plain ledger: PASS / NOT RUN / SKIPPED. Never claim "all tests passed" unless verified on the exact tree.
 
-## Testing Philosophy
+### 3. Context & Token Discipline
+- View target lines (~10–50 lines around error/symbol), never whole large files.
+- Batch search and discovery tool calls.
+- Never poll task status in a loop; resume reactively from notifications.
+- New files/folders require explicit approval first.
 
-**Test according to impact, not anxiety.**
-
-| Change size | Run |
-| --- | --- |
-| Local helper, parser, formatter | Its unit test + direct regression test |
-| One capability (OCR, translation, bank statements, font conversion, native extraction) | That capability's test suite |
-| Shared contract (`Result`, `ExecutionContext`, canonical document, artifact payload) | Owner tests + direct consumers |
-| Core runtime (Agni, Manthan, Pravaha, Yantra, Kosh) | Owner tests + directly affected capability tests |
-| Global/cross-cutting contract change | Phased tests per phase — full suite only at the final milestone |
-
-**On failure:** fix the defect → re-run only that test → once it passes, run its file → then its subsystem → then affected integration tests. Never jump straight to the full suite for a focused failure.
-
-**Run the full suite** (`uv run --group dev pytest -q`) only when: a milestone is complete, a contract changed globally, multiple capabilities were intentionally touched, or focused testing revealed unexpected cross-subsystem coupling. Never run it for typo fixes, single-test additions, or local branch logic.
-
-**Report truthfully.** Keep a plain ledger — PASS / NOT RUN / SKIPPED. Never say "all tests passed" or "fully validated" unless the full suite actually ran.
-
-## Validation Bar
-
-- Changed Python must compile, Ruff must stay clean, and targeted tests must pass; milestone work must additionally pass the full permanent CI suite.
-- Never report a migration, cleanup, performance improvement, or CI state that wasn't actually verified on the exact tree being promoted.
-- Don't optimize based on test-only numbers.
-- Never weaken a behavioral test just to push through a cleanup pass.
-- Modularity and any new tool/library adoption must never regress measured performance or output accuracy — if a refactor trades either away, it doesn't ship as-is.
-
-## Planning Checklist (before touching code)
-
+## Planning Checklist
+Before modifying code:
 - Objective and canonical owner
-- Overengineering & ROI Assessment (mandatory in every implementation proposal — state concrete ROI, alternatives rejected, dependency footprint, and why existing tools are insufficient)
-- Every file expected to change, and why
-- Any proposed new file/folder (needs explicit approval)
-- Affected functions, contracts, and call paths
-- Tests to add, change, or run
-- What's explicitly *not* being touched
-- Open questions or blockers
+- Mandatory Overengineering & ROI Assessment
+- Files to change / delete / add (new files need approval)
+- Affected contracts, callers, and call paths
+- Scoped test plan
+- Explicitly excluded scope
