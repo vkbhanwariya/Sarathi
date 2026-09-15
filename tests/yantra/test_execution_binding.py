@@ -339,3 +339,73 @@ class TestYantraExecutionBindingPropagation:
         binding = parallel_cap.captured_context.execution_binding
         assert binding is not None
         assert binding.approved_concurrency == 12
+
+    def test_multi_device_locators_preserved_for_each_gpu(self) -> None:
+        cpu = DeviceInfo(
+            device_id="cpu-0",
+            device_type=DeviceType.CPU,
+            capacity=4,
+            supported_backends=("openvino", "cpu"),
+            backend_locators={"cpu": "CPU", "openvino": "CPU"},
+        )
+        gpu0 = DeviceInfo(
+            device_id="gpu-0",
+            device_type=DeviceType.GPU,
+            capacity=1,
+            supported_backends=("cuda", "openvino"),
+            backend_locators={"cuda": "0", "openvino": "GPU.0"},
+        )
+        gpu1 = DeviceInfo(
+            device_id="gpu-1",
+            device_type=DeviceType.GPU,
+            capacity=1,
+            supported_backends=("cuda", "openvino"),
+            backend_locators={"cuda": "1", "openvino": "GPU.1"},
+        )
+        inventory = DeviceInventory(devices=(cpu, gpu0, gpu1))
+        yantra = Yantra(inventory)
+        yantra.start()
+        try:
+            req = DeviceRequirement(
+                preferred_devices=(DeviceType.GPU,),
+                supported_devices=(DeviceType.GPU, DeviceType.CPU),
+            )
+            alloc1 = yantra.allocate(req)
+            assert alloc1.device_id == "gpu-0"
+            assert alloc1.backend_device_id in ("0", "GPU.0")
+
+            alloc2 = yantra.allocate(req)
+            assert alloc2.device_id == "gpu-1"
+            assert alloc2.backend_device_id in ("1", "GPU.1")
+
+            yantra.release(alloc1)
+            alloc3 = yantra.allocate(req)
+            assert alloc3.device_id == "gpu-0"
+            assert alloc3.backend_device_id in ("0", "GPU.0")
+            yantra.release(alloc2)
+            yantra.release(alloc3)
+        finally:
+            yantra.close()
+
+    def test_default_inventory_custom_accelerator_capacities(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        from unittest.mock import MagicMock
+
+        mock_ov = MagicMock()
+        mock_core = MagicMock()
+        mock_core.available_devices = ["GPU.0", "NPU.0"]
+        mock_ov.Core.return_value = mock_core
+        monkeypatch.setitem(sys.modules, "openvino", mock_ov)
+
+        inv = DeviceInventory.default_inventory(
+            detect_accelerators=True,
+            gpu_capacity_per_device=4,
+            npu_capacity_per_device=3,
+        )
+        gpu = inv.get_device("gpu-0")
+        assert gpu is not None
+        assert gpu.capacity == 4
+
+        npu = inv.get_device("npu-0")
+        assert npu is not None
+        assert npu.capacity == 3

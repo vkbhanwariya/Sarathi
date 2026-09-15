@@ -1,9 +1,27 @@
 """Tests for Contract 1: Truthful and Privacy-Safe Cache Key Identity."""
 
+import datetime
+from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 
-from sarathi.sankalpa import CanonicalDocument, ExecutionProfile, InputRef, Request, Result
-from sarathi.smriti.key import _hash_canonical_document, compute_cache_key, compute_input_fingerprint
+from sarathi.sankalpa import (
+    CanonicalDocument,
+    ExecutionProfile,
+    InputRef,
+    PageData,
+    Request,
+    Result,
+    TableData,
+    TextSpan,
+)
+from sarathi.smriti.key import (
+    _hash_canonical_document,
+    compute_cache_key,
+    compute_input_fingerprint,
+    compute_prior_result_digest,
+)
 
 
 def test_input_fingerprint_deterministic_and_path_agnostic(tmp_path: Path) -> None:
@@ -291,3 +309,121 @@ def test_hash_canonical_document_includes_source_input_id() -> None:
     doc1 = CanonicalDocument(document_id="d1", source_input_id="inp-1", text="Hello world")
     doc2 = CanonicalDocument(document_id="d1", source_input_id="inp-2", text="Hello world")
     assert _hash_canonical_document(doc1) != _hash_canonical_document(doc2)
+
+
+def test_smriti_digest_differentiates_span_and_table_metadata() -> None:
+    """Verify Smriti cache digest produces distinct hashes when only span or table metadata differs."""
+    span1 = TextSpan(text="hello", confidence=0.9, metadata={"author": "alice"})
+    span2 = TextSpan(text="hello", confidence=0.9, metadata={"author": "bob"})
+
+    doc1 = CanonicalDocument(document_id="doc-1", text="hello", pages=(PageData(page_number=1, text="hello", spans=(span1,)),))
+    doc2 = CanonicalDocument(document_id="doc-1", text="hello", pages=(PageData(page_number=1, text="hello", spans=(span2,)),))
+
+    digest1 = compute_prior_result_digest(Result(data=doc1))
+    digest2 = compute_prior_result_digest(Result(data=doc2))
+    assert digest1 != digest2, "Differing span metadata must produce distinct digests"
+
+    t1 = TableData(headers=("A", "B"), rows=(("1", "2"),), metadata={"source": "scan_a"})
+    t2 = TableData(headers=("A", "B"), rows=(("1", "2"),), metadata={"source": "scan_b"})
+
+    doc_tbl1 = CanonicalDocument(document_id="doc-2", text="table", tables=(t1,))
+    doc_tbl2 = CanonicalDocument(document_id="doc-2", text="table", tables=(t2,))
+
+    digest_t1 = compute_prior_result_digest(Result(data=doc_tbl1))
+    digest_t2 = compute_prior_result_digest(Result(data=doc_tbl2))
+    assert digest_t1 != digest_t2, "Differing table metadata must produce distinct digests"
+
+
+def test_smriti_digest_handles_mapping_proxy_without_type_name_fallback() -> None:
+    """Verify dataclasses with MappingProxyType and nested types do not collapse to type-name fallback."""
+    @dataclass(frozen=True)
+    class SampleReport:
+        name: str
+        metrics: MappingProxyType[str, int]
+        created: datetime.date
+        amount: Decimal
+
+    rep1 = SampleReport("Q1", MappingProxyType({"sales": 100}), datetime.date(2026, 1, 1), Decimal("100.50"))
+    rep2 = SampleReport("Q1", MappingProxyType({"sales": 200}), datetime.date(2026, 1, 1), Decimal("100.50"))
+
+    d1 = compute_prior_result_digest(Result(data=rep1))
+    d2 = compute_prior_result_digest(Result(data=rep2))
+
+    assert d1 != d2, "Differing MappingProxyType values must produce distinct digests"
+
+
+def test_cache_key_includes_bounding_box() -> None:
+    """Two documents with same text but different bounding boxes must produce different cache keys."""
+    req = Request(
+        request_id="req-1",
+        requirement="ocr",
+        inputs=(InputRef("i1", Path("doc.pdf"), "doc.pdf", 100),),
+    )
+
+    span1 = TextSpan(text="Sarathi", confidence=0.99, bounding_box=(0.0, 0.0, 10.0, 10.0))
+    span2 = TextSpan(text="Sarathi", confidence=0.99, bounding_box=(50.0, 50.0, 60.0, 60.0))
+
+    page1 = PageData(page_number=1, text="Sarathi", spans=(span1,))
+    page2 = PageData(page_number=1, text="Sarathi", spans=(span2,))
+
+    doc1 = CanonicalDocument(document_id="d1", source_input_id="i1", text="Sarathi", pages=(page1,))
+    doc2 = CanonicalDocument(document_id="d1", source_input_id="i1", text="Sarathi", pages=(page2,))
+
+    key1 = compute_cache_key(req, "ocr", prior_result=Result(data=doc1))
+    key2 = compute_cache_key(req, "ocr", prior_result=Result(data=doc2))
+
+    assert key1.key_hash != key2.key_hash
+
+
+def test_cache_key_prior_result_digest_dataclass() -> None:
+    """Non-CanonicalDocument dataclass prior results must hash structured attributes, not type name."""
+    @dataclass
+    class CustomFinancialSummary:
+        total_amount: Decimal
+        account_id: str
+
+    res_a = Result(data=CustomFinancialSummary(Decimal("1000.00"), "ACC1"))
+    res_b = Result(data=CustomFinancialSummary(Decimal("9999.00"), "ACC1"))
+
+    digest_a = compute_prior_result_digest(res_a)
+    digest_b = compute_prior_result_digest(res_b)
+
+    assert digest_a != digest_b
+
+
+def test_single_and_multidoc_digest_determinism() -> None:
+    doc1 = CanonicalDocument(document_id="doc-1", source_input_id="inp-1", detected_type="application/pdf", text="Hello world")
+    doc2 = CanonicalDocument(document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Second document")
+
+    res_single = Result(data=doc1)
+    res_tuple = Result(data=(doc1, doc2))
+    res_list = Result(data=[doc1, doc2])
+
+    digest_single_1 = compute_prior_result_digest(res_single)
+    digest_single_2 = compute_prior_result_digest(res_single)
+    assert digest_single_1 == digest_single_2
+    assert len(digest_single_1) == 64
+
+    digest_tuple_1 = compute_prior_result_digest(res_tuple)
+    digest_tuple_2 = compute_prior_result_digest(res_tuple)
+    assert digest_tuple_1 == digest_tuple_2
+    assert len(digest_tuple_1) == 64
+
+    digest_list = compute_prior_result_digest(res_list)
+    assert digest_list == digest_tuple_1
+
+    assert digest_single_1 != digest_tuple_1
+
+
+def test_multidoc_digest_content_sensitivity() -> None:
+    doc1 = CanonicalDocument(document_id="doc-1", source_input_id="inp-1", detected_type="application/pdf", text="Hello world")
+    doc2_a = CanonicalDocument(document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Alpha text")
+    doc2_b = CanonicalDocument(document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Beta text")
+
+    res_a = Result(data=(doc1, doc2_a))
+    res_b = Result(data=(doc1, doc2_b))
+
+    digest_a = compute_prior_result_digest(res_a)
+    digest_b = compute_prior_result_digest(res_b)
+
+    assert digest_a != digest_b

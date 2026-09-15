@@ -17,6 +17,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Result,
     TableData,
+    TextSpan,
     WarningRecord,
 )
 from sarathi.smriti.serialization import (
@@ -229,3 +230,74 @@ def test_unsupported_metadata_type_refuses_cacheability() -> None:
 
     with pytest.raises(ValueError, match="not cacheable"):
         serialize_result(res)
+
+
+def test_page_spans_serialization_round_trip() -> None:
+    """Test that PageData.spans with bounding boxes and confidence are preserved losslessly."""
+    span1 = TextSpan(
+        text="Sample text",
+        confidence=0.95,
+        bounding_box=(10.0, 20.0, 100.0, 200.0),
+        metadata=MappingProxyType({"font": "Arial"}),
+    )
+    span2 = TextSpan(
+        text="Second span",
+        confidence=0.88,
+        bounding_box=(30.0, 40.0, 50.0, 60.0),
+    )
+    page = PageData(
+        page_number=1,
+        text="Sample text Second span",
+        spans=(span1, span2),
+    )
+    doc = CanonicalDocument(
+        document_id="doc_123",
+        source_input_id="in_123",
+        text="Sample text Second span",
+        pages=(page,),
+    )
+    res = Result(data=doc)
+
+    serialized = serialize_result(res)
+    deserialized = deserialize_result(serialized)
+
+    assert isinstance(deserialized.data, CanonicalDocument)
+    assert len(deserialized.data.pages) == 1
+    deser_page = deserialized.data.pages[0]
+    assert len(deser_page.spans) == 2
+
+    assert deser_page.spans[0].text == "Sample text"
+    assert deser_page.spans[0].confidence == 0.95
+    assert deser_page.spans[0].bounding_box == (10, 20, 100, 200)
+    assert deser_page.spans[0].metadata.get("font") == "Arial"
+
+    assert deser_page.spans[1].text == "Second span"
+    assert deser_page.spans[1].confidence == 0.88
+    assert deser_page.spans[1].bounding_box == (30, 40, 50, 60)
+
+
+def test_artifact_relative_path_serialization_round_trip() -> None:
+    """Test that ArtifactIntent.relative_path is preserved losslessly through serialization."""
+    doc = CanonicalDocument(
+        document_id="doc_test",
+        source_input_id="in_test",
+        text="Content",
+    )
+    intent = ArtifactIntent(
+        name="output.docx",
+        role="final_report",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        relative_path=Path("subfolder/nested/output.docx"),
+    )
+    payload = ArtifactPayload(intent=intent, content=b"fake_docx_content")
+    res = Result(data=doc, artifact_payloads=(payload,))
+
+    serialized = serialize_result(res)
+    deserialized = deserialize_result(serialized)
+
+    assert len(deserialized.artifact_payloads) == 1
+    deser_intent = deserialized.artifact_payloads[0].intent
+    assert deser_intent.name == "output.docx"
+    assert deser_intent.role == "final_report"
+    assert deser_intent.relative_path == Path("subfolder/nested/output.docx")
+    assert deserialized.artifact_payloads[0].content == b"fake_docx_content"

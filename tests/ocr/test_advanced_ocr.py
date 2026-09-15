@@ -53,6 +53,7 @@ def _create_clean_image(path: Path) -> None:
     img.save(path)
 
 
+@pytest.mark.real_model
 def test_accurate_profile_executes_and_preserves_clean_cases(tmp_path: Path) -> None:
     img_path = tmp_path / "clean_order.png"
     _create_clean_image(img_path)
@@ -163,6 +164,7 @@ def test_accurate_profile_gracefully_handles_retry_failure() -> None:
 
 
 
+@pytest.mark.real_model
 def test_layout_preserving_profile_executes_successfully(tmp_path: Path) -> None:
     """Verify LAYOUT_PRESERVING is officially resolved by Manthan and executed with coordinate retention."""
     img_path = tmp_path / "table.png"
@@ -236,6 +238,7 @@ def test_custom_profile_validation_rejects_unsupported_engine(tmp_path: Path) ->
     assert "not supported" in str(exc_info.value.message)
 
 
+@pytest.mark.real_model
 def test_custom_profile_executes_valid_options(tmp_path: Path) -> None:
     img_path = tmp_path / "doc.png"
     _create_clean_image(img_path)

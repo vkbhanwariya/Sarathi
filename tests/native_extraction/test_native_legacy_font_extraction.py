@@ -258,4 +258,3 @@ def test_native_extraction_legacy_font_chains_to_statutory(
     doc = res.data
     assert isinstance(doc, CanonicalDocument)
     assert "भारत सरकार दिल्ली" in doc.text or "भारत सरकार दिल्ली" in doc.pages[0].text
-

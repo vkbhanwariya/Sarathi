@@ -332,4 +332,3 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     )
     assert payload_ocr is not None
     assert payload_ocr["custom_options"]["skip_header_footer"] is True
-

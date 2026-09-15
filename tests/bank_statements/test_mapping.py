@@ -144,3 +144,11 @@ def test_bank_capability_with_typed_datetime_rows() -> None:
     assert stmt.transactions[0].transaction_date == datetime(2025, 1, 5).date()
     assert stmt.transactions[1].transaction_date == datetime(2025, 1, 10).date()
     assert not any(issue.code == "INVALID_TRANSACTION_DATE" for issue in stmt.issues)
+
+
+def test_header_fuzzy_scoring_runner_up_margin() -> None:
+    """0.85 <= score < 0.92 only accepted if margin over runner up is >= 0.05."""
+    mapper = HeaderMapper()
+    mappings = mapper.map_headers(["Withdrawl", "Deposit", "Date"])
+    mapped_dict = {m.source_header: m.canonical_field for m in mappings}
+    assert mapped_dict.get("Withdrawl") == "debit"

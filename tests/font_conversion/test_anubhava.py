@@ -53,4 +53,3 @@ def test_font_conversion_asset_version_tracks_default_and_custom_anubhava(tmp_pa
     custom_anubhava.write_text('corrections = [{profile_id="krutidev010", verified=true, source="foo", target="बज़"}]\n', encoding="utf-8")
     cap_modified = FontConversionCapability(anubhava_path=custom_anubhava)
     assert cap_modified.asset_version != cap_custom.asset_version
-

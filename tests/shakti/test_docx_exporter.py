@@ -7,9 +7,10 @@ import zipfile
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import CanonicalDocument, PageData, TableData
+from sarathi.sankalpa import CanonicalDocument, PageData, TableData, WarningRecord
 from sarathi.shakti.docx_exporter import (
     _W_NS,
+    _merge_adjacent_compatible_runs,
     build_docx_payload,
     segment_text_by_script,
     transform_docx_artifact,
@@ -590,3 +591,56 @@ def test_transform_docx_merges_adjacent_runs_across_word_boundaries() -> None:
         t_elems = root.findall(f".//{{{_W_NS}}}t")
         full_text = "".join(t.text for t in t_elems if t.text)
         assert "Devanagari" in full_text
+
+
+def test_transform_docx_artifact_fails_on_corrupt_body() -> None:
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(out_buf, "w") as zf:
+        zf.writestr("word/document.xml", b"<w:document><unclosed>")
+    corrupt_docx = out_buf.getvalue()
+
+    with pytest.raises(DoshError) as exc_info:
+        transform_docx_artifact(corrupt_docx, lambda s: s, "out.docx")
+    assert exc_info.value.code == FailureCode.VALIDATION_FAILED
+
+
+def test_transform_docx_artifact_warns_on_corrupt_header() -> None:
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(out_buf, "w") as zf:
+        zf.writestr(
+            "word/document.xml",
+            b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Body</w:t></w:r></w:p></w:body></w:document>',
+        )
+        zf.writestr("word/header1.xml", b"<w:hdr><unclosed>")
+    valid_body_bad_hdr = out_buf.getvalue()
+
+    warnings: list[WarningRecord] = []
+    res = transform_docx_artifact(valid_body_bad_hdr, lambda s: s, "out.docx", warnings=warnings)
+    assert res is not None
+    assert any(w.code == "DOCX_PART_CONVERSION_FAILED" for w in warnings)
+
+
+def test_merge_adjacent_compatible_runs_with_differing_font_tag() -> None:
+    xml_data = f"""<w:p xmlns:w="{_W_NS}">
+        <w:r>
+            <w:rPr>
+                <w:rFonts w:ascii="Kruti Dev 010"/>
+                <w:b/>
+                <w:sz w:val="24"/>
+            </w:rPr>
+            <w:t>Hkk</w:t>
+        </w:r>
+        <w:r>
+            <w:rPr>
+                <w:rFonts w:ascii="KrutiDev010"/>
+                <w:b/>
+                <w:sz w:val="24"/>
+            </w:rPr>
+            <w:t>jr</w:t>
+        </w:r>
+    </w:p>"""
+    p_elem = ET.fromstring(xml_data)
+    _merge_adjacent_compatible_runs(p_elem)
+    runs = p_elem.findall(f"{{{_W_NS}}}r")
+    assert len(runs) == 1
+    assert runs[0].find(f"{{{_W_NS}}}t").text == "Hkkjr"

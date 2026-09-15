@@ -1,5 +1,16 @@
-"""Tests for Raw Row Classification."""
+from datetime import date, datetime, time
+from pathlib import Path
 
+from sarathi.sankalpa import (
+    CanonicalDocument,
+    ExecutionContext,
+    InputRef,
+    Request,
+    Result,
+    TableData,
+)
+from sarathi.shakti.bank_statements.capability import BankStatementCapability
+from sarathi.shakti.bank_statements.models import BankStatement, Transaction
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 
 
@@ -265,3 +276,151 @@ class TestBankStatementsBatchIntegrity:
         assert res.data.statements[0].transactions[0].credit is None
         assert res.data.statements[0].transactions[0].status == ValidationStatus.INVALID
         assert any("MISSING_AMOUNT" in w.code for w in res.warnings)
+
+
+def test_bounded_date_inheritance_and_missing_date_issue() -> None:
+    """Missing date only inherits within same table; unparsed initial date records explicit issue."""
+    cap = BankStatementCapability()
+
+    t1 = TableData(
+        name="t1",
+        headers=("Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(
+            ("01/01/2026", "Txn 1", "100.00", "", "900.00"),
+            ("", "Txn 2 continuation date", "200.00", "", "700.00"),
+        ),
+    )
+    t2 = TableData(
+        name="t2",
+        headers=("Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(
+            ("", "Orphan Date Row", "300.00", "", "400.00"),
+            ("05/01/2026", "Valid Row", "100.00", "", "300.00"),
+        ),
+    )
+
+    doc = CanonicalDocument(
+        document_id="doc-bounded-date",
+        source_input_id="inp-bounded",
+        text="State Bank of India Statement Account Number: 12345678901",
+        tables=(t1, t2),
+    )
+    req = Request(
+        request_id="req-test",
+        requirement="bank_statements",
+        inputs=(InputRef("i1", Path("test.csv"), "test.csv", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-test", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+
+    assert res.data is not None
+    stmt = res.data.statements[0]
+    assert len(stmt.transactions) == 3
+    assert stmt.transactions[0].transaction_date == date(2026, 1, 1)
+    assert stmt.transactions[1].transaction_date == date(2026, 1, 1)
+    assert stmt.transactions[2].transaction_date == date(2026, 1, 5)
+    assert any(iss.code == "MISSING_TRANSACTION_DATE" for iss in stmt.issues)
+
+
+def test_invalid_date_does_not_inherit_previous_date() -> None:
+    """Invalid non-blank date must emit INVALID_TRANSACTION_DATE and not inherit predecessor date."""
+    cap = BankStatementCapability()
+
+    table = TableData(
+        name="txns",
+        headers=("Date", "Narration", "Withdrawal", "Deposit", "Balance"),
+        rows=(
+            ("01/01/2026", "Valid Txn 1", "100.00", "", "1000.00"),
+            ("31/02/2026", "Invalid Date Txn", "50.00", "", "950.00"),
+            ("", "Continuation Txn with Blank Date", "25.00", "", "925.00"),
+        ),
+    )
+
+    doc = CanonicalDocument(
+        document_id="doc-bad-date",
+        source_input_id="inp-bad-date",
+        text="State Bank of India Statement Account Number: 12345678901",
+        tables=(table,),
+    )
+    req = Request(
+        request_id="req-test-bad-date",
+        requirement="bank_statements",
+        inputs=(InputRef("i1", Path("test.csv"), "test.csv", 100),),
+    )
+    ctx = ExecutionContext("run-bad-date", "req-test-bad-date", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+
+    invalid_date_issues = [iss for iss in stmt.issues if iss.code == "INVALID_TRANSACTION_DATE"]
+    assert len(invalid_date_issues) == 1
+    assert "31/02/2026" in invalid_date_issues[0].message
+    assert len(stmt.transactions) == 2
+    assert stmt.transactions[0].description == "Valid Txn 1"
+    assert stmt.transactions[0].transaction_date == date(2026, 1, 1)
+    assert stmt.transactions[1].description == "Continuation Txn with Blank Date"
+    assert stmt.transactions[1].transaction_date == date(2026, 1, 1)
+
+
+def test_time_and_value_date_wiring() -> None:
+    """Time and Value Date mapped and populated on Transaction."""
+    cap = BankStatementCapability()
+
+    table = TableData(
+        name="icici_txns",
+        headers=("Transaction Date", "Value Date", "Time", "Particulars", "Cheque No.", "Withdrawal", "Deposit", "Balance"),
+        rows=(
+            ("10/02/2026", "11/02/2026", "14:30:00", "Cheque Clearing", "000123", "1500.00", "", "8500.00"),
+        ),
+    )
+
+    doc = CanonicalDocument(
+        document_id="doc-icici-val",
+        source_input_id="inp-icici",
+        text="ICICI Bank Statement Account Number: 000105001234",
+        tables=(table,),
+    )
+    req = Request(
+        request_id="req-test",
+        requirement="bank_statements",
+        inputs=(InputRef("i1", Path("test.csv"), "test.csv", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-test", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+
+    assert res.data is not None
+    stmt = res.data.statements[0]
+    assert len(stmt.transactions) == 1
+    tx = stmt.transactions[0]
+    assert tx.transaction_date == date(2026, 2, 10)
+    assert tx.value_date == date(2026, 2, 11)
+    assert tx.transaction_time == time(14, 30, 0)
+    assert tx.cheque_number == "000123"
+
+
+def test_bank_eod_balance_row_classification() -> None:
+    """Rows marked with EOD Balance must be classified as EOD_BALANCE."""
+    row = ("31/01/2026", "EOD BALANCE", "", "", "50000.00")
+    assert classify_row(row) == RowType.EOD_BALANCE
+
+
+
+def test_bank_models_expose_canonical_veda_properties() -> None:
+    """Verify statement_from, statement_to, and posting_datetime properties on models."""
+    d_start = date(2026, 1, 1)
+    d_end = date(2026, 1, 31)
+    stmt = BankStatement(
+        bank_name="Test Bank",
+        bank_profile="generic",
+        statement_period_start=d_start,
+        statement_period_end=d_end,
+    )
+    assert stmt.statement_from == d_start
+    assert stmt.statement_to == d_end
+
+    tx = Transaction(
+        transaction_date=d_start,
+        description="Test",
+        bank_name="Test Bank",
+        posting_date=d_start,
+    )
+    assert tx.posting_datetime == datetime(2026, 1, 1, 0, 0)

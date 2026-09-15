@@ -7,6 +7,7 @@ import pytest
 
 from sarathi.agni import Agni
 from sarathi.darpana import Darpana
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionContext,
@@ -15,6 +16,7 @@ from sarathi.sankalpa import (
     Request,
     Result,
 )
+from sarathi.shakti.font_conversion.converter import FontConverter
 
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "krutidev_sample.txt"
 
@@ -406,3 +408,108 @@ def test_krutidev_to_devlys_conversion_transforms_text() -> None:
     # Verify the document text was transformed into target legacy encoding (not left as raw KrutiDev or empty)
     assert res.data.text is not None
     assert len(res.data.text) > 0
+
+
+def test_reverse_conversion_prefers_deterministic_reverse_mappings() -> None:
+    """Verify Unicode -> legacy uses profile.reverse_preferred for conjuncts."""
+    converter = FontConverter()
+    assert converter.convert_to_legacy("त्र", target_profile_id="krutidev010") == "="
+    assert converter.convert_to_legacy("श्र", target_profile_id="krutidev010") == "J"
+    assert converter.convert_to_legacy("क्ष", target_profile_id="krutidev010") == "{k"
+    assert "%" in converter.convert_to_legacy("पुनः", target_profile_id="krutidev010")
+
+    for conj in ("क्ष", "द्य", "द्ध", "ज्ञ", "त्र"):
+        rev_val = converter.convert_to_legacy(conj, target_profile_id="krutidev010")
+        fwd_val = converter.convert(rev_val, profile_id="krutidev010")
+        assert fwd_val == conj, f"Roundtrip failed for '{conj}'"
+
+
+def test_roundtrip_conversion_fidelity() -> None:
+    """Verify legacy -> Unicode -> legacy round-trip maintains identity for canonical words."""
+    converter = FontConverter()
+    for w in ["Hkkjr", "ljdkj", "dk;Z"]:
+        uni = converter.convert(w, profile_id="krutidev010")
+        rev = converter.convert_to_legacy(uni, target_profile_id="krutidev010")
+        assert rev == w
+
+
+def test_item_scoped_batch_escalation_all_empty() -> None:
+    """Verify when ALL documents in batch are empty, capability escalates to OCR."""
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    doc1 = CanonicalDocument(document_id="doc-1", source_input_id="inp-1", text="")
+    doc2 = CanonicalDocument(document_id="doc-2", source_input_id="inp-2", text="")
+    prior = Result(data=(doc1, doc2))
+
+    req = Request(
+        request_id="req-empty-batch",
+        requirement="font_conversion",
+        inputs=(
+            InputRef("inp-1", Path("doc1.pdf"), "doc1.pdf", 10),
+            InputRef("inp-2", Path("doc2.pdf"), "doc2.pdf", 10),
+        ),
+    )
+    ctx = ExecutionContext("run-eb", "req-empty-batch", "t-eb", "s-eb")
+    res = cap.execute(req, ctx, prior_result=prior)
+
+    assert res.next_requirement == "ocr"
+    assert res.data == (doc1, doc2)
+
+
+def test_item_scoped_batch_escalation_partial_empty() -> None:
+    """Verify when one doc has text and one is empty, empty doc is escalated to OCR while text doc is converted."""
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    doc_has_text = CanonicalDocument(document_id="doc-text", source_input_id="inp-1", text="Hkkjr")
+    doc_empty = CanonicalDocument(document_id="doc-empty", source_input_id="inp-2", text="")
+    prior = Result(data=(doc_has_text, doc_empty))
+
+    req = Request(
+        request_id="req-partial-batch",
+        requirement="font_conversion",
+        inputs=(
+            InputRef("inp-1", Path("doc1.pdf"), "doc1.pdf", 10),
+            InputRef("inp-2", Path("doc2.pdf"), "doc2.pdf", 10),
+        ),
+        custom_options={"source_font": "krutidev010"},
+    )
+
+    ctx = ExecutionContext("run-pb", "req-partial-batch", "t-pb", "s-pb")
+    res = cap.execute(req, ctx, prior_result=prior)
+
+    assert res.next_requirement is None
+    assert isinstance(res.data, tuple)
+    assert len(res.data) == 2
+    assert res.data[0].text == "भारत"
+    assert res.data[1].text == ""
+    assert any(w.code == "EMPTY_DOCUMENT_SKIPPED" for w in res.warnings)
+
+
+
+def test_font_mode_validation_rejects_unknown() -> None:
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+
+    cap = FontConversionCapability()
+    ctx = ExecutionContext(run_id="r1", request_id="req1", span_id="s1", trace_id="t1")
+    req = Request(
+        request_id="req1",
+        requirement="convert_font",
+        inputs=(InputRef(input_id="in1", source_path=Path("in1.txt"), display_name="in1.txt", size_bytes=10, media_type="text/plain"),),
+        custom_options={"font_mode": "to_krutidevv"},
+    )
+    prior = Result(
+        data=CanonicalDocument(
+            document_id="d1",
+            source_input_id="in1",
+            text="Hkkjr",
+            pages=(),
+            tables=(),
+            detected_type="legacy_font_document",
+        )
+    )
+    with pytest.raises(DoshError) as exc_info:
+        cap.execute(req, ctx, prior_result=prior)
+    assert exc_info.value.code == FailureCode.VALIDATION_FAILED
+    assert "Unsupported or invalid font_mode 'to_krutidevv'" in exc_info.value.message

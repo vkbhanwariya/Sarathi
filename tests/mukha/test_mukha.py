@@ -180,6 +180,93 @@ class TestMukhaInputAndIntakeTruth:
             )
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
 
+    def test_intake_folder_selection_non_recursive_vs_recursive(self, tmp_path: Path) -> None:
+        folder = tmp_path / "inbox"
+        subfolder = folder / "nested"
+        subfolder.mkdir(parents=True)
+
+        root_file = folder / "root.pdf"
+        root_file.write_bytes(b"root doc")
+        nested_file = subfolder / "nested.pdf"
+        nested_file.write_bytes(b"nested doc")
+
+        # Non-recursive (default)
+        refs_flat, _, preflight_flat = MukhaPresenter.intake_from_paths([folder], recursive=False)
+        assert len(refs_flat) == 1
+        assert refs_flat[0].display_name == "root.pdf"
+        assert preflight_flat.eligible_count == 1
+
+        # Recursive (explicit)
+        refs_rec, _, preflight_rec = MukhaPresenter.intake_from_paths([folder], recursive=True)
+        assert len(refs_rec) == 2
+        assert {r.display_name for r in refs_rec} == {"root.pdf", "nested.pdf"}
+        assert preflight_rec.eligible_count == 2
+
+    def test_intake_ignores_hidden_and_temporary_files(self, tmp_path: Path) -> None:
+        folder = tmp_path / "docs"
+        folder.mkdir()
+
+        (folder / "valid_doc.pdf").write_bytes(b"valid")
+        (folder / ".DS_Store").write_bytes(b"mac metadata")
+        (folder / ".hidden.pdf").write_bytes(b"hidden")
+        (folder / "~$document.docx").write_bytes(b"office lock")
+        (folder / "download.tmp").write_bytes(b"temp")
+
+        refs, _, _ = MukhaPresenter.intake_from_paths([folder], recursive=False)
+        assert len(refs) == 1
+        assert refs[0].display_name == "valid_doc.pdf"
+
+    def test_cli_intake_folder_and_recursive_parity(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sarathi.__main__ import main
+
+        folder = tmp_path / "cli_inbox"
+        sub = folder / "sub"
+        sub.mkdir(parents=True)
+
+        f1 = folder / "doc1.txt"
+        f2 = sub / "doc2.txt"
+        f1.write_text("hello world from doc1", encoding="utf-8")
+        f2.write_text("hello world from doc2", encoding="utf-8")
+
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+
+        exit_code = main(
+            [
+                "--input",
+                str(folder),
+                "--runtime-root",
+                str(runtime_root),
+                "--output-root",
+                str(output_root),
+                "--requirement",
+                "read_native",
+            ]
+        )
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "Status: Success" in captured.out
+
+        exit_code_rec = main(
+            [
+                "--input",
+                str(folder),
+                "--recursive",
+                "--runtime-root",
+                str(runtime_root),
+                "--output-root",
+                str(output_root),
+                "--requirement",
+                "read_native",
+            ]
+        )
+        assert exit_code_rec == 0
+        captured_rec = capsys.readouterr()
+        assert "Status: Success" in captured_rec.out
+
+
     def test_build_home_view_is_pure_projection(self) -> None:
         sel = InputSelectionView(total_files=2, total_size_bytes=1024, is_grouped=False)
         actions = (AvailableActionView(action_id="start_run", label="Start Run"),)

@@ -30,6 +30,7 @@ from sarathi.sankalpa import (
     TextSpan,
     WarningRecord,
 )
+from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
 
 
 class TestExecutionProfile:
@@ -900,3 +901,105 @@ def test_request_preserve_partial_strict_bool_validation(tmp_path: Path) -> None
         with pytest.raises(TypeError) as exc_info:
             Request("req-bad", "read_native", inputs=(inp,), preserve_partial=invalid)  # type: ignore[arg-type]
         assert "preserve_partial must be a bool" in str(exc_info.value)
+
+
+def test_normalize_canonical_documents_supported_shapes() -> None:
+    first = CanonicalDocument(document_id="doc-1")
+    second = CanonicalDocument(document_id="doc-2")
+
+    assert normalize_canonical_documents(first) == (first,)
+    assert normalize_canonical_documents([first, second]) == (first, second)
+    assert normalize_canonical_documents((first, second)) == (first, second)
+    assert normalize_canonical_documents([]) == ()
+    assert normalize_canonical_documents([first, "invalid"]) is None
+    assert normalize_canonical_documents("invalid") is None
+
+
+def test_span_transformer_type_error_propagates() -> None:
+    """A transformer bug must not be mistaken for an alternate callback signature."""
+    doc = CanonicalDocument(
+        document_id="doc-1",
+        pages=(PageData(page_number=1, spans=(TextSpan(text="hello"),)),),
+    )
+
+    def broken_transform(_: TextSpan) -> str:
+        raise TypeError("transformer bug")
+
+    with pytest.raises(TypeError, match="transformer bug"):
+        transform_canonical_document(
+            doc,
+            str.upper,
+            detected_type="test",
+            span_transform_fn=broken_transform,
+        )
+
+
+def test_default_span_transform_preserves_unmodified_fields() -> None:
+    span = TextSpan(
+        text="hello",
+        confidence=0.9,
+        bounding_box=(1.0, 2.0, 3.0, 4.0),
+        language="en",
+        script="Latn",
+        metadata={"source": "ocr"},
+    )
+    doc = CanonicalDocument(
+        document_id="doc-2",
+        source_input_id="inp-1",
+        pages=(PageData(page_number=1, text="hello", spans=(span,), metadata={"page": 1}),),
+        text="hello",
+        metadata={"origin": "test"},
+    )
+
+    transformed = transform_canonical_document(
+        doc,
+        str.upper,
+        detected_type="translated_document",
+        target_lang="hi",
+        target_script="Deva",
+    )
+
+    out_span = transformed.pages[0].spans[0]
+    assert transformed.document_id == doc.document_id
+    assert transformed.source_input_id == doc.source_input_id
+    assert transformed.metadata == doc.metadata
+    assert transformed.text == "HELLO"
+    assert transformed.detected_type == "translated_document"
+    assert transformed.pages[0].metadata == {"page": 1}
+    assert out_span.text == "HELLO"
+
+
+def test_execution_context_copy_helpers_preserve_unmodified_state() -> None:
+    from sarathi.sankalpa import CancellationToken
+
+    token = CancellationToken()
+    binding = ExecutionBinding(
+        device_id="gpu-0",
+        device_type=DeviceType.GPU,
+        backend="openvino",
+        backend_device_id="GPU.0",
+        approved_concurrency=2,
+    )
+    context = ExecutionContext(
+        run_id="run-1",
+        request_id="req-1",
+        trace_id="tr-1",
+        span_id="sp-1",
+        profile=ExecutionProfile.ACCURATE,
+        cancellation_token=token,
+        metadata={"source": "test"},
+    )
+
+    bound = context.with_execution_binding(binding)
+    child = bound.child_span("sp-2", {"stage": "ocr"})
+    retry = child.with_retry(quarantine_attempt=1)
+
+    assert bound.execution_binding is binding
+    assert child.execution_binding is binding
+    assert child.parent_span_id == "sp-1"
+    assert child.metadata == {"source": "test", "stage": "ocr"}
+    assert retry.execution_binding is binding
+    assert retry.cancellation_token is token
+    assert retry.profile is ExecutionProfile.ACCURATE
+    assert retry.quarantine_attempt == 1
+    assert retry.is_retry is True

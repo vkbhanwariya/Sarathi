@@ -109,3 +109,57 @@ def test_translation_asset_version_tracks_root_yaml_and_domain_files(tmp_path: P
     engine_modified = CTranslate2TranslationEngine(data_root=tmp_path)
     assert engine_modified.asset_version != rev_with_domain
 
+
+def test_translation_glossary_collision_observability(tmp_path: Path) -> None:
+    """Verify GlossaryStore records conflicting translations in the collisions property."""
+    g_file = tmp_path / "glossary.yaml"
+    g_file.write_text(
+        """
+        - source: "Court"
+          target: "अदालत"
+          direction: "en-hi"
+        - source: "Court"
+          target: "न्यायालय"
+          direction: "en-hi"
+        """,
+        encoding="utf-8",
+    )
+
+    store = GlossaryStore(glossary_dir=tmp_path)
+    assert len(store.collisions) >= 1
+    assert store.collisions[0]["source"] == "Court"
+    assert store.collisions[0]["existing_target"] == "अदालत"
+    assert store.collisions[0]["conflicting_target"] == "न्यायालय"
+
+    with pytest.raises(DoshError) as exc_info:
+        GlossaryStore(glossary_dir=tmp_path, strict=True)
+    assert exc_info.value.code == FailureCode.INVALID_CONFIGURATION
+
+
+def test_glossary_direction_validation(tmp_path: Path) -> None:
+    """Invalid translation glossary direction values must raise INVALID_CONFIGURATION."""
+    g_file = tmp_path / "glossary.yaml"
+    g_file.write_text(
+        """
+        - source: "Court"
+          target: "अदालत"
+          direction: "invalid-direction"
+        """,
+        encoding="utf-8",
+    )
+    with pytest.raises(DoshError) as exc_info:
+        GlossaryStore(glossary_dir=tmp_path)
+    assert exc_info.value.code == FailureCode.INVALID_CONFIGURATION
+
+
+def test_glossary_composite_synonym_splitting() -> None:
+    store = GlossaryStore()
+    store._parse_raw_data(
+        {"Account Freeze": "खाता लेन-देन रोक / खाता फ्रीज"},
+        "test_glossary.json",
+    )
+    hi_to_en = store.get_terms(TranslationDirection.HI_TO_EN)
+    assert "खाता लेन-देन रोक" in hi_to_en
+    assert "खाता फ्रीज" in hi_to_en
+    assert hi_to_en["खाता लेन-देन रोक"] == "Account Freeze"
+    assert hi_to_en["खाता फ्रीज"] == "Account Freeze"

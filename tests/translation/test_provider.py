@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from sarathi.sankalpa import PluginServices, ReadinessStatus
 from sarathi.shakti.translation.capability import TranslationCapability
 from sarathi.shakti.translation.provider import TranslationProvider
@@ -133,3 +135,16 @@ def test_translation_engine_error_does_not_leak_paths(tmp_path: Path) -> None:
     err_msg = exc_info.value.message
     assert str(tmp_path) not in err_msg
     assert "Model assets for translation direction 'hi-en' are missing or incomplete." == err_msg
+
+
+def test_translation_anubhava_malformed_raises_invalid_configuration(tmp_path: Path) -> None:
+    """Malformed anubhava.toml raises INVALID_CONFIGURATION."""
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.shakti.translation.engine import _load_translation_anubhava
+
+    bad_toml = tmp_path / "anubhava.toml"
+    bad_toml.write_text("invalid [ = toml syntax", encoding="utf-8")
+
+    with pytest.raises(DoshError) as exc_info:
+        _load_translation_anubhava(tmp_path)
+    assert exc_info.value.code == FailureCode.INVALID_CONFIGURATION

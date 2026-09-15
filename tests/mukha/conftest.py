@@ -87,7 +87,7 @@ def http_get(
             return err.code, err.read(), CaseInsensitiveHeaders(dict(err.headers.items()))
         except (ConnectionResetError, ConnectionAbortedError, urllib.error.URLError, OSError) as exc:
             if attempt < 4:
-                time.sleep(0.15 * (attempt + 1))
+                time.sleep(0.02 * (attempt + 1))
                 continue
             raise AssertionError(f"HTTP GET {url} failed due to transport failure: {exc}") from exc
     raise AssertionError(f"HTTP GET {url} failed after 5 retries")
@@ -133,7 +133,7 @@ def http_post_json(
                 return err.code, {"error": str(err.reason)}
         except (ConnectionResetError, ConnectionAbortedError, urllib.error.URLError, OSError) as exc:
             if attempt < 4:
-                time.sleep(0.15 * (attempt + 1))
+                time.sleep(0.02 * (attempt + 1))
                 continue
             raise AssertionError(f"HTTP POST {url} failed due to transport failure: {exc}") from exc
         except Exception as exc:

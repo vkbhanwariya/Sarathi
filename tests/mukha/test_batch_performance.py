@@ -114,4 +114,3 @@ def test_state_serialization_scaling(file_count: int, max_duration_s: float) -> 
     assert serialized["active_run"]["files"][0]["ordinal"] == 1
     assert serialized["active_run"]["files"][-1]["ordinal"] == file_count
     assert elapsed < max_duration_s, f"Serialization of {file_count} files took {elapsed:.3f}s (budget: {max_duration_s}s)"
-

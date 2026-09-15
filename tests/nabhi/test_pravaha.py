@@ -1975,3 +1975,130 @@ class TestPravahaFailureLifecycleAndQuarantine:
 
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
         assert denied_cap.call_count == 0
+
+    def test_pipeline_multi_stage_warning_accumulation(self, tmp_path: Path) -> None:
+        """Pravaha centrally accumulates warnings across continuation and resumption stages."""
+        from sarathi.sankalpa import Capability
+
+        plugin = PluginInfo(
+            plugin_id="p1",
+            name="P1",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("stage_a", "stage_b"),
+        )
+        decl_a = CapabilityDeclaration("stage_a", "p1", "1.0.0", (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE))
+        decl_b = CapabilityDeclaration("stage_b", "p1", "1.0.0", (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE))
+
+        kosh = Kosh()
+        kosh.register_plugin(plugin)
+        kosh.register_capability(decl_a)
+        kosh.register_capability(decl_b)
+
+        manthan = Manthan(kosh)
+        yantra = Yantra(DeviceInventory.default_inventory())
+        qstore = QuarantineStore(tmp_path / "quarantine")
+
+        class StageA(Capability):
+            def __init__(self) -> None:
+                self.executions = 0
+
+            @property
+            def declaration(self) -> CapabilityDeclaration:
+                return decl_a
+
+            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+                self.executions += 1
+                if self.executions == 1:
+                    return Result(
+                        data="data_a",
+                        next_requirement="stage_b",
+                        resume_self=True,
+                        warnings=(WarningRecord("WARN_A", "Stage A warning", stage="stage_a"),),
+                    )
+                return Result(data=f"{prior_result.data if prior_result else ''}+resumed_a")
+
+        class StageB(Capability):
+            @property
+            def declaration(self) -> CapabilityDeclaration:
+                return decl_b
+
+            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+                return Result(data=f"{prior_result.data if prior_result else ''}+stage_b")
+
+        caps = {"stage_a": StageA(), "stage_b": StageB()}
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities=caps,
+            quarantine_store=qstore,
+            retry_policy=RetryPolicy(),
+        )
+
+        req = Request("req-flow", "stage_a", (InputRef("i1", Path("f.txt"), "f.txt", 10),))
+        ctx = ExecutionContext("run-1", "req-flow", "t1", "s1")
+        plan = CapabilityPlan("req-flow", ("stage_a",))
+
+        res = pravaha.execute(plan, req, ctx)
+        assert any(w.code == "WARN_A" for w in res.warnings)
+        assert res.data == "data_a+stage_b+resumed_a"
+
+    def test_smriti_cache_put_failure_records_darpana_telemetry(self, tmp_path: Path) -> None:
+        """Smriti cache write failure emits telemetry without failing the execution."""
+        from unittest.mock import MagicMock
+
+        from sarathi.darpana import Darpana
+        from sarathi.smriti import SmritiCache
+
+        plugin = PluginInfo(
+            plugin_id="p_cache",
+            name="PCache",
+            version="1.0.0",
+            security=SecurityDeclaration(),
+            capabilities=("calc_stage",),
+        )
+        decl = CapabilityDeclaration("calc_stage", "p_cache", "1.0.0", (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE))
+
+        kosh = Kosh()
+        kosh.register_plugin(plugin)
+        kosh.register_capability(decl)
+
+        manthan = Manthan(kosh)
+        yantra = Yantra(DeviceInventory.default_inventory())
+        qstore = QuarantineStore(tmp_path / "quarantine")
+        darpana = Darpana()
+
+        mock_smriti = MagicMock(spec=SmritiCache)
+        mock_smriti.get_with_tier.return_value = (None, None)
+        mock_smriti.put.side_effect = RuntimeError("Disk full writing cache")
+
+        class CalcCap:
+            @property
+            def declaration(self) -> CapabilityDeclaration:
+                return decl
+
+            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+                return Result(data="calc_success")
+
+        pravaha = Pravaha(
+            manthan=manthan,
+            yantra=yantra,
+            capabilities={"calc_stage": CalcCap()},
+            quarantine_store=qstore,
+            retry_policy=RetryPolicy(),
+            darpana=darpana,
+            smriti=mock_smriti,
+        )
+
+        req = Request("req-cache", "calc_stage", (InputRef("i1", Path("f.txt"), "f.txt", 10),))
+        ctx = ExecutionContext("run-1", "req-cache", "t1", "s1")
+        plan = CapabilityPlan("req-cache", ("calc_stage",))
+
+        res = pravaha.execute(plan, req, ctx)
+        assert res.data == "calc_success"
+
+        records = darpana.maruti_records()
+        write_failures = [r for r in records if r.phase_name == "cache.write_failure"]
+        assert len(write_failures) >= 1
+        assert write_failures[0].outcome == "failure"
+        assert write_failures[0].attributes.get("error_type") == "RuntimeError"

@@ -855,6 +855,7 @@ class TestOCRDeclarations:
         with pytest.raises(CustomDefectError, match="Unexpected hardware or memory fault in geometry buffer"):
             ocr_capability.execute(req, context)
 
+    @pytest.mark.real_model
     def test_real_scanned_pdf_ocr_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -883,6 +884,7 @@ class TestOCRDeclarations:
         assert len(doc.pages) == 1
         assert "BALANCE-54321" in doc.pages[0].text
 
+    @pytest.mark.real_model
     def test_mixed_input_run_preserves_native_output_and_ocrs_scanned_input(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -954,6 +956,7 @@ class TestOCRDeclarations:
         assert "inp-native" in prov_inputs
         assert "inp-scan" in prov_inputs
 
+    @pytest.mark.real_model
     def test_partial_native_document_preserves_extracted_pages_and_ocrs_remaining(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -1063,6 +1066,7 @@ class TestOCRDeclarations:
             restricted_cap.execute(accurate_req, context)
         assert exc_info_exec.value.code is FailureCode.UNSUPPORTED
 
+    @pytest.mark.real_model
     def test_privacy_zero_raw_filesystem_path_leakage(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -1135,6 +1139,7 @@ class TestOCRDeclarations:
             ocr_capability.execute(req, context)
         assert exc_info.value.code is FailureCode.UNSUPPORTED
 
+    @pytest.mark.real_model
     def test_end_to_end_shruti_to_ocr_pipeline_flow(self, tmp_path: Path) -> None:
         # Create a scanned PDF (no native text)
         scanned_path = tmp_path / "scanned_invoice.pdf"

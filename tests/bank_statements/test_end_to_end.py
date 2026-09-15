@@ -311,3 +311,39 @@ def test_xlsx_formula_injection_prevention() -> None:
     desc_cell = ws.cell(row=2, column=3)
     assert desc_cell.value == "=1+1"
     assert desc_cell.data_type == "s"
+
+
+def test_e2e_hdfc_multiline_narration_consolidation(tmp_path: Path) -> None:
+    hdfc_fixture = Path(__file__).parent / "fixtures" / "hdfc_statement.csv"
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        darpana=Darpana(capacity=200),
+    )
+    req = Request(
+        request_id="req-hdfc-1",
+        requirement="bank_statements",
+        inputs=(InputRef("i-hdfc", hdfc_fixture, "hdfc_statement.csv", hdfc_fixture.stat().st_size),),
+        profile=ExecutionProfile.ACCURATE,
+    )
+    ctx = ExecutionContext("run-hdfc-1", "req-hdfc-1", "t1", "s1")
+
+    res = agni.execute(req, ctx)
+    assert isinstance(res, Result)
+    assert isinstance(res.data, BankStatementConsolidationResult)
+    consolidation: BankStatementConsolidationResult = res.data
+
+    assert len(consolidation.statements) == 1
+    stmt = consolidation.statements[0]
+    assert stmt.bank_profile == "hdfc"
+    assert len(stmt.transactions) == 2
+
+    # Check multiline narration merged
+    tx1 = stmt.transactions[0]
+    assert "POS 401234123412 AMAZON INDIA" in tx1.description
+    assert "E-COMMERCE BANGALORE IN" in tx1.description
+    assert tx1.debit == Decimal("1500.00")
+    assert tx1.running_balance == Decimal("48500.00")
+
+    assert consolidation.total_debit == Decimal("1500.00")
+    assert consolidation.total_credit == Decimal("100000.00")

@@ -154,3 +154,43 @@ def test_bidirectional_isolated_header_discontinuity_detection() -> None:
     assert disc_issue.context is not None
     assert disc_issue.context.get("isolated_upstream_discontinuity") == "true"
     assert disc_issue.context.get("suspected_source") == "header_opening_balance_ocr"
+
+
+def test_zero_opening_and_closing_balances_preserved() -> None:
+    """Legitimate 0.00 opening and closing balances must not be discarded."""
+    from pathlib import Path
+
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    cap = BankStatementCapability()
+    table = TableData(
+        name="txns",
+        headers=("Date", "Narration", "Withdrawal", "Deposit", "Balance"),
+        rows=(
+            ("01/01/2026", "Opening Balance b/f", "", "", "0.00"),
+            ("02/01/2026", "Direct Deposit", "", "5000.00", "5000.00"),
+            ("03/01/2026", "Cash Withdrawal", "5000.00", "", "0.00"),
+            ("31/01/2026", "Closing Balance c/f", "", "", "0.00"),
+        ),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-zero-bal",
+        source_input_id="inp-zero",
+        text="State Bank of India Statement of Account Account Number: 12345678901",
+        tables=(table,),
+    )
+    req = Request(
+        request_id="req-test",
+        requirement="bank_statements",
+        inputs=(InputRef("i1", Path("test.csv"), "test.csv", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-test", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+
+    assert res.data is not None
+    stmts = res.data.statements
+    assert len(stmts) == 1
+    stmt = stmts[0]
+    assert stmt.opening_balance == Decimal("0.00")
+    assert stmt.closing_balance == Decimal("0.00")

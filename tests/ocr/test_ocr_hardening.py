@@ -833,3 +833,89 @@ def test_factory_sets_rec_text_score_zero(tmp_path: Path) -> None:
         )
         assert inst is not None
         assert captured_params.get("Rec.text_score") == 0.0
+
+
+def test_openvino_and_ocr_zero_network_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that checking OCR readiness and importing OpenVINO makes zero outbound socket connections."""
+    import socket
+
+    from sarathi.shakti.ocr.engine import check_ocr_readiness
+
+    def denied_connect(self, *args, **kwargs):
+        raise RuntimeError("NETWORK_ACCESS_DENIED: Socket connection forbidden by Kavacha/local policy.")
+
+    monkeypatch.setattr(socket.socket, "connect", denied_connect)
+
+    is_ready, reason = check_ocr_readiness()
+    try:
+        import openvino as ov
+
+        core = ov.Core()
+        _ = core.available_devices
+    except ImportError:
+        pass
+
+
+def test_ocr_coordinator_serializes_concurrent_inference_calls() -> None:
+    """Verify coordinator._infer_lock serializes concurrent inference calls to prevent Infer Request collision."""
+    import threading
+
+    import numpy as np
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
+
+    coordinator = RapidOCREngine()
+
+    active_calls = 0
+    max_concurrent_seen = 0
+    call_lock = threading.Lock()
+
+    def mock_engine(img: Any, use_cls: bool = True) -> MagicMock:
+        nonlocal active_calls, max_concurrent_seen
+        with call_lock:
+            active_calls += 1
+            if active_calls > max_concurrent_seen:
+                max_concurrent_seen = active_calls
+            if active_calls > 1:
+                raise RuntimeError("Infer Request is busy")
+
+        time.sleep(0.01)
+
+        with call_lock:
+            active_calls -= 1
+
+        res = MagicMock()
+        res.boxes = np.array([[[10, 10], [50, 10], [50, 20], [10, 20]]])
+        res.txts = ["Test"]
+        res.scores = [0.95]
+        return res
+
+    coordinator._engine = mock_engine
+
+    num_threads = 8
+    errors: list[Exception] = []
+    results = [None] * num_threads
+
+    def worker(idx: int) -> None:
+        img = Image.new("RGB", (100, 100), color="white")
+        try:
+            p_data, p_prov, conf, warns = coordinator.ocr_page(
+                img,
+                page_number=idx + 1,
+                input_id=f"inp-{idx}",
+                profile=ExecutionProfile.INSTANT,
+            )
+            results[idx] = p_data
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(num_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Concurrent OCR threw errors: {errors}"
+    assert max_concurrent_seen == 1, f"Expected strictly 1 concurrent inference call, got {max_concurrent_seen}"
+    assert all(r is not None for r in results)

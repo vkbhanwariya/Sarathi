@@ -201,3 +201,66 @@ def test_devlys_complex_reph_akshara() -> None:
     res_devlys = converter.convert("dk;Z", profile_id="devlys010")
     assert res_kruti == "कार्य"
     assert res_devlys == "कार्य"
+
+
+def test_detector_hint_and_evidence_matrix() -> None:
+    """Verify detector hint and evidence matrix for legacy text vs English."""
+    from pathlib import Path
+    _fixture = Path(__file__).parent / "fixtures" / "krutidev_sample.txt"
+    legacy_text = _fixture.read_text(encoding="utf-8")
+    detector = LegacyFontDetector()
+    english_text = "Vendor Name Invoice Number Customer Reference Payment Details Branch Office"
+
+    # 1. Wrong hint + ordinary English -> no conversion
+    p1, c1 = detector.detect(english_text, font_hint="wrong_font")
+    assert p1 is None
+    assert c1 == 0.0
+
+    # 2. Correct hint + insufficient evidence -> no conversion
+    p2, c2 = detector.detect(english_text, font_hint="krutidev010")
+    assert p2 is None
+    assert c2 == 0.0
+
+    # 3. Correct hint + validated legacy evidence -> conversion
+    p3, c3 = detector.detect(legacy_text, font_hint="krutidev010")
+    assert p3 == "krutidev010"
+    assert c3 > 0.5
+
+    # 4. No hint + ambiguous legacy evidence -> no conversion
+    p4, c4 = detector.detect(legacy_text, font_hint=None)
+    assert p4 is None
+    assert c4 == 0.0
+
+
+def test_krutidev_extended_ligatures_and_glyphs() -> None:
+    """Verify extended KrutiDev ligatures, purna viram, and glyph coverage."""
+    from sarathi.shakti.font_conversion.protector import TextProtector
+
+    converter = FontConverter()
+    protector = TextProtector()
+
+    ligature_cases = [
+        ("A", "।"),
+        ("mÙk", "उत्त"),
+        ("Øe", "क्रम"),
+        ("¶ySV", "फ्लैट"),
+        ("Ã", "ई"),
+        ("Çd", "किं"),
+        ("—i;s", "रुपये"),
+        ("}kjk", "द्वारा"),
+        ("eq>s", "मुझे"),
+        ("la[;k", "संख्या"),
+        ("[kq’kcw", "खुशबू"),
+        ("'kq#vkr", "शुरुआत"),
+        ("#i;s", "रुपये"),
+        (":Ik", "रूप"),
+        ("t:jr", "जरूरत"),
+        ("fo:)", "विरुद्ध"),
+        ("[ksrh", "खेती"),
+    ]
+
+    for raw, expected in ligature_cases:
+        prot, spans = protector.protect(raw, protect_devanagari=True, is_explicit_legacy=True)
+        conv = converter.convert(prot, "krutidev010")
+        restored = protector.restore(conv, spans)
+        assert expected in restored, f"Failed converting '{raw}': got '{restored}', expected '{expected}'"

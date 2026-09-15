@@ -1139,5 +1139,3 @@ class TestNativeExtraction:
 
             assert darshana_facts.format_name == "xls_legacy", f"Darshana failed on probe {idx}"
             assert native_fmt == DetectedFormat.XLS_LEGACY, f"Native extraction failed on probe {idx}"
-
-

@@ -599,3 +599,45 @@ class TestAgniBootstrap:
         assert exc_info.value.code == FailureCode.VALIDATION_FAILED
         assert "unknown.plugin" in str(exc_info.value.message)
         assert "owning plugin 'unknown.plugin' is not registered in Kosh" in str(exc_info.value.message)
+
+    def test_agni_forbids_restart_after_close(self, tmp_path: Path) -> None:
+        """Agni instance cannot report fake restart after close()."""
+        agni = Agni(runtime_root=tmp_path / "runtime", output_root=tmp_path / "output")
+        agni.start()
+        assert agni.is_started is True
+        agni.close()
+        assert agni.is_started is False
+
+        with pytest.raises(DoshError) as exc_info:
+            agni.start()
+        assert exc_info.value.code == FailureCode.VALIDATION_FAILED
+        assert "cannot be restarted after close" in exc_info.value.message
+
+    def test_agni_singular_lifecycle_ownership(self, tmp_path: Path) -> None:
+        """Agni directly owns runtime component startup and shutdown."""
+        class TrackingDarpana(Darpana):
+            def __init__(self) -> None:
+                super().__init__()
+                self.start_called = False
+                self.close_called = False
+
+            def start(self) -> None:
+                self.start_called = True
+
+            def close(self) -> None:
+                super().close()
+                self.close_called = True
+
+        mock_darpana = TrackingDarpana()
+
+        agni = Agni(
+            runtime_root=tmp_path / "runtime",
+            output_root=tmp_path / "output",
+            darpana=mock_darpana,
+        )
+        agni.start()
+        assert mock_darpana.start_called is True
+
+        agni.close()
+        assert mock_darpana.close_called is True
+        assert agni.is_closed is True

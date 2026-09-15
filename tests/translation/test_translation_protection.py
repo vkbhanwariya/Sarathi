@@ -62,3 +62,13 @@ def test_span_protection_detects_corrupted_or_dropped_placeholders() -> None:
     assert issues[0]["code"] == "PROTECTED_SPAN_DUPLICATED"
     assert issues[0]["count"] == 2
     assert "₹1000 twice: ₹1000" in restored
+
+
+def test_translation_protector_shields_glossary_terms() -> None:
+    protector = TranslationProtector()
+    glossary = {"High Court": "उच्च न्यायालय", "Supreme Court": "सर्वोच्च न्यायालय"}
+    text = "The High Court issued an order to the Supreme Court."
+    protected_text, spans = protector.protect(text, glossary_mappings=glossary)
+    assert "High Court" not in protected_text
+    assert "Supreme Court" not in protected_text
+    assert len(spans) == 2

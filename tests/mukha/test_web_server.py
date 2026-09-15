@@ -62,13 +62,18 @@ class TestMukhaWebServerSecurityAndStatic:
         assert status == 403
 
     def test_security_rejects_oversized_payload(self, web_server: MukhaWebServer) -> None:
-        """Requests exceeding MAX_BODY_SIZE are rejected with 413."""
+        """Requests exceeding MAX_BODY_SIZE are rejected with 413 or early socket closure."""
         large_paths = ["a" * 1000 for _ in range(2000)]  # > 1MB
-        status, body = _http_post(
-            f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
-            data={"paths": large_paths},
-        )
-        assert status in (400, 413)
+        try:
+            status, body = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
+                data={"paths": large_paths},
+            )
+            assert status in (400, 413)
+        except AssertionError as exc:
+            # On Windows, early server socket closure on 413 aborts client send
+            assert any(term in str(exc) for term in ("10053", "ConnectionAbortedError", "ConnectionResetError"))
+
 
 
 class TestMukhaWebServerAPI:
@@ -315,6 +320,24 @@ class TestMukhaWebServerAPI:
                 f"http://127.0.0.1:{web_server.resolved_port}/api/runs/wrong_run/artifacts/{art_id}"
             )
             assert status == 404
+
+        # Outside containment returns 403 Forbidden
+        outside_file = tmp_path / "outside_forbidden" / "secret.txt"
+        outside_file.parent.mkdir(parents=True, exist_ok=True)
+        outside_file.write_text("secret", encoding="utf-8")
+        leak_ref = ArtifactRef(
+            artifact_id="art_leak",
+            path=outside_file,
+            role="report",
+            media_type="text/plain",
+            size_bytes=6,
+        )
+        with patch.object(web_server, "get_confirmed_artifact", return_value=leak_ref):
+            status, _, _ = _http_get(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/artifacts/art_leak"
+            )
+            assert status == 403
+
 
     def test_run_accepts_custom_options_and_forwards_to_request(
         self, web_server: MukhaWebServer, tmp_path: Path
@@ -1252,3 +1275,311 @@ def test_concurrent_intake_does_not_block_server_lock(tmp_path: Path) -> None:
     # Thread 2 must acquire the lock immediately (< 30ms), not blocked for 100ms by intake
     assert is_busy is False
     assert lock_acquisition_time < 0.05, f"Lock acquisition took {lock_acquisition_time:.4f}s; intake held the lock!"
+
+
+def test_inspector_endpoint_returns_200_for_run(web_server: MukhaWebServer, tmp_path: Path) -> None:
+    from sarathi.sankalpa import Result
+    f1 = tmp_path / "doc.txt"
+    f1.write_text("Hello Inspector", encoding="utf-8")
+
+    with patch.object(web_server._agni, "execute", return_value=Result(data=None)):
+        status, data = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+            data={"paths": [str(f1)], "requirement": "read_native"},
+        )
+        assert status == 200
+        run_id = data["run_id"]
+        time.sleep(0.5)
+
+        status, body, _ = _http_get(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/inspector"
+        )
+        assert status == 200
+        insp_data = json.loads(body.decode("utf-8"))
+        assert insp_data["ok"] is True
+        inspector = insp_data["inspector"]
+        assert inspector["run_id"] == run_id
+        assert "activity_logs" in inspector
+        assert "device_summaries" in inspector
+        assert "stage_timings" in inspector
+        assert "system_facts" in inspector
+
+
+def test_inspector_endpoint_rejects_invalid_id(web_server: MukhaWebServer) -> None:
+    status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/bad..id/inspector")
+    assert status == 400
+
+
+def test_inspector_endpoint_404_for_unknown_run(web_server: MukhaWebServer) -> None:
+    status, _, _ = _http_get(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run_nonexistent_999/inspector"
+    )
+    assert status == 404
+
+
+def test_preview_execution_plan_no_inputs() -> None:
+    from unittest.mock import MagicMock
+
+    from sarathi.mukha.web.planner import preview_execution_plan
+    mock_agni = MagicMock()
+    mock_agni.kavacha = MagicMock()
+    mock_agni.runtime_root = Path(".runtime")
+    mock_agni.output_root = Path(".output")
+
+    res = preview_execution_plan(
+        agni=mock_agni,
+        paths=[],
+        requirement="read_native",
+    )
+    assert res["ok"] is False
+    assert "No eligible input documents" in res["error"]
+
+
+def test_preview_execution_plan_mock_success(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    from sarathi.mukha.web.planner import preview_execution_plan
+    from sarathi.sankalpa import DeviceType, ExecutionProfile
+    from sarathi.yantra.devices import DeviceInfo
+
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("sample content", encoding="utf-8")
+
+    mock_agni = MagicMock()
+    mock_agni.kavacha.validate_read_path.return_value = test_file
+    mock_agni.kavacha.policy.is_path_allowed.return_value = True
+    mock_agni.runtime_root = tmp_path / "runtime"
+    mock_agni.output_root = tmp_path / "output"
+
+    mock_plan = MagicMock()
+    mock_plan.capability_ids = ("read_native",)
+    mock_agni.manthan.resolve.return_value = mock_plan
+
+    mock_cap = MagicMock()
+    mock_cap.name = "Native Text Extraction"
+    mock_agni.kosh.get_capability.return_value = mock_cap
+
+    concrete_device = DeviceInfo(device_id="cpu:0", device_type=DeviceType.CPU, capacity=4)
+    mock_agni.yantra.inventory.devices = [concrete_device]
+
+    res = preview_execution_plan(
+        agni=mock_agni,
+        paths=[test_file],
+        requirement="read_native",
+        profile=ExecutionProfile.INSTANT,
+    )
+    assert res["ok"] is True
+    assert res["document_count"] == 1
+    assert "read_native" in res["capabilities"]
+    assert len(res["stages"]) >= 4
+    assert any("Native Text Extraction" in s["name"] for s in res["stages"])
+    assert len(res["devices"]) == 1
+
+
+def test_state_endpoint_includes_version_and_revision(web_server: MukhaWebServer) -> None:
+    status, data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+    assert status == 200
+    res = json.loads(data.decode("utf-8"))
+    assert res["ok"] is True
+    assert res["schema_version"] == 1
+    assert isinstance(res["state_revision"], int)
+    assert res["state_revision"] >= 1
+    assert res["state"]["schema_version"] == 1
+    assert res["state"]["state_revision"] == res["state_revision"]
+
+
+def test_state_revision_monotonic_increment(web_server: MukhaWebServer) -> None:
+    r0 = web_server.runner.state_revision
+    assert r0 >= 1
+    from sarathi.sankalpa import Result, WarningRecord
+
+    web_server.runner._last_result = Result(
+        data=None,
+        warnings=(
+            WarningRecord(
+                code="UNCERTAIN_GLYPH",
+                message="Suspicious character",
+                stage="ocr",
+                context={"attempt_id": "att-ver-1"},
+            ),
+        ),
+    )
+
+    status_post, res_post = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {"item_id": "rev-1", "attempt_id": "att-ver-1", "action_id": "accept"},
+    )
+    assert status_post == 200
+    assert res_post["ok"] is True
+    assert web_server.runner.state_revision > r0
+
+
+def test_sse_emits_schema_version_and_state_revision(web_server: MukhaWebServer) -> None:
+    url = f"http://127.0.0.1:{web_server.resolved_port}/api/events"
+    req = urllib.request.Request(url, headers={"Host": "127.0.0.1"})
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
+        lines = []
+        for _ in range(5):
+            line = resp.readline().decode("utf-8").strip()
+            if line:
+                lines.append(line)
+            elif lines:
+                break
+    data_line = next((line for line in lines if line.startswith("data:")), None)
+    assert data_line is not None
+    payload = json.loads(data_line.removeprefix("data:").strip())
+    assert payload["ok"] is True
+    assert payload["schema_version"] == 1
+    assert payload["state_revision"] >= 1
+
+
+def test_ui_endpoint_rejects_traversal(web_server: MukhaWebServer) -> None:
+    status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/..%2F..%2Fsecret.py")
+    assert status == 404
+    status_missing, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/nonexistent.js")
+    assert status_missing == 404
+
+
+def test_preview_dialog_and_close_button_contract(web_server: MukhaWebServer) -> None:
+    status_app, data_app, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/ui/app.js")
+    assert status_app == 200
+    app_js = data_app.decode("utf-8")
+    assert "doc-preview-dialog" in app_js
+    assert "btn-close-preview" in app_js
+    assert "command-palette-dialog" in app_js
+    assert "palette-search-input" in app_js
+
+
+def test_action_parameter_view_serialization() -> None:
+    from sarathi.mukha.state import ActionParameterView
+    from sarathi.mukha.web.security import _serialize_dataclass
+    param = ActionParameterView(
+        parameter_id="profile",
+        display_name="OCR Execution Profile",
+        kind="select",
+        default_value="instant",
+        options=(("instant", "Instant"), ("accurate", "Accurate")),
+        is_required=True,
+    )
+    data = _serialize_dataclass(param)
+    assert data["parameter_id"] == "profile"
+    assert data["kind"] == "select"
+    assert data["default_value"] == "instant"
+    assert len(data["options"]) == 2
+
+
+def test_build_action_parameters_ocr_and_font() -> None:
+    from sarathi.mukha.web.state_builder import _build_action_parameters
+    ocr_params = _build_action_parameters("ocr")
+    assert any(p.parameter_id == "profile" for p in ocr_params)
+    assert any(p.parameter_id == "lang" for p in ocr_params)
+
+    font_params = _build_action_parameters("font_conversion")
+    assert any(p.parameter_id == "source_font" for p in font_params)
+    assert any(p.parameter_id == "font_mode" for p in font_params)
+    assert _build_action_parameters("unknown_action") == ()
+
+
+def test_diagnostics_export_sanitization() -> None:
+    from unittest.mock import MagicMock
+
+    from sarathi.darpana import MarutiRecord, PramanaRecord
+    from sarathi.mukha.web.diagnostics import export_run_diagnostics
+    from sarathi.sankalpa import ConfidenceValue
+
+    mock_agni = MagicMock()
+    mock_agni.darpana.maruti_records.return_value = (
+        MarutiRecord(
+            run_id="run-diag",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-1",
+            phase_name="optical_character_recognition",
+            component="rapidocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            duration_ns=150_000_000,
+            outcome="success",
+            attributes={"text": "SECRET", "page": 1, "chars": 120},
+        ),
+    )
+    mock_agni.darpana.pramana_records.return_value = (
+        PramanaRecord(
+            run_id="run-diag",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-page",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            confidence=ConfidenceValue(score=0.96, method="test", evidence={"samples": 10}),
+            attributes={"level": "page"},
+        ),
+    )
+    diag = export_run_diagnostics(mock_agni, "run-diag", "127.0.0.1", 8765)
+    assert diag["schema"] == "sarathi.diagnostics.v1"
+    assert diag["run_id"] == "run-diag"
+    assert "optical_character_recognition" in diag["stages"]
+    assert "text" not in diag["events"][0]["attributes"]
+
+
+def test_run_comparison_analytics() -> None:
+    from unittest.mock import MagicMock
+
+    from sarathi.darpana import MarutiRecord, PramanaRecord
+    from sarathi.mukha.web.comparison import compare_runs
+    from sarathi.sankalpa import ConfidenceValue
+
+    mock_agni = MagicMock()
+    mock_agni.darpana.maruti_records.return_value = (
+        MarutiRecord(
+            run_id="run-a",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-1",
+            phase_name="ocr",
+            component="rapidocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            duration_ns=100_000_000,
+            outcome="success",
+        ),
+        MarutiRecord(
+            run_id="run-b",
+            request_id="req-2",
+            trace_id="tr-2",
+            span_id="sp-2",
+            phase_name="ocr",
+            component="rapidocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            duration_ns=75_000_000,
+            outcome="success",
+        ),
+    )
+    mock_agni.darpana.pramana_records.return_value = (
+        PramanaRecord(
+            run_id="run-a",
+            request_id="req-1",
+            trace_id="tr-1",
+            span_id="sp-a",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            confidence=ConfidenceValue(score=0.85, method="test", evidence={"samples": 10}),
+            attributes={"level": "page"},
+        ),
+        PramanaRecord(
+            run_id="run-b",
+            request_id="req-2",
+            trace_id="tr-2",
+            span_id="sp-b",
+            capability_id="ocr",
+            stage="ocr",
+            timestamp_utc="2026-09-07T00:00:00Z",
+            confidence=ConfidenceValue(score=0.95, method="test", evidence={"samples": 10}),
+            attributes={"level": "page"},
+        ),
+    )
+    res = compare_runs(mock_agni, "run-a", "run-b")
+    assert res["ok"] is True
+    assert res["summary"]["duration_ms_a"] == 100.0
+    assert res["summary"]["duration_ms_b"] == 75.0
+    assert res["summary"]["confidence_diff"] == 0.1

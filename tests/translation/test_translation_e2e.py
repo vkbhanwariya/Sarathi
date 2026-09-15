@@ -242,3 +242,85 @@ def test_translation_opus_mt_engine_forwarding_and_dependency_check(tmp_path: Pa
         native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="opus_mt")
     assert excinfo.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
     assert "OPUS-MT" in excinfo.value.message
+
+
+def test_translation_telemetry_never_emits_fabricated_confidence(tmp_path: Path, test_backend: Any) -> None:
+    """Proves translation telemetry records confidence=None and measured duration."""
+    darpana = Darpana(capacity=100)
+    cap = TranslationCapability(darpana=darpana, backend=test_backend)
+
+    sample_file = tmp_path / "sample.txt"
+    sample_file.write_text("भारतीय रिजर्व बैंक\n", encoding="utf-8")
+
+    inp = InputRef(
+        input_id="inp-tr-truth",
+        source_path=sample_file,
+        display_name="sample.txt",
+        size_bytes=sample_file.stat().st_size,
+    )
+    req = Request(
+        request_id="req-tr-truth",
+        requirement="translation",
+        inputs=(inp,),
+        profile=ExecutionProfile.ACCURATE,
+        metadata={"direction": "hi-en"},
+    )
+    ctx = ExecutionContext("run-tr-truth", "req-tr-truth", "t-tr", "s-tr")
+    doc = CanonicalDocument(
+        document_id="doc-tr-truth",
+        text="भारतीय रिजर्व बैंक ने नई मौद्रिक नीति की घोषणा की।",
+        pages=(
+            PageData(
+                page_number=1,
+                text="भारतीय रिजर्व बैंक ने नई मौद्रिक नीति की घोषणा की।",
+            ),
+        ),
+    )
+    prior = Result(data=doc)
+
+    result = cap.execute(req, ctx, prior_result=prior)
+
+    assert isinstance(result, Result)
+    assert result.confidence is None
+
+    # Check Pramana telemetry records
+    pramana_recs = [r for r in darpana.pramana_records() if r.run_id == ctx.run_id]
+    assert len(pramana_recs) > 0
+    for prec in pramana_recs:
+        assert prec.confidence is None, f"Expected confidence=None but got {prec.confidence}"
+        assert prec.attributes.get("min_confidence") is None
+        assert prec.attributes.get("max_confidence") is None
+
+    # Check Maruti worker execution duration
+    maruti_recs = [r for r in darpana.maruti_records() if r.run_id == ctx.run_id and r.phase_name == "worker_execution"]
+    assert len(maruti_recs) > 0
+    for mrec in maruti_recs:
+        assert isinstance(mrec.duration_ns, int)
+        assert mrec.duration_ns >= 0
+
+
+@pytest.mark.parametrize(
+    ("direction", "src_text", "expected_fragment"),
+    [
+        (
+            "hi-en",
+            "भारतीय रिजर्व बैंक ने नई मौद्रिक नीति की घोषणा की।",
+            "Reserve Bank of India",
+        ),
+        (
+            "en-hi",
+            "The applicant submitted the identity document on date 15/08/2026 for verification.",
+            "आवेदक ने सत्यापन के लिए",
+        ),
+    ],
+)
+def test_bilingual_sentence_translation_directions(
+    test_backend: Any, direction: str, src_text: str, expected_fragment: str
+) -> None:
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    engine = CTranslate2TranslationEngine(backend=test_backend)
+    dir_enum = TranslationDirection(direction)
+    res = engine.translate(src_text, direction=dir_enum)
+    assert expected_fragment in res.translated_text

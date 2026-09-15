@@ -599,3 +599,11 @@ def test_proven_duplicate_scanned_before_probable_duplicate() -> None:
     assert proven_dups[0][0].reference_number == "REF100"
     assert proven_dups[0][1].reference_number == "REF100"
 
+
+def test_duplicate_decision_no_stale_aliases() -> None:
+    """Stale PROVEN and PROBABLE aliases removed from DuplicateDecision enum."""
+    assert hasattr(DuplicateDecision, "PROVEN_DUPLICATE")
+    assert hasattr(DuplicateDecision, "PROBABLE_DUPLICATE")
+    assert hasattr(DuplicateDecision, "DISTINCT")
+    assert not hasattr(DuplicateDecision, "PROVEN")
+    assert not hasattr(DuplicateDecision, "PROBABLE")

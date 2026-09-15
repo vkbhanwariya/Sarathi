@@ -727,3 +727,43 @@ def test_native_layout_preserving_handoff_to_ocr_continuation(tmp_path: Path) ->
     res = agni.execute(req)
     assert res.data.text == "OCR Layout-Preserved Content"
     assert recorded_ocr_profile == [ExecutionProfile.LAYOUT_PRESERVING]
+
+
+def test_mixed_batch_ocr_handoff_font_and_translation() -> None:
+    """When a batch has one document with text and one empty document, OCR handoff must trigger."""
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+    from sarathi.shakti.font_conversion.capability import FontConversionCapability
+    from sarathi.shakti.translation.capability import TranslationCapability
+
+    doc_with_text = CanonicalDocument(document_id="d1", source_input_id="i1", text="Already extracted text")
+    doc_empty = CanonicalDocument(
+        document_id="d2",
+        source_input_id="i2",
+        text="",
+        pages=(PageData(page_number=1, text=""),),
+    )
+
+    req = Request(
+        request_id="req-batch",
+        requirement="font_conversion",
+        inputs=(
+            InputRef("i1", Path("d1.txt"), "d1.txt", 10),
+            InputRef("i2", Path("d2.pdf"), "d2.pdf", 20),
+        ),
+    )
+    ctx = ExecutionContext("run-1", "req-batch", "t1", "s1")
+
+    font_cap = FontConversionCapability()
+    res_font = font_cap.execute(req, ctx, prior_result=Result(data=(doc_with_text, doc_empty)))
+    assert res_font.next_requirement is None
+    assert any(w.code == "EMPTY_DOCUMENT_SKIPPED" for w in res_font.warnings)
+
+    trans_cap = TranslationCapability()
+    res_trans = trans_cap.execute(req, ctx, prior_result=Result(data=(doc_with_text, doc_empty)))
+    assert res_trans.next_requirement == "ocr"
+    assert res_trans.resume_self is True
+
+    bank_cap = BankStatementCapability()
+    res_bank = bank_cap.execute(req, ctx, prior_result=Result(data=(doc_with_text, doc_empty)))
+    assert res_bank.next_requirement == "ocr"
+    assert res_bank.resume_self is True

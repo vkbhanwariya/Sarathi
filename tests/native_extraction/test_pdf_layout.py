@@ -24,7 +24,7 @@ from sarathi.shakti.native_extraction.readers.pdf_layout import (
 )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def sample_pdf_bytes() -> bytes:
     doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)

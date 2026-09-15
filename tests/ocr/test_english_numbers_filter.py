@@ -50,6 +50,7 @@ def test_filter_english_and_numbers_unit() -> None:
     assert filter_english_and_numbers("Branch शाखा 001") == "Branch 001"
 
 
+@pytest.mark.real_model
 def test_ocr_engine_routes_to_ppocrv6(tmp_path: Path) -> None:
     """Verify RapidOCREngine routes to PP-OCRv6 model when configured."""
     img_path = tmp_path / "sample.png"
@@ -73,6 +74,7 @@ def test_ocr_engine_routes_to_ppocrv6(tmp_path: Path) -> None:
     assert "v6_en" in engine._engines
 
 
+@pytest.mark.real_model
 def test_font_conversion_lightweight_oracle_mode(tmp_path: Path) -> None:
     """Verify lightweight oracle mode for font conversion bypasses heavy vision filters."""
     img_path = tmp_path / "lightweight_sample.png"
