@@ -267,6 +267,20 @@ class Settings:
         return raw
 
     @property
+    def hardware_cpu_capacity(self) -> int | None:
+        """Return validated hardware.cpu_capacity if specified, or None."""
+        sec = self.get_section("hardware")
+        raw = sec.get("cpu_capacity") if sec is not None else None
+        if raw is None:
+            return None
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"hardware.cpu_capacity must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
     def hardware_gpu_capacity_per_device(self) -> int:
         """Return validated hardware.gpu_capacity_per_device, defaulting to 4."""
         sec = self.get_section("hardware")

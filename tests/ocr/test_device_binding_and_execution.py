@@ -88,6 +88,37 @@ class TestOCREngineDeviceBinding:
         assert p_gpu.text == "GPU Text"
         assert prov_gpu.evidence["device"] == "GPU"
 
+    def test_gpu_dual_stream_pool_concurrency(self) -> None:
+        import queue
+        mock_slot0 = MagicMock()
+        mock_slot1 = MagicMock()
+        mock_slot0.return_value = MagicMock(txts=["Slot 0 Output"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.99])
+        mock_slot1.return_value = MagicMock(txts=["Slot 1 Output"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.98])
+
+        engine = RapidOCREngine()
+        cache_key = "v6_en:GPU"
+        q: queue.Queue[int] = queue.Queue()
+        q.put(0)
+        q.put(1)
+        engine._gpu_pools[cache_key] = q
+        engine._gpu_engines[cache_key] = [mock_slot0, mock_slot1]
+        engine._model_labels[cache_key] = "PP-OCRv6"
+
+        img = Image.new("RGB", (100, 40), color="white")
+        binding_gpu = ExecutionBinding(
+            device_id="gpu-0",
+            device_type=DeviceType.GPU,
+            backend="openvino",
+            backend_device_id="GPU",
+        )
+
+        p1, _, _, _ = engine.ocr_page(img, 1, "in-1", custom_options={"lang": "en"}, execution_binding=binding_gpu)
+        p2, _, _, _ = engine.ocr_page(img, 2, "in-1", custom_options={"lang": "en"}, execution_binding=binding_gpu)
+
+        assert p1.text == "Slot 0 Output"
+        assert p2.text == "Slot 1 Output"
+        assert engine._gpu_pools[cache_key].qsize() == 2
+
     def test_engine_defaults_to_cpu_when_no_binding(self) -> None:
         mock_rapidocr = MagicMock()
         mock_output = MagicMock()

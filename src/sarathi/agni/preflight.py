@@ -160,6 +160,7 @@ def resolve_yantra_and_inventory(
             detect_accelerators=settings.hardware_detect_accelerators,
             gpu_capacity_per_device=settings.hardware_gpu_capacity_per_device,
             npu_capacity_per_device=settings.hardware_npu_capacity_per_device,
+            cpu_capacity=settings.hardware_cpu_capacity,
         )
 
     active_yantra = Yantra(

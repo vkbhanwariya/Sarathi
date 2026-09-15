@@ -128,18 +128,27 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                     from rapidocr.inference_engine.openvino.device_config import CPUConfig
 
                     cpu_config = CPUConfig(cfg.get("engine_cfg", {}))
-                    core.set_property("CPU", cpu_config.get_config())
+                    cpu_props = dict(cpu_config.get_config())
+                    cpu_props["ENABLE_CPU_PINNING"] = True
+                    cpu_props["CPU_DENORMALS_OPTIMIZATION"] = True
+                    core.set_property("CPU", cpu_props)
                 except Exception:
                     pass
             elif device_name in ("GPU", "NPU") or "GPU" in device_name or "NPU" in device_name:
                 try:
-                    core.set_property(
-                        device_name,
-                        {
-                            "INFERENCE_PRECISION_HINT": "f16",
-                            "PERFORMANCE_HINT": "LATENCY",
-                        },
-                    )
+                    gpu_props: dict[str, Any] = {
+                        "INFERENCE_PRECISION_HINT": "f16",
+                        "PERFORMANCE_HINT": "THROUGHPUT",
+                        "NUM_STREAMS": "2",
+                        "CACHE_MODE": "OPTIMIZE_SPEED",
+                    }
+                    effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()
+                    try:
+                        effective_cache_dir.mkdir(parents=True, exist_ok=True)
+                        gpu_props["CACHE_DIR"] = str(effective_cache_dir)
+                    except Exception:
+                        pass
+                    core.set_property(device_name, gpu_props)
                 except Exception:
                     pass
 

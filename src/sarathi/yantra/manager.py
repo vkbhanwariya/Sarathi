@@ -39,12 +39,14 @@ class Yantra:
         *,
         gpu_capacity_per_device: int = 4,
         npu_capacity_per_device: int = 2,
+        cpu_capacity: int | None = None,
     ) -> DeviceInventory:
         """Return the factual default hardware inventory."""
         return DeviceInventory.default_inventory(
             detect_accelerators=detect_accelerators,
             gpu_capacity_per_device=gpu_capacity_per_device,
             npu_capacity_per_device=npu_capacity_per_device,
+            cpu_capacity=cpu_capacity,
         )
 
     def __init__(

@@ -6,9 +6,11 @@ weak-crop retry, and canonical PageData and TableData synthesis.
 
 from __future__ import annotations
 
+import queue
 import re
 import threading
 import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -46,6 +48,8 @@ class RapidOCREngine:
     """Instance-owned RapidOCR + OpenVINO engine adapter."""
 
     _infer_lock: threading.RLock = threading.RLock()
+    _gpu_pools: dict[str, queue.Queue[int]] = {}
+    _gpu_engines: dict[str, list[Any]] = {}
 
     def __init__(
         self,
@@ -59,6 +63,8 @@ class RapidOCREngine:
         self._default_lang: str = default_lang
         self._init_lock: threading.Lock = threading.Lock()
         self._infer_lock: threading.RLock = threading.RLock()
+        self._gpu_pools: dict[str, queue.Queue[int]] = {}
+        self._gpu_engines: dict[str, list[Any]] = {}
         self._verified_model_paths: dict[str, str] = {}
         self._asset_version: str = self._compute_asset_version()
 
@@ -113,7 +119,40 @@ class RapidOCREngine:
 
             self._engines[cache_key] = engine_inst
             self._model_labels[cache_key] = label
+
+            if (target_device == "GPU" or "GPU" in target_device) and cache_key not in self._gpu_pools:
+                try:
+                    engine_inst_1, _, _, _ = build_rapidocr_instance(
+                        data_root=self._data_root,
+                        lang=lang,
+                        target_device=target_device,
+                        verified_model_paths=self._verified_model_paths,
+                        default_lang=self._default_lang,
+                    )
+                    q: queue.Queue[int] = queue.Queue()
+                    q.put(0)
+                    q.put(1)
+                    self._gpu_pools[cache_key] = q
+                    self._gpu_engines[cache_key] = [engine_inst, engine_inst_1]
+                except Exception:
+                    pass
+
             return engine_inst
+
+    @contextmanager
+    def _acquire_infer_engine(self, cache_key: str, fallback_engine: Any):
+        """Acquire an inference engine slot; uses dual-stream pool on GPU or serialized lock on fallback."""
+        gpu_pools = getattr(self, "_gpu_pools", None)
+        gpu_engines = getattr(self, "_gpu_engines", None)
+        if gpu_pools is not None and gpu_engines is not None and cache_key in gpu_pools:
+            slot_idx = gpu_pools[cache_key].get()
+            try:
+                yield gpu_engines[cache_key][slot_idx]
+            finally:
+                gpu_pools[cache_key].put(slot_idx)
+        else:
+            with self._infer_lock:
+                yield fallback_engine
 
     def ocr_page(
         self,
@@ -198,14 +237,17 @@ class RapidOCREngine:
         else:
             use_cls_flag = True
 
-        with self._infer_lock:
+        engine_key, _ = resolve_engine_keys(target_lang, default_lang=self._default_lang)
+        cache_key = f"{engine_key}:{target_device}"
+
+        with self._acquire_infer_engine(cache_key, fallback_engine=engine) as active_engine:
             try:
-                output = engine(img_arr, use_det=True, use_cls=use_cls_flag)
+                output = active_engine(img_arr, use_det=True, use_cls=use_cls_flag)
             except TypeError:
                 try:
-                    output = engine(img_arr, use_cls=use_cls_flag)
+                    output = active_engine(img_arr, use_cls=use_cls_flag)
                 except TypeError:
-                    output = engine(img_arr)
+                    output = active_engine(img_arr)
 
         if cancellation_token is not None and cancellation_token.is_cancelled:
             cancellation_token.check_cancelled()
@@ -278,49 +320,48 @@ class RapidOCREngine:
                     if is_low_contrast_image(crop, std_threshold=45.0):
                         crop = apply_clahe(crop, clip_limit=2.5)
 
-                    try:
-                        # Re-recognize using the EXACT same recognizer instance
-                        with self._infer_lock:
-                            retry_out = engine(crop, use_det=False, use_cls=False)
-                        if retry_out and getattr(retry_out, "txts", None) and getattr(retry_out, "scores", None):
-                            r_txts = list(retry_out.txts)
-                            r_scores = list(retry_out.scores)
-                            if r_txts and r_scores and r_scores[0] is not None:
-                                r_text = unicodedata.normalize("NFC", str(r_txts[0]).strip())
-                                r_conf = float(r_scores[0])
+                        try:
+                            # Re-recognize using the active recognizer slot
+                            retry_out = active_engine(crop, use_det=False, use_cls=False)
+                            if retry_out and getattr(retry_out, "txts", None) and getattr(retry_out, "scores", None):
+                                r_txts = list(retry_out.txts)
+                                r_scores = list(retry_out.scores)
+                                if r_txts and r_scores and r_scores[0] is not None:
+                                    r_text = unicodedata.normalize("NFC", str(r_txts[0]).strip())
+                                    r_conf = float(r_scores[0])
 
-                                # Numeric & token preservation check: digits must not be corrupted
-                                orig_digits = re.findall(r"\d+", span.text.translate(deva_to_ascii))
-                                if orig_digits:
-                                    r_digits = re.findall(r"\d+", r_text.translate(deva_to_ascii))
-                                    if orig_digits != r_digits:
-                                        continue
+                                    # Numeric & token preservation check: digits must not be corrupted
+                                    orig_digits = re.findall(r"\d+", span.text.translate(deva_to_ascii))
+                                    if orig_digits:
+                                        r_digits = re.findall(r"\d+", r_text.translate(deva_to_ascii))
+                                        if orig_digits != r_digits:
+                                            continue
 
-                                if r_conf > span.confidence and r_text:
-                                    gain = round(r_conf - span.confidence, 4)
-                                    spans[idx] = TextSpan(
-                                        text=r_text,
-                                        confidence=r_conf,
-                                        bounding_box=span.bounding_box,
-                                        language=span.language,
-                                        script=span.script,
-                                        metadata={
-                                            "retry_applied": True,
-                                            "fallback_applied": True,
-                                            "fallback_engine": "same_engine_retry",
-                                            "original_confidence": span.confidence,
-                                            "replacement_confidence": r_conf,
-                                            "confidence_gain": gain,
-                                            "raw_confidence_score_delta": gain,
-                                        },
-                                    )
-                                    if idx < len(lines):
-                                        lines[idx] = r_text
-                                    retry_applied = True
-                                    retry_improved_count += 1
-                                    retry_total_gain += gain
-                    except Exception:
-                        pass
+                                    if r_conf > span.confidence and r_text:
+                                        gain = round(r_conf - span.confidence, 4)
+                                        spans[idx] = TextSpan(
+                                            text=r_text,
+                                            confidence=r_conf,
+                                            bounding_box=span.bounding_box,
+                                            language=span.language,
+                                            script=span.script,
+                                            metadata={
+                                                "retry_applied": True,
+                                                "fallback_applied": True,
+                                                "fallback_engine": "same_engine_retry",
+                                                "original_confidence": span.confidence,
+                                                "replacement_confidence": r_conf,
+                                                "confidence_gain": gain,
+                                                "raw_confidence_score_delta": gain,
+                                            },
+                                        )
+                                        if idx < len(lines):
+                                            lines[idx] = r_text
+                                        retry_applied = True
+                                        retry_improved_count += 1
+                                        retry_total_gain += gain
+                        except Exception:
+                            pass
 
         # Layout and table reconstruction
         is_layout_mode = (

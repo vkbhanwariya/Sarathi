@@ -64,6 +64,24 @@ class TestHardwareDiscovery:
             assert gpu_dev is not None
             assert gpu_dev.capacity == 4
 
+    def test_discovery_clamps_gpu_capacity_to_hardware_stream_range(self) -> None:
+        mock_core = MagicMock()
+        mock_core.available_devices = ["CPU", "GPU.0"]
+        mock_core.get_property.return_value = (1, 2)
+        with patch.dict("sys.modules", {"openvino": MagicMock(Core=MagicMock(return_value=mock_core))}):
+            inv = DeviceInventory.default_inventory(
+                detect_accelerators=True,
+                gpu_capacity_per_device=8,
+            )
+            gpu_dev = inv.get_device("gpu-0")
+            assert gpu_dev is not None
+            # Hardware advertised max 2 streams; clamped to 2
+            assert gpu_dev.capacity == 2
+
+    def test_default_inventory_custom_cpu_capacity(self) -> None:
+        inv = DeviceInventory.default_inventory(cpu_capacity=6)
+        assert inv.devices[0].capacity == 6
+
     def test_discovery_openvino_cpu_and_npu(self) -> None:
         mock_core = MagicMock()
         mock_core.available_devices = ["CPU", "NPU"]

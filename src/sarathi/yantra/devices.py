@@ -116,19 +116,23 @@ class DeviceInventory:
         *,
         gpu_capacity_per_device: int = 4,
         npu_capacity_per_device: int = 2,
+        cpu_capacity: int | None = None,
     ) -> DeviceInventory:
         """Create a factual default inventory using system CPU capacity, optionally including hardware accelerators.
 
         When detect_accelerators is True, factual hardware discovery queries runtime backends
         (OpenVINO and CUDA) for physically accessible accelerators. Accelerator capacity is defined
-        as a bounded scheduler concurrency limit (default 4 concurrent streams per physical accelerator),
-        not fabricated physical compute cores.
+        as a bounded scheduler concurrency limit (default 4 concurrent streams per physical accelerator,
+        clamped to physical hardware stream range when available), not fabricated physical compute cores.
         """
         import os
 
-        count_fn = getattr(os, "process_cpu_count", None)
-        cpu_count = count_fn() if callable(count_fn) else os.cpu_count()
-        actual_capacity = max(1, cpu_count or 1)
+        if cpu_capacity is not None:
+            actual_capacity = max(1, cpu_capacity)
+        else:
+            count_fn = getattr(os, "process_cpu_count", None)
+            cpu_count = count_fn() if callable(count_fn) else os.cpu_count()
+            actual_capacity = max(1, cpu_count or 1)
 
         devices: list[DeviceInfo] = [
             DeviceInfo(
@@ -144,6 +148,7 @@ class DeviceInventory:
             # Safely probe OpenVINO accelerators
             ov_gpus: list[str] = []
             ov_npus: list[str] = []
+            core = None
             try:
                 import os
 
@@ -176,11 +181,23 @@ class DeviceInventory:
                 if idx < cuda_count:
                     backends.append("cuda")
                     locators["cuda"] = str(idx)
+
+                eff_gpu_cap = gpu_capacity_per_device
+                if core is not None:
+                    try:
+                        stream_range = core.get_property(ov_name, "RANGE_FOR_STREAMS")
+                        if isinstance(stream_range, (tuple, list)) and len(stream_range) >= 2:
+                            max_hw = int(stream_range[1])
+                            if max_hw > 0:
+                                eff_gpu_cap = min(eff_gpu_cap, max_hw)
+                    except Exception:
+                        pass
+
                 devices.append(
                     DeviceInfo(
                         device_id=dev_id,
                         device_type=DeviceType.GPU,
-                        capacity=gpu_capacity_per_device,
+                        capacity=eff_gpu_cap,
                         supported_backends=tuple(backends),
                         backend_locators=locators,
                     )
@@ -203,11 +220,22 @@ class DeviceInventory:
             # Add OpenVINO NPUs
             for idx, ov_name in enumerate(ov_npus):
                 dev_id = f"npu-{idx}"
+                eff_npu_cap = npu_capacity_per_device
+                if core is not None:
+                    try:
+                        stream_range = core.get_property(ov_name, "RANGE_FOR_STREAMS")
+                        if isinstance(stream_range, (tuple, list)) and len(stream_range) >= 2:
+                            max_hw = int(stream_range[1])
+                            if max_hw > 0:
+                                eff_npu_cap = min(eff_npu_cap, max_hw)
+                    except Exception:
+                        pass
+
                 devices.append(
                     DeviceInfo(
                         device_id=dev_id,
                         device_type=DeviceType.NPU,
-                        capacity=npu_capacity_per_device,
+                        capacity=eff_npu_cap,
                         supported_backends=("openvino",),
                         backend_locators={"openvino": ov_name},
                     )

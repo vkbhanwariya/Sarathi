@@ -30,7 +30,8 @@ history_path = "history.jsonl"
 
 [hardware]
 detect_accelerators = true
-gpu_capacity_per_device = 8
+gpu_capacity_per_device = 2
+cpu_capacity = 6
 
 [mistral]
 model_ocr = "mistral-ocr-latest"
