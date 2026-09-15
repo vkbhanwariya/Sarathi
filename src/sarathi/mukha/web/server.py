@@ -303,7 +303,7 @@ class MukhaWebServer:
             log_level="warning",
             access_log=False,
             lifespan="off",
-            timeout_graceful_shutdown=0.1,
+            timeout_graceful_shutdown=0,
         )
         server = uvicorn.Server(config)
         self._uvicorn_server = server

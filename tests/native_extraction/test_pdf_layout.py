@@ -13,6 +13,7 @@ from sarathi.sankalpa import (
     ExecutionContext,
     ExecutionProfile,
     InputRef,
+    ProvenanceRecord,
     Request,
     Result,
 )
@@ -64,11 +65,19 @@ def test_read_pdf_with_layout_extracts_headings_and_semantics(sample_pdf_bytes: 
 
 def test_read_pdf_layout_dispatch(sample_pdf_bytes: bytes) -> None:
     """read_pdf dispatches to read_pdf_with_layout when use_layout=True."""
-    doc, provs, warns = read_pdf(sample_pdf_bytes, "inp-dispatch", use_layout=True)
+    mock_doc = CanonicalDocument(document_id="inp-dispatch", text="Sample", pages=())
+    mock_prov = ProvenanceRecord(evidence={"reader": "pymupdf_layout"})
+    with patch(
+        "sarathi.shakti.native_extraction.readers.pdf_layout.read_pdf_with_layout",
+        return_value=(mock_doc, [mock_prov], []),
+    ) as mock_layout:
+        doc, provs, warns = read_pdf(sample_pdf_bytes, "inp-dispatch", use_layout=True)
+        assert mock_layout.called
+        assert doc is mock_doc
+        assert any(p.evidence.get("reader") == "pymupdf_layout" for p in provs)
+        assert not any(w.code == "LAYOUT_PACKAGE_UNAVAILABLE" for w in warns)
 
-    assert isinstance(doc, CanonicalDocument)
-    assert any(p.evidence.get("reader") == "pymupdf_layout" for p in provs)
-    assert not any(w.code == "LAYOUT_PACKAGE_UNAVAILABLE" for w in warns)
+
 
 
 def test_read_pdf_layout_fallback_when_unavailable(sample_pdf_bytes: bytes) -> None:

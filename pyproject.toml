@@ -59,7 +59,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
-addopts = "-ra -q --tb=short --show-capture=no -m \"not browser and not performance and not real_model\""
+addopts = "-ra -q --tb=short --show-capture=no -p no:warnings -m \"not browser and not performance and not real_model\""
 markers = [
     "unit: marks isolated deterministic unit tests",
     "contract: marks public data or API contract tests",
@@ -75,7 +75,11 @@ markers = [
 [tool.ruff]
 target-version = "py313"
 line-length = 120
+output-format = "concise"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sarathi"]
