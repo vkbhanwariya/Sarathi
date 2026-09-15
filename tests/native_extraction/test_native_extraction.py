@@ -1142,3 +1142,50 @@ class TestNativeExtraction:
 
             assert darshana_facts.format_name == "xls_legacy", f"Darshana failed on probe {idx}"
             assert native_fmt == DetectedFormat.XLS_LEGACY, f"Native extraction failed on probe {idx}"
+
+    def test_pdf_table_header_external_and_metadata(
+        self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
+    ) -> None:
+        """Tests that tab.header.external preserves all rows as data and tab.header.names are used."""
+        from unittest.mock import MagicMock
+
+        pdf_path = tmp_path / "table_hdr.pdf"
+        doc_pdf = pymupdf.open()
+        p = doc_pdf.new_page()
+        p.insert_text((50, 50), "Report Table Page")
+        doc_pdf.save(str(pdf_path))
+        doc_pdf.close()
+
+        req = Request(
+            request_id="req-tab-ext",
+            requirement="read_native",
+            inputs=(
+                InputRef(
+                    input_id="inp-tab-ext",
+                    source_path=pdf_path,
+                    display_name="table_hdr.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                ),
+            ),
+        )
+
+        # Mock table with external header (tab.header.external = True)
+        mock_tab = MagicMock()
+        mock_tab.extract.return_value = [["Row1_Col1", "Row1_Col2"], ["Row2_Col1", "Row2_Col2"]]
+        mock_tab.header.names = ["Header_A", "Header_B"]
+        mock_tab.header.external = True
+
+        mock_finder = MagicMock()
+        mock_finder.tables = [mock_tab]
+
+        with patch.object(pymupdf.Page, "find_tables", return_value=mock_finder):
+            res = capability.execute(req, context)
+
+        doc = res.data
+        assert len(doc.tables) == 1
+        t = doc.tables[0]
+        # When external=True, header names are Header_A, Header_B and Row 1 is NOT lost
+        assert t.headers == ("Header_A", "Header_B")
+        assert len(t.rows) == 2
+        assert t.rows[0] == ("Row1_Col1", "Row1_Col2")
+        assert t.rows[1] == ("Row2_Col1", "Row2_Col2")

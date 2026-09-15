@@ -106,10 +106,13 @@ def read_pdf(
                 p_blocks, p_height, header_templates, footer_templates
             )
 
+            # Pre-compute TextPage once per page to avoid redundant display-list re-parsing
+            text_page = page.get_textpage(flags=_PDF_TEXT_FLAGS)
+
             if skip_header_footer and (header_lines or footer_lines):
                 page_text = normalize_text_spacing("\n\n".join(body_lines))
             else:
-                raw_text = page.get_text("text", flags=_PDF_TEXT_FLAGS).strip()
+                raw_text = text_page.extractTEXT().strip()
                 page_text = normalize_text_spacing(raw_text)
 
             if page_text:
@@ -124,7 +127,7 @@ def read_pdf(
             # Extract text spans with font size and formatting evidence
             spans: list[TextSpan] = []
             try:
-                page_dict = page.get_text("dict", flags=_PDF_TEXT_FLAGS)
+                page_dict = text_page.extractDICT()
                 for block in page_dict.get("blocks", []):
                     if "lines" in block:
                         for line in block["lines"]:
@@ -155,7 +158,7 @@ def read_pdf(
                 )
 
             if not spans:
-                blocks = page.get_text("blocks")
+                blocks = text_page.extractBLOCKS()
                 for b in blocks:
                     if len(b) >= 5:
                         x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
@@ -185,8 +188,18 @@ def read_pdf(
                 for t_idx, tab in enumerate(tabs.tables, 1):
                     extracted_rows = tab.extract()
                     if extracted_rows and len(extracted_rows) > 0:
-                        headers = tuple(str(h or "") for h in extracted_rows[0])
-                        data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
+                        header_obj = getattr(tab, "header", None)
+                        header_names = getattr(header_obj, "names", None) if header_obj is not None else None
+                        is_external = bool(getattr(header_obj, "external", False)) if header_obj is not None else False
+
+                        if is_external and header_names:
+                            headers = tuple(str(h or "") for h in header_names)
+                            data_rows = tuple(tuple(val for val in row) for row in extracted_rows)
+                        else:
+                            candidate_headers = header_names if header_names else extracted_rows[0]
+                            headers = tuple(str(h or "") for h in candidate_headers)
+                            data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
+
                         t_obj = TableData(
                             name=f"Page_{page_num}_Table_{t_idx}",
                             headers=headers,

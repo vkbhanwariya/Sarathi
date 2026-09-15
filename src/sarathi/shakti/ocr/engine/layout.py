@@ -17,7 +17,8 @@ import numpy as np
 
 from sarathi.sankalpa import TableData, TextSpan
 from sarathi.shakti.ocr.engine.parser import sort_reading_order_xycut
-from sarathi.shakti.text.typography import normalize_text_spacing
+from sarathi.shakti.ocr.typography import infer_line_font_size
+from sarathi.shakti.text.typography import normalize_text_spacing, reconstruct_line_from_spans
 
 _LIST_BULLET_RE = re.compile(
     r"^(\s*([•\-\*–—]|(\d+|[a-zA-Z]|[ivxIVX]+|[०-९]+|[क-ह])[\.\)\/\-]))\s+"
@@ -32,6 +33,24 @@ class _VisualLine:
     y1: float
     text: str
     max_h: float
+
+
+def _build_line_text(sorted_spans: Sequence[TextSpan]) -> str:
+    """Reconstruct line text using font-metric gap analysis when bboxes are present."""
+    line_spans_data = [
+        (
+            s.text,
+            s.bounding_box,
+            max(1.0, abs(s.bounding_box[3] - s.bounding_box[1])) if s.bounding_box else 12.0,
+        )
+        for s in sorted_spans
+        if s.bounding_box is not None and s.text and s.text.strip()
+    ]
+    if line_spans_data:
+        res = reconstruct_line_from_spans(line_spans_data)
+        if res:
+            return res
+    return " ".join(it.text.strip() for it in sorted_spans if it.text and it.text.strip())
 
 
 def _spans_inside_box(
@@ -444,7 +463,7 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
                 curr_line_spans,
                 key=lambda it: it.bounding_box[0] if it.bounding_box else 0.0,
             )
-            line_str = " ".join(it.text.strip() for it in sorted_line if it.text.strip())
+            line_str = _build_line_text(sorted_line)
             if line_str:
                 x0_min = min((it.bounding_box[0] for it in sorted_line if it.bounding_box), default=0.0)
                 y0_min = min((it.bounding_box[1] for it in sorted_line if it.bounding_box), default=0.0)
@@ -467,7 +486,7 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
             curr_line_spans,
             key=lambda it: it.bounding_box[0] if it.bounding_box else 0.0,
         )
-        line_str = " ".join(it.text.strip() for it in sorted_line if it.text.strip())
+        line_str = _build_line_text(sorted_line)
         if line_str:
             x0_min = min((it.bounding_box[0] for it in sorted_line if it.bounding_box), default=0.0)
             y0_min = min((it.bounding_box[1] for it in sorted_line if it.bounding_box), default=0.0)
@@ -494,6 +513,17 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
     max_w = max(widths) if widths else 100.0
     min_x0 = min((ln.x0 for ln in lines), default=0.0)
     max_x1 = max((ln.x1 for ln in lines), default=100.0)
+
+    # Infer headings and apply markdown prefix (# or ##) to visual lines
+    for ln in lines:
+        if ln.text and not ln.text.startswith(("# ", "## ", "### ")):
+            bbox = (ln.x0, ln.y0, ln.x1, ln.y1)
+            size_pt, is_head = infer_line_font_size(bbox, median_line_height=median_h)
+            if is_head:
+                if size_pt >= 17.0:
+                    ln.text = f"# {ln.text}"
+                else:
+                    ln.text = f"## {ln.text}"
 
     # 2. Join lines into paragraphs based on geometry
     para_blocks: list[str] = []

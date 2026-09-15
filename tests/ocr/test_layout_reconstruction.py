@@ -158,13 +158,25 @@ def test_headings_and_lists_preserved() -> None:
     text = group_paragraphs(spans)
     blocks = text.split("\n\n")
 
-    assert "ANNUAL FINANCIAL REPORT" in blocks[0]
+    assert blocks[0] == "# ANNUAL FINANCIAL REPORT"
     assert "The following report outlines" in blocks[1]
     assert "1. Total revenue increased" in text
     assert "2. Operating expenses remained" in text
     assert "• Net profit reached" in text
     # List items must not be merged into the body paragraph
     assert "March 31, 2026. 1. Total revenue" not in text
+
+
+def test_font_metric_gap_aware_span_reconstruction_in_lines() -> None:
+    """Proves adjacent spans with sub-character gaps do not get spurious spaces."""
+    spans = [
+        _make_span("Sar", (50.0, 50.0, 70.0, 70.0)),
+        _make_span("athi", (71.0, 50.0, 100.0, 70.0)),  # 1px gap < 0.20 * 20 -> no space inserted
+        _make_span("Document", (120.0, 50.0, 180.0, 70.0)),  # 20px gap >= 0.20 * 20 -> space inserted
+    ]
+    text = group_paragraphs(spans)
+    assert "Sarathi Document" in text
+    assert "Sar athi" not in text
 
 
 # ==============================================================================
