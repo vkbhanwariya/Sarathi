@@ -173,32 +173,44 @@ def detect_ruled_tables(
         t_idx = 1
         candidate_boxes: list[tuple[float, float, float, float]] = []
 
-        # 1. From combined grid contours
+        # 1. From combined grid contours (both horizontal and vertical lines present)
         for cnt in contours:
             x, y, cw, ch = cv2.boundingRect(cnt)
             cnt_area = float(cw * ch)
-            if cnt_area >= 0.005 * total_area and cw >= 60 and ch >= 30:
+            if 0.005 * total_area <= cnt_area <= 0.85 * total_area and cw >= 60 and ch >= 30:
                 candidate_boxes.append((float(x), float(y), float(x + cw), float(y + ch)))
 
-        # 2. Check if horizontal-only rules enclose spans
+        # 2. Check for multi-line horizontal tables with tight pitch (spacing <= 120px, >= 3 lines)
         h_contours, _ = cv2.findContours(h_lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         h_line_rects = [cv2.boundingRect(c) for c in h_contours]
         wide_h_lines = sorted([r for r in h_line_rects if r[2] >= 60], key=lambda r: r[1])
-        if len(wide_h_lines) >= 2:
-            top_line = wide_h_lines[0]
-            bottom_line = wide_h_lines[-1]
-            t_bx0 = float(min(r[0] for r in wide_h_lines))
-            t_by0 = float(top_line[1])
-            t_bx1 = float(max(r[0] + r[2] for r in wide_h_lines))
-            t_by1 = float(bottom_line[1] + bottom_line[3])
-            if (t_by1 - t_by0) >= 30 and (t_bx1 - t_bx0) >= 60:
-                overlap = any(
-                    (max(0.0, min(cb[2], t_bx1) - max(cb[0], t_bx0)) * max(0.0, min(cb[3], t_by1) - max(cb[1], t_by0)))
-                    > 0.5 * (t_bx1 - t_bx0) * (t_by1 - t_by0)
-                    for cb in candidate_boxes
-                )
-                if not overlap:
-                    candidate_boxes.append((t_bx0, t_by0, t_bx1, t_by1))
+        if len(wide_h_lines) >= 3:
+            h_groups: list[list[tuple[int, int, int, int]]] = []
+            curr_group = [wide_h_lines[0]]
+            for r in wide_h_lines[1:]:
+                # Consecutive table rows must have tight vertical spacing (<= 120px)
+                if r[1] - (curr_group[-1][1] + curr_group[-1][3]) <= 120:
+                    curr_group.append(r)
+                else:
+                    if len(curr_group) >= 3:
+                        h_groups.append(curr_group)
+                    curr_group = [r]
+            if len(curr_group) >= 3:
+                h_groups.append(curr_group)
+
+            for grp in h_groups:
+                t_bx0 = float(min(r[0] for r in grp))
+                t_by0 = float(grp[0][1])
+                t_bx1 = float(max(r[0] + r[2] for r in grp))
+                t_by1 = float(grp[-1][1] + grp[-1][3])
+                if (t_by1 - t_by0) >= 30 and (t_bx1 - t_bx0) >= 60 and (t_by1 - t_by0) <= 0.70 * h:
+                    overlap = any(
+                        (max(0.0, min(cb[2], t_bx1) - max(cb[0], t_bx0)) * max(0.0, min(cb[3], t_by1) - max(cb[1], t_by0)))
+                        > 0.5 * (t_bx1 - t_bx0) * (t_by1 - t_by0)
+                        for cb in candidate_boxes
+                    )
+                    if not overlap:
+                        candidate_boxes.append((t_bx0, t_by0, t_bx1, t_by1))
 
         # For each candidate box, find matching spans and cluster into table
         for table_box in candidate_boxes:
@@ -215,7 +227,7 @@ def detect_ruled_tables(
                     t_spans.append(span)
                     t_span_indices.append(s_idx)
 
-            if len(t_spans) >= 3:
+            if len(t_spans) >= 4:
                 headers, data_rows = _cluster_spans_into_grid(t_spans)
                 if headers and data_rows and len(headers) >= 2:
                     tables.append(

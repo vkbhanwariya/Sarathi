@@ -266,6 +266,91 @@ class TestMukhaInputAndIntakeTruth:
         captured_rec = capsys.readouterr()
         assert "Status: Success" in captured_rec.out
 
+    def test_cli_intake_defaults_to_input_root(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sarathi.__main__ import main
+
+        input_root = tmp_path / "Input"
+        input_root.mkdir(parents=True)
+        doc = input_root / "sample.txt"
+        doc.write_text("auto discovered content from input root", encoding="utf-8")
+
+        config_file = tmp_path / "settings.toml"
+        config_file.write_text(f'[storage]\ninput_root = "{input_root.as_posix()}"\n', encoding="utf-8")
+
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+
+        exit_code = main(
+            [
+                "--config",
+                str(config_file),
+                "--runtime-root",
+                str(runtime_root),
+                "--output-root",
+                str(output_root),
+                "--requirement",
+                "read_native",
+            ]
+        )
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "Status: Success" in captured.out
+
+    def test_cli_intake_empty_input_root_returns_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from sarathi.__main__ import main
+
+        input_root = tmp_path / "Input"
+        input_root.mkdir(parents=True)
+
+        config_file = tmp_path / "settings.toml"
+        config_file.write_text(f'[storage]\ninput_root = "{input_root.as_posix()}"\n', encoding="utf-8")
+
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+
+        # Programmatic argv call without inputs when input_root is empty exits with 2
+        exit_code = main(
+            [
+                "--config",
+                str(config_file),
+                "--runtime-root",
+                str(runtime_root),
+                "--output-root",
+                str(output_root),
+                "--requirement",
+                "read_native",
+            ]
+        )
+        assert exit_code == 2
+
+    def test_run_coordinator_auto_discovers_input_root(self, tmp_path: Path) -> None:
+        from sarathi.agni import Agni
+        from sarathi.mukha.web.runner import RunCoordinator
+
+        input_root = tmp_path / "Input"
+        input_root.mkdir(parents=True)
+        doc = input_root / "statement.txt"
+        doc.write_text("statement data for coordinator auto-discovery", encoding="utf-8")
+
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+
+        with Agni(runtime_root=runtime_root, output_root=output_root, input_root=input_root) as agni:
+            coordinator = RunCoordinator(agni)
+            sel = coordinator.get_intake_selection()
+            assert sel is not None
+            assert sel.total_files == 1
+            assert sel.items[0].display_name == "statement.txt"
+
+            # start_run with empty paths automatically utilizes discovered input_root
+            resp = coordinator.start_run(paths=(), requirement="read_native")
+            assert resp.status.value == "ok"
+            assert resp.run_id is not None
+
 
     def test_build_home_view_is_pure_projection(self) -> None:
         sel = InputSelectionView(total_files=2, total_size_bytes=1024, is_grouped=False)

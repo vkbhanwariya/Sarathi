@@ -676,6 +676,9 @@ function Home({
   useEffect(() => {
     setSelection(state.input_selection);
     setPreflight(state.preflight);
+    if (state.input_selection.items.length && (!roots.length || roots.every((r) => !r))) {
+      setRoots(state.input_selection.items.flatMap((item) => (item.source_path ? [item.source_path] : [])));
+    }
   }, [state.input_selection, state.preflight]);
 
   const visibleItems = useMemo(

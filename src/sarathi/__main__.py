@@ -74,13 +74,16 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Explicit request identifier",
     )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        default=False,
+        help="Launch interactive Mukha web dashboard",
+    )
     args = parser.parse_args(argv)
 
-    if not args.inputs:
-        if argv is not None or not sys.stdin.isatty():
-            parser.print_help(sys.stderr)
-            return 2
-
+    is_bare_interactive = argv is None and sys.stdin.isatty() and len(sys.argv) <= 1
+    if args.web or (not args.inputs and is_bare_interactive):
         # Interactive mode: launch MukhaWebServer connected to Agni bootstrap
         try:
             effective_config = (
@@ -154,13 +157,31 @@ def main(argv: list[str] | None = None) -> int:
     with agni:
         from sarathi.mukha.intake import intake_from_paths
 
-        try:
-            input_refs, selection, preflight = intake_from_paths(
-                args.inputs,
+        target_inputs = list(args.inputs) if args.inputs else []
+        scan_recursive = args.recursive
+        if not target_inputs:
+            # Primary default: check input_root directory for eligible files
+            discovered_refs, _, _ = intake_from_paths(
+                [agni.input_root],
                 kavacha=agni.kavacha,
                 runtime_root=agni.runtime_root,
                 output_root=agni.output_root,
-                recursive=args.recursive,
+                recursive=True,
+            )
+            if discovered_refs:
+                target_inputs = [str(agni.input_root)]
+                scan_recursive = True
+            else:
+                parser.print_help(sys.stderr)
+                return 2
+
+        try:
+            input_refs, selection, preflight = intake_from_paths(
+                target_inputs,
+                kavacha=agni.kavacha,
+                runtime_root=agni.runtime_root,
+                output_root=agni.output_root,
+                recursive=scan_recursive,
             )
         except DoshError as dosh_err:
             print(f"Validation error: {dosh_err.message}", file=sys.stderr)

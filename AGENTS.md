@@ -10,9 +10,8 @@ Sarathi is a local document-processing application. Prefer direct, modular, main
 2. Correct and accurate user-visible document processing.
 3. Performance — backed by measurement, not assumption.
 4. Clear ownership and a small mental model.
-5. Reliable tests around real behavior; no overtesting or audit dumping grounds.
-6. Security and privacy fail-closed at actual I/O boundaries.
-7. Token & tool efficiency — minimal reads, edits, and tool round-trips satisfying priorities 1–6.
+5. Reliable focused minimal tests around real behavior; no over testing or audit dumping grounds.
+6. Token & tool efficiency — minimal reads, edits, and tool round-trips satisfying priorities 1–5.
 
 ## Subsystem Ownership
 
@@ -52,7 +51,7 @@ Sarathi is a local document-processing application. Prefer direct, modular, main
 7. **Fail safe, stay honest.** Validate inputs fail-closed. Never leak document content, paths, or secrets. Never invent fake defaults, confidence, or availability.
 8. **Tests follow architecture, not the reverse.** Fix tests contradicting architecture, never weaken production invariants.
 9. **No fake success.** "Done" requires actual execution and verification.
-10. **Single main branch workflow.** Work directly on `main` — no feature or cleanup branches.
+
 
 ## Fast Validation & Tool Efficiency
 

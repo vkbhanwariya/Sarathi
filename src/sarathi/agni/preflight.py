@@ -65,11 +65,11 @@ def resolve_storage_roots(
             return Path(arg_val).resolve()
         return setting_val.resolve()
 
-    return (
-        _resolve_root(runtime_root, settings.storage_runtime_root, "runtime_root"),
-        _resolve_root(output_root, settings.storage_output_root, "output_root"),
-        _resolve_root(input_root, settings.storage_input_root, "input_root"),
-    )
+    val_runtime = _resolve_root(runtime_root, settings.storage_runtime_root, "runtime_root")
+    val_output = _resolve_root(output_root, settings.storage_output_root, "output_root")
+    val_input = _resolve_root(input_root, settings.storage_input_root, "input_root")
+    val_input.mkdir(parents=True, exist_ok=True)
+    return (val_runtime, val_output, val_input)
 
 
 def resolve_darpana(

@@ -96,6 +96,24 @@ class RunCoordinator:
         self._intake_selection: InputSelectionView | None = None
         self._input_path_registry: dict[str, Path] = {}
         self._run_summaries: dict[str, RunSummaryView] = {}
+        self._auto_discover_input_root()
+
+    def _auto_discover_input_root(self) -> None:
+        """Auto-discover files in agni.input_root and pre-populate initial intake."""
+        if not self._agni.input_root.is_dir():
+            return
+        try:
+            inputs, selection, _ = MukhaPresenter.intake_from_paths(
+                [self._agni.input_root],
+                kavacha=self._agni.kavacha,
+                runtime_root=self._agni.runtime_root,
+                output_root=self._agni.output_root,
+                recursive=True,
+            )
+            if inputs:
+                self.set_intake_selection(selection, inputs)
+        except Exception:
+            pass
 
     @property
     def state_revision(self) -> int:
@@ -388,9 +406,21 @@ class RunCoordinator:
                 error_message="An interactive processing run is already active.",
             )
 
+        effective_paths = list(paths) if paths else []
+        if not effective_paths:
+            with self._lock:
+                if self._intake_selection and self._intake_selection.items:
+                    effective_paths = [
+                        item.source_path
+                        for item in self._intake_selection.items
+                        if item.is_eligible and item.source_path
+                    ]
+            if not effective_paths and self._agni.input_root.is_dir():
+                effective_paths = [str(self._agni.input_root)]
+
         # Intake and resolve input references outside lock
         inputs, _, _ = MukhaPresenter.intake_from_paths(
-            paths,
+            effective_paths,
             kavacha=self._agni.kavacha,
             runtime_root=self._agni.runtime_root,
             output_root=self._agni.output_root,

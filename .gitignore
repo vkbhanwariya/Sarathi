@@ -56,7 +56,8 @@ ehthumbs.db
 $RECYCLE.BIN/
 
 # Sarathi Local Storage Roots
-Input/
+Input/*
+!Input/.gitkeep
 Output/
 Runtime/
 

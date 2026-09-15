@@ -1408,3 +1408,59 @@ def test_recursive_xycut_multi_column_reading_order() -> None:
     assert lines == expected_order
     assert [s.text for s in spans] == expected_order
     assert len(scores) == 5
+
+
+def test_ocr_page_guarantees_use_det_true_after_crop_retry() -> None:
+    """Proves engine.ocr_page always requests text detection (use_det=True) to prevent blank pages."""
+    from unittest.mock import MagicMock
+
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
+
+    engine = RapidOCREngine()
+    mock_raw = MagicMock()
+    mock_output = MagicMock()
+    mock_output.txts = ["Detected text"]
+    mock_output.scores = [0.95]
+    mock_output.boxes = [[[0.0, 0.0], [50.0, 0.0], [50.0, 20.0], [0.0, 20.0]]]
+    mock_raw.return_value = mock_output
+    engine._engine = mock_raw
+
+    # 1. Simulate a prior crop recognition that called engine with use_det=False
+    mock_raw(Image.new("RGB", (50, 20)), use_det=False, use_cls=False)
+    assert mock_raw.call_args[1].get("use_det") is False
+
+    # 2. Call ocr_page on a full page image
+    test_page = Image.new("RGB", (200, 300), color="white")
+    page_data, _, _, _ = engine.ocr_page(test_page, page_number=1, input_id="test-input")
+
+    # 3. Verify ocr_page explicitly passed use_det=True to prevent state pollution
+    assert mock_raw.call_args[1].get("use_det") is True
+    assert len(page_data.spans) == 1
+    assert page_data.spans[0].text == "Detected text"
+
+
+def test_ruled_table_ignores_isolated_header_footer_lines() -> None:
+    """Proves detect_ruled_tables does not swallow body paragraphs between header/footer rules."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from sarathi.sankalpa import TextSpan
+    from sarathi.shakti.ocr.engine.layout import detect_ruled_tables
+
+    # Image with top line at y=30 and bottom line at y=800, but no vertical lines or table cells
+    img = Image.new("RGB", (600, 900), color="white")
+    draw = ImageDraw.Draw(img)
+    draw.line([(50, 30), (550, 30)], fill="black", width=2)
+    draw.line([(50, 800), (550, 800)], fill="black", width=2)
+    arr = np.array(img)
+
+    spans = [
+        TextSpan(text=f"Paragraph body line {i}", bounding_box=(60.0, float(100 + i * 40), 500.0, float(120 + i * 40)), confidence=0.95)
+        for i in range(15)
+    ]
+
+    tables, consumed = detect_ruled_tables(arr, spans)
+    assert len(tables) == 0, "Isolated header/footer divider lines must not be classified as a ruled table"
+    assert len(consumed) == 0, "No body spans should be consumed by non-existent table"

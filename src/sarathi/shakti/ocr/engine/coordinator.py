@@ -206,9 +206,12 @@ class RapidOCREngine:
 
         with self._infer_lock:
             try:
-                output = engine(img_arr, use_cls=use_cls_flag)
+                output = engine(img_arr, use_det=True, use_cls=use_cls_flag)
             except TypeError:
-                output = engine(img_arr)
+                try:
+                    output = engine(img_arr, use_cls=use_cls_flag)
+                except TypeError:
+                    output = engine(img_arr)
 
         if cancellation_token is not None and cancellation_token.is_cancelled:
             cancellation_token.check_cancelled()
