@@ -45,6 +45,31 @@ Required models provisioned:
 - `rec_devanagari`: `devanagari_PP-OCRv5_rec_mobile.onnx`
 - `rec_v6_en`: `PP-OCRv6_rec_small.onnx`
 
+### Translation Model Asset Provisioning (`tools/scripts/Setup-TranslationModels.ps1`)
+
+Provisions and cryptographically verifies declared CTranslate2 neural translation model assets in `data/translation/models/` against SHA-256 checksums:
+
+```powershell
+# Verify existing model assets without downloading
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1 -VerifyOnly
+
+# Provision high-fidelity IndicTrans2 neural models (default in production)
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1 -Engine indictrans2
+
+# Provision lightweight OPUS-MT models
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1 -Engine opus_mt
+
+# Provision both engines
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1 -Engine all
+
+# Provision from a local folder containing pre-downloaded models (100% offline)
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1 -Engine indictrans2 -SourceDir C:\Downloads\TranslationModels
+```
+
+Required models provisioned:
+- `indictrans2`: `indictrans2-indic-en-dist-200M` (`hi` → `en`) and `indictrans2-en-indic-dist-200M` (`en` → `hi`) with dual SentencePiece tokenizers.
+- `opus_mt`: `opus-mt-hi-en` and `opus-mt-en-hi` with SentencePiece models.
+
 ### Manual Setup via `uv`
 
 ```powershell
@@ -82,13 +107,12 @@ uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --prof
 
 ---
 
-## 3. Bytecode Compilation & Ruff Lint (CI Gate 1)
+## 3. Bytecode Compilation, Ruff Lint & Pre-Commit Fast Gate (CI Gate 1)
 
-Verify Python syntax, bytecode compilation, and Ruff code formatting/lint rules:
+Before committing or pushing, execute the compound fast gate to validate compilation, linting, and whitespace/git diff integrity in a single command:
 
 ```powershell
-uv run python -m compileall -q src tests tools
-uv run ruff check .
+uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check
 ```
 
 To automatically format or fix safe lint violations:

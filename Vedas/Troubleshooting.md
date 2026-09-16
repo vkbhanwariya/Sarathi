@@ -139,3 +139,45 @@ Concise fixes for common operational and runtime issues in Sarathi.
   $env:GEMINI_API_KEY = "your-key-here"
   ```
 - **Alternative Config**: Alternatively, configure keys directly in the respective provider section of `config/settings.toml`.
+
+---
+
+## 9. Translation Model Provisioning & Missing Assets
+
+### Symptoms
+- Translation requests fail with `Unavailable (CTranslate2 model not found: ...)` or `ModelNotFoundError`.
+- Readiness checks report `indictrans2` or `opus_mt` models missing on disk.
+
+### Fix
+- **Provision Neural Translation Models**: Run the model provisioning script to verify and download required CTranslate2 models into `data/translation/models/`:
+  ```powershell
+  # Download and verify high-fidelity IndicTrans2 models (default)
+  powershell -ExecutionPolicy Bypass -File tools\scripts\Setup-TranslationModels.ps1 -Engine indictrans2
+
+  # Download and verify lightweight OPUS-MT models
+  powershell -ExecutionPolicy Bypass -File tools\scripts\Setup-TranslationModels.ps1 -Engine opus_mt
+  ```
+- **Verify Directory Structure**: Ensure the model folders contain CTranslate2 weights and tokenizers:
+  - `data/translation/models/indictrans2/indictrans2-indic-en-dist-200M/` (contains `model.bin`, `shared_vocabulary.json`, SentencePiece models `model.SRC` and `model.TGT`).
+  - `data/translation/models/indictrans2/indictrans2-en-indic-dist-200M/` (contains `model.bin`, `shared_vocabulary.json`, SentencePiece models `model.SRC` and `model.TGT`).
+- **Verify Integrity**: Run verification mode to check SHA-256 hashes against canonical checksums:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File tools\scripts\Setup-TranslationModels.ps1 -VerifyOnly -Engine indictrans2
+  ```
+
+---
+
+## 10. Translation Multi-Core CPU Performance & Thread Configuration
+
+### Symptoms
+- Translation processes sentences sequentially or appears CPU-bound on a single core.
+- Batch translation throughput is lower than expected on multi-core systems.
+
+### Fix
+- **Multi-Core Translation**: Sarathi translates document blocks concurrently using CTranslate2's native batch decoding API (`translate_batch()`) and multi-threaded OpenMP runtime.
+- **Thread Configuration**: CTranslate2 automatically scales `intra_threads` and `inter_threads` to match available logical CPU cores. On the reference HP Laptop (14-core Intel Core Ultra 5 125H, 18 logical threads), CTranslate2 automatically parallelizes matrix computations across cores.
+- **Manual Thread Control**: To explicitly tune CPU thread allocation for background or resource-constrained environments, set the OpenMP thread limit prior to starting Sarathi:
+  ```powershell
+  $env:OMP_NUM_THREADS = "8"
+  ```
+- **Batch Processing**: When invoking translation via code or pipeline configs, supply lists of sentences to `translate_batch()` rather than looping over single sentences, allowing OpenMP vectorized operations to saturate available CPU cores efficiently.

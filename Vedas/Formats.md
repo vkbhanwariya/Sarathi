@@ -16,9 +16,15 @@ Sarathi extracts, processes, and normalizes documents across modern and legacy f
 
 - **Input**: Microsoft Word OpenXML `.docx` files (ECMA-376).
 - **Extraction**: Reads `word/document.xml`, extracting paragraph text (`w:p`), individual runs (`w:r`), visual styling (bold, italic), embedded tables (`w:tbl`), and document heading hierarchies.
-- **Output & Transformation**: Sarathi's `docx_exporter` generates standardized DOCX documents and transforms existing packages, applying script-aware typography:
-  - **Devanagari (Hindi)**: Styled with Nirmala UI, 12 pt (`w:sz=24`).
-  - **Latin / Numeric (English)**: Styled with Times New Roman, 12 pt (`w:sz=24`).
+- **Output & Transformation**: Sarathi's `docx_exporter` generates standardized DOCX documents and transforms existing packages with high-fidelity layout preservation:
+  - **Script-Aware Typography**:
+    - **Devanagari (Hindi)**: Styled with Nirmala UI, 12 pt (`w:sz=24`).
+    - **Latin / Numeric (English)**: Styled with Times New Roman, 12 pt (`w:sz=24`).
+  - **Table Layout & Grid Preservation**:
+    - **Proportional Column Widths**: Calculates column widths dynamically and emits `<w:tblGrid>` with `<w:gridCol>` definitions ensuring proportional text wrapping and preventing cell content truncation.
+    - **Row Anti-Split Protection**: Automatically injects `<w:cantSplit/>` in `<w:trPr>` to keep table rows intact across page boundaries.
+    - **Cell Margin Padding**: Configures `<w:tblCellMar>` (108 dxa top/bottom, 144 dxa left/right) for clean typographic breathing room.
+    - **Flow Anchoring & Deduplication**: Inserts tables in-flow without artificial outer containers and eliminates redundant empty paragraph wrappers.
 
 ---
 

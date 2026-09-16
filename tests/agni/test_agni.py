@@ -466,8 +466,14 @@ class TestAgniBootstrap:
         captured = capsys.readouterr()
         assert "Status: Success (Requirement: read_native)" in captured.out
 
-    def test_cli_main_entry_point_no_inputs_returns_code_2(self, capsys: pytest.CaptureFixture[str]) -> None:
-        exit_code = cli_main([])
+    def test_cli_main_entry_point_no_inputs_returns_code_2(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        empty_input = tmp_path / "empty_input"
+        empty_input.mkdir()
+        cfg_path = tmp_path / "test_settings.toml"
+        cfg_path.write_text(f'[storage]\ninput_root = "{empty_input.as_posix()}"\n', encoding="utf-8")
+        exit_code = cli_main(["--config", str(cfg_path)])
         assert exit_code == 2
 
     def test_cli_main_entry_point_invalid_profile_returns_code_2(

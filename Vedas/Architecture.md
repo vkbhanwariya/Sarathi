@@ -65,6 +65,26 @@ Cross-cutting support during execution:
 
 ---
 
+## Primary Hardware Specification & Optimization Target
+
+Sarathi's authoritative reference hardware deployment profile is pinned below.
+**Rule (Primary Hardware First):** All system, threading, concurrency, accelerator, and pipeline optimizations MUST be engineered, tuned, and validated for this primary Sarathi Hardware profile first before considering generic fallback hardware.
+
+| Component | Specification | Deployment Role & Optimization Invariants |
+| :--- | :--- | :--- |
+| **System** | HP Laptop 15-fd1xxx (Windows 11 x64) | Reference production host. |
+| **CPU** | Intel(R) Core(TM) Ultra 5 125H (14 Cores: 4P + 8E + 2LPE, 18 Logical Processors) | **Primary Translation & Logic Host**: Tuned for multi-core x86 AVX2/AVX-VNNI neural acceleration. Compute-intensive inference must never artificially choke on single-core serialization when multi-core throughput is available. |
+| **GPU** | Intel(R) Graphics (Meteor Lake iGPU, 7 Xe Cores, Driver 32.0.101.8508) | **Primary RapidOCR Accelerator**: Dedicated to OpenVINO FP16/INT8 OCR inference with persistent shader cache (`Runtime/Cache/openvino_model_cache`). Not for CUDA. |
+| **NPU** | Intel(R) AI Boost (Meteor Lake NPU) | **OpenVINO NPU Engine**: Probed and managed via `yantra.devices` for static workloads. |
+| **Memory** | 24 GB Physical RAM | Ample memory for concurrent in-memory OCR models and CTranslate2 neural weights without swapping. |
+| **CUDA** | None (0 physical devices) | Translation and OCR pipelines must never depend on or expect NVIDIA CUDA on primary hardware. |
+
+### Optimization Priority Invariants:
+1. **Primary Hardware First**: Maximize throughput across the 14-core Core Ultra 5 125H CPU and Intel Arc iGPU (OpenVINO).
+2. **Generic Hardware Second**: Provide clean fallbacks (e.g. CUDA on external GPU, pure CPU without iGPU) without degrading primary hardware execution.
+
+---
+
 ## Architectural Invariants
 
 - **Single Planning Authority**: Only Manthan creates execution plans.
@@ -520,12 +540,12 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
     - [`rasterize.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/rasterize.py): High-fidelity PDF page rasterization.
     - [`readiness.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/readiness.py): Preflight validation of ONNX model checksums and dependencies.
 - **`translation/`** (Neural Machine Translation):
-  - [`capability.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/capability.py): Translation capability coordinator.
+  - [`capability.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/capability.py): Translation capability coordinator with upfront whole-document string pre-collection and batch translation.
   - [`detector.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/detector.py): Dominant script and language detection.
-  - [`engine.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/engine.py): CTranslate2 neural translation inference engine wrapper.
+  - [`engine.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/engine.py): CTranslate2 neural translation inference engine wrapper with dual SentencePiece tokenizers, IndicTrans2 + OPUS-MT support, and `translate_batch()` multi-core CPU decoder.
   - [`glossary.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/glossary.py): Enforces custom glossary mappings and term substitutions.
   - [`models.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/models.py): Translation data structures.
-  - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/provider.py): Plugin declaration and provider factory.
+  - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/provider.py): Plugin declaration and provider factory with multi-model readiness audit.
   - [`protector.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/protector.py): Masks non-translatable entities (numbers, dates, URLs, statutory IDs).
 - **`font_conversion/`** (Legacy Indian Font Conversion):
   - [`akshara.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/akshara.py): Devanagari ligatures, half-letters, and matra placement logic.
@@ -557,7 +577,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`models.py`](file:///e:/Sarathi/src/sarathi/shakti/statutory/models.py): Statutory entity data structures (`StatutoryMetadata`).
   - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/statutory/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/statutory/provider.py): Plugin declaration and provider factory.
 - **`docx_exporter/`** (OpenXML Generation & Transformation):
-  - [`builder.py`](file:///e:/Sarathi/src/sarathi/shakti/docx_exporter/builder.py): WordprocessingML XML package assembler.
+  - [`builder.py`](file:///e:/Sarathi/src/sarathi/shakti/docx_exporter/builder.py): WordprocessingML XML package assembler with proportional table column widths (`<w:tblGrid>`), cell margins (`<w:tblCellMar>`), cantSplit row pagination, in-flow anchors, and row deduplication.
   - [`constants.py`](file:///e:/Sarathi/src/sarathi/shakti/docx_exporter/constants.py): XML namespaces, typography constants, and default fonts.
   - [`font_size_normalizer.py`](file:///e:/Sarathi/src/sarathi/shakti/docx_exporter/font_size_normalizer.py): Normalizes font sizes to half-points (`w:sz`).
   - [`scripts.py`](file:///e:/Sarathi/src/sarathi/shakti/docx_exporter/scripts.py): Segments text runs by script (Devanagari vs Latin).
