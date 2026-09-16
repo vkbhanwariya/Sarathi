@@ -634,6 +634,20 @@ def build_application_view_state(
             )
         )
 
+    # Defense-in-depth: Expose indictrans2_translation action matching translation readiness
+    trans_action = next((a for a in available_actions if a.action_id == "translation"), None)
+    if trans_action is not None and not any(a.action_id == "indictrans2_translation" for a in available_actions):
+        available_actions.append(
+            AvailableActionView(
+                action_id="indictrans2_translation",
+                label="IndicTrans2 Translation",
+                is_enabled=trans_action.is_enabled,
+                disabled_reason=trans_action.disabled_reason,
+                description="Local AI4Bharat IndicTrans2 neural translation engine",
+                parameters=trans_action.parameters,
+            )
+        )
+
     if active_req:
         input_sel = InputSelectionView(
             total_files=len(active_req.inputs),

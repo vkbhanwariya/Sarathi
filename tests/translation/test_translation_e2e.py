@@ -341,3 +341,26 @@ def test_indictrans2_native_engine_missing_assets_fails_dependency_unavailable(t
         native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="indictrans2")
     assert excinfo.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
     assert "Model assets for translation direction 'hi-en' are missing or incomplete." == excinfo.value.message
+
+
+def test_translate_batch_multi_sentence_batching_and_ordering(test_backend: Any) -> None:
+    """Verify CTranslate2TranslationEngine.translate_batch batches sentences and preserves ordering."""
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    engine = CTranslate2TranslationEngine(backend=test_backend)
+    inputs = [
+        "भारतीय रिजर्व बैंक",
+        "",
+        "   ",
+        "खाता विवरण",
+        "नमस्ते दुनिया",
+    ]
+    results = engine.translate_batch(inputs, direction=TranslationDirection.HI_TO_EN)
+    assert len(results) == len(inputs)
+    assert "Reserve Bank of India" in results[0].translated_text
+    assert results[1].translated_text == ""
+    assert results[2].translated_text == "   "
+    assert len(results[3].translated_text) > 0
+    assert len(results[4].translated_text) > 0
+    assert results[0].protected_spans_count >= 0

@@ -269,16 +269,26 @@ class TestMukhaWebServerAPI:
 
     def test_unavailable_translation_cannot_start(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Starting unavailable requirement (translation) is rejected with 400."""
+        from sarathi.sankalpa import CapabilityReadiness, ReadinessStatus
+
         test_file = tmp_path / "data.txt"
         test_file.write_text("Test", encoding="utf-8")
 
-        status, data = _http_post(
-            f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
-            data={"paths": [str(test_file)], "requirement": "translation"},
-        )
-        assert status == 400
-        assert data["ok"] is False
-        assert "unavailable" in data["error"].lower()
+        unavail = {
+            "translation": CapabilityReadiness(
+                ready=False,
+                status=ReadinessStatus.DEPENDENCY_UNAVAILABLE,
+                reason="Models unavailable",
+            )
+        }
+        with patch.object(web_server.agni, "audit_readiness", return_value=unavail):
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={"paths": [str(test_file)], "requirement": "translation"},
+            )
+            assert status == 400
+            assert data["ok"] is False
+            assert "unavailable" in data["error"].lower()
 
     def test_confirmed_artifact_download_and_containment_security(
         self, web_server: MukhaWebServer, tmp_path: Path

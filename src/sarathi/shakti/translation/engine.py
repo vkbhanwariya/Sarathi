@@ -268,6 +268,10 @@ class CTranslate2TranslationEngine:
                         cpu_fn = getattr(os, "process_cpu_count", None)
                         cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count()
                         intra_threads = max(1, min(4, (cpu_count or 4) // 2))
+                        if "OMP_NUM_THREADS" not in os.environ:
+                            os.environ["OMP_NUM_THREADS"] = str(intra_threads)
+                        if "MKL_NUM_THREADS" not in os.environ:
+                            os.environ["MKL_NUM_THREADS"] = str(intra_threads)
                         if "KMP_AFFINITY" not in os.environ:
                             os.environ["KMP_AFFINITY"] = "granularity=fine,compact,1,0"
                         if "KMP_BLOCKTIME" not in os.environ:
@@ -422,3 +426,106 @@ class CTranslate2TranslationEngine:
             protected_spans_count=len(spans),
             metadata=metadata,
         )
+
+    def translate_batch(
+        self,
+        texts: Sequence[str],
+        direction: TranslationDirection = TranslationDirection.HI_TO_EN,
+        execution_binding: ExecutionBinding | None = None,
+        engine: str = "indictrans2",
+    ) -> list[TranslationResult]:
+        """Translate a batch of normalized texts via CTranslate2 with multi-core batch decoder."""
+        if not texts:
+            return []
+
+        src_lang = Language.HINDI if direction == TranslationDirection.HI_TO_EN else Language.ENGLISH
+        tgt_lang = Language.ENGLISH if direction == TranslationDirection.HI_TO_EN else Language.HINDI
+        target_device = "cpu"
+        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+            target_device = execution_binding.backend_device_id or "cuda"
+
+        norm_engine = str(engine or "indictrans2").lower().strip()
+        glossary_terms = self._glossary.get_terms(direction)
+        dir_key = direction.value
+
+        text_slices: list[tuple[int, int, list[tuple[str, str]], int]] = []
+        all_prepared_sentences: list[str] = []
+
+        for idx, text in enumerate(texts):
+            if not text or not text.strip():
+                text_slices.append((idx, 0, [], 0))
+                continue
+
+            protected_text, spans = self._protector.protect(text, glossary_mappings=glossary_terms)
+            raw_sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.findall(protected_text) if s.strip()]
+            if not raw_sentences:
+                raw_sentences = [protected_text]
+
+            start_idx = len(all_prepared_sentences)
+            for sent in raw_sentences:
+                for d in (dir_key, "both"):
+                    for src_c, tgt_c in self._anubhava_corrections.get(d, {}).items():
+                        sent = sent.replace(src_c, tgt_c)
+                all_prepared_sentences.append(sent)
+
+            text_slices.append((idx, len(raw_sentences), spans, start_idx))
+
+        factual_device = target_device
+        all_translated_sentences: list[str] = []
+        if all_prepared_sentences:
+            backend = self._ensure_backend()
+            try:
+                backend_res = backend.translate_sentences(
+                    all_prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
+                )
+            except TypeError:
+                backend_res = backend.translate_sentences(
+                    all_prepared_sentences, direction, execution_binding=execution_binding
+                )
+
+            if isinstance(backend_res, tuple) and len(backend_res) == 2:
+                all_translated_sentences, factual_device = backend_res
+            else:
+                all_translated_sentences = backend_res
+
+        results: list[TranslationResult] = []
+        for idx, sent_count, spans, start_idx in text_slices:
+            orig_text = texts[idx]
+            if sent_count == 0 or not orig_text or not orig_text.strip():
+                results.append(
+                    TranslationResult(
+                        translated_text=orig_text,
+                        source_language=src_lang,
+                        target_language=tgt_lang,
+                        direction=direction,
+                        protected_spans_count=0,
+                        metadata={"device": target_device, "backend": "ctranslate2", "engine": norm_engine},
+                    )
+                )
+                continue
+
+            sents = all_translated_sentences[start_idx : start_idx + sent_count]
+            translated_body = " ".join(sents)
+            final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
+
+            metadata: dict[str, Any] = {
+                "sentences_count": sent_count,
+                "device": factual_device,
+                "backend": "ctranslate2",
+                "engine": norm_engine,
+            }
+            if span_issues:
+                metadata["span_protection_issues"] = tuple(span_issues)
+
+            results.append(
+                TranslationResult(
+                    translated_text=final_text,
+                    source_language=src_lang,
+                    target_language=tgt_lang,
+                    direction=direction,
+                    protected_spans_count=len(spans),
+                    metadata=metadata,
+                )
+            )
+
+        return results

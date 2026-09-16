@@ -1838,12 +1838,12 @@ function Home({
                             {[
                               {
                                 id: "indictrans2",
-                                actionId: "indictrans2_translation",
+                                actionId: "translation",
                                 label: "IndicTrans2 (Local)",
                                 tag: "INDICTRANS2",
                                 isCloud: false,
                                 desc: "AI4Bharat IndicTrans2 local Transformer. Optimized for high-fidelity 22 Indian languages.",
-                                code: "indictrans2_translation",
+                                code: "translation:indictrans2",
                               },
                               {
                                 id: "opus_mt",

@@ -271,6 +271,70 @@ class TranslationCapability:
                 t_trans_start = time.perf_counter_ns()
                 translation_cache: dict[str, TranslationResult] = {}
 
+                # 1. Pre-collect all unique non-empty text strings across document
+                unique_texts: list[str] = []
+                seen_texts: set[str] = set()
+
+                def _collect(s: str | None) -> None:
+                    if s and s.strip() and s not in seen_texts:
+                        seen_texts.add(s)
+                        unique_texts.append(s)
+
+                _collect(doc.text)
+                for t in doc.tables:
+                    if t.headers:
+                        for h in t.headers:
+                            _collect(str(h))
+                    for r in t.rows:
+                        for c in r:
+                            _collect(str(c))
+                for p in doc.pages:
+                    _collect(p.text)
+                    for s in p.spans:
+                        _collect(s.text)
+                    for t in p.tables:
+                        if t.headers:
+                            for h in t.headers:
+                                _collect(str(h))
+                        for r in t.rows:
+                            for c in r:
+                                _collect(str(c))
+
+                # 2. Batch-translate all unique texts in a single pass to saturate all CPU P-cores
+                if unique_texts:
+                    if hasattr(self._engine, "translate_batch"):
+                        try:
+                            batch_results = self._engine.translate_batch(
+                                unique_texts,
+                                direction=direction,
+                                execution_binding=context.execution_binding,
+                                engine=req_engine,
+                            )
+                        except TypeError:
+                            batch_results = self._engine.translate_batch(
+                                unique_texts,
+                                direction=direction,
+                                execution_binding=context.execution_binding,
+                            )
+                        for raw_s, res in zip(unique_texts, batch_results):
+                            translation_cache[raw_s] = res
+                    else:
+                        for raw_s in unique_texts:
+                            try:
+                                translation_cache[raw_s] = self._engine.translate(
+                                    raw_s,
+                                    direction=direction,
+                                    execution_binding=context.execution_binding,
+                                    engine=req_engine,
+                                )
+                            except TypeError:
+                                translation_cache[raw_s] = self._engine.translate(
+                                    raw_s,
+                                    direction=direction,
+                                    execution_binding=context.execution_binding,
+                                )
+
+                # 3. Transform document with instant O(1) cache lookups
                 def _trans_text(raw: str) -> str:
                     if not raw or not raw.strip():
                         return raw
