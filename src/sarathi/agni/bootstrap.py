@@ -92,6 +92,7 @@ class Agni:
                 smriti=smriti,
             )
             validate_bootstrap_consistency(kosh=services.kosh, capabilities=services.capabilities)
+            val_input.mkdir(parents=True, exist_ok=True)
 
         self._settings = active_settings
         self._darpana = active_darpana

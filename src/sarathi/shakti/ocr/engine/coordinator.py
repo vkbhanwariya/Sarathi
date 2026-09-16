@@ -301,6 +301,7 @@ class RapidOCREngine:
             h_img, w_img = img_arr.shape[:2]
             deva_to_ascii = str.maketrans("०१२३४५६७८९", "0123456789")
 
+            candidates: list[tuple[int, TextSpan, Any]] = []
             for idx, span in enumerate(spans):
                 if span.confidence is not None and span.confidence < retry_threshold and span.bounding_box:
                     min_x, min_y, max_x, max_y = span.bounding_box
@@ -320,48 +321,101 @@ class RapidOCREngine:
                     if is_low_contrast_image(crop, std_threshold=45.0):
                         crop = apply_clahe(crop, clip_limit=2.5)
 
+                    candidates.append((idx, span, crop))
+
+            if candidates:
+                recognized_results: list[tuple[str, float] | None] = []
+                crops_batch = [c for _, _, c in candidates]
+
+                # Native RapidOCR batch recognition fast path
+                if hasattr(active_engine, "recognize_txt"):
+                    try:
+                        batch_out = active_engine.recognize_txt(crops_batch)
+                        if (
+                            batch_out
+                            and getattr(batch_out, "txts", None) is not None
+                            and getattr(batch_out, "scores", None) is not None
+                            and len(batch_out.txts) == len(candidates)
+                            and len(batch_out.scores) == len(candidates)
+                        ):
+                            b_txts = list(batch_out.txts)
+                            b_scores = list(batch_out.scores)
+                            for i in range(len(candidates)):
+                                t = (
+                                    unicodedata.normalize("NFC", str(b_txts[i]).strip())
+                                    if b_txts[i] is not None
+                                    else ""
+                                )
+                                s = (
+                                    float(b_scores[i])
+                                    if b_scores[i] is not None
+                                    else 0.0
+                                )
+                                recognized_results.append((t, s))
+                    except Exception:
+                        recognized_results.clear()
+
+                # Fallback path: per-crop recognition for test mocks or batch failures
+                if not recognized_results:
+                    for _, _, crop in candidates:
                         try:
-                            # Re-recognize using the active recognizer slot
                             retry_out = active_engine(crop, use_det=False, use_cls=False)
-                            if retry_out and getattr(retry_out, "txts", None) and getattr(retry_out, "scores", None):
+                            if (
+                                retry_out
+                                and getattr(retry_out, "txts", None)
+                                and getattr(retry_out, "scores", None)
+                            ):
                                 r_txts = list(retry_out.txts)
                                 r_scores = list(retry_out.scores)
                                 if r_txts and r_scores and r_scores[0] is not None:
                                     r_text = unicodedata.normalize("NFC", str(r_txts[0]).strip())
                                     r_conf = float(r_scores[0])
-
-                                    # Numeric & token preservation check: digits must not be corrupted
-                                    orig_digits = re.findall(r"\d+", span.text.translate(deva_to_ascii))
-                                    if orig_digits:
-                                        r_digits = re.findall(r"\d+", r_text.translate(deva_to_ascii))
-                                        if orig_digits != r_digits:
-                                            continue
-
-                                    if r_conf > span.confidence and r_text:
-                                        gain = round(r_conf - span.confidence, 4)
-                                        spans[idx] = TextSpan(
-                                            text=r_text,
-                                            confidence=r_conf,
-                                            bounding_box=span.bounding_box,
-                                            language=span.language,
-                                            script=span.script,
-                                            metadata={
-                                                "retry_applied": True,
-                                                "fallback_applied": True,
-                                                "fallback_engine": "same_engine_retry",
-                                                "original_confidence": span.confidence,
-                                                "replacement_confidence": r_conf,
-                                                "confidence_gain": gain,
-                                                "raw_confidence_score_delta": gain,
-                                            },
-                                        )
-                                        if idx < len(lines):
-                                            lines[idx] = r_text
-                                        retry_applied = True
-                                        retry_improved_count += 1
-                                        retry_total_gain += gain
+                                    recognized_results.append((r_text, r_conf))
+                                else:
+                                    recognized_results.append(None)
+                            else:
+                                recognized_results.append(None)
                         except Exception:
-                            pass
+                            recognized_results.append(None)
+
+                # Process results against candidate spans
+                for (idx, span, _), res in zip(candidates, recognized_results):
+                    if not res:
+                        continue
+                    r_text, r_conf = res
+                    if not r_text:
+                        continue
+
+                    # Numeric & token preservation check: digits must not be corrupted
+                    orig_digits = re.findall(r"\d+", span.text.translate(deva_to_ascii))
+                    if orig_digits:
+                        r_digits = re.findall(r"\d+", r_text.translate(deva_to_ascii))
+                        if orig_digits != r_digits:
+                            continue
+
+                    if r_conf > span.confidence:
+                        gain = round(r_conf - span.confidence, 4)
+                        spans[idx] = TextSpan(
+                            text=r_text,
+                            confidence=r_conf,
+                            bounding_box=span.bounding_box,
+                            language=span.language,
+                            script=span.script,
+                            metadata={
+                                "retry_applied": True,
+                                "fallback_applied": True,
+                                "fallback_engine": "same_engine_retry",
+                                "original_confidence": span.confidence,
+                                "replacement_confidence": r_conf,
+                                "confidence_gain": gain,
+                                "raw_confidence_score_delta": gain,
+                            },
+                        )
+                        if idx < len(lines):
+                            lines[idx] = r_text
+                        retry_applied = True
+                        retry_improved_count += 1
+                        retry_total_gain += gain
 
         # Layout and table reconstruction
         is_layout_mode = (

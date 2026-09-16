@@ -542,11 +542,11 @@ def test_ocr_page_validation_enabled_option() -> None:
 
 def test_custom_options_extended_validation() -> None:
     """Verify extended custom options (fallback_threshold, review_threshold, use_angle_cls, preserve_layout)."""
-    from sarathi.sankalpa import ExecutionContext, ExecutionProfile, InputRef, Request
+    from sarathi.sankalpa import ExecutionContext, ExecutionProfile, InputRef, PageData, Request
     from sarathi.shakti.ocr.capability import OCRCapability
 
     mock_engine = MagicMock()
-    mock_p = MagicMock(text="", spans=(), tables=(), metadata={})
+    mock_p = PageData(page_number=1, text="ok")
     mock_engine.ocr_page.return_value = (mock_p, None, None, ())
     cap = OCRCapability(engine=mock_engine)
 
@@ -565,7 +565,7 @@ def test_custom_options_extended_validation() -> None:
     ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
 
     with patch.object(Path, "open", return_value=io.BytesIO(b"fake_image_bytes")):
-        with patch("sarathi.shakti.ocr.capability.extract_single_page_image", return_value=MagicMock()):
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock()]):
             with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=1):
                 res = cap.execute(valid_req, ctx)
                 assert res is not None
@@ -648,15 +648,14 @@ def test_footer_removal_preserves_lower_body_content() -> None:
     cap = OCRCapability(engine=mock_engine)
 
     with patch.object(Path, "read_bytes", return_value=b"fake_image_bytes"):
-        with patch("sarathi.shakti.ocr.capability.extract_single_page_image", return_value=MagicMock()):
-            with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock(), MagicMock()]):
-                with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=2):
-                    res = cap.execute(req, ctx)
-                    assert isinstance(res, Result)
-                    final_doc = res.data
-                    # 'Amount: 100' and 'Amount: 200' must NOT be stripped!
-                    assert "Amount: 100" in final_doc.pages[0].text
-                    assert "Amount: 200" in final_doc.pages[1].text
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock(), MagicMock()]):
+            with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=2):
+                res = cap.execute(req, ctx)
+                assert isinstance(res, Result)
+                final_doc = res.data
+                # 'Amount: 100' and 'Amount: 200' must NOT be stripped!
+                assert "Amount: 100" in final_doc.pages[0].text
+                assert "Amount: 200" in final_doc.pages[1].text
 
 
 def test_xycut_prevents_column_interleaving() -> None:
@@ -778,24 +777,23 @@ def test_json_export_preserves_metadata_and_tables() -> None:
     cap = OCRCapability(engine=mock_engine)
 
     with patch.object(Path, "read_bytes", return_value=b"fake_image_bytes"):
-        with patch("sarathi.shakti.ocr.capability.extract_single_page_image", return_value=MagicMock()):
-            with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock()]):
-                with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=1):
-                    res = cap.execute(req, ctx)
-                json_payload = [pl for pl in res.artifact_payloads if pl.intent.media_type == "application/json"][0]
-                data = json.loads(json_payload.content.decode("utf-8"))
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock()]):
+            with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=1):
+                res = cap.execute(req, ctx)
+            json_payload = [pl for pl in res.artifact_payloads if pl.intent.media_type == "application/json"][0]
+            data = json.loads(json_payload.content.decode("utf-8"))
 
-                page_json = data["pages"][0]
-                assert len(page_json["tables"]) == 1
-                assert page_json["tables"][0]["name"] == "test_table"
-                assert page_json["tables"][0]["headers"] == ["ColA", "ColB"]
+            page_json = data["pages"][0]
+            assert len(page_json["tables"]) == 1
+            assert page_json["tables"][0]["name"] == "test_table"
+            assert page_json["tables"][0]["headers"] == ["ColA", "ColB"]
 
-                span_json = page_json["spans"][0]
-                assert span_json["text"] == "Sample text"
-                assert span_json["language"] == "hi"
-                assert span_json["script"] == "Devanagari"
-                assert span_json["metadata"]["span_id"] == "sp-1"
-                assert span_json["metadata"]["custom"] == "meta"
+            span_json = page_json["spans"][0]
+            assert span_json["text"] == "Sample text"
+            assert span_json["language"] == "hi"
+            assert span_json["script"] == "Devanagari"
+            assert span_json["metadata"]["span_id"] == "sp-1"
+            assert span_json["metadata"]["custom"] == "meta"
 
 
 def test_factory_sets_rec_text_score_zero(tmp_path: Path) -> None:

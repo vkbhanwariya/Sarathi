@@ -29,7 +29,7 @@ from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine
 from sarathi.shakti.ocr.engine.layout import group_paragraphs
 from sarathi.shakti.ocr.engine.rasterize import (
-    extract_single_page_image,
+    BoundedPageRasterizer,
     get_page_count_from_bytes,
     iter_images_from_bytes,
 )
@@ -91,6 +91,7 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
     "validation_enabled",
     "progress_callback",
     "skip_header_footer",
+    "dpi",
 })
 _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "engine",
@@ -99,6 +100,7 @@ _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "fallback_threshold",
     "retry_threshold",
     "review_threshold",
+    "dpi",
 }
 
 
@@ -197,6 +199,13 @@ class OCRCapability:
                         code=FailureCode.VALIDATION_FAILED,
                         message=f"Requested OCR engine '{opt_engine}' is not supported. Only 'rapidocr' is supported.",
                     )
+                opt_dpi = request.custom_options.get("dpi")
+                if opt_dpi is not None:
+                    if isinstance(opt_dpi, bool) or not isinstance(opt_dpi, int) or not (72 <= opt_dpi <= 600):
+                        raise DoshError(
+                            code=FailureCode.VALIDATION_FAILED,
+                            message=f"Custom option 'dpi' must be an integer in range [72, 600], got {opt_dpi}.",
+                        )
             opt_lang = request.custom_options.get("lang")
             if opt_lang is not None:
                 clean_lang = str(opt_lang).lower().strip()
@@ -311,22 +320,40 @@ class OCRCapability:
             for p_num, p_data in existing_native_pages_by_input.get(inp.input_id, {}).items():
                 doc_page_results[inp.input_id].append((p_num, p_data, None, []))
 
+        dpi = 150
+        if request.custom_options and "dpi" in request.custom_options:
+            try:
+                dpi = int(request.custom_options["dpi"])
+            except (ValueError, TypeError):
+                dpi = 150
+        elif request.profile in (ExecutionProfile.ACCURATE, ExecutionProfile.LAYOUT_PRESERVING):
+            dpi = 200
+
         if can_parallelize:
-            all_items: list[tuple[InputRef, int, int, bytes]] = []
+            all_items: list[tuple[InputRef, int, int]] = []
+            rasterizers: dict[str, BoundedPageRasterizer] = {}
             for inp, file_bytes, tot_pages, needed_indices, _ in ocr_inputs:
+                rasterizers[inp.input_id] = BoundedPageRasterizer(
+                    file_bytes,
+                    pages=needed_indices,
+                    dpi=dpi,
+                    max_buffered=4,
+                    cancellation_token=context.cancellation_token,
+                )
                 for p_idx in needed_indices:
-                    all_items.append((inp, p_idx, tot_pages, file_bytes))
+                    all_items.append((inp, p_idx, tot_pages))
+
+            for r in rasterizers.values():
+                r.start()
 
             def _make_page_task(
-                inp_ref: InputRef, p_idx: int, tot_pages: int, file_bytes: bytes
+                inp_ref: InputRef, p_idx: int, tot_pages: int
             ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
                 def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
                     if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                         context.cancellation_token.check_cancelled()
 
-                    p_img = extract_single_page_image(
-                        file_bytes, p_idx, cancellation_token=context.cancellation_token
-                    )
+                    p_img = rasterizers[inp_ref.input_id].get_page(p_idx)
                     if p_img is None:
                         raise DoshError(
                             code=FailureCode.EXECUTION_FAILED,
@@ -382,15 +409,20 @@ class OCRCapability:
 
                 return _task
 
-            subtasks = [_make_page_task(item[0], item[1], item[2], item[3]) for item in all_items]
-            page_results = self._yantra.execute_subtasks(subtasks, context=context)
-            for (inp_ref, p_idx, _, _), (p_data, p_prov, p_warns) in zip(all_items, page_results):
-                doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
+            try:
+                subtasks = [_make_page_task(item[0], item[1], item[2]) for item in all_items]
+                page_results = self._yantra.execute_subtasks(subtasks, context=context)
+                for (inp_ref, p_idx, _), (p_data, p_prov, p_warns) in zip(all_items, page_results):
+                    doc_page_results[inp_ref.input_id].append((p_idx, p_data, p_prov, p_warns))
+            finally:
+                for r in rasterizers.values():
+                    r.close()
         else:
             for inp, file_bytes, tot_pages, needed_indices, skip_pages in ocr_inputs:
                 page_iter = enumerate(
                     iter_images_from_bytes(
                         file_bytes,
+                        dpi=dpi,
                         cancellation_token=context.cancellation_token,
                         skip_pages=skip_pages,
                     ),

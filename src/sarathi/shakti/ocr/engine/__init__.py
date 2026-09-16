@@ -38,12 +38,14 @@ from sarathi.shakti.ocr.engine.preprocessing import (
     remove_stamp_artifacts,
 )
 from sarathi.shakti.ocr.engine.rasterize import (
+    BoundedPageRasterizer,
     extract_images_from_bytes,
     iter_images_from_bytes,
 )
 
 __all__ = [
     "ALL_SUPPORTED_LANGS",
+    "BoundedPageRasterizer",
     "DEV_LANGS",
     "EN_LANGS",
     "RapidOCREngine",

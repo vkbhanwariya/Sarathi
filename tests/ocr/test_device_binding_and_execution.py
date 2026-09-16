@@ -171,9 +171,11 @@ class TestOCRCapabilityYantraIntegration:
         img1 = Image.new("RGB", (50, 50), color="white")
         img2 = Image.new("RGB", (50, 50), color="white")
 
+        mock_rasterizer = MagicMock()
+        mock_rasterizer.get_page.side_effect = [img1, img2]
         with (
             patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=2),
-            patch("sarathi.shakti.ocr.capability.extract_single_page_image", side_effect=[img1, img2]),
+            patch("sarathi.shakti.ocr.capability.BoundedPageRasterizer", return_value=mock_rasterizer),
         ):
             req = Request(
                 request_id="req-multi",
