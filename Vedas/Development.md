@@ -24,6 +24,27 @@ Capabilities:
 - Offers an interactive menu or CLI flags (`-BumpPins`) for lockfile updates, PyPI package check, and pin bumping.
 - Filters out upstream-constrained dependencies (`antlr4-python3-runtime`, `pyee`, `python-slugify`).
 
+### OCR Model Asset Provisioning (`tools/scripts/Setup-OCRModels.ps1`)
+
+Provisions and cryptographically verifies declared OpenVINO RapidOCR ONNX model assets in `data/ocr/models/` against `data/ocr/manifest.json`:
+
+```powershell
+# Verify existing model assets without downloading
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-OCRModels.ps1 -VerifyOnly
+
+# Download missing models from canonical upstream mirrors (ModelScope / HuggingFace)
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-OCRModels.ps1
+
+# Provision from a local folder containing pre-downloaded ONNX models
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-OCRModels.ps1 -SourceDir C:\Downloads\OCRModels
+```
+
+Required models provisioned:
+- `det`: `ch_PP-OCRv5_det_mobile.onnx`
+- `cls`: `ch_ppocr_mobile_v2.0_cls_mobile.onnx`
+- `rec_devanagari`: `devanagari_PP-OCRv5_rec_mobile.onnx`
+- `rec_v6_en`: `PP-OCRv6_rec_small.onnx`
+
 ### Manual Setup via `uv`
 
 ```powershell

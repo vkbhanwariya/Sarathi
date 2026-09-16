@@ -62,6 +62,25 @@ $RECYCLE.BIN/
 .gemini/
 scratch/
 
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Runtime Databases & Telemetry History
+history.jsonl
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Hardware & Accelerator Caches
+*.cl_cache
+*.blob
+.cache/
+.uv_cache/
+
 # Logs & Temporary Files
 *.log
 *.tmp
@@ -78,3 +97,4 @@ scratch/
 *.tflite
 models/
 data/ocr/models/*.onnx
+data/translation/models/

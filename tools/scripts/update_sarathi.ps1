@@ -62,7 +62,7 @@ Write-Host "Directory: $ProjectRoot" -ForegroundColor DarkGray
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 3. Bootstrap uv (Install if missing, Self-update if present)
+# 2. Bootstrap uv (Install if missing, Self-update if present)
 # -----------------------------------------------------------------------------
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     Write-Host "[*] 'uv' not found. Installing uv package manager..." -ForegroundColor Cyan
@@ -79,7 +79,7 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 
 # -----------------------------------------------------------------------------
-# 4. Bootstrap Python 3.13 Toolchain & Virtual Environment in Sarathi Root
+# 3. Bootstrap Python 3.13 Toolchain & Virtual Environment in Sarathi Root
 # -----------------------------------------------------------------------------
 Write-Host "[*] Ensuring managed Python 3.13 toolchain..." -ForegroundColor Cyan
 & uv python install 3.13
@@ -104,9 +104,9 @@ Write-Host "       Packages Directory: $(Join-Path $venvPath 'Lib\site-packages'
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 5. Synchronize All Capability Extras (OCR, Translation, Layout, Cloud, Dev)
+# 4. Synchronize All Capability Extras (OCR, Translation, Layout, Cloud, Dev)
 # -----------------------------------------------------------------------------
-Write-Host "[1/3] Installing/syncing all dependencies strictly into root .venv..." -ForegroundColor Cyan
+Write-Host "[1/4] Installing/syncing all dependencies strictly into root .venv..." -ForegroundColor Cyan
 & uv sync --all-extras --group dev --project $ProjectRoot
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Failed to synchronize capability extras." -ForegroundColor Red
@@ -116,9 +116,9 @@ Write-Host "       All capability extras and dev dependencies synchronized." -Fo
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 6. Check for Available Package Updates on PyPI (Read-Only)
+# 5. Check for Available Package Updates on PyPI (Read-Only)
 # -----------------------------------------------------------------------------
-Write-Host "[2/3] Checking PyPI for package updates..." -ForegroundColor Cyan
+Write-Host "[2/4] Checking PyPI for package updates..." -ForegroundColor Cyan
 # Packages explicitly constrained by upstream parents (e.g. omegaconf, playwright)
 $upstreamConstrainedPackages = @("antlr4-python3-runtime", "pyee", "python-slugify")
 $outdatedLines = & uv pip list --outdated 2>$null
@@ -154,9 +154,9 @@ if ($actionableLines.Count -gt 0) {
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 5. Inspect Exact-Pinned Dependencies in pyproject.toml
+# 6. Inspect Exact-Pinned Dependencies in pyproject.toml
 # -----------------------------------------------------------------------------
-Write-Host "[3/3] Inspecting exact-pinned dependencies in pyproject.toml..." -ForegroundColor Cyan
+Write-Host "[3/4] Inspecting exact-pinned dependencies in pyproject.toml..." -ForegroundColor Cyan
 $tomlPath = Join-Path $ProjectRoot "pyproject.toml"
 $tomlContent = Get-Content -Path $tomlPath -Raw
 $pinnedPackages = @("pymupdf", "pymupdf-layout")
@@ -183,7 +183,24 @@ foreach ($pkg in $pinnedPackages) {
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 6. Interactive Mode Selection (Read-Only vs Update)
+# 7. Verify Declared OCR Model Assets
+# -----------------------------------------------------------------------------
+Write-Host "[4/4] Verifying declared OpenVINO OCR model assets..." -ForegroundColor Cyan
+$setupScript = Join-Path $PSScriptRoot "Setup-OCRModels.ps1"
+if (Test-Path -LiteralPath $setupScript -PathType Leaf) {
+    try {
+        & $setupScript -ProjectRoot $ProjectRoot -VerifyOnly
+    } catch {
+        Write-Host "       [WARNING] OCR model assets are missing or incomplete." -ForegroundColor Yellow
+        Write-Host "       Run 'powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-OCRModels.ps1' to provision them." -ForegroundColor DarkYellow
+    }
+} else {
+    Write-Host "       [SKIP] Setup-OCRModels.ps1 not found at '$setupScript'." -ForegroundColor DarkGray
+}
+Write-Host ""
+
+# -----------------------------------------------------------------------------
+# 8. Interactive Mode Selection (Read-Only vs Update)
 # -----------------------------------------------------------------------------
 if ($CheckOnly) {
     Write-Host "[INFO] Check-Only mode. No changes were made." -ForegroundColor Green
@@ -230,7 +247,7 @@ if (-not $BumpPins) {
 }
 
 # -----------------------------------------------------------------------------
-# 7. Apply Pin Bumping if Selected
+# 9. Apply Pin Bumping if Selected
 # -----------------------------------------------------------------------------
 if ($BumpPins -and ($availablePinBumps.Count -gt 0)) {
     Write-Host "[*] Updating pins in pyproject.toml..." -ForegroundColor Cyan
@@ -248,7 +265,7 @@ if ($BumpPins -and ($availablePinBumps.Count -gt 0)) {
 }
 
 # -----------------------------------------------------------------------------
-# 8. Upgrade Lockfile & Apply Updates
+# 10. Upgrade Lockfile & Apply Updates
 # -----------------------------------------------------------------------------
 Write-Host "[*] Upgrading lockfile to latest releases..." -ForegroundColor Cyan
 & uv lock --upgrade --project $ProjectRoot
@@ -267,11 +284,11 @@ Write-Host "       Virtual environment updated." -ForegroundColor Green
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 9. Validate with Regression Tests
+# 11. Validate with Regression Tests & Architecture Gate
 # -----------------------------------------------------------------------------
 if (-not $SkipTests) {
-    Write-Host "[*] Running regression tests to verify zero breakage..." -ForegroundColor Cyan
-    & uv run --project $ProjectRoot --group dev pytest tests/ocr tests/native_extraction tests/contracts -m "not real_model"
+    Write-Host "[*] Running regression tests and architecture gate to verify zero breakage..." -ForegroundColor Cyan
+    & uv run --project $ProjectRoot --group dev pytest tests/architecture tests/ocr tests/native_extraction tests/contracts -m "not real_model"
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "[WARNING] One or more tests failed after updating dependencies!" -ForegroundColor Red

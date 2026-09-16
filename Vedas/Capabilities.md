@@ -125,7 +125,7 @@ Sarathi defines four standard execution profiles via `sarathi.sankalpa.execution
 | Profile | Strategy | OCR Behavior | Extraction & Validation Behavior |
 | --- | --- | --- | --- |
 | **`INSTANT`** | Throughput-optimized single pass | Bypasses heavy preprocessing; bypasses per-crop angle classifier (`use_cls=False`); no eager crop allocation; standard RapidOCR resolution. | Fast single-pass native extraction; standard reconciliation heuristics. |
-| **`ACCURATE`** | Quality-optimized multi-pass | Full image preprocessing (CLAHE, deskew, binarization); full orientation classification (`use_cls=True`); targeted NE-OCR fallback on low-confidence Devanagari spans. | Strict running balance verification, bi-directional anchoring, inversion detection, and multi-page deduplication. |
+| **`ACCURATE`** | Quality-optimized multi-pass | Full image preprocessing (CLAHE, deskew, binarization); full orientation classification (`use_cls=True`); targeted same-engine weak-crop retry on low-confidence Devanagari spans with CLAHE enhancement. | Strict running balance verification, bi-directional anchoring, inversion detection, and multi-page deduplication. |
 | **`LAYOUT_PRESERVING`** | Structure and spatial preservation | Full image preprocessing, orientation classification, and recursive XY-cut hierarchical ordering preserving spatial column/block layout. | Strict multi-column flow, layout-preserving text alignment, and block boundary isolation. |
 | **`CUSTOM`** | Parameter-controlled execution | Execution parameters specified directly via `request.custom_options` (e.g. `use_angle_cls`, custom confidence threshold, explicit model overrides). | Custom validation thresholds and options. |
 

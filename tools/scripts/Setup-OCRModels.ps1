@@ -75,9 +75,12 @@ if (-not (Test-Path -LiteralPath $modelsDir -PathType Container)) {
     $null = New-Item -ItemType Directory -Path $modelsDir -Force
 }
 
-# Version-pinned canonical RapidOCR model catalog. Every downloaded file is
+# Version-pinned canonical RapidOCR model catalogs. Every downloaded file is
 # independently verified against data/ocr/manifest.json before it is accepted.
-$upstreamBaseUrl = 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2'
+$upstreamMirrors = @(
+    'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2',
+    'https://huggingface.co/RapidAI/RapidOCR/resolve/v3.9.2'
+)
 $modelRelativePaths = @{
     det            = 'onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx'
     rec_devanagari = 'onnx/PP-OCRv5/rec/devanagari_PP-OCRv5_rec_mobile.onnx'
@@ -167,14 +170,25 @@ foreach ($prop in $models) {
             }
 
             $relativePath = $modelRelativePaths[$key]
-            $downloadUrl = "$upstreamBaseUrl/$relativePath"
-            Write-Host "Downloading from $downloadUrl... " -NoNewline
-            try {
-                Invoke-WebRequest -Uri $downloadUrl -OutFile $destPath -UseBasicParsing
-                $sourced = $true
-            } catch {
-                Write-Host "FAILED" -ForegroundColor Red
-                throw "Failed to download model '$filename' from '$downloadUrl': $($_.Exception.Message)"
+            $downloaded = $false
+            $lastError = $null
+
+            foreach ($mirror in $upstreamMirrors) {
+                $downloadUrl = "$mirror/$relativePath"
+                Write-Host "Downloading from $downloadUrl... " -NoNewline
+                try {
+                    Invoke-WebRequest -Uri $downloadUrl -OutFile $destPath -UseBasicParsing -TimeoutSec 120
+                    $downloaded = $true
+                    $sourced = $true
+                    break
+                } catch {
+                    Write-Host "FAILED ($($_.Exception.Message))" -ForegroundColor Yellow
+                    $lastError = $_.Exception.Message
+                }
+            }
+
+            if (-not $downloaded) {
+                throw "Failed to download model '$filename' from all upstream mirrors: $lastError"
             }
         }
 

@@ -9,7 +9,7 @@ All changes are validated directly on `main` against the 5 permanent CI gates.
 ## Supported Capabilities
 
 - **Native Document Extraction**: Text, table, and structure extraction from PDF, DOCX, XLSX, legacy XLS (BIFF8 via Calamine/xlrd), HTML tables, XML Spreadsheet 2003, and delimited text (CSV, TSV, semicolon, pipe).
-- **Local Optical Character Recognition (OCR)**: RapidOCR with OpenVINO acceleration and selective NE-OCR (86M ViTSTR ONNX) fallback.
+- **Local Optical Character Recognition (OCR)**: RapidOCR with OpenVINO acceleration and selective same-engine weak-crop retry with CLAHE enhancement.
 - **Neural Translation**: Bidirectional Hindi <-> English translation via local CTranslate2 and SentencePiece models.
 - **Legacy Hindi Font Conversion**: Automatic detection and conversion of legacy non-Unicode font encodings (Kruti Dev, Devlys, Chanakya, Shusha, Shivaji) to standard Unicode Devanagari.
 - **Bank Statement Processing**: Tabular statement parsing, header mapping, transaction normalization, and running balance reconciliation for HDFC, ICICI, SBI, and standard financial formats.

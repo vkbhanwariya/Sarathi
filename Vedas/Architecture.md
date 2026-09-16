@@ -93,7 +93,7 @@ Sarathi enforces strict integrity rules for confidence and quality observations:
 sarathi/
 ├── pyproject.toml                     # Project packaging, build metadata, dependencies, and capability extras
 ├── uv.lock                            # Deterministic pinned lockfile for all runtime and development packages
-├── arambha.bat                        # Windows one-click local launcher (runs update_sarathi and starts local UI)
+├── arambha.bat                        # Windows one-click local launcher (runs uv run python -m sarathi)
 ├── README.md                          # Repository overview, capabilities, quickstart, and engineering summary
 ├── AGENTS.md                          # Canonical rules of engagement, modularity, and ROI discipline for AI agents
 ├── .gitignore                         # Git exclusion rules (virtual environments, test artifacts, model weights)
@@ -339,8 +339,8 @@ sarathi/
 │       ├── api.ts                     # Typed REST API client and SSE event listener
 │       ├── types.ts                   # TypeScript interfaces mirroring backend Sankalpa contracts
 │       ├── main.tsx                   # Preact application DOM mount entry point
-│       ├── theme.css                  # CSS custom properties, design tokens, and layout styles
-│       └── components/                # Reusable UI components (modals, tables, progress indicators)
+│       ├── styles.css                 # Application design tokens, theme styles, and cockpit layout
+│       └── vite-env.d.ts              # Vite environment type declarations
 ├── data/                              # Static domain assets & templates
 │   ├── banks/                         # Bank statement format definitions
 │   │   ├── common.yaml                # Universal Indian bank header heuristic layout definition
@@ -354,7 +354,7 @@ sarathi/
 │   │   ├── shivaji010.json            # Shivaji 010 to Unicode Devanagari character mapping table
 │   │   └── shusha010.json             # Shusha 010 to Unicode Devanagari character mapping table
 │   ├── ocr/                           # OCR model manifests & storage
-│   │   ├── manifest.json              # Checksum-verified catalog of declared RapidOCR and NE-OCR models
+│   │   ├── manifest.json              # Checksum-verified catalog of declared RapidOCR models (det, cls, rec_devanagari, rec_v6_en)
 │   │   └── models/                    # Downloaded/exported ONNX model weights and vocabulary files
 │   └── translation/                   # Translation model manifests & glossaries
 │       ├── manifest.json              # Catalog of declared CTranslate2 neural translation models
@@ -364,6 +364,7 @@ sarathi/
 ├── tools/                             # Developer & engineering tooling
 │   ├── scripts/                       # Operational PowerShell automation scripts
 │   │   ├── Setup-OCRModels.ps1        # Automated model downloader, provisioner, and SHA-256 verifier (CI)
+│   │   ├── update_sarathi.cmd         # Windows Command prompt launcher for update_sarathi.ps1
 │   │   └── update_sarathi.ps1         # Interactive environment and dependency manager (uv bootstrap, sync)
 │   └── benchmark_ocr_and_font.py      # Performance and accuracy measurement harness
 ├── tests/                             # Automated test suite
