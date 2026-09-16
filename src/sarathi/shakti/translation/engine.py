@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import tomllib
@@ -264,7 +265,9 @@ class CTranslate2TranslationEngine:
                     )
                     if device == "cpu":
                         inter_threads = approved
-                        intra_threads = 1
+                        cpu_fn = getattr(os, "process_cpu_count", None)
+                        cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count()
+                        intra_threads = max(1, min(4, (cpu_count or 4) // 2))
                     else:
                         inter_threads = approved
                         intra_threads = 0

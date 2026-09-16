@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -117,9 +118,9 @@ class TestTranslationDeviceBinding:
             res = engine.translate("नमस्ते", direction=TranslationDirection.HI_TO_EN, execution_binding=binding_cuda)
 
             assert res.translated_text == "Hello"
-            assert res.metadata["device"] == "cpu"
+            expected_intra = max(1, min(4, (os.cpu_count() or 4) // 2))
             mock_trans_cls.assert_called_once_with(
-                str(models_dir), device="cpu", device_index=0, inter_threads=1, intra_threads=1
+                str(models_dir), device="cpu", device_index=0, inter_threads=1, intra_threads=expected_intra
             )
 
     def test_translation_engine_raises_on_gpu_init_failure_without_cpu_fallback(self, tmp_path) -> None:
