@@ -324,3 +324,20 @@ def test_bilingual_sentence_translation_directions(
     dir_enum = TranslationDirection(direction)
     res = engine.translate(src_text, direction=dir_enum)
     assert expected_fragment in res.translated_text
+
+
+def test_indictrans2_native_engine_missing_assets_fails_dependency_unavailable(tmp_path: Path) -> None:
+    """IndicTrans2 native engine fails closed with DEPENDENCY_UNAVAILABLE when assets missing."""
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    empty_data_dir = tmp_path / "empty_indic"
+    empty_data_dir.mkdir(parents=True, exist_ok=True)
+    (empty_data_dir / "models").mkdir(parents=True, exist_ok=True)
+    (empty_data_dir / "manifest.json").write_text('{"version": "1.0", "models": {"hi-en": {}}}', encoding="utf-8")
+    native_engine = CTranslate2TranslationEngine(data_root=empty_data_dir)
+    with pytest.raises(DoshError) as excinfo:
+        native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="indictrans2")
+    assert excinfo.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
+    assert "Model assets for translation direction 'hi-en' are missing or incomplete." == excinfo.value.message

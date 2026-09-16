@@ -148,3 +148,29 @@ def test_translation_anubhava_malformed_raises_invalid_configuration(tmp_path: P
     with pytest.raises(DoshError) as exc_info:
         _load_translation_anubhava(tmp_path)
     assert exc_info.value.code == FailureCode.INVALID_CONFIGURATION
+
+
+def test_provider_readiness_indictrans2_subfolder_with_dual_spm(tmp_path: Path) -> None:
+    """Readiness reports READY when indictrans2 models are stored in models/indictrans2 with dual SPM."""
+    prov = TranslationProvider()
+    trans_dir = tmp_path / "translation"
+    trans_dir.mkdir(parents=True, exist_ok=True)
+    (trans_dir / "manifest.json").write_text('{"version": "1.0"}', encoding="utf-8")
+
+    for model_name in ("hi-en", "en-hi"):
+        m_dir = trans_dir / "models" / "indictrans2" / model_name
+        m_dir.mkdir(parents=True, exist_ok=True)
+        (m_dir / "model.bin").write_bytes(b"dummy")
+        (m_dir / "model.SRC").write_bytes(b"dummy")
+        (m_dir / "model.TGT").write_bytes(b"dummy")
+        (m_dir / "source_vocabulary.json").write_bytes(b"{}")
+        (m_dir / "target_vocabulary.json").write_bytes(b"{}")
+
+    services = PluginServices(data_root=tmp_path)
+
+    with patch("importlib.util.find_spec", side_effect=lambda name: object()):
+        readiness_map = prov.readiness(services)
+        res = readiness_map["translation"]
+        assert res.ready
+        assert res.status == ReadinessStatus.READY
+        assert "IndicTrans2 CTranslate2" in res.reason

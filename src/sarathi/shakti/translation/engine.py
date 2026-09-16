@@ -197,22 +197,45 @@ class CTranslate2TranslationEngine:
                         model_path = self._root / "models" / "opus_mt" / dir_key
                         if not model_path.exists():
                             model_path = self._root / "models" / f"opus_{dir_key}"
-                        spm_path = model_path / "spm.model"
-                        if not model_path.exists() or not spm_path.exists():
+                        if not model_path.exists():
+                            model_path = self._root / "models" / dir_key
+                        spm_src_path = model_path / "spm.model"
+                        spm_tgt_path = spm_src_path
+                        if not model_path.exists() or not spm_src_path.exists():
                             raise DoshError(
                                 code=FailureCode.DEPENDENCY_UNAVAILABLE,
                                 message=f"Model assets for OPUS-MT translation direction '{dir_key}' are missing or incomplete.",
                             )
+                        model_info = {}
                     else:
-                        model_info = self._manifest.get("models", {}).get(dir_key)
-                        if not model_info:
+                        model_info = self._manifest.get("models", {}).get(dir_key) or {}
+                        if not model_info and dir_key not in ("hi-en", "en-hi"):
                             raise DoshError(
                                 code=FailureCode.DEPENDENCY_UNAVAILABLE,
                                 message=f"Model for direction '{dir_key}' not declared in manifest.",
                             )
-                        model_path = self._root / "models" / dir_key
-                        spm_path = model_path / "spm.model"
-                        if not model_path.exists() or not spm_path.exists():
+                        # Check indictrans2 subdirectory first, then fallback to root models
+                        model_path = self._root / "models" / "indictrans2" / dir_key
+                        if not (model_path.exists() and any((model_path / f).exists() for f in ("model.bin", "model.SRC", "spm.model"))):
+                            model_path = self._root / "models" / dir_key
+
+                        # Resolve source SentencePiece model
+                        if (model_path / "model.SRC").is_file():
+                            spm_src_path = model_path / "model.SRC"
+                        elif (model_path / "src_spm.model").is_file():
+                            spm_src_path = model_path / "src_spm.model"
+                        else:
+                            spm_src_path = model_path / "spm.model"
+
+                        # Resolve target SentencePiece model
+                        if (model_path / "model.TGT").is_file():
+                            spm_tgt_path = model_path / "model.TGT"
+                        elif (model_path / "tgt_spm.model").is_file():
+                            spm_tgt_path = model_path / "tgt_spm.model"
+                        else:
+                            spm_tgt_path = spm_src_path
+
+                        if not model_path.exists() or not spm_src_path.exists():
                             raise DoshError(
                                 code=FailureCode.DEPENDENCY_UNAVAILABLE,
                                 message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
@@ -247,7 +270,8 @@ class CTranslate2TranslationEngine:
                         intra_threads = 0
 
                     trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}:{inter_threads}:{intra_threads}"
-                    spm_key = f"{norm_engine}:{spm_path.resolve()}:{dir_key}"
+                    spm_src_key = f"src:{spm_src_path.resolve()}"
+                    spm_tgt_key = f"tgt:{spm_tgt_path.resolve()}"
                     with self._lock:
                         if trans_key not in self._translators:
                             try:
@@ -267,16 +291,40 @@ class CTranslate2TranslationEngine:
                                     ),
                                 ) from exc
 
-                        if spm_key not in self._spms:
-                            sp = sentencepiece.SentencePieceProcessor()
-                            sp.load(str(spm_path))
-                            self._spms[spm_key] = sp
+                        if spm_src_key not in self._spms:
+                            sp_src = sentencepiece.SentencePieceProcessor()
+                            sp_src.load(str(spm_src_path))
+                            self._spms[spm_src_key] = sp_src
+
+                        if spm_tgt_key not in self._spms:
+                            sp_tgt = sentencepiece.SentencePieceProcessor()
+                            sp_tgt.load(str(spm_tgt_path))
+                            self._spms[spm_tgt_key] = sp_tgt
 
                         translator = self._translators[trans_key]
-                        spm = self._spms[spm_key]
-                    tokenized = [spm.encode_as_pieces(s) for s in sentences]
+                        spm_src = self._spms[spm_src_key]
+                        spm_tgt = self._spms[spm_tgt_key]
+
+                    if norm_engine == "indictrans2":
+                        src_tag = model_info.get("source_lang", "hin_Deva" if dir_key == "hi-en" else "eng_Latn")
+                        tgt_tag = model_info.get("target_lang", "eng_Latn" if dir_key == "hi-en" else "hin_Deva")
+                        tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(s) for s in sentences]
+                    else:
+                        tokenized = [spm_src.encode_as_pieces(s) for s in sentences]
+
                     results = translator.translate_batch(tokenized)
-                    return [spm.decode_pieces(r.hypotheses[0]) for r in results], device
+
+                    decoded_sentences: list[str] = []
+                    for r in results:
+                        text = spm_tgt.decode_pieces(r.hypotheses[0])
+                        if norm_engine == "indictrans2":
+                            for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>"):
+                                text = text.replace(tag, "")
+                        text = text.replace("\u2581", " ")
+                        text = " ".join(text.split())
+                        decoded_sentences.append(text.strip())
+
+                    return decoded_sentences, device
 
             self._initialized_backend = _CTranslate2NativeBackend(self._data_root, manifest_dict)
             return self._initialized_backend

@@ -183,9 +183,9 @@ foreach ($pkg in $pinnedPackages) {
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 7. Verify Declared OCR Model Assets
+# 7. Verify Declared OCR and Translation Model Assets
 # -----------------------------------------------------------------------------
-Write-Host "[4/4] Verifying declared OpenVINO OCR model assets..." -ForegroundColor Cyan
+Write-Host "[4/4] Verifying declared neural model assets (OCR & Translation)..." -ForegroundColor Cyan
 $setupScript = Join-Path $PSScriptRoot "Setup-OCRModels.ps1"
 if (Test-Path -LiteralPath $setupScript -PathType Leaf) {
     try {
@@ -196,6 +196,18 @@ if (Test-Path -LiteralPath $setupScript -PathType Leaf) {
     }
 } else {
     Write-Host "       [SKIP] Setup-OCRModels.ps1 not found at '$setupScript'." -ForegroundColor DarkGray
+}
+
+$transSetupScript = Join-Path $PSScriptRoot "Setup-TranslationModels.ps1"
+if (Test-Path -LiteralPath $transSetupScript -PathType Leaf) {
+    try {
+        & $transSetupScript -ProjectRoot $ProjectRoot -VerifyOnly
+    } catch {
+        Write-Host "       [WARNING] Translation model assets are missing or incomplete." -ForegroundColor Yellow
+        Write-Host "       Run 'powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1' to provision them." -ForegroundColor DarkYellow
+    }
+} else {
+    Write-Host "       [SKIP] Setup-TranslationModels.ps1 not found at '$transSetupScript'." -ForegroundColor DarkGray
 }
 Write-Host ""
 
