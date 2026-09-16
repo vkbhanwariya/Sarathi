@@ -37,9 +37,17 @@ def parse_decimal_amount(raw_val: Any) -> Decimal | None:
             is_negative = val_str.startswith("(") and val_str.endswith(")")
             if is_negative:
                 val_str = val_str[1:-1].strip()
+            elif val_str.startswith("-"):
+                is_negative = True
+                val_str = val_str[1:].strip()
 
             val_str = _CURRENCY_PREFIX_RE.sub("", val_str).strip()
             val_str = _SUFFIX_RE.sub("", val_str).strip()
+
+            if val_str.endswith("-"):
+                is_negative = True
+                val_str = val_str[:-1].strip()
+
             # Remove standard thousand separators
             val_str = val_str.replace(",", "")
             # Allow standard 3-digit thousand grouping spaces (e.g. "1 250.50"), while rejecting ambiguous spaces ("5 0")

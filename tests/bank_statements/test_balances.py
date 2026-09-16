@@ -194,3 +194,57 @@ def test_zero_opening_and_closing_balances_preserved() -> None:
     stmt = stmts[0]
     assert stmt.opening_balance == Decimal("0.00")
     assert stmt.closing_balance == Decimal("0.00")
+
+
+def test_debit_credit_inversion_detected_and_healed() -> None:
+    """Proves validate_statement_balances detects swapped debit/credit columns and restores continuity."""
+    ident = create_account_identity("State Bank of India", "30123456789")
+    # Columns were inverted: Deposits entered in debit, withdrawals entered in credit
+    tx1 = Transaction(
+        transaction_date=date(2026, 1, 1),
+        description="Client Remittance (Inverted to Debit)",
+        bank_name="State Bank of India",
+        debit=Decimal("2000.00"),
+        credit=None,
+        running_balance=Decimal("12000.00"),
+        account_identity=ident,
+    )
+    tx2 = Transaction(
+        transaction_date=date(2026, 1, 2),
+        description="Office Expense (Inverted to Credit)",
+        bank_name="State Bank of India",
+        debit=None,
+        credit=Decimal("1000.00"),
+        running_balance=Decimal("11000.00"),
+        account_identity=ident,
+    )
+    tx3 = Transaction(
+        transaction_date=date(2026, 1, 3),
+        description="Customer Invoice Payment (Inverted to Debit)",
+        bank_name="State Bank of India",
+        debit=Decimal("5000.00"),
+        credit=None,
+        running_balance=Decimal("16000.00"),
+        account_identity=ident,
+    )
+
+    statement = BankStatement(
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        opening_balance=Decimal("10000.00"),
+        closing_balance=Decimal("16000.00"),
+        transactions=(tx1, tx2, tx3),
+    )
+
+    validated = validate_statement_balances(statement)
+    assert validated.status == ValidationStatus.WARNING
+    assert any(i.code == "DEBIT_CREDIT_INVERSION_DETECTED" for i in validated.issues)
+    assert not any(i.code == "RUNNING_BALANCE_DISCONTINUITY" for i in validated.issues)
+    assert not any(i.code == "RECONCILIATION_MISMATCH" for i in validated.issues)
+
+    # Verify that debits and credits were successfully swapped
+    txns = validated.transactions
+    assert txns[0].credit == Decimal("2000.00") and txns[0].debit is None
+    assert txns[1].debit == Decimal("1000.00") and txns[1].credit is None
+    assert txns[2].credit == Decimal("5000.00") and txns[2].debit is None

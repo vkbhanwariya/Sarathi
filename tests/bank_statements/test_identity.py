@@ -173,3 +173,133 @@ def test_ifsc_extraction_and_propagation() -> None:
     res = cap.execute(req, ctx, prior_result=Result(data=doc))
     stmt = res.data.statements[0]
     assert stmt.ifsc == "ICIC0000001"
+
+
+def test_detect_axis_bank_statement() -> None:
+    doc_text = """
+    AXIS BANK
+    Account Statement
+    Account Number: 912010012345678
+    Cust ID: 123456789
+    IFSC: UTIB0000123
+    Statement Period: 01-01-2026 to 31-01-2026
+    """
+    table = TableData(
+        rows=(
+            ("Tran Date", "Particulars", "Chq No", "Debit", "Credit", "Balance"),
+            ("01-01-2026", "Opening Balance", "", "", "", "50,000.00"),
+            ("05-01-2026", "NEFT OUT", "123456", "1,500.00", "", "48,500.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-axis",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+    evidence = detect_bank_statement(doc)
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "axis"
+    assert evidence.bank_name == "Axis Bank"
+    assert evidence.account_identity is not None
+    assert evidence.account_identity.ifsc == "UTIB0000123"
+
+
+def test_detect_kotak_bank_statement() -> None:
+    doc_text = """
+    KOTAK MAHINDRA BANK
+    Account Statement
+    Account Number: 1234567890
+    CRN: 12345678
+    IFSC Code: KKBK0000123
+    """
+    table = TableData(
+        rows=(
+            ("Date", "Narration", "Chq / Ref No.", "Withdrawal (Dr)", "Deposit (Cr)", "Balance"),
+            ("01-Jan-2026", "OPENING BALANCE", "", "", "", "10,000.00"),
+            ("02-Jan-2026", "UPI/SALARY", "REF999", "", "25,000.00", "35,000.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-kotak",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+    evidence = detect_bank_statement(doc)
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "kotak"
+    assert evidence.bank_name == "Kotak Mahindra Bank"
+
+
+def test_detect_pnb_bank_statement() -> None:
+    doc_text = """
+    PUNJAB NATIONAL BANK
+    Account Statement
+    Account Number: 1234000100012345
+    IFSC: PUNB0123400
+    """
+    table = TableData(
+        rows=(
+            ("Txn Date", "Transaction Details", "Cheque No.", "Debit", "Credit", "Balance"),
+            ("01/01/2026", "OPENING BAL", "", "", "", "20,000.00"),
+            ("03/01/2026", "ATM WDL", "9988", "2,000.00", "", "18,000.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-pnb",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+    evidence = detect_bank_statement(doc)
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "pnb"
+    assert evidence.bank_name == "Punjab National Bank"
+
+
+def test_detect_bob_bank_statement() -> None:
+    doc_text = """
+    BANK OF BARODA
+    Statement of Account
+    Account Number: 12340100012345
+    IFSC Code: BARB0KOLKAT
+    """
+    table = TableData(
+        rows=(
+            ("Date", "Narration", "Chq/Ref No", "Withdrawal", "Deposit", "Balance"),
+            ("01-01-2026", "B/F BALANCE", "", "", "", "15,000.00"),
+            ("04-01-2026", "DIVIDEND CR", "DIV01", "", "500.00", "15,500.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-bob",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+    evidence = detect_bank_statement(doc)
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "bob"
+    assert evidence.bank_name == "Bank of Baroda"
+
+
+def test_detect_canara_bank_statement() -> None:
+    doc_text = """
+    CANARA BANK
+    Account Statement
+    Account Number: 1234101012345
+    IFSC: CNRB0001234
+    """
+    table = TableData(
+        rows=(
+            ("Txn Date", "Particulars", "Chq No", "Debit", "Credit", "Balance"),
+            ("01-Jan-2026", "BALANCE B/F", "", "", "", "30,000.00"),
+            ("06-Jan-2026", "POS PURCHASE", "1212", "1,200.00", "", "28,800.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-canara",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+    evidence = detect_bank_statement(doc)
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "canara"
+    assert evidence.bank_name == "Canara Bank"

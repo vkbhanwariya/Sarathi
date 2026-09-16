@@ -26,6 +26,12 @@ def test_parse_parenthetical_negative_amount() -> None:
     assert parse_decimal_amount("(50.25)") == Decimal("-50.25")
 
 
+def test_parse_trailing_minus_negative_amount() -> None:
+    assert parse_decimal_amount("1,250.00-") == Decimal("-1250.00")
+    assert parse_decimal_amount("50.25 -") == Decimal("-50.25")
+    assert parse_decimal_amount("₹ 999.00-") == Decimal("-999.00")
+
+
 def test_parse_empty_and_null_amounts() -> None:
     assert parse_decimal_amount(None) is None
     assert parse_decimal_amount("") is None

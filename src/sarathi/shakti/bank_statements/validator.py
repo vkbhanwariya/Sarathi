@@ -87,6 +87,57 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
     # Validate Running Balance continuity (chronologically)
     ordered_txns = list(reversed(transactions)) if is_reverse else transactions
 
+    # Check for Debit / Credit column inversion across chronological transitions
+    canon_matches = 0
+    inv_matches = 0
+    total_testable = 0
+
+    for idx, tx in enumerate(ordered_txns):
+        deb = tx.debit or Decimal("0")
+        crd = tx.credit or Decimal("0")
+        if deb == crd or tx.running_balance is None:
+            continue
+
+        prev_ref_bal = opening_bal if idx == 0 else ordered_txns[idx - 1].running_balance
+        if prev_ref_bal is None:
+            continue
+
+        actual_delta = tx.running_balance - prev_ref_bal
+        canon_delta = crd - deb
+        inv_delta = deb - crd
+
+        total_testable += 1
+        if actual_delta == canon_delta:
+            canon_matches += 1
+        elif actual_delta == inv_delta:
+            inv_matches += 1
+
+    if total_testable >= 2 and inv_matches >= 2 and inv_matches > canon_matches and (inv_matches / total_testable) >= 0.75:
+        statement_issues.append(
+            ValidationIssue(
+                code="DEBIT_CREDIT_INVERSION_DETECTED",
+                message=(
+                    "Statement columns appear to be inverted: debit and credit amounts have been "
+                    "swapped to restore running balance continuity."
+                ),
+                severity="warning",
+                context={
+                    "inverted_matches": str(inv_matches),
+                    "canonical_matches": str(canon_matches),
+                    "total_testable": str(total_testable),
+                },
+            )
+        )
+        ordered_txns = [
+            replace(tx, debit=tx.credit, credit=tx.debit) for tx in ordered_txns
+        ]
+        total_debits = sum((tx.debit or Decimal("0") for tx in ordered_txns), Decimal("0"))
+        total_credits = sum((tx.credit or Decimal("0") for tx in ordered_txns), Decimal("0"))
+        if statement.opening_balance is None and statement.closing_balance is not None:
+            opening_bal = closing_bal - total_credits + total_debits
+        elif statement.closing_balance is None and statement.opening_balance is not None:
+            closing_bal = opening_bal + total_credits - total_debits
+
     # Precompute reverse running balance anchors (from closing_bal backward)
     # B_{i-1} = B_i - C_i + D_i
     backward_expected: list[Decimal | None] = [None] * len(ordered_txns)
