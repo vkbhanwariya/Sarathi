@@ -268,6 +268,10 @@ class CTranslate2TranslationEngine:
                         cpu_fn = getattr(os, "process_cpu_count", None)
                         cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count()
                         intra_threads = max(1, min(4, (cpu_count or 4) // 2))
+                        if "KMP_AFFINITY" not in os.environ:
+                            os.environ["KMP_AFFINITY"] = "granularity=fine,compact,1,0"
+                        if "KMP_BLOCKTIME" not in os.environ:
+                            os.environ["KMP_BLOCKTIME"] = "0"
                     else:
                         inter_threads = approved
                         intra_threads = 0

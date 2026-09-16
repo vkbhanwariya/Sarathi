@@ -63,7 +63,8 @@ def build_rapidocr_instance(
 
     patch_rapidocr_openvino_device()
 
-    rec_batch_num = 16 if target_device == "CPU" else 32
+    # Tune recognition batch size: 16 on CPU, 48 on Intel Arc iGPU (7 Xe-cores)
+    rec_batch_num = 16 if target_device == "CPU" else 48
     box_thresh = 0.55
 
     if engine_key == "v6_en":
