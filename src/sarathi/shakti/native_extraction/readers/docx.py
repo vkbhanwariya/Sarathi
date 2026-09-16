@@ -171,8 +171,7 @@ def read_docx(
                                 metadata={"cell_fonts": cell_fonts},
                             )
                         )
-                        for r_row in raw_table_rows:
-                            paragraphs.append(" | ".join(r_row))
+                        paragraphs.append(f"{{{{TABLE:{tables[-1].name}}}}}")
 
     provenances.append(
         ProvenanceRecord(

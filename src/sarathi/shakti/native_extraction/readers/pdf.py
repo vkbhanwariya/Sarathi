@@ -218,10 +218,14 @@ def read_pdf(
                             headers = tuple(str(h or "") for h in candidate_headers)
                             data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
 
+                        t_meta = {}
+                        if getattr(tab, "bbox", None) is not None:
+                            t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
                         t_obj = TableData(
                             name=f"Page_{page_num}_Table_{t_idx}",
                             headers=headers,
                             rows=data_rows,
+                            metadata=t_meta,
                         )
                         page_tables.append(t_obj)
                         all_doc_tables.append(t_obj)

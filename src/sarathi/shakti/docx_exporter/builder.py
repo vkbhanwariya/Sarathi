@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import math
+import re
 import zipfile
 from xml.sax.saxutils import escape
 
@@ -123,35 +125,131 @@ def _format_paragraph_xml(
     return f'<w:p>{p_pr}{"".join(runs)}</w:p>'
 
 
+_TABLE_ANCHOR_RE = re.compile(
+    r"^(?:\{\{TABLE:(.+?)\}\}|<!--\s*TABLE:(.+?)\s*-->|\[TABLE:(.+?)\])$",
+    re.IGNORECASE,
+)
+
+
+def _calculate_proportional_column_widths(
+    table: TableData,
+    num_cols: int,
+    total_width_dxa: int = 9360,
+) -> list[int]:
+    """Calculate proportional column widths based on maximum text length across headers and rows."""
+    if num_cols <= 0:
+        return []
+    if num_cols == 1:
+        return [total_width_dxa]
+
+    # Calculate content weight for each column based on text length
+    col_scores: list[float] = [5.0] * num_cols
+    for c_idx in range(num_cols):
+        if c_idx < len(table.headers):
+            h_len = len(str(table.headers[c_idx]).strip())
+            col_scores[c_idx] = max(col_scores[c_idx], float(h_len))
+        for row in table.rows:
+            if c_idx < len(row):
+                cell_str = str(row[c_idx]).strip()
+                max_line_len = max((len(line) for line in cell_str.splitlines()), default=0)
+                col_scores[c_idx] = max(col_scores[c_idx], float(max_line_len))
+
+    # Apply square root damping so long columns don't excessively starve smaller columns
+    damped_scores = [max(1.0, math.sqrt(score)) for score in col_scores]
+    total_score = sum(damped_scores) or 1.0
+
+    min_w = max(600, min(1440, total_width_dxa // (num_cols * 3)))
+    raw_widths = [int(total_width_dxa * (s / total_score)) for s in damped_scores]
+    clamped_widths = [max(min_w, w) for w in raw_widths]
+
+    clamped_sum = sum(clamped_widths) or 1
+    final_widths = [int(total_width_dxa * (w / clamped_sum)) for w in clamped_widths]
+
+    delta = total_width_dxa - sum(final_widths)
+    if delta != 0 and final_widths:
+        widest_idx = final_widths.index(max(final_widths))
+        final_widths[widest_idx] += delta
+
+    return final_widths
+
+
+def _format_cell_content_xml(
+    cell_text: str,
+    bold: bool = False,
+    alignment: str | None = None,
+    default_font: str | None = None,
+    default_size_pt: float | None = None,
+    legacy_target_font: str | None = None,
+) -> str:
+    """Format cell content into one or more paragraphs, preserving multiline cell text."""
+    if not cell_text:
+        return "<w:p/>"
+    lines = [line.strip() for line in cell_text.splitlines() if line.strip()]
+    if not lines:
+        return "<w:p/>"
+    p_elements: list[str] = []
+    for line in lines:
+        p_elements.append(
+            _format_paragraph_xml(
+                line,
+                bold=bold,
+                alignment=alignment,
+                default_font=default_font,
+                default_size_pt=default_size_pt,
+                legacy_target_font=legacy_target_font,
+            )
+        )
+    return "".join(p_elements)
+
+
 def _format_table_xml(
     table: TableData,
     default_font: str | None = None,
     default_size_pt: float | None = None,
     legacy_target_font: str | None = None,
+    total_width_dxa: int = 9360,
 ) -> str:
-    """Format a TableData model into an OpenXML <w:tbl> table."""
+    """Format a TableData model into an OpenXML <w:tbl> table with proportional grid columns and cell margins."""
+    num_cols = len(table.headers)
+    if table.rows:
+        num_cols = max(num_cols, max((len(r) for r in table.rows), default=0))
+
+    if num_cols <= 0:
+        return ""
+
+    col_widths = _calculate_proportional_column_widths(table, num_cols, total_width_dxa=total_width_dxa)
+    grid_cols = "".join(f'<w:gridCol w:w="{w}"/>' for w in col_widths)
+
     parts = [
         '<w:tbl>',
         '<w:tblPr>',
-        '<w:tblW w:w="0" w:type="auto"/>',
-        '<w:tblBorders>',
-        '<w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>',
-        '<w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>',
-        '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>',
-        '<w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>',
-        '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>',
-        '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>',
-        '</w:tblBorders>',
+        f'<w:tblW w:w="{total_width_dxa}" w:type="dxa"/>',
         '<w:jc w:val="center"/>',
+        '<w:tblBorders>',
+        '<w:top w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
+        '<w:left w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
+        '<w:bottom w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
+        '<w:right w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
+        '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>',
+        '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>',
+        '</w:tblBorders>',
+        '<w:tblCellMar>',
+        '<w:top w:w="120" w:type="dxa"/>',
+        '<w:left w:w="160" w:type="dxa"/>',
+        '<w:bottom w:w="120" w:type="dxa"/>',
+        '<w:right w:w="160" w:type="dxa"/>',
+        '</w:tblCellMar>',
         '</w:tblPr>',
+        f'<w:tblGrid>{grid_cols}</w:tblGrid>',
     ]
 
     # Header Row
     if table.headers:
-        parts.append('<w:tr><w:trPr><w:tblHeader/></w:trPr>')
-        for h in table.headers:
-            h_text = str(h)
-            p_xml = _format_paragraph_xml(
+        parts.append('<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>')
+        for c_idx in range(num_cols):
+            h_text = str(table.headers[c_idx]) if c_idx < len(table.headers) else ""
+            c_w = col_widths[c_idx]
+            p_xml = _format_cell_content_xml(
                 h_text,
                 bold=True,
                 alignment="center",
@@ -160,23 +258,33 @@ def _format_table_xml(
                 legacy_target_font=legacy_target_font,
             )
             parts.append(
-                f'<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/></w:tcPr>{p_xml}</w:tc>'
+                f'<w:tc><w:tcPr>'
+                f'<w:tcW w:w="{c_w}" w:type="dxa"/>'
+                f'<w:shd w:val="clear" w:color="auto" w:fill="F2F4F7"/>'
+                f'<w:vAlign w:val="center"/>'
+                f'</w:tcPr>{p_xml}</w:tc>'
             )
         parts.append('</w:tr>')
 
     # Data Rows
     for row in table.rows:
-        parts.append('<w:tr>')
-        for cell in row:
-            c_text = str(cell)
-            p_xml = _format_paragraph_xml(
-                c_text,
+        parts.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>')
+        for c_idx in range(num_cols):
+            cell_val = str(row[c_idx]) if c_idx < len(row) else ""
+            c_w = col_widths[c_idx]
+            p_xml = _format_cell_content_xml(
+                cell_val,
                 bold=False,
                 default_font=default_font,
                 default_size_pt=default_size_pt,
                 legacy_target_font=legacy_target_font,
             )
-            parts.append(f'<w:tc>{p_xml}</w:tc>')
+            parts.append(
+                f'<w:tc><w:tcPr>'
+                f'<w:tcW w:w="{c_w}" w:type="dxa"/>'
+                f'<w:vAlign w:val="top"/>'
+                f'</w:tcPr>{p_xml}</w:tc>'
+            )
         parts.append('</w:tr>')
 
     parts.append('</w:tbl>')
@@ -197,7 +305,7 @@ def build_docx_payload(
     Applies the standardized bilingual typography:
     - Hindi: Nirmala UI, 12 pt baseline
     - English: Times New Roman, 12 pt baseline
-    - Tables and headers preserved.
+    - Tables and headers preserved with proportional column layout.
     """
     body_parts: list[str] = []
 
@@ -220,6 +328,7 @@ def build_docx_payload(
         )
 
     rendered_table_ids: set[int] = set()
+    rendered_table_names: set[str] = set()
 
     # Paragraphs or page text
     if doc.pages:
@@ -235,41 +344,155 @@ def build_docx_payload(
                         legacy_target_font=legacy_target_font,
                     )
                 )
+
+            # Build row signatures and lookup table for current page
+            table_row_signatures: set[str] = set()
+            page_tables_by_name: dict[str, TableData] = {}
+            if p.tables:
+                for t_idx, tbl in enumerate(p.tables, 1):
+                    if tbl.name:
+                        page_tables_by_name[tbl.name.strip().lower()] = tbl
+                    page_tables_by_name[f"table_{t_idx}"] = tbl
+                    page_tables_by_name[f"table {t_idx}"] = tbl
+                    if tbl.headers:
+                        table_row_signatures.add(" | ".join(str(c).strip() for c in tbl.headers))
+                        table_row_signatures.add("\t".join(str(c).strip() for c in tbl.headers))
+                    for row in tbl.rows:
+                        table_row_signatures.add(" | ".join(str(c).strip() for c in row))
+                        table_row_signatures.add("\t".join(str(c).strip() for c in row))
+
             if p.text:
                 for line in p.text.splitlines():
                     trimmed = line.strip()
-                    if trimmed:
-                        line_bold = False
-                        line_size = default_size_pt
-                        clean_line = trimmed
-                        if trimmed.startswith("# "):
-                            clean_line = trimmed[2:].strip()
-                            line_bold = True
-                            line_size = 16.0
-                        elif trimmed.startswith("## "):
-                            clean_line = trimmed[3:].strip()
-                            line_bold = True
-                            line_size = 14.0
-                        elif trimmed.startswith("### "):
-                            clean_line = trimmed[4:].strip()
-                            line_bold = True
-                            line_size = 13.0
+                    if not trimmed:
+                        body_parts.append("<w:p/>")
+                        continue
 
+                    # 1. Check for in-flow table anchor
+                    m = _TABLE_ANCHOR_RE.match(trimmed)
+                    if m:
+                        anchor_name = (m.group(1) or m.group(2) or m.group(3)).strip().lower()
+                        tbl = page_tables_by_name.get(anchor_name)
+                        if tbl is None and doc.tables:
+                            tbl = next(
+                                (t for t in doc.tables if t.name and t.name.strip().lower() == anchor_name),
+                                None,
+                            )
+                        if tbl is not None and id(tbl) not in rendered_table_ids:
+                            rendered_table_ids.add(id(tbl))
+                            if tbl.name:
+                                rendered_table_names.add(tbl.name.strip().lower())
+                            if tbl.name and not tbl.name.startswith("Table_") and not tbl.name.startswith("Page_"):
+                                body_parts.append(
+                                    _format_paragraph_xml(
+                                        tbl.name,
+                                        bold=True,
+                                        default_font=default_font,
+                                        default_size_pt=default_size_pt,
+                                        legacy_target_font=legacy_target_font,
+                                    )
+                                )
+                            body_parts.append(
+                                _format_table_xml(
+                                    tbl,
+                                    default_font=default_font,
+                                    default_size_pt=default_size_pt,
+                                    legacy_target_font=legacy_target_font,
+                                )
+                            )
+                            body_parts.append("<w:p/>")
+                            continue
+
+                    # 2. Suppress duplicate plain-text table rows
+                    if trimmed in table_row_signatures:
+                        continue
+
+                    line_bold = False
+                    line_size = default_size_pt
+                    clean_line = trimmed
+                    if trimmed.startswith("# "):
+                        clean_line = trimmed[2:].strip()
+                        line_bold = True
+                        line_size = 16.0
+                    elif trimmed.startswith("## "):
+                        clean_line = trimmed[3:].strip()
+                        line_bold = True
+                        line_size = 14.0
+                    elif trimmed.startswith("### "):
+                        clean_line = trimmed[4:].strip()
+                        line_bold = True
+                        line_size = 13.0
+
+                    body_parts.append(
+                        _format_paragraph_xml(
+                            clean_line,
+                            bold=line_bold,
+                            default_font=default_font,
+                            default_size_pt=line_size,
+                            legacy_target_font=legacy_target_font,
+                        )
+                    )
+
+            # Unanchored tables on current page rendered at natural bottom of page
+            if p.tables:
+                for tbl in p.tables:
+                    norm_name = tbl.name.strip().lower() if tbl.name else ""
+                    if id(tbl) not in rendered_table_ids and (not norm_name or norm_name not in rendered_table_names):
+                        rendered_table_ids.add(id(tbl))
+                        if norm_name:
+                            rendered_table_names.add(norm_name)
+                        if tbl.name and not tbl.name.startswith("Page_") and not tbl.name.startswith("Table_"):
+                            body_parts.append(
+                                _format_paragraph_xml(
+                                    tbl.name,
+                                    bold=True,
+                                    default_font=default_font,
+                                    default_size_pt=default_size_pt,
+                                    legacy_target_font=legacy_target_font,
+                                )
+                            )
                         body_parts.append(
-                            _format_paragraph_xml(
-                                clean_line,
-                                bold=line_bold,
+                            _format_table_xml(
+                                tbl,
                                 default_font=default_font,
-                                default_size_pt=line_size,
+                                default_size_pt=default_size_pt,
                                 legacy_target_font=legacy_target_font,
                             )
                         )
-                    else:
                         body_parts.append("<w:p/>")
-            if p.tables:
-                for tbl in p.tables:
+
+    elif doc.text:
+        table_row_signatures = set()
+        doc_tables_by_name = {}
+        if doc.tables:
+            for t_idx, tbl in enumerate(doc.tables, 1):
+                if tbl.name:
+                    doc_tables_by_name[tbl.name.strip().lower()] = tbl
+                doc_tables_by_name[f"table_{t_idx}"] = tbl
+                doc_tables_by_name[f"table {t_idx}"] = tbl
+                if tbl.headers:
+                    table_row_signatures.add(" | ".join(str(c).strip() for c in tbl.headers))
+                    table_row_signatures.add("\t".join(str(c).strip() for c in tbl.headers))
+                for row in tbl.rows:
+                    table_row_signatures.add(" | ".join(str(c).strip() for c in row))
+                    table_row_signatures.add("\t".join(str(c).strip() for c in row))
+
+        for line in doc.text.splitlines():
+            trimmed = line.strip()
+            if not trimmed:
+                body_parts.append("<w:p/>")
+                continue
+
+            # 1. Check for in-flow table anchor
+            m = _TABLE_ANCHOR_RE.match(trimmed)
+            if m:
+                anchor_name = (m.group(1) or m.group(2) or m.group(3)).strip().lower()
+                tbl = doc_tables_by_name.get(anchor_name)
+                if tbl is not None and id(tbl) not in rendered_table_ids:
                     rendered_table_ids.add(id(tbl))
                     if tbl.name:
+                        rendered_table_names.add(tbl.name.strip().lower())
+                    if tbl.name and not tbl.name.startswith("Table_") and not tbl.name.startswith("Page_"):
                         body_parts.append(
                             _format_paragraph_xml(
                                 tbl.name,
@@ -288,49 +511,53 @@ def build_docx_payload(
                         )
                     )
                     body_parts.append("<w:p/>")
-    elif doc.text:
-        for line in doc.text.splitlines():
-            trimmed = line.strip()
-            if trimmed:
-                line_bold = False
-                line_size = default_size_pt
-                clean_line = trimmed
-                if trimmed.startswith("# "):
-                    clean_line = trimmed[2:].strip()
-                    line_bold = True
-                    line_size = 16.0
-                elif trimmed.startswith("## "):
-                    clean_line = trimmed[3:].strip()
-                    line_bold = True
-                    line_size = 14.0
-                elif trimmed.startswith("### "):
-                    clean_line = trimmed[4:].strip()
-                    line_bold = True
-                    line_size = 13.0
+                    continue
 
-                body_parts.append(
-                    _format_paragraph_xml(
-                        clean_line,
-                        bold=line_bold,
-                        default_font=default_font,
-                        default_size_pt=line_size,
-                        legacy_target_font=legacy_target_font,
-                    )
+            # 2. Suppress duplicate plain-text table rows
+            if trimmed in table_row_signatures:
+                continue
+
+            line_bold = False
+            line_size = default_size_pt
+            clean_line = trimmed
+            if trimmed.startswith("# "):
+                clean_line = trimmed[2:].strip()
+                line_bold = True
+                line_size = 16.0
+            elif trimmed.startswith("## "):
+                clean_line = trimmed[3:].strip()
+                line_bold = True
+                line_size = 14.0
+            elif trimmed.startswith("### "):
+                clean_line = trimmed[4:].strip()
+                line_bold = True
+                line_size = 13.0
+
+            body_parts.append(
+                _format_paragraph_xml(
+                    clean_line,
+                    bold=line_bold,
+                    default_font=default_font,
+                    default_size_pt=line_size,
+                    legacy_target_font=legacy_target_font,
                 )
-            else:
-                body_parts.append("<w:p/>")
+            )
 
-    # Document-level tables (only if not already rendered inside pages)
+    # Document-level tables (only if not already rendered inside pages or text)
     if doc.tables:
         for tbl in doc.tables:
-            if id(tbl) not in rendered_table_ids:
+            norm_name = tbl.name.strip().lower() if tbl.name else ""
+            if id(tbl) not in rendered_table_ids and (not norm_name or norm_name not in rendered_table_names):
                 if any(
-                    tbl.name == pt.name and tbl.headers == pt.headers and tbl.rows == pt.rows
+                    tbl.headers == pt.headers and tbl.rows == pt.rows
                     for p in (doc.pages or ())
                     for pt in p.tables
                 ):
                     continue
-                if tbl.name:
+                rendered_table_ids.add(id(tbl))
+                if norm_name:
+                    rendered_table_names.add(norm_name)
+                if tbl.name and not tbl.name.startswith("Page_") and not tbl.name.startswith("Table_"):
                     body_parts.append(
                         _format_paragraph_xml(
                             tbl.name,

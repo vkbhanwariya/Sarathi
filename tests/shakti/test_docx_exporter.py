@@ -1,6 +1,7 @@
 """Focused positive and adversarial tests for the canonical DOCX exporter."""
 
 import io
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -664,3 +665,97 @@ def test_docx_multi_column_section_styling() -> None:
     with zipfile.ZipFile(io.BytesIO(res_multi.content)) as zf:
         xml_multi = zf.read("word/document.xml").decode("utf-8")
         assert '<w:cols w:num="2" w:space="720"/>' in xml_multi
+
+
+def test_docx_table_grid_and_proportional_column_widths() -> None:
+    """Verify that build_docx_payload emits <w:tblGrid>, <w:gridCol>, <w:tcW> with 9360 total dxa."""
+    tbl = TableData(
+        name="Summary",
+        headers=("ID", "Detailed Description of Item", "Qty"),
+        rows=(
+            ("1", "Very long description that requires more column space than short ID", "10"),
+            ("2", "Another item description", "5"),
+        ),
+    )
+    doc = CanonicalDocument(document_id="doc_tbl", tables=(tbl,))
+    payload = build_docx_payload(doc, "table.docx")
+
+    with zipfile.ZipFile(io.BytesIO(payload.content)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+        assert "<w:tblGrid>" in xml
+        assert '<w:tblW w:w="9360" w:type="dxa"/>' in xml
+        assert "<w:tblCellMar>" in xml
+        assert '<w:top w:w="120" w:type="dxa"/>' in xml
+        assert '<w:left w:w="160" w:type="dxa"/>' in xml
+        assert "<w:cantSplit/>" in xml
+
+        # Extract gridCol widths
+        grid_col_widths = [int(w) for w in re.findall(r'<w:gridCol w:w="(\d+)"/>', xml)]
+        assert len(grid_col_widths) == 3
+        # Sum must equal 9360 exactly
+        assert sum(grid_col_widths) == 9360
+        # The description column (index 1) must be wider than ID (index 0)
+        assert grid_col_widths[1] > grid_col_widths[0]
+        assert grid_col_widths[1] > grid_col_widths[2]
+
+
+def test_docx_table_in_flow_placement_and_deduplication() -> None:
+    """Verify in-flow {{TABLE:name}} anchor places table between paragraphs and deduplicates text rows."""
+    tbl = TableData(
+        name="Metrics",
+        headers=("Metric", "Score"),
+        rows=(("Accuracy", "99%"), ("Latency", "12ms")),
+    )
+    page_text = (
+        "Introduction paragraph.\n"
+        "{{TABLE:Metrics}}\n"
+        "Concluding remarks.\n"
+        "Accuracy | 99%"  # Duplicate raw text line that should be filtered out
+    )
+    p = PageData(page_number=1, text=page_text, tables=(tbl,))
+    doc = CanonicalDocument(document_id="doc_inflow", pages=(p,))
+    payload = build_docx_payload(doc, "inflow.docx")
+
+    with zipfile.ZipFile(io.BytesIO(payload.content)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+        # Ensure table XML appears between intro and concluding paragraphs
+        intro_pos = xml.find("Introduction paragraph.")
+        table_pos = xml.find("<w:tbl>")
+        concl_pos = xml.find("Concluding remarks.")
+
+        assert intro_pos != -1
+        assert table_pos != -1
+        assert concl_pos != -1
+        assert intro_pos < table_pos < concl_pos
+
+        # Table should only appear once in document
+        assert xml.count("<w:tbl>") == 1
+        # The duplicate pipe text "Accuracy | 99%" should NOT appear as a plain text paragraph
+        assert "Accuracy | 99%" not in xml
+
+
+def test_docx_table_multiline_cells_and_ragged_rows() -> None:
+    """Verify multiline cells format with line breaks and ragged rows are padded to grid width."""
+    tbl = TableData(
+        name="MultilineTable",
+        headers=("Col A", "Col B", "Col C"),
+        rows=(
+            ("Line 1\nLine 2", "Single", "Extra"),
+            ("Only One Cell",),  # Ragged row: only 1 cell instead of 3
+        ),
+    )
+    doc = CanonicalDocument(document_id="doc_multi_cell", tables=(tbl,))
+    payload = build_docx_payload(doc, "multi_cell.docx")
+
+    with zipfile.ZipFile(io.BytesIO(payload.content)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+        assert "<w:tblGrid>" in xml
+        assert "Line 1" in xml
+        assert "Line 2" in xml
+
+        # 1 header row + 2 data rows = 3 rows in total, each having 3 cells
+        rows = re.findall(r'<w:tr>.*?</w:tr>', xml)
+        assert len(rows) == 3
+        for r in rows:
+            tc_count = r.count("<w:tc>")
+            assert tc_count == 3

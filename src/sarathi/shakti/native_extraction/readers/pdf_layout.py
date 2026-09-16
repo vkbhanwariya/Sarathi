@@ -178,7 +178,11 @@ def read_pdf_with_layout(
                                     )
                                 )
                     if item_lines:
-                        item_blocks.append((cls_name, item_lines))
+                        if cls_name == "table":
+                            t_num = sum(1 for c, _ in item_blocks if c == "table") + 1
+                            item_blocks.append((cls_name, [f"{{{{TABLE:Page_{page_num}_Table_{t_num}}}}}"]))
+                        else:
+                            item_blocks.append((cls_name, item_lines))
 
             # Append any unassigned lines in their natural spatial order
             unassigned_lines: list[str] = []
@@ -209,6 +213,14 @@ def read_pdf_with_layout(
                                         name=f"Page_{page_num}_Table_{t_idx}",
                                         headers=headers,
                                         rows=data_rows,
+                                        metadata={
+                                            "bounding_box": (
+                                                float(t_item[0]),
+                                                float(t_item[1]),
+                                                float(t_item[2]),
+                                                float(t_item[3]),
+                                            )
+                                        },
                                     )
                                     page_tables.append(t_obj)
                                     all_doc_tables.append(t_obj)
@@ -225,10 +237,14 @@ def read_pdf_with_layout(
                             if extracted_rows:
                                 headers = tuple(str(h or "") for h in extracted_rows[0])
                                 data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
+                                t_meta = {}
+                                if getattr(tab, "bbox", None) is not None:
+                                    t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
                                 t_obj = TableData(
                                     name=f"Page_{page_num}_Table_{t_idx}",
                                     headers=headers,
                                     rows=data_rows,
+                                    metadata=t_meta,
                                 )
                                 page_tables.append(t_obj)
                                 all_doc_tables.append(t_obj)
