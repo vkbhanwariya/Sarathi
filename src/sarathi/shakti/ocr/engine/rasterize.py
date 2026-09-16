@@ -147,7 +147,7 @@ class BoundedPageRasterizer:
     """Pre-rasterizes document pages sequentially into a bounded memory queue using a single open document.
 
     Overlaps CPU rasterization of upcoming pages with active OCR inference while bounding memory
-    to `max_buffered` pages (default 4). Opens PDF/Image stream exactly once.
+    to `max_buffered` pages (default 6). Opens PDF/Image stream exactly once.
     """
 
     def __init__(
@@ -155,7 +155,7 @@ class BoundedPageRasterizer:
         data: bytes,
         pages: list[int] | None = None,
         dpi: int = 150,
-        max_buffered: int = 4,
+        max_buffered: int = 6,
         cancellation_token: Any | None = None,
     ) -> None:
         self._data = data

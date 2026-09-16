@@ -260,62 +260,65 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
 def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> ArtifactPayload:
     """Generate Consolidated_Bank_Statement.xlsx payload with masked account and fingerprint."""
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Consolidated Statements"
+    try:
+        ws = wb.active
+        ws.title = "Consolidated Statements"
 
-    headers = [
-        "Date",
-        "Time",
-        "Description",
-        "Reference No.",
-        "Cheque No.",
-        "Debit",
-        "Credit",
-        "Running Balance",
-        "Bank",
-        "Masked Account",
-        "Account Fingerprint",
-        "Account Holder",
-        "Status",
-    ]
-    ws.append(headers)
-
-    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    for col_idx in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.fill = header_fill
-        cell.font = header_font
-
-    for row_idx, tx in enumerate(consolidation.transactions, start=2):
-        ident = tx.account_identity
-        masked_acc = ident.masked_account_number if ident else ""
-        fingerprint = ident.account_fingerprint if ident else ""
-        holder = ident.account_holder if ident else ""
-
-        row_vals = [
-            tx.transaction_date.strftime("%d-%m-%Y"),
-            tx.transaction_time.strftime("%H:%M:%S") if tx.transaction_time else "",
-            tx.description,
-            tx.reference_number or "",
-            tx.cheque_number or "",
-            str(tx.debit) if tx.debit is not None else "",
-            str(tx.credit) if tx.credit is not None else "",
-            str(tx.running_balance) if tx.running_balance is not None else "",
-            tx.bank_name,
-            masked_acc,
-            fingerprint,
-            holder,
-            tx.status.value.upper(),
+        headers = [
+            "Date",
+            "Time",
+            "Description",
+            "Reference No.",
+            "Cheque No.",
+            "Debit",
+            "Credit",
+            "Running Balance",
+            "Bank",
+            "Masked Account",
+            "Account Fingerprint",
+            "Account Holder",
+            "Status",
         ]
-        for col_idx, val in enumerate(row_vals, start=1):
-            cell = ws.cell(row=row_idx, column=col_idx)
-            cell.value = val
-            cell.data_type = "s"
+        ws.append(headers)
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    content_bytes = buf.getvalue()
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+
+        for row_idx, tx in enumerate(consolidation.transactions, start=2):
+            ident = tx.account_identity
+            masked_acc = ident.masked_account_number if ident else ""
+            fingerprint = ident.account_fingerprint if ident else ""
+            holder = ident.account_holder if ident else ""
+
+            row_vals = [
+                tx.transaction_date.strftime("%d-%m-%Y"),
+                tx.transaction_time.strftime("%H:%M:%S") if tx.transaction_time else "",
+                tx.description,
+                tx.reference_number or "",
+                tx.cheque_number or "",
+                str(tx.debit) if tx.debit is not None else "",
+                str(tx.credit) if tx.credit is not None else "",
+                str(tx.running_balance) if tx.running_balance is not None else "",
+                tx.bank_name,
+                masked_acc,
+                fingerprint,
+                holder,
+                tx.status.value.upper(),
+            ]
+            for col_idx, val in enumerate(row_vals, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.value = val
+                cell.data_type = "s"
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        content_bytes = buf.getvalue()
+    finally:
+        wb.close()
 
     intent = ArtifactIntent(
         name="Consolidated_Bank_Statement.xlsx",

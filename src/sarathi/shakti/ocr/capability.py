@@ -349,7 +349,7 @@ class OCRCapability:
                     file_bytes,
                     pages=needed_indices,
                     dpi=dpi,
-                    max_buffered=4,
+                    max_buffered=6,
                     cancellation_token=context.cancellation_token,
                 )
                 for p_idx in needed_indices:
