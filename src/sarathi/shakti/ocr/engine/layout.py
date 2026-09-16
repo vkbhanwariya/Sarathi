@@ -105,7 +105,7 @@ def _cluster_spans_into_grid(
         rows.append(sorted(curr_row, key=lambda it: it.bounding_box[0] if it.bounding_box else 0.0))
 
     if not rows:
-        return (), ()
+        return (), (), False
 
     # 3. Detect column partition positions across all rows using start edges (x0)
     col_x_starts: list[float] = []
@@ -115,7 +115,7 @@ def _cluster_spans_into_grid(
                 col_x_starts.append(s.bounding_box[0])
 
     if not col_x_starts:
-        return (), ()
+        return (), (), False
 
     col_x_starts.sort()
     col_clusters: list[list[float]] = [[col_x_starts[0]]]
@@ -128,16 +128,20 @@ def _cluster_spans_into_grid(
     col_anchors = [statistics.mean(c) for c in col_clusters]
     num_cols = len(col_anchors)
 
-    # 4. Map spans into a structured 2D grid
+    # 4. Map spans into a structured 2D grid and detect spanning cells
     grid: list[list[str]] = []
+    has_spanning_cells = False
     for r in rows:
         row_cells = [""] * num_cols
         for s in r:
             if not s.bounding_box:
                 continue
             sx0 = s.bounding_box[0]
+            sx1 = s.bounding_box[2]
             # Find nearest column anchor
             best_c = min(range(num_cols), key=lambda ci: abs(col_anchors[ci] - sx0))
+            if best_c < num_cols - 1 and (sx1 - col_anchors[best_c + 1]) > 15.0:
+                has_spanning_cells = True
             if row_cells[best_c]:
                 row_cells[best_c] += " " + s.text.strip()
             else:
@@ -145,11 +149,11 @@ def _cluster_spans_into_grid(
         grid.append(row_cells)
 
     if len(grid) == 1:
-        return tuple(grid[0]), ()
+        return tuple(grid[0]), (), has_spanning_cells
 
     headers = tuple(grid[0])
     data_rows = tuple(tuple(r) for r in grid[1:])
-    return headers, data_rows
+    return headers, data_rows, has_spanning_cells
 
 
 def detect_ruled_tables(
@@ -247,7 +251,7 @@ def detect_ruled_tables(
                     t_span_indices.append(s_idx)
 
             if len(t_spans) >= 4:
-                headers, data_rows = _cluster_spans_into_grid(t_spans)
+                headers, data_rows, has_spanning = _cluster_spans_into_grid(t_spans)
                 if headers and data_rows and len(headers) >= 2:
                     tables.append(
                         TableData(
@@ -257,6 +261,7 @@ def detect_ruled_tables(
                             metadata={
                                 "bounding_box": table_box,
                                 "kind": "ruled_table",
+                                "has_spanning_cells": has_spanning,
                             },
                         )
                     )
@@ -347,7 +352,7 @@ def detect_borderless_tables(
             t_spans = [item[1] for item in t_items]
             t_indices = [item[0] for item in t_items]
 
-            headers, data_rows = _cluster_spans_into_grid(t_spans)
+            headers, data_rows, has_spanning = _cluster_spans_into_grid(t_spans)
             if headers and data_rows and len(headers) >= 2:
                 bx0 = min(s.bounding_box[0] for s in t_spans)
                 by0 = min(s.bounding_box[1] for s in t_spans)
@@ -362,6 +367,7 @@ def detect_borderless_tables(
                         metadata={
                             "bounding_box": (bx0, by0, bx1, by1),
                             "kind": "borderless_table",
+                            "has_spanning_cells": has_spanning,
                         },
                     )
                 )
@@ -571,8 +577,48 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
     return cleaned
 
 
+def detect_column_count(spans: Sequence[TextSpan]) -> int:
+    """Detect whether text spans are organized in multiple distinct columns (e.g. 2 columns)."""
+    items = [s.bounding_box for s in spans if s.bounding_box and s.text and s.text.strip()]
+    if len(items) < 4:
+        return 1
+
+    # Filter out full-width spans (e.g. page titles, header banners) that cross multiple columns
+    min_x = min(b[0] for b in items)
+    max_x = max(b[2] for b in items)
+    total_w = max_x - min_x
+    if total_w > 100.0:
+        filtered = [b for b in items if (b[2] - b[0]) < 0.72 * total_w]
+        if len(filtered) >= 4:
+            items = filtered
+
+    avg_h = sum(b[3] - b[1] for b in items) / len(items)
+    min_v_gap = max(15.0, avg_h * 0.75)
+
+    sorted_by_x = sorted(items, key=lambda b: (b[0], b[1]))
+    cols: list[list[tuple[float, float, float, float]]] = []
+    curr_col = [sorted_by_x[0]]
+    max_x1 = sorted_by_x[0][2]
+
+    for b in sorted_by_x[1:]:
+        if b[0] >= max_x1 + min_v_gap:
+            cols.append(curr_col)
+            curr_col = [b]
+            max_x1 = b[2]
+        else:
+            curr_col.append(b)
+            max_x1 = max(max_x1, b[2])
+    if curr_col:
+        cols.append(curr_col)
+
+    if len(cols) >= 2 and all(len(c) >= 2 for c in cols):
+        return min(3, len(cols))
+    return 1
+
+
 __all__ = [
     "detect_borderless_tables",
+    "detect_column_count",
     "detect_ruled_tables",
     "group_paragraphs",
     "reconstruct_layout",

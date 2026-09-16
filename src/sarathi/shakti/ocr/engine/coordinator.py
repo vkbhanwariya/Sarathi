@@ -34,7 +34,7 @@ from sarathi.shakti.ocr.engine.common import (
     V6_LANGS,
 )
 from sarathi.shakti.ocr.engine.factory import build_rapidocr_instance, resolve_engine_keys
-from sarathi.shakti.ocr.engine.layout import reconstruct_layout
+from sarathi.shakti.ocr.engine.layout import detect_column_count, reconstruct_layout
 from sarathi.shakti.ocr.engine.openvino import resolve_target_device
 from sarathi.shakti.ocr.engine.parser import _parse_rapidocr_output
 from sarathi.shakti.ocr.engine.preprocessing import (
@@ -428,6 +428,20 @@ class RapidOCREngine:
             preserve_layout=is_layout_mode,
         )
 
+        # Ragged row and spanning cell guards for tabular fidelity
+        if detected_tables:
+            for tbl in detected_tables:
+                is_ragged = any(len(r) != len(tbl.headers) for r in tbl.rows)
+                has_spanning = bool(tbl.metadata.get("has_spanning_cells", False))
+                if is_ragged or has_spanning:
+                    warnings.append(
+                        WarningRecord(
+                            code="LAYOUT_TABLE_ROW_RAGGED",
+                            message=f"Table '{tbl.name}' has irregular column counts or detected spanning cells.",
+                            stage=STAGE_NAME,
+                        )
+                    )
+
         if not final_page_text.strip() and not detected_tables:
             warnings.append(
                 WarningRecord(
@@ -519,6 +533,7 @@ class RapidOCREngine:
             "fallback_engine": "same_engine_retry" if retry_applied else "none",
             "fallback_improved_count": retry_improved_count,
             "fallback_total_gain": round(retry_total_gain, 4),
+            "column_count": detect_column_count(spans) if is_layout_mode else 1,
         }
         if page_confidence is not None:
             metadata["confidence"] = page_confidence.score

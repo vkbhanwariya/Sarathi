@@ -128,6 +128,24 @@ def read_pdf(
             spans: list[TextSpan] = []
             try:
                 page_dict = text_page.extractDICT()
+
+                # Compute image area vs page area to arbitrate hybrid scanned pages
+                page_rect = page.rect
+                page_area = max(1.0, float(page_rect.width * page_rect.height))
+                image_area = 0.0
+                try:
+                    for img_info in page.get_image_info():
+                        bbox = img_info.get("bbox")
+                        if bbox:
+                            image_area += max(0.0, float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])))
+                except Exception:
+                    pass
+
+                image_coverage = min(1.0, image_area / page_area)
+                page_meta["image_coverage"] = round(image_coverage, 3)
+                if image_coverage >= 0.80 and len(page_text.strip()) < 30:
+                    page_meta["is_scanned_image"] = True
+
                 for block in page_dict.get("blocks", []):
                     if "lines" in block:
                         for line in block["lines"]:

@@ -350,11 +350,26 @@ def build_docx_payload(
                 )
                 body_parts.append("<w:p/>")
 
+    # Multi-column section styling
+    col_count = 1
+    if doc.pages:
+        for p in doc.pages:
+            c = p.metadata.get("column_count", 1)
+            if isinstance(c, int) and c > col_count:
+                col_count = c
+    elif doc.metadata:
+        c = doc.metadata.get("column_count", 1)
+        if isinstance(c, int) and c > col_count:
+            col_count = c
+
+    cols_xml = f'<w:cols w:num="{col_count}" w:space="720"/>' if col_count >= 2 else '<w:cols w:space="720"/>'
+
     # Section properties
     body_parts.append(
         '<w:sectPr>'
         '<w:pgSz w:w="12240" w:h="15840"/>'
         '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
+        f'{cols_xml}'
         '</w:sectPr>'
     )
 

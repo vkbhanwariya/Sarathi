@@ -49,10 +49,22 @@ if TYPE_CHECKING:
 
 
 def _is_usable_page(page: PageData) -> bool:
-    """Check whether a PageData contains usable text or table data."""
-    p_text = bool(page.text and page.text.strip())
+    """Check whether a PageData contains usable text or table data.
+
+    Arbitrates hybrid scanned pages: if a page is flagged as scanned or has high image
+    coverage (>= 0.80) with sparse text (< 30 characters), it is treated as a scanned page
+    requiring OCR rather than usable native text.
+    """
+    if page.metadata.get("is_scanned_image"):
+        return False
+
+    p_text = page.text.strip() if page.text else ""
+    img_cov = page.metadata.get("image_coverage", 0.0)
+    if isinstance(img_cov, (int, float)) and img_cov >= 0.80 and len(p_text) < 30:
+        return False
+
     p_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in page.tables)
-    return p_text or p_tables
+    return bool(p_text) or p_tables
 
 
 def _is_usable_document(doc: CanonicalDocument) -> bool:

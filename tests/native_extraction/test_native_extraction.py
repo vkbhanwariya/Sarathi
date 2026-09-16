@@ -1,5 +1,6 @@
 """Unit tests for Shruti — Read / Native Extraction capability."""
 
+import io
 import struct
 import sys
 from pathlib import Path
@@ -8,6 +9,7 @@ from unittest.mock import patch
 import openpyxl
 import pymupdf
 import pytest
+from PIL import Image
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -1189,3 +1191,47 @@ class TestNativeExtraction:
         assert len(t.rows) == 2
         assert t.rows[0] == ("Row1_Col1", "Row1_Col2")
         assert t.rows[1] == ("Row2_Col1", "Row2_Col2")
+
+
+def test_pdf_reader_computes_image_coverage_and_scanned_flag(
+    capability: NativeExtractionCapability,
+    context: ExecutionContext,
+    tmp_path: Path,
+) -> None:
+    """Proves PDF reader calculates image_coverage and sets is_scanned_image flag for image-heavy pages."""
+    pdf_path = tmp_path / "scanned_doc.pdf"
+    doc_pdf = pymupdf.open()
+    # Page size: 600 x 800 (area = 480,000)
+    page = doc_pdf.new_page(width=600, height=800)
+
+    # Insert an image covering rect (0, 0, 580, 780) -> area = 452,400 (94.25% coverage)
+    img = Image.new("RGB", (580, 780), color=(240, 240, 240))
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format="PNG")
+    page.insert_image(pymupdf.Rect(0, 0, 580, 780), stream=img_bytes.getvalue())
+
+    # Insert sparse text (< 30 chars)
+    page.insert_text((50, 50), "Scanned doc")
+    doc_pdf.save(str(pdf_path))
+    doc_pdf.close()
+
+    req = Request(
+        request_id="req-scanned-pdf",
+        requirement="read_native",
+        inputs=(
+            InputRef(
+                input_id="inp-scanned",
+                source_path=pdf_path,
+                display_name="scanned_doc.pdf",
+                size_bytes=pdf_path.stat().st_size,
+            ),
+        ),
+    )
+
+    res = capability.execute(req, context)
+    assert isinstance(res, Result)
+    doc = res.data
+    assert len(doc.pages) == 1
+    p = doc.pages[0]
+    assert p.metadata.get("image_coverage", 0.0) >= 0.80
+    assert p.metadata.get("is_scanned_image") is True

@@ -28,14 +28,18 @@ from sarathi.sankalpa import (
     ExecutionContext,
     ExecutionProfile,
     InputRef,
+    PageData,
     Request,
     Result,
+    TableData,
     TextSpan,
 )
 from sarathi.shakti.ocr import OCRCapability
+from sarathi.shakti.ocr.capability import _is_usable_page
 from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
 from sarathi.shakti.ocr.engine.layout import (
     detect_borderless_tables,
+    detect_column_count,
     detect_ruled_tables,
     group_paragraphs,
     reconstruct_layout,
@@ -457,3 +461,117 @@ def test_original_confidence_and_evidence_invariance() -> None:
     assert page_data.spans[1].confidence == pytest.approx(0.7432)
     assert page_data.spans[0].text == "Sentence one."
     assert page_data.spans[1].text == "Sentence two."
+
+
+# ==============================================================================
+# 10. Multi-Column Layout Detection
+# ==============================================================================
+
+def test_detect_column_count_single_vs_multi() -> None:
+    """Proves detect_column_count correctly differentiates single-column vs multi-column layouts."""
+    # Single column: spans vertically stacked at similar horizontal start
+    single_col_spans = [
+        _make_span("First paragraph line one.", (50.0, 50.0, 350.0, 70.0)),
+        _make_span("First paragraph line two.", (50.0, 75.0, 350.0, 95.0)),
+        _make_span("Second paragraph line one.", (50.0, 110.0, 340.0, 130.0)),
+        _make_span("Second paragraph line two.", (50.0, 135.0, 350.0, 155.0)),
+    ]
+    assert detect_column_count(single_col_spans) == 1
+
+    # Two columns: left column (x: 50..220) and right column (x: 260..430) with cross-column header
+    two_col_spans = [
+        _make_span("ANNUAL REPORT AND STATEMENT", (50.0, 10.0, 430.0, 30.0)),
+        _make_span("Left column line 1.", (50.0, 50.0, 220.0, 70.0)),
+        _make_span("Left column line 2.", (50.0, 75.0, 220.0, 95.0)),
+        _make_span("Right column line 1.", (260.0, 50.0, 430.0, 70.0)),
+        _make_span("Right column line 2.", (260.0, 75.0, 430.0, 95.0)),
+    ]
+    assert detect_column_count(two_col_spans) == 2
+
+
+# ==============================================================================
+# 11. Ragged Row and Spanning Cell Warning Detection
+# ==============================================================================
+
+def test_ragged_table_warning_emission() -> None:
+    """Proves RapidOCREngine emits LAYOUT_TABLE_ROW_RAGGED warning when a table has irregular row widths."""
+    engine = RapidOCREngine()
+
+    # Create dummy spans
+    spans = [
+        _make_span("Cell 1", (50.0, 50.0, 150.0, 70.0)),
+        _make_span("Cell 2", (160.0, 50.0, 260.0, 70.0)),
+    ]
+    mock_output = MagicMock()
+    mock_output.txts = [s.text for s in spans]
+    mock_output.boxes = [
+        [[s.bounding_box[0], s.bounding_box[1]],
+         [s.bounding_box[2], s.bounding_box[1]],
+         [s.bounding_box[2], s.bounding_box[3]],
+         [s.bounding_box[0], s.bounding_box[3]]]
+        for s in spans
+    ]
+    mock_output.scores = [0.95, 0.95]
+    engine._engine = lambda arr, **kw: mock_output
+
+    # Mock reconstruct_layout to return a table with ragged rows
+    ragged_table = TableData(
+        name="ragged_tbl",
+        headers=("Col A", "Col B", "Col C"),
+        rows=(
+            ("val1", "val2"),  # Missing 3rd column -> ragged!
+        ),
+        metadata={"has_spanning_cells": False},
+    )
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "sarathi.shakti.ocr.engine.coordinator.reconstruct_layout",
+            lambda img, sps, preserve_layout=True: ("Table Text", (ragged_table,)),
+        )
+
+        test_img = Image.new("RGB", (300, 150), color="white")
+        _, _, _, warnings = engine.ocr_page(test_img, 1, "inp_ragged", profile=ExecutionProfile.LAYOUT_PRESERVING)
+
+        ragged_warns = [w for w in warnings if w.code == "LAYOUT_TABLE_ROW_RAGGED"]
+        assert len(ragged_warns) >= 1
+        assert "ragged_tbl" in ragged_warns[0].message
+
+
+# ==============================================================================
+# 12. Scanned Image Arbitration in Usable Page Checks
+# ==============================================================================
+
+def test_is_usable_page_scanned_image_arbitration() -> None:
+    """Proves _is_usable_page routes pages with high image coverage and sparse text to OCR."""
+    # Normal page with plenty of text -> usable native page
+    normal_page = PageData(
+        page_number=1,
+        text="This is a long document page containing several sentences of extracted native text.",
+        metadata={"image_coverage": 0.10},
+    )
+    assert _is_usable_page(normal_page) is True
+
+    # Page explicitly flagged as scanned image -> not usable native text
+    scanned_flagged_page = PageData(
+        page_number=1,
+        text="A few words.",
+        metadata={"is_scanned_image": True},
+    )
+    assert _is_usable_page(scanned_flagged_page) is False
+
+    # Page with 85% image coverage and sparse OCR/ghost text (< 30 chars) -> not usable native text
+    hybrid_scanned_page = PageData(
+        page_number=1,
+        text="Sparse artifact.",
+        metadata={"image_coverage": 0.85},
+    )
+    assert _is_usable_page(hybrid_scanned_page) is False
+
+    # Page with 85% image coverage but rich native text (e.g. text overlaying image) -> usable native text
+    dense_text_with_bg = PageData(
+        page_number=1,
+        text="This page has a background image but contains a complete article of native extractable text content.",
+        metadata={"image_coverage": 0.85},
+    )
+    assert _is_usable_page(dense_text_with_bg) is True

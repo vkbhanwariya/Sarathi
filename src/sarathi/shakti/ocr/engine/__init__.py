@@ -15,6 +15,7 @@ from sarathi.shakti.ocr.engine.coordinator import (
     check_ocr_readiness,
 )
 from sarathi.shakti.ocr.engine.layout import (
+    detect_column_count,
     detect_ruled_tables,
     group_paragraphs,
     reconstruct_layout,
@@ -56,6 +57,7 @@ __all__ = [
     "apply_clahe",
     "check_ocr_readiness",
     "deskew_image",
+    "detect_column_count",
     "detect_ruled_tables",
     "disable_openvino_telemetry",
     "extract_images_from_bytes",

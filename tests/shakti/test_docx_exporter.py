@@ -644,3 +644,23 @@ def test_merge_adjacent_compatible_runs_with_differing_font_tag() -> None:
     runs = p_elem.findall(f"{{{_W_NS}}}r")
     assert len(runs) == 1
     assert runs[0].find(f"{{{_W_NS}}}t").text == "Hkkjr"
+
+
+def test_docx_multi_column_section_styling() -> None:
+    """Verify that build_docx_payload emits <w:cols w:num="2" .../> when column_count >= 2."""
+    # 1. Single-column document
+    p1 = PageData(page_number=1, text="Single column text paragraph.", metadata={"column_count": 1})
+    doc_single = CanonicalDocument(document_id="doc_single", pages=(p1,))
+    res_single = build_docx_payload(doc_single, "single.docx")
+    with zipfile.ZipFile(io.BytesIO(res_single.content)) as zf:
+        xml_single = zf.read("word/document.xml").decode("utf-8")
+        assert '<w:cols w:space="720"/>' in xml_single
+        assert 'w:num="2"' not in xml_single
+
+    # 2. Multi-column document
+    p2 = PageData(page_number=1, text="Two column text layout.", metadata={"column_count": 2})
+    doc_multi = CanonicalDocument(document_id="doc_multi", pages=(p2,))
+    res_multi = build_docx_payload(doc_multi, "multi.docx")
+    with zipfile.ZipFile(io.BytesIO(res_multi.content)) as zf:
+        xml_multi = zf.read("word/document.xml").decode("utf-8")
+        assert '<w:cols w:num="2" w:space="720"/>' in xml_multi
