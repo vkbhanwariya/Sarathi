@@ -56,7 +56,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Run architecture tests only
-        run: uv run --group dev pytest -q -m "architecture"
+        run: uv run --group dev pytest tests/architecture -q
 
   frontend:
     name: Mukha UI TypeScript
