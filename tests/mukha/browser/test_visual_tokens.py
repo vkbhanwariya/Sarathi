@@ -38,7 +38,7 @@ def test_header_height_and_tokens(app_page: Page) -> None:
         }"""
     )
     assert tokens["bg"].lower() == "#f8fafc"
-    assert tokens["surface"].lower() == "#ffffff"
+    assert tokens["surface"].lower() in {"#fff", "#ffffff"}
     assert tokens["text"].lower() == "#0f172a"
     assert tokens["primary"].lower() == "#166534"
 
