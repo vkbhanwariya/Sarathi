@@ -11,7 +11,7 @@ OS queries, or dynamic detection.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from sarathi.sankalpa import DeviceType
@@ -46,6 +46,8 @@ class DeviceInfo:
                 default_backends = ("openvino", "cuda")
             elif self.device_type == DeviceType.NPU:
                 default_backends = ("openvino",)
+            elif self.device_type == DeviceType.NETWORK:
+                default_backends = ("rest", "http")
             else:
                 default_backends = ("cpu", "openvino")
             object.__setattr__(self, "supported_backends", default_backends)
@@ -77,6 +79,7 @@ class DeviceInventory:
     """Immutable collection of available execution devices."""
 
     devices: tuple[DeviceInfo, ...]
+    _device_map: dict[str, DeviceInfo] = field(default_factory=dict, init=False, repr=False)
 
     def __init__(self, devices: Sequence[DeviceInfo]) -> None:
         if isinstance(devices, set):
@@ -94,14 +97,13 @@ class DeviceInventory:
             seen_ids.add(dev.device_id)
             cleaned.append(dev)
 
-        object.__setattr__(self, "devices", tuple(cleaned))
+        cleaned_tuple = tuple(cleaned)
+        object.__setattr__(self, "devices", cleaned_tuple)
+        object.__setattr__(self, "_device_map", {dev.device_id: dev for dev in cleaned_tuple})
 
     def get_device(self, device_id: str) -> DeviceInfo | None:
         """Return device by device_id or None if not found."""
-        for dev in self.devices:
-            if dev.device_id == device_id:
-                return dev
-        return None
+        return self._device_map.get(device_id)
 
     def __len__(self) -> int:
         return len(self.devices)
@@ -117,6 +119,7 @@ class DeviceInventory:
         gpu_capacity_per_device: int = 4,
         npu_capacity_per_device: int = 2,
         cpu_capacity: int | None = None,
+        include_network: bool = False,
     ) -> DeviceInventory:
         """Create a factual default inventory using system CPU capacity, optionally including hardware accelerators.
 
@@ -134,6 +137,36 @@ class DeviceInventory:
             cpu_count = count_fn() if callable(count_fn) else os.cpu_count()
             actual_capacity = max(1, cpu_count or 1)
 
+        cpu_memory_bytes = None
+        try:
+            import psutil
+
+            cpu_memory_bytes = int(psutil.virtual_memory().total)
+        except Exception:
+            try:
+                import ctypes
+
+                class MEMORYSTATUSEX(ctypes.Structure):
+                    _fields_ = [
+                        ("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                    ]
+
+                stat = MEMORYSTATUSEX()
+                stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+                if hasattr(ctypes, "windll") and hasattr(ctypes.windll, "kernel32"):
+                    if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                        cpu_memory_bytes = int(stat.ullTotalPhys)
+            except Exception:
+                pass
+
         devices: list[DeviceInfo] = [
             DeviceInfo(
                 device_id="cpu-0",
@@ -141,8 +174,20 @@ class DeviceInventory:
                 capacity=actual_capacity,
                 supported_backends=("cpu", "openvino"),
                 backend_locators={"cpu": "CPU", "openvino": "CPU"},
+                memory_bytes=cpu_memory_bytes,
             ),
         ]
+
+        if include_network:
+            devices.append(
+                DeviceInfo(
+                    device_id="network-0",
+                    device_type=DeviceType.NETWORK,
+                    capacity=16,
+                    supported_backends=("rest", "http"),
+                    backend_locators={"rest": "NETWORK", "http": "NETWORK"},
+                )
+            )
 
         if detect_accelerators:
             # Safely probe OpenVINO accelerators
@@ -173,14 +218,11 @@ class DeviceInventory:
             except Exception:
                 pass
 
-            # Add OpenVINO GPUs (and note if also CUDA-accessible)
+            # Add OpenVINO GPUs
             for idx, ov_name in enumerate(ov_gpus):
                 dev_id = f"gpu-{idx}"
                 backends = ["openvino"]
                 locators: dict[str, str] = {"openvino": ov_name}
-                if idx < cuda_count:
-                    backends.append("cuda")
-                    locators["cuda"] = str(idx)
 
                 eff_gpu_cap = gpu_capacity_per_device
                 if core is not None:
@@ -203,9 +245,9 @@ class DeviceInventory:
                     )
                 )
 
-            # Add remaining CUDA-only GPUs if any
-            if cuda_count > len(ov_gpus):
-                for idx in range(len(ov_gpus), cuda_count):
+            # Add CUDA GPUs independently (not conflated with OpenVINO by enumeration position)
+            if cuda_count > 0:
+                for idx in range(cuda_count):
                     dev_id = f"gpu-cuda-{idx}"
                     devices.append(
                         DeviceInfo(

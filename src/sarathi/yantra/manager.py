@@ -65,7 +65,17 @@ class Yantra:
 
         self._allocator = _ResourceAllocator(inventory, max_queue_depth=max_queue_depth)
         self._darpana: Darpana | None = darpana
-        self._max_workers: int = max(1, sum(dev.capacity for dev in inventory.devices))
+
+        # Decouple host worker pool from accelerator capacities:
+        # Size host Python thread pool to physical CPU capacity (bounded between 1 and 16).
+        host_cpu = inventory.get_device("cpu-0")
+        if host_cpu is not None:
+            host_cap = host_cpu.capacity
+        elif inventory.devices:
+            host_cap = inventory.devices[0].capacity
+        else:
+            host_cap = 4
+        self._max_workers: int = max(1, min(16, host_cap))
         self._executor: ThreadPoolExecutor | None = None
         self._is_started: bool = False
         self._is_closed: bool = False
@@ -128,9 +138,11 @@ class Yantra:
             exec_to_close = self._executor
             self._executor = None
 
+        # Close allocator FIRST so any pending/new admissions are rejected immediately
+        self._allocator.close()
+
         if exec_to_close is not None:
             exec_to_close.shutdown(wait=True, cancel_futures=True)
-        self._allocator.close()
 
     def allocate(
         self,
@@ -145,6 +157,12 @@ class Yantra:
             DoshError(FailureCode.OPERATION_CANCELLED): If context cancellation is requested while queued.
             TypeError: If requirement is not a DeviceRequirement.
         """
+        with self._lifecycle_lock:
+            if self._is_closed:
+                raise DoshError(
+                    code=FailureCode.RESOURCE_UNAVAILABLE,
+                    message="Cannot allocate; Yantra is closed.",
+                )
         if not isinstance(requirement, DeviceRequirement):
             raise TypeError(f"requirement must be a DeviceRequirement instance, got {type(requirement).__name__}.")
         if context is not None and not isinstance(context, ExecutionContext):
@@ -208,13 +226,21 @@ class Yantra:
         if max_concurrency is not None and max_concurrency > 0:
             effective_concurrency = min(effective_concurrency, max_concurrency)
 
+        target_dev_id: str | None = None
+        if context is not None and context.execution_binding is not None:
+            target_dev_id = context.execution_binding.device_id
+
         # Sequential execution if only 1 task or effective_concurrency == 1
         if len(subtasks) == 1 or effective_concurrency == 1:
             results = []
             for task in subtasks:
                 if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
                     context.cancellation_token.check_cancelled()
-                results.append(task())
+                if target_dev_id is not None:
+                    with self._allocator.device_permit(target_dev_id):
+                        results.append(task())
+                else:
+                    results.append(task())
             return results
 
         with self._lifecycle_lock:
@@ -262,7 +288,16 @@ class Yantra:
                 # 2. Fill window up to bounded limit
                 while next_task_idx < len(subtasks) and len(in_flight) < window_size and terminal_error is None:
                     idx = next_task_idx
-                    task_fn = subtasks[idx]
+                    raw_fn = subtasks[idx]
+                    if target_dev_id is not None:
+                        def _make_runner(fn: Callable[[], Any], dev_key: str) -> Callable[[], Any]:
+                            def _run() -> Any:
+                                with self._allocator.device_permit(dev_key):
+                                    return fn()
+                            return _run
+                        task_fn = _make_runner(raw_fn, target_dev_id)
+                    else:
+                        task_fn = raw_fn
                     try:
                         fut = executor.submit(task_fn)
                         in_flight[fut] = idx
@@ -389,8 +424,7 @@ class Yantra:
             dev = self.inventory.get_device(allocation.device_id)
             is_parallelizable = capability.declaration.device_requirement.parallelizable
             if is_parallelizable and dev is not None:
-                available_headroom = self._allocator.get_available_capacity(allocation.device_id)
-                approved_concurrency = max(1, min(dev.capacity, 1 + available_headroom))
+                approved_concurrency = dev.capacity
             else:
                 approved_concurrency = 1
             binding = ExecutionBinding(

@@ -63,6 +63,7 @@ class DeviceType(StrEnum):
     CPU = "cpu"
     GPU = "gpu"
     NPU = "npu"
+    NETWORK = "network"
 
     @classmethod
     def from_string(cls, value: str) -> DeviceType:
@@ -84,6 +85,8 @@ class DeviceRequirement:
     estimated_memory_bytes: int | None = None
     priority: int = 0
     supported_backends: tuple[str, ...] | None = None
+    network_provider: str | None = None
+    inference_slots: int = 1
 
     def __post_init__(self) -> None:
         if isinstance(self.preferred_devices, set):
@@ -137,6 +140,13 @@ class DeviceRequirement:
                 raise TypeError(f"supported_backends must be a sequence of strings, got {type(self.supported_backends)}.")
             cleaned_backends = tuple(str(b).strip().lower() for b in self.supported_backends if str(b).strip())
             object.__setattr__(self, "supported_backends", cleaned_backends)
+
+        if not isinstance(self.inference_slots, int) or isinstance(self.inference_slots, bool) or self.inference_slots < 1:
+            raise ValueError(f"inference_slots must be a positive integer >= 1 (got {self.inference_slots}).")
+        if self.network_provider is not None:
+            if not isinstance(self.network_provider, str) or not self.network_provider.strip():
+                raise ValueError("network_provider must be a non-empty string or None.")
+            object.__setattr__(self, "network_provider", self.network_provider.strip().lower())
 
 
 

@@ -13,7 +13,9 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceRequirement, DeviceType, ExecutionContext
@@ -31,6 +33,7 @@ class Allocation:
     allocator_id: str
     backend: str = "cpu"
     backend_device_id: str = "CPU"
+    _allocator: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.allocation_id or not isinstance(self.allocation_id, str):
@@ -47,6 +50,15 @@ class Allocation:
             raise ValueError("backend must be a non-empty string.")
         if not self.backend_device_id or not isinstance(self.backend_device_id, str):
             raise ValueError("backend_device_id must be a non-empty string.")
+
+    @contextmanager
+    def child_permit(self, timeout: float | None = None):
+        """Acquire an elastic child execution permit from the allocated device's capacity pool."""
+        if self._allocator is None:
+            yield
+            return
+        with self._allocator.device_permit(self.device_id, timeout=timeout):
+            yield
 
 
 @dataclass
@@ -72,10 +84,42 @@ class _ResourceAllocator:
         self._allocator_id: str = uuid.uuid4().hex[:12]
         self._lock: threading.Lock = threading.Lock()
         self._used_slots: dict[str, int] = {dev.device_id: 0 for dev in inventory.devices}
+        self._device_semaphores: dict[str, threading.BoundedSemaphore] = {
+            dev.device_id: threading.BoundedSemaphore(dev.capacity) for dev in inventory.devices
+        }
         self._active_allocations: dict[str, Allocation] = {}
         self._waiting_queue: list[_WaitEntry] = []
         self._counter: int = 0
         self._is_closed: bool = False
+
+    @contextmanager
+    def device_permit(self, device_id: str, timeout: float | None = None):
+        """Acquire an elastic execution permit for the device, strictly bounded by capacity."""
+        with self._lock:
+            if self._is_closed:
+                raise DoshError(
+                    code=FailureCode.RESOURCE_UNAVAILABLE,
+                    message="Allocator is closed.",
+                )
+            sem = self._device_semaphores.get(device_id)
+
+        if sem is None:
+            yield
+            return
+
+        acquired = sem.acquire(timeout=timeout) if timeout is not None else sem.acquire()
+        if not acquired:
+            raise DoshError(
+                code=FailureCode.RESOURCE_UNAVAILABLE,
+                message=f"Device '{device_id}' capacity saturated; timed out waiting for permit.",
+            )
+        try:
+            yield
+        finally:
+            try:
+                sem.release()
+            except ValueError:
+                pass
 
     @property
     def inventory(self) -> DeviceInventory:
@@ -321,6 +365,8 @@ class _ResourceAllocator:
             m = re.search(r"(\d+)", dev.device_id)
             idx_str = m.group(1) if m else ""
             backend_dev_id = f"NPU.{idx_str}" if idx_str else "NPU"
+        elif dev.device_type == DeviceType.NETWORK:
+            backend_dev_id = "NETWORK"
         else:
             backend_dev_id = "CPU"
 
@@ -398,6 +444,7 @@ class _ResourceAllocator:
             allocator_id=self._allocator_id,
             backend=backend,
             backend_device_id=backend_device_id,
+            _allocator=self,
         )
         self._active_allocations[alloc_id] = allocation
         return allocation

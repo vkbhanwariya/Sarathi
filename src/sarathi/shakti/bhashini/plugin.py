@@ -6,6 +6,8 @@ from types import MappingProxyType
 
 from sarathi.sankalpa import (
     CapabilityDeclaration,
+    DeviceRequirement,
+    DeviceType,
     ExecutionProfile,
     PluginInfo,
     SecurityDeclaration,
@@ -40,6 +42,11 @@ BHASHINI_OCR_DECLARATION = CapabilityDeclaration(
     plugin_id="sarathi.shakti.bhashini",
     version="1.0.0",
     display_name="Bhashini Chitrakshar OCR",
+    device_requirement=DeviceRequirement(
+        preferred_devices=(DeviceType.NETWORK,),
+        supported_devices=(DeviceType.NETWORK, DeviceType.CPU),
+        network_provider="bhashini",
+    ),
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
@@ -53,6 +60,11 @@ BHASHINI_TRANSLATION_DECLARATION = CapabilityDeclaration(
     plugin_id="sarathi.shakti.bhashini",
     version="1.0.0",
     display_name="Bhashini IndicTrans2 Translation",
+    device_requirement=DeviceRequirement(
+        preferred_devices=(DeviceType.NETWORK,),
+        supported_devices=(DeviceType.NETWORK, DeviceType.CPU),
+        network_provider="bhashini",
+    ),
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,

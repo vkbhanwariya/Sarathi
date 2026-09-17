@@ -20,7 +20,10 @@ from sarathi.sankalpa.document import transform_canonical_document
 from sarathi.shakti.artifact_naming import format_artifact_filename, resolve_source_input
 from sarathi.shakti.bhashini.client import BhashiniClient
 from sarathi.shakti.bhashini.plugin import BHASHINI_TRANSLATION_DECLARATION
-from sarathi.shakti.docx_exporter import build_docx_payload
+from sarathi.shakti.docx_exporter import (
+    build_docx_payload,
+    transform_docx_translation_artifact,
+)
 from sarathi.shakti.text import normalize_translation_direction
 
 _BINARY_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp"}
@@ -153,14 +156,27 @@ class BhashiniTranslationCapability:
                     content=trans_doc.text.encode("utf-8"),
                 )
             )
-            all_payloads.append(
-                build_docx_payload(
+            docx_payload = None
+            if matching_inp and matching_inp.source_path and str(matching_inp.source_path).lower().endswith(".docx"):
+                try:
+                    docx_bytes = matching_inp.source_path.read_bytes()
+                    docx_payload = transform_docx_translation_artifact(
+                        docx_bytes,
+                        translate_fn=lambda batch: [_call_translate(s) for s in batch],
+                        filename=docx_name,
+                        role="translated_document",
+                    )
+                except Exception:
+                    docx_payload = None
+
+            if docx_payload is None:
+                docx_payload = build_docx_payload(
                     doc=trans_doc,
                     filename=docx_name,
                     role="translated_document",
                     header_text=f"Bhashini Translation - {stem}",
                 )
-            )
+            all_payloads.append(docx_payload)
 
         output_data = translated_docs[0] if len(translated_docs) == 1 else tuple(translated_docs)
 

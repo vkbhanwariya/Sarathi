@@ -45,6 +45,7 @@ from sarathi.shakti.docx_exporter.transformer import (
     normalize_font_family,
     register_default_profiles_loader,
     transform_docx_artifact,
+    transform_docx_translation_artifact,
 )
 
 __all__ = [
@@ -76,4 +77,5 @@ __all__ = [
     "resolve_neutral_ooxml_font",
     "segment_text_by_script",
     "transform_docx_artifact",
+    "transform_docx_translation_artifact",
 ]

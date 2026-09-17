@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from sarathi.sankalpa import (
     CapabilityDeclaration,
+    DeviceRequirement,
+    DeviceType,
     ExecutionProfile,
     PluginInfo,
     SecurityDeclaration,
@@ -28,6 +30,11 @@ MISTRAL_OCR_DECLARATION = CapabilityDeclaration(
     plugin_id="shakti.mistral",
     version="1.0.0",
     display_name="Mistral Cloud OCR",
+    device_requirement=DeviceRequirement(
+        preferred_devices=(DeviceType.NETWORK,),
+        supported_devices=(DeviceType.NETWORK, DeviceType.CPU),
+        network_provider="mistral",
+    ),
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
@@ -41,6 +48,11 @@ MISTRAL_TRANSLATION_DECLARATION = CapabilityDeclaration(
     plugin_id="shakti.mistral",
     version="1.0.0",
     display_name="Mistral Cloud Translation",
+    device_requirement=DeviceRequirement(
+        preferred_devices=(DeviceType.NETWORK,),
+        supported_devices=(DeviceType.NETWORK, DeviceType.CPU),
+        network_provider="mistral",
+    ),
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,

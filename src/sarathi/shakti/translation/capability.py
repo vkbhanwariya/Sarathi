@@ -24,7 +24,10 @@ from sarathi.sankalpa import (
     WarningRecord,
 )
 from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
-from sarathi.shakti.docx_exporter import build_docx_payload
+from sarathi.shakti.docx_exporter import (
+    build_docx_payload,
+    transform_docx_translation_artifact,
+)
 from sarathi.shakti.text.typography import (
     contains_devanagari,
     normalize_size,
@@ -423,13 +426,63 @@ class TranslationCapability:
                 doc_font = output_font(contains_devanagari=doc_has_dev)
                 raw_size = doc.metadata.get("font_size_pt") if doc.metadata else None
                 doc_size = normalize_size(raw_size)
-                docx_payload = build_docx_payload(
-                    doc=translated_doc,
-                    filename=f"Translated_Document{suffix}.docx",
-                    role="translated_document",
-                    default_font=doc_font,
-                    default_size_pt=doc_size,
-                )
+                docx_payload = None
+                if matching_inp and matching_inp.source_path and str(matching_inp.source_path).lower().endswith(".docx"):
+                    try:
+                        def _batch_trans(batch: list[str]) -> list[str]:
+                            missing = [t for t in set(batch) if t and t.strip() and t not in translation_cache]
+                            if missing:
+                                if hasattr(self._engine, "translate_batch"):
+                                    try:
+                                        b_res = self._engine.translate_batch(
+                                            missing,
+                                            direction=direction,
+                                            execution_binding=context.execution_binding,
+                                            engine=req_engine,
+                                        )
+                                    except TypeError:
+                                        b_res = self._engine.translate_batch(
+                                            missing,
+                                            direction=direction,
+                                            execution_binding=context.execution_binding,
+                                        )
+                                    for raw_t, r in zip(missing, b_res):
+                                        translation_cache[raw_t] = r
+                                else:
+                                    for raw_t in missing:
+                                        try:
+                                            translation_cache[raw_t] = self._engine.translate(
+                                                raw_t,
+                                                direction=direction,
+                                                execution_binding=context.execution_binding,
+                                                engine=req_engine,
+                                            )
+                                        except TypeError:
+                                            translation_cache[raw_t] = self._engine.translate(
+                                                raw_t,
+                                                direction=direction,
+                                                execution_binding=context.execution_binding,
+                                            )
+                            return [_trans_text(t) for t in batch]
+
+                        docx_bytes = matching_inp.source_path.read_bytes()
+                        docx_payload = transform_docx_translation_artifact(
+                            docx_bytes,
+                            translate_fn=_batch_trans,
+                            filename=f"Translated_Document{suffix}.docx",
+                            role="translated_document",
+                        )
+                    except Exception:
+                        docx_payload = None
+
+                if docx_payload is None:
+                    docx_payload = build_docx_payload(
+                        doc=translated_doc,
+                        filename=f"Translated_Document{suffix}.docx",
+                        role="translated_document",
+                        default_font=doc_font,
+                        default_size_pt=doc_size,
+                    )
                 return translated_doc, prov, [txt_payload, docx_payload]
 
         is_parallelizable = self.declaration.device_requirement.parallelizable

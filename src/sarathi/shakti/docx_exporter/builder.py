@@ -243,6 +243,10 @@ def _format_table_xml(
         f'<w:tblGrid>{grid_cols}</w:tblGrid>',
     ]
 
+    # Standard table typography: 11.0 pt standard, 10.0 pt for dense tables (>= 6 columns)
+    base_tbl_size_pt = 10.0 if num_cols >= 6 else 11.0
+    eff_tbl_size_pt = default_size_pt if (default_size_pt is not None and default_size_pt < 12.0) else base_tbl_size_pt
+
     # Header Row
     if table.headers:
         parts.append('<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>')
@@ -254,7 +258,7 @@ def _format_table_xml(
                 bold=True,
                 alignment="center",
                 default_font=default_font,
-                default_size_pt=default_size_pt,
+                default_size_pt=eff_tbl_size_pt,
                 legacy_target_font=legacy_target_font,
             )
             parts.append(
@@ -276,7 +280,7 @@ def _format_table_xml(
                 cell_val,
                 bold=False,
                 default_font=default_font,
-                default_size_pt=default_size_pt,
+                default_size_pt=eff_tbl_size_pt,
                 legacy_target_font=legacy_target_font,
             )
             parts.append(
@@ -411,17 +415,23 @@ def build_docx_payload(
                     line_size = default_size_pt
                     clean_line = trimmed
                     if trimmed.startswith("# "):
-                        clean_line = trimmed[2:].strip()
-                        line_bold = True
-                        line_size = 16.0
+                        cand = trimmed[2:].strip()
+                        if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
+                            clean_line = cand
+                            line_bold = True
+                            line_size = 16.0
                     elif trimmed.startswith("## "):
-                        clean_line = trimmed[3:].strip()
-                        line_bold = True
-                        line_size = 14.0
+                        cand = trimmed[3:].strip()
+                        if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
+                            clean_line = cand
+                            line_bold = True
+                            line_size = 14.0
                     elif trimmed.startswith("### "):
-                        clean_line = trimmed[4:].strip()
-                        line_bold = True
-                        line_size = 13.0
+                        cand = trimmed[4:].strip()
+                        if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
+                            clean_line = cand
+                            line_bold = True
+                            line_size = 13.0
 
                     body_parts.append(
                         _format_paragraph_xml(
@@ -521,17 +531,23 @@ def build_docx_payload(
             line_size = default_size_pt
             clean_line = trimmed
             if trimmed.startswith("# "):
-                clean_line = trimmed[2:].strip()
-                line_bold = True
-                line_size = 16.0
+                cand = trimmed[2:].strip()
+                if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
+                    clean_line = cand
+                    line_bold = True
+                    line_size = 16.0
             elif trimmed.startswith("## "):
-                clean_line = trimmed[3:].strip()
-                line_bold = True
-                line_size = 14.0
+                cand = trimmed[3:].strip()
+                if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
+                    clean_line = cand
+                    line_bold = True
+                    line_size = 14.0
             elif trimmed.startswith("### "):
-                clean_line = trimmed[4:].strip()
-                line_bold = True
-                line_size = 13.0
+                cand = trimmed[4:].strip()
+                if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
+                    clean_line = cand
+                    line_bold = True
+                    line_size = 13.0
 
             body_parts.append(
                 _format_paragraph_xml(

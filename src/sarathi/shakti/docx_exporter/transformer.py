@@ -38,6 +38,7 @@ from sarathi.shakti.docx_exporter.styles import (
     resolve_neutral_ooxml_font,
 )
 from sarathi.shakti.text.legacy_detection import _KNOWN_MODERN_FONTS
+from sarathi.shakti.text.typography import contains_devanagari
 
 
 def _serialize_xml_preserving_namespaces(
@@ -175,6 +176,219 @@ def transform_docx_artifact(
             code=FailureCode.VALIDATION_FAILED,
             message="Failed to transform DOCX document structure.",
         ) from exc
+
+
+def _extract_paragraph_translation_unit(
+    p: ET.Element,
+) -> tuple[str, dict[str, ET.Element]]:
+    """Extract translatable text from a paragraph, wrapping runs with distinct visual formatting in <fmt id="N">."""
+    r_tag = f"{{{_W_NS}}}r"
+    t_tag = f"{{{_W_NS}}}t"
+    rpr_tag = f"{{{_W_NS}}}rPr"
+
+    parts: list[str] = []
+    fmt_map: dict[str, ET.Element] = {}
+
+    for child in p:
+        if child.tag == r_tag:
+            t_elem = child.find(t_tag)
+            text = t_elem.text if t_elem is not None and t_elem.text else ""
+            if not text:
+                continue
+
+            rpr = child.find(rpr_tag)
+            has_formatting = False
+            if rpr is not None:
+                for prop in rpr:
+                    tname = prop.tag.split("}")[-1]
+                    if tname in ("b", "bCs", "i", "iCs", "u", "strike", "dstrike", "color", "highlight"):
+                        has_formatting = True
+                        break
+
+            if has_formatting and rpr is not None:
+                fmt_id = str(len(fmt_map))
+                fmt_map[fmt_id] = rpr
+                parts.append(f'<fmt id="{fmt_id}">{text}</fmt>')
+            else:
+                parts.append(text)
+
+    return "".join(parts), fmt_map
+
+
+def _reconstruct_translated_paragraph(
+    p: ET.Element,
+    translated_text: str,
+    fmt_map: dict[str, ET.Element],
+) -> None:
+    """Reconstruct runs in a paragraph using translated text and restored formatting markers."""
+    r_tag = f"{{{_W_NS}}}r"
+    t_tag = f"{{{_W_NS}}}t"
+    p_pr_tag = f"{{{_W_NS}}}pPr"
+    drawing_tag = f"{{{_W_NS}}}drawing"
+    pict_tag = f"{{{_W_NS}}}pict"
+
+    # 1. Identify which children to keep (e.g. pPr, runs containing drawings/images, bookmarks)
+    children_to_keep: list[ET.Element] = []
+    for child in list(p):
+        if child.tag == p_pr_tag:
+            children_to_keep.append(child)
+        elif child.tag == r_tag and (child.find(drawing_tag) is not None or child.find(pict_tag) is not None):
+            children_to_keep.append(child)
+        elif child.tag.endswith("bookmarkStart") or child.tag.endswith("bookmarkEnd"):
+            children_to_keep.append(child)
+
+    p.clear()
+    for child in children_to_keep:
+        p.append(child)
+
+    if not translated_text:
+        return
+
+    # 2. Parse <fmt id="..."> tags
+    tag_pattern = re.compile(r'<fmt id="([^"]+)">(.*?)</fmt>', re.DOTALL)
+    pos = 0
+    run_specs: list[tuple[str, ET.Element | None]] = []
+    for m in tag_pattern.finditer(translated_text):
+        prefix = translated_text[pos : m.start()]
+        if prefix:
+            run_specs.append((prefix, None))
+        fmt_id = m.group(1)
+        inner = m.group(2)
+        run_specs.append((inner, fmt_map.get(fmt_id)))
+        pos = m.end()
+    suffix = translated_text[pos:]
+    if suffix:
+        run_specs.append((suffix, None))
+
+    # Fallback if no tags were matched
+    if not run_specs:
+        clean = re.sub(r"</?fmt[^>]*>", "", translated_text)
+        run_specs = [(clean, None)]
+
+    # 3. Create new runs
+    for text_chunk, rpr_template in run_specs:
+        clean_chunk = re.sub(r"</?fmt[^>]*>", "", text_chunk)
+        if not clean_chunk:
+            continue
+
+        new_r = ET.Element(r_tag)
+        if rpr_template is not None:
+            new_rpr = ET.fromstring(ET.tostring(rpr_template))
+        else:
+            new_rpr = ET.Element(f"{{{_W_NS}}}rPr")
+
+        # Ensure correct font family for Devanagari vs Latin
+        is_dev = contains_devanagari(clean_chunk)
+        font = _HINDI_FONT if is_dev else _ENGLISH_FONT
+        rfonts = new_rpr.find(f"{{{_W_NS}}}rFonts")
+        if rfonts is None:
+            rfonts = ET.SubElement(new_rpr, f"{{{_W_NS}}}rFonts")
+        rfonts.attrib[f"{{{_W_NS}}}ascii"] = font
+        rfonts.attrib[f"{{{_W_NS}}}hAnsi"] = font
+        rfonts.attrib[f"{{{_W_NS}}}cs"] = font
+
+        if len(new_rpr) > 0 or new_rpr.attrib:
+            new_r.append(new_rpr)
+
+        new_t = ET.SubElement(new_r, t_tag)
+        new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+        new_t.text = clean_chunk
+        p.append(new_r)
+
+    _merge_adjacent_compatible_runs(p)
+
+
+def transform_docx_translation_artifact(
+    input_bytes: bytes,
+    translate_fn: Callable[[list[str]], list[str]],
+    filename: str,
+    role: str = "translated_document",
+    warnings: list[WarningRecord] | None = None,
+    batch_size: int = 32,
+) -> ArtifactPayload:
+    """Transform an existing DOCX file in-place by translating story text while preserving 100% of layout.
+
+    Preserves untouched:
+    - Tables: <w:tblPr>, <w:tblGrid>, borders, cell shading <w:shd>, and merged cells (gridSpan/vMerge).
+    - Media: word/media/* (embedded images and drawings).
+    - Styles & Numbering: word/styles.xml, word/numbering.xml, and <w:numPr> bullet numbering.
+    - Settings & Relationships: word/settings.xml, _rels/*, theme/*, headers and footers.
+    """
+    try:
+        in_buf = io.BytesIO(input_bytes)
+        out_buf = io.BytesIO()
+
+        with zipfile.ZipFile(in_buf, "r") as in_zf, zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
+            for item in in_zf.infolist():
+                raw_entry = in_zf.read(item.filename)
+
+                # Process visible story parts: document, headers, footers, footnotes, endnotes, comments
+                is_target_xml = (
+                    item.filename == "word/document.xml"
+                    or (item.filename.startswith("word/header") and item.filename.endswith(".xml"))
+                    or (item.filename.startswith("word/footer") and item.filename.endswith(".xml"))
+                    or (item.filename.startswith("word/footnotes") and item.filename.endswith(".xml"))
+                    or (item.filename.startswith("word/endnotes") and item.filename.endswith(".xml"))
+                    or (item.filename.startswith("word/comments") and item.filename.endswith(".xml"))
+                )
+
+                if is_target_xml:
+                    try:
+                        tree = ET.fromstring(raw_entry)
+                        p_tag = f"{{{_W_NS}}}p"
+
+                        # 1. Collect paragraphs needing translation
+                        paras_to_translate: list[tuple[ET.Element, str, dict[str, ET.Element]]] = []
+                        for p in tree.iter(p_tag):
+                            marked_text, fmt_map = _extract_paragraph_translation_unit(p)
+                            if marked_text and marked_text.strip():
+                                paras_to_translate.append((p, marked_text, fmt_map))
+
+                        # 2. Batch translation
+                        if paras_to_translate:
+                            all_marked = [it[1] for it in paras_to_translate]
+                            translated_all: list[str] = []
+                            for i in range(0, len(all_marked), max(1, batch_size)):
+                                batch = all_marked[i : i + max(1, batch_size)]
+                                translated_batch = translate_fn(batch)
+                                translated_all.extend(translated_batch)
+
+                            # 3. Reconstruct each paragraph
+                            for (p, _, fmt_map), trans_text in zip(paras_to_translate, translated_all):
+                                _reconstruct_translated_paragraph(p, trans_text, fmt_map)
+
+                        updated_entry = _serialize_xml_preserving_namespaces(tree, raw_entry)
+                        out_zf.writestr(item, updated_entry)
+                        continue
+                    except ET.ParseError as exc:
+                        if item.filename == "word/document.xml":
+                            raise DoshError(
+                                code=FailureCode.VALIDATION_FAILED,
+                                message="Failed to parse main DOCX document body XML.",
+                            ) from exc
+                        if warnings is not None:
+                            warnings.append(
+                                WarningRecord(
+                                    code="DOCX_PART_TRANSLATION_FAILED",
+                                    message=f"Failed to parse and translate DOCX part: {item.filename}",
+                                    stage="docx_exporter",
+                                )
+                            )
+
+                out_zf.writestr(item, raw_entry)
+
+        return ArtifactPayload(
+            intent=ArtifactIntent(name=filename, role=role, media_type=_DOCX_MIME_TYPE),
+            content=out_buf.getvalue(),
+        )
+    except Exception as exc:
+        if isinstance(exc, DoshError):
+            raise
+        raise DoshError(
+            code=FailureCode.VALIDATION_FAILED,
+            message="Failed to transform DOCX translation structure.",
+        ) from exc
+
 
 
 def normalize_font_family(font_name: str | None) -> str:

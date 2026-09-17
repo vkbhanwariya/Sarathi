@@ -759,3 +759,32 @@ def test_docx_table_multiline_cells_and_ragged_rows() -> None:
         for r in rows:
             tc_count = r.count("<w:tc>")
             assert tc_count == 3
+
+
+def test_docx_table_typography_standardization() -> None:
+    """Verify table headers and cells adhere to standardized 11 pt and 10 pt (dense) typography."""
+    # 1. Standard 3-column table -> 11 pt (22 half-pt)
+    tbl_std = TableData(
+        name="StdTable",
+        headers=("Col 1", "Col 2", "Col 3"),
+        rows=(("Val 1", "Val 2", "Val 3"),),
+    )
+    doc_std = CanonicalDocument(document_id="doc_std", tables=(tbl_std,))
+    payload_std = build_docx_payload(doc_std, "std.docx")
+
+    with zipfile.ZipFile(io.BytesIO(payload_std.content)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+        assert '<w:sz w:val="22"/>' in xml
+
+    # 2. Dense 6-column table -> 10 pt (20 half-pt)
+    tbl_dense = TableData(
+        name="DenseTable",
+        headers=("C1", "C2", "C3", "C4", "C5", "C6"),
+        rows=(("1", "2", "3", "4", "5", "6"),),
+    )
+    doc_dense = CanonicalDocument(document_id="doc_dense", tables=(tbl_dense,))
+    payload_dense = build_docx_payload(doc_dense, "dense.docx")
+
+    with zipfile.ZipFile(io.BytesIO(payload_dense.content)) as zf:
+        xml_dense = zf.read("word/document.xml").decode("utf-8")
+        assert '<w:sz w:val="20"/>' in xml_dense

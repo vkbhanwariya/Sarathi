@@ -139,7 +139,6 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                     gpu_props: dict[str, Any] = {
                         "INFERENCE_PRECISION_HINT": "f16",
                         "PERFORMANCE_HINT": "THROUGHPUT",
-                        "NUM_STREAMS": "2",
                         "CACHE_MODE": "OPTIMIZE_SPEED",
                     }
                     effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()

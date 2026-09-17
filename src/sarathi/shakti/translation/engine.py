@@ -280,7 +280,7 @@ class CTranslate2TranslationEngine:
                         inter_threads = approved
                         intra_threads = 0
 
-                    trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}:{inter_threads}:{intra_threads}"
+                    trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}"
                     spm_src_key = f"src:{spm_src_path.resolve()}"
                     spm_tgt_key = f"tgt:{spm_tgt_path.resolve()}"
                     with self._lock:

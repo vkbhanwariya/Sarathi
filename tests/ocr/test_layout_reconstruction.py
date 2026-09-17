@@ -171,6 +171,24 @@ def test_headings_and_lists_preserved() -> None:
     assert "March 31, 2026. 1. Total revenue" not in text
 
 
+def test_heading_invariants_reject_tall_body_lines_with_sentence_punctuation() -> None:
+    """Proves tall body lines with periods or long word counts are not falsely mutated into headings."""
+    spans = [
+        # Normal line (line height 20px)
+        _make_span("The Hon'ble Court has considered the detailed application filed by the Petitioner.", (50.0, 50.0, 420.0, 70.0)),
+        # Tall line (line height 32px, ratio 1.6x) but ending with a period and 11 words
+        _make_span("This is an ordinary sentence with tall diacritics and matras ending in a period.", (50.0, 80.0, 420.0, 112.0)),
+        # Another line ending in purna virama
+        _make_span("यह एक सामान्य वाक्य है जो पूर्ण विराम पर समाप्त होता है।", (50.0, 120.0, 400.0, 152.0)),
+    ]
+    text = group_paragraphs(spans)
+    # Neither line should have "# " or "## " prepended
+    for line in text.splitlines():
+        assert not line.startswith(("# ", "## ", "### ")), f"Line was falsely marked as heading: {line}"
+
+
+
+
 def test_font_metric_gap_aware_span_reconstruction_in_lines() -> None:
     """Proves adjacent spans with sub-character gaps do not get spurious spaces."""
     spans = [

@@ -521,15 +521,26 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
     max_x1 = max((ln.x1 for ln in lines), default=100.0)
 
     # Infer headings and apply markdown prefix (# or ##) to visual lines
+    _TERMINAL_PUNCT = (".", "।", "!", "?", ";")
     for ln in lines:
         if ln.text and not ln.text.startswith(("# ", "## ", "### ")):
             bbox = (ln.x0, ln.y0, ln.x1, ln.y1)
             size_pt, is_head = infer_line_font_size(bbox, median_line_height=median_h)
             if is_head:
-                if size_pt >= 17.0:
-                    ln.text = f"# {ln.text}"
-                else:
-                    ln.text = f"## {ln.text}"
+                trimmed_ln = ln.text.strip()
+                words = trimmed_ln.split()
+                line_w = ln.x1 - ln.x0
+                # Invariants: short title-like text, not ending with sentence punctuation
+                is_short_text = len(words) <= 12
+                no_sentence_end = not trimmed_ln.endswith(_TERMINAL_PUNCT)
+                is_isolated = (line_w <= 0.95 * max_w) or (size_pt >= 17.0) or len(lines) <= 2
+                if is_short_text and no_sentence_end and is_isolated:
+                    if size_pt >= 17.0:
+                        ln.text = f"# {ln.text}"
+                    else:
+                        ln.text = f"## {ln.text}"
+
+
 
     # 2. Join lines into paragraphs based on geometry
     para_blocks: list[str] = []

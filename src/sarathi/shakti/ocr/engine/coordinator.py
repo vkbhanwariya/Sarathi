@@ -47,6 +47,7 @@ from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
 class RapidOCREngine:
     """Instance-owned RapidOCR + OpenVINO engine adapter."""
 
+    _init_lock: threading.Lock = threading.Lock()
     _infer_lock: threading.RLock = threading.RLock()
     _gpu_pools: dict[str, queue.Queue[int]] = {}
     _gpu_engines: dict[str, list[Any]] = {}
@@ -65,6 +66,8 @@ class RapidOCREngine:
         self._infer_lock: threading.RLock = threading.RLock()
         self._gpu_pools: dict[str, queue.Queue[int]] = {}
         self._gpu_engines: dict[str, list[Any]] = {}
+        self._engine_pools: dict[str, queue.LifoQueue[Any]] = {}
+        self._engine_counts: dict[str, int] = {}
         self._verified_model_paths: dict[str, str] = {}
         self._asset_version: str = self._compute_asset_version()
 
@@ -119,29 +122,19 @@ class RapidOCREngine:
 
             self._engines[cache_key] = engine_inst
             self._model_labels[cache_key] = label
-
-            if (target_device == "GPU" or "GPU" in target_device) and cache_key not in self._gpu_pools:
-                try:
-                    engine_inst_1, _, _, _ = build_rapidocr_instance(
-                        data_root=self._data_root,
-                        lang=lang,
-                        target_device=target_device,
-                        verified_model_paths=self._verified_model_paths,
-                        default_lang=self._default_lang,
-                    )
-                    q: queue.Queue[int] = queue.Queue()
-                    q.put(0)
-                    q.put(1)
-                    self._gpu_pools[cache_key] = q
-                    self._gpu_engines[cache_key] = [engine_inst, engine_inst_1]
-                except Exception:
-                    pass
-
             return engine_inst
 
     @contextmanager
-    def _acquire_infer_engine(self, cache_key: str, fallback_engine: Any):
-        """Acquire an inference engine slot; uses dual-stream pool on GPU or serialized lock on fallback."""
+    def _acquire_infer_engine(
+        self,
+        cache_key: str,
+        fallback_engine: Any,
+        target_lang: str = "devanagari",
+        target_device: str = "CPU",
+        max_capacity: int = 1,
+    ):
+        """Acquire an elastic inference engine slot bounded by capacity without global locks."""
+        # 1. Honor manually injected test gpu_pools if present
         gpu_pools = getattr(self, "_gpu_pools", None)
         gpu_engines = getattr(self, "_gpu_engines", None)
         if gpu_pools is not None and gpu_engines is not None and cache_key in gpu_pools:
@@ -150,9 +143,57 @@ class RapidOCREngine:
                 yield gpu_engines[cache_key][slot_idx]
             finally:
                 gpu_pools[cache_key].put(slot_idx)
-        else:
+            return
+
+        # 2. Sequential execution or single-engine path (protects single InferRequest from concurrent corruption)
+        if max_capacity <= 1:
             with self._infer_lock:
                 yield fallback_engine
+            return
+
+        # 3. Elastic engine pool matching capacity
+        if not hasattr(self, "_engine_pools"):
+            self._engine_pools: dict[str, queue.LifoQueue[Any]] = {}
+            self._engine_counts: dict[str, int] = {}
+
+        if cache_key not in self._engine_pools:
+            with self._init_lock:
+                if cache_key not in self._engine_pools:
+                    q: queue.LifoQueue[Any] = queue.LifoQueue()
+                    q.put(fallback_engine)
+                    self._engine_pools[cache_key] = q
+                    self._engine_counts[cache_key] = 1
+
+        pool = self._engine_pools[cache_key]
+        active_engine = None
+        try:
+            active_engine = pool.get_nowait()
+        except queue.Empty:
+            pass
+
+        if active_engine is None:
+            with self._init_lock:
+                if self._engine_counts.get(cache_key, 0) < max_capacity:
+                    try:
+                        active_engine, _, _, label = build_rapidocr_instance(
+                            data_root=self._data_root,
+                            lang=target_lang,
+                            target_device=target_device,
+                            verified_model_paths=self._verified_model_paths,
+                            default_lang=self._default_lang,
+                        )
+                        self._engine_counts[cache_key] = self._engine_counts.get(cache_key, 0) + 1
+                        self._model_labels[cache_key] = label
+                    except Exception:
+                        pass
+
+        if active_engine is None:
+            active_engine = pool.get()
+
+        try:
+            yield active_engine
+        finally:
+            pool.put(active_engine)
 
     def ocr_page(
         self,
@@ -240,7 +281,18 @@ class RapidOCREngine:
         engine_key, _ = resolve_engine_keys(target_lang, default_lang=self._default_lang)
         cache_key = f"{engine_key}:{target_device}"
 
-        with self._acquire_infer_engine(cache_key, fallback_engine=engine) as active_engine:
+        max_cap = (
+            execution_binding.approved_concurrency
+            if execution_binding is not None and execution_binding.approved_concurrency > 0
+            else 1
+        )
+        with self._acquire_infer_engine(
+            cache_key,
+            fallback_engine=engine,
+            target_lang=target_lang,
+            target_device=target_device,
+            max_capacity=max_cap,
+        ) as active_engine:
             try:
                 output = active_engine(img_arr, use_det=True, use_cls=use_cls_flag)
             except TypeError:

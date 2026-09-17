@@ -5,11 +5,13 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from sarathi.sankalpa import (
-    CapabilityDeclaration,
-    ExecutionProfile,
-    PluginInfo,
-    SecurityDeclaration,
-)
+     CapabilityDeclaration,
+     DeviceRequirement,
+     DeviceType,
+     ExecutionProfile,
+     PluginInfo,
+     SecurityDeclaration,
+ )
 
 GEMINI_SECURITY = SecurityDeclaration(
     pii_access=True,
@@ -40,6 +42,11 @@ GEMINI_OCR_DECLARATION = CapabilityDeclaration(
     plugin_id="sarathi.shakti.gemini",
     version="1.0.0",
     display_name="Google Gemini Cloud OCR",
+    device_requirement=DeviceRequirement(
+        preferred_devices=(DeviceType.NETWORK,),
+        supported_devices=(DeviceType.NETWORK, DeviceType.CPU),
+        network_provider="gemini",
+    ),
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
@@ -53,6 +60,11 @@ GEMINI_TRANSLATION_DECLARATION = CapabilityDeclaration(
     plugin_id="sarathi.shakti.gemini",
     version="1.0.0",
     display_name="Google Gemini Cloud Translation",
+    device_requirement=DeviceRequirement(
+        preferred_devices=(DeviceType.NETWORK,),
+        supported_devices=(DeviceType.NETWORK, DeviceType.CPU),
+        network_provider="gemini",
+    ),
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,

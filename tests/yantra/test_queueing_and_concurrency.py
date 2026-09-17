@@ -324,3 +324,98 @@ class TestYantraLifecycle:
         with pytest.raises(DoshError) as exc_info:
             yantra.execute_subtasks([lambda: 1])
         assert exc_info.value.code == FailureCode.RESOURCE_UNAVAILABLE
+
+    def test_aggregate_concurrency_across_parallel_capabilities_never_exceeds_capacity(self) -> None:
+        """Proves that multiple concurrent capabilities executing subtasks on the same device
+        strictly share device permits and never exceed aggregate device capacity."""
+        from pathlib import Path
+
+        from sarathi.sankalpa import (
+            Capability,
+            CapabilityDeclaration,
+            ExecutionProfile,
+            InputRef,
+            Request,
+            Result,
+        )
+
+        inv = DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4)])
+        yantra = Yantra(inv)
+
+        active_subtasks = 0
+        peak_subtasks = 0
+        lock = threading.Lock()
+
+        def make_subtask(ident: str):
+            def _subtask():
+                nonlocal active_subtasks, peak_subtasks
+                with lock:
+                    active_subtasks += 1
+                    if active_subtasks > peak_subtasks:
+                        peak_subtasks = active_subtasks
+                time.sleep(0.04)
+                with lock:
+                    active_subtasks -= 1
+                return ident
+
+            return _subtask
+
+        class SubtaskRunningCapability(Capability):
+            def __init__(self, cap_id: str) -> None:
+                self._declaration = CapabilityDeclaration(
+                    capability_id=cap_id,
+                    plugin_id="test.plugin",
+                    version="1.0.0",
+                    supported_profiles=(ExecutionProfile.INSTANT,),
+                    device_requirement=DeviceRequirement(
+                        preferred_devices=(DeviceType.CPU,),
+                        supported_devices=(DeviceType.CPU,),
+                        parallelizable=True,
+                    ),
+                )
+
+            @property
+            def declaration(self) -> CapabilityDeclaration:
+                return self._declaration
+
+            def execute(
+                self,
+                request: Request,
+                context: ExecutionContext,
+                prior_result: Result | None = None,
+            ) -> Result:
+                tasks = [make_subtask(f"{self.declaration.capability_id}-{i}") for i in range(8)]
+                results = yantra.execute_subtasks(tasks, context=context)
+                return Result(data=results)
+
+        cap_a = SubtaskRunningCapability("cap-a")
+        cap_b = SubtaskRunningCapability("cap-b")
+
+        req_a = Request(request_id="req-a", requirement="cap-a", inputs=[InputRef("in-a", Path("a.txt"), "a.txt", 1)])
+        req_b = Request(request_id="req-b", requirement="cap-b", inputs=[InputRef("in-b", Path("b.txt"), "b.txt", 1)])
+        ctx_a = ExecutionContext(run_id="run-a", request_id="req-a", trace_id="t-a", span_id="s-a")
+        ctx_b = ExecutionContext(run_id="run-b", request_id="req-b", trace_id="t-b", span_id="s-b")
+
+        errors: list[BaseException] = []
+
+        def run_cap(cap, req, ctx):
+            try:
+                yantra.execute(cap, req, ctx)
+            except BaseException as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=run_cap, args=(cap_a, req_a, ctx_a))
+        t2 = threading.Thread(target=run_cap, args=(cap_b, req_b, ctx_b))
+
+        t1.start()
+        t2.start()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+
+        assert not t1.is_alive()
+        assert not t2.is_alive()
+        assert not errors
+        # Invariant: Peak concurrent subtasks across both capabilities must NEVER exceed device capacity (4)
+        assert peak_subtasks <= 4
+        assert peak_subtasks >= 2  # Proves parallel overlap was active
+        yantra.close()
