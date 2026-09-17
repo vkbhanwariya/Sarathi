@@ -37,7 +37,7 @@ def get_page_count_from_bytes(data: bytes) -> int:
 def extract_single_page_image(
     data: bytes,
     page_number: int,
-    dpi: int = 150,
+    dpi: int = 200,
     cancellation_token: Any | None = None,
 ) -> Any | None:
     """Extract and rasterize a single page (1-indexed) without rasterizing any other pages."""
@@ -81,7 +81,7 @@ def extract_single_page_image(
 
 def iter_images_from_bytes(
     data: bytes,
-    dpi: int = 150,
+    dpi: int = 200,
     cancellation_token: Any | None = None,
     skip_pages: set[int] | None = None,
 ) -> Iterator[Any]:
@@ -135,7 +135,7 @@ def iter_images_from_bytes(
 
 def extract_images_from_bytes(
     data: bytes,
-    dpi: int = 150,
+    dpi: int = 200,
     cancellation_token: Any | None = None,
     skip_pages: set[int] | None = None,
 ) -> list[Any]:
@@ -154,7 +154,7 @@ class BoundedPageRasterizer:
         self,
         data: bytes,
         pages: list[int] | None = None,
-        dpi: int = 150,
+        dpi: int = 200,
         max_buffered: int = 6,
         cancellation_token: Any | None = None,
     ) -> None:

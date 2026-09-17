@@ -159,7 +159,7 @@ class TestMukhaWebServerAPI:
         assert state_data["ok"] is True
         assert state_data["state"]["terminal_summary"] is not None
 
-        output_dirs = list((tmp_path / "Output" / "read_native").glob("Run-*"))
+        output_dirs = list((web_server.output_root / "read_native").glob("Run-*"))
         assert len(output_dirs) == 1
         assert (output_dirs[0] / "run-manifest.json").is_file()
 

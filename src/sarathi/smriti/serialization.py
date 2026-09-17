@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import datetime
+import hashlib
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -246,7 +247,7 @@ def is_cacheable_result(result: Result) -> bool:
     return True
 
 
-def serialize_result(result: Result) -> str:
+def serialize_result(result: Result, artifacts_dir: Path | None = None) -> str:
     """Serialize canonical Result dataclass into deterministic JSON string."""
     if not is_cacheable_result(result):
         raise ValueError(f"Result with data of type {type(result.data).__name__} is not cacheable.")
@@ -263,18 +264,26 @@ def serialize_result(result: Result) -> str:
 
     payloads_list = []
     for p in result.artifact_payloads:
-        payloads_list.append(
-            {
-                "intent": {
-                    "name": p.intent.name,
-                    "role": p.intent.role,
-                    "media_type": p.intent.media_type,
-                    "relative_path": str(p.intent.relative_path) if p.intent.relative_path is not None else None,
-                    "metadata": _serialize_metadata(p.intent.metadata),
-                },
-                "content_b64": base64.b64encode(p.content).decode("ascii"),
-            }
-        )
+        payload_entry: dict[str, Any] = {
+            "intent": {
+                "name": p.intent.name,
+                "role": p.intent.role,
+                "media_type": p.intent.media_type,
+                "relative_path": str(p.intent.relative_path) if p.intent.relative_path is not None else None,
+                "metadata": _serialize_metadata(p.intent.metadata),
+            },
+        }
+        if artifacts_dir is not None and len(p.content) > 16384:
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+            content_hash = hashlib.sha256(p.content).hexdigest()
+            target_path = artifacts_dir / f"{content_hash}.bin"
+            if not target_path.exists():
+                target_path.write_bytes(p.content)
+            payload_entry["content_hash"] = content_hash
+            payload_entry["content_size"] = len(p.content)
+        else:
+            payload_entry["content_b64"] = base64.b64encode(p.content).decode("ascii")
+        payloads_list.append(payload_entry)
 
     provenance_list = [
         {
@@ -322,7 +331,7 @@ def serialize_result(result: Result) -> str:
     return json.dumps(raw, indent=None, sort_keys=True)
 
 
-def deserialize_result(json_str: str) -> Result:
+def deserialize_result(json_str: str, artifacts_dir: Path | None = None) -> Result:
     """Deserialize JSON string back into canonical Result dataclass."""
     raw = json.loads(json_str)
 
@@ -339,6 +348,14 @@ def deserialize_result(json_str: str) -> Result:
     for p in raw.get("artifact_payloads", []):
         intent_dict = p.get("intent", {})
         rel_path = intent_dict.get("relative_path")
+        if "content_hash" in p and artifacts_dir is not None:
+            content_path = artifacts_dir / f"{p['content_hash']}.bin"
+            content = content_path.read_bytes() if content_path.exists() else b""
+        elif "content_b64" in p:
+            content = base64.b64decode(p["content_b64"].encode("ascii"))
+        else:
+            content = b""
+
         payloads.append(
             ArtifactPayload(
                 intent=ArtifactIntent(
@@ -348,7 +365,7 @@ def deserialize_result(json_str: str) -> Result:
                     relative_path=Path(rel_path) if rel_path else None,
                     metadata=MappingProxyType(_deserialize_metadata(intent_dict.get("metadata", {}))),
                 ),
-                content=base64.b64decode(p["content_b64"].encode("ascii")),
+                content=content,
             )
         )
 

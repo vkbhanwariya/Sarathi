@@ -76,6 +76,8 @@ _disable_openvino_telemetry()
 
 _SHARED_OPENVINO_CORE: Any = None
 _SHARED_CORE_LOCK = threading.Lock()
+_COMPILED_MODELS_CACHE: dict[tuple[str, str], Any] = {}
+_COMPILED_MODELS_LOCK = threading.Lock()
 
 
 def get_shared_openvino_core(cache_dir: Path | None = None) -> Any:
@@ -151,8 +153,14 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                 except Exception:
                     pass
 
-            self.model = core.read_model(model_path)
-            compile_model = core.compile_model(model=self.model, device_name=device_name)
+            cache_key = (str(model_path.resolve()), device_name)
+            with _COMPILED_MODELS_LOCK:
+                if cache_key not in _COMPILED_MODELS_CACHE:
+                    model = core.read_model(model_path)
+                    _COMPILED_MODELS_CACHE[cache_key] = (model, core.compile_model(model=model, device_name=device_name))
+                model, compile_model = _COMPILED_MODELS_CACHE[cache_key]
+
+            self.model = model
             self.session = compile_model.create_infer_request()
 
         ov_main.OpenVINOInferSession.__init__ = _custom_init

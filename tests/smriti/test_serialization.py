@@ -301,3 +301,36 @@ def test_artifact_relative_path_serialization_round_trip() -> None:
     assert deser_intent.role == "final_report"
     assert deser_intent.relative_path == Path("subfolder/nested/output.docx")
     assert deserialized.artifact_payloads[0].content == b"fake_docx_content"
+
+
+def test_large_binary_artifact_content_addressed_storage(tmp_path: Path) -> None:
+    """Verify that artifacts > 16 KB are stored as content-addressed .bin files and restored identically."""
+    doc = CanonicalDocument(document_id="doc-large", text="Large doc")
+    large_bytes = b"0123456789abcdef" * 2048  # 32 KB
+    intent = ArtifactIntent(
+        name="large_output.pdf",
+        role="document_export",
+        media_type="application/pdf",
+    )
+    payload = ArtifactPayload(intent=intent, content=large_bytes)
+    res = Result(data=doc, artifact_payloads=(payload,))
+
+    artifacts_dir = tmp_path / "cache" / "artifacts"
+    serialized_json = serialize_result(res, artifacts_dir=artifacts_dir)
+
+    # Invariant: Large payload is NOT stored as base64 in JSON
+    import json
+    data = json.loads(serialized_json)
+    payload_info = data["artifact_payloads"][0]
+    assert "content_hash" in payload_info
+    assert "content_b64" not in payload_info
+    assert payload_info["content_size"] == 32768
+
+    bin_path = artifacts_dir / f"{payload_info['content_hash']}.bin"
+    assert bin_path.is_file()
+    assert bin_path.read_bytes() == large_bytes
+
+    # Deserialization restores exact raw bytes
+    restored = deserialize_result(serialized_json, artifacts_dir=artifacts_dir)
+    assert len(restored.artifact_payloads) == 1
+    assert restored.artifact_payloads[0].content == large_bytes

@@ -75,7 +75,7 @@ class RunCoordinator:
 
     def __init__(self, agni: Agni) -> None:
         self._agni = agni
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._active_run_id: str | None = None
         self._active_request: Request | None = None
         self._active_token: CancellationToken | None = None
@@ -115,6 +115,36 @@ class RunCoordinator:
                 self.set_intake_selection(selection, inputs, preflight=preflight)
         except Exception:
             pass
+
+    def reset(self) -> None:
+        """Reset internal run state and caches for clean lifecycle transitions."""
+        with self._lock:
+            if self._active_thread is not None and self._active_thread.is_alive():
+                if self._active_token is not None:
+                    self._active_token.cancel()
+                self._active_thread.join(timeout=1.0)
+            self._active_run_id = None
+            self._active_request = None
+            self._active_token = None
+            self._active_thread = None
+            self._active_start_ns = 0
+            self._last_result = None
+            self._last_result_run_id = None
+            self._terminal_summary = None
+            self._terminal_status = None
+            self._confirmed_artifacts.clear()
+            self._run_aliases.clear()
+            self._run_output_roots.clear()
+            self._live_progress.clear()
+            self._live_workers.clear()
+            self._file_progress.clear()
+            self._review_intents.clear()
+            self._state_revision += 1
+            self._intake_selection = None
+            self._intake_preflight = None
+            self._input_path_registry.clear()
+            self._run_summaries.clear()
+        self._auto_discover_input_root()
 
     @property
     def state_revision(self) -> int:

@@ -33,13 +33,40 @@ def test_agni(tmp_path: Path) -> Agni:
         yield agni
 
 
-@pytest.fixture
-def web_server(test_agni: Agni) -> MukhaWebServer:
-    """Provide running MukhaWebServer on a free loopback port."""
-    server = MukhaWebServer(agni=test_agni, host="127.0.0.1", port=0)
+@pytest.fixture(scope="module")
+def module_agni(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    """Provide initialized Agni instance with isolated roots for module-scoped server."""
+    tmp_path = tmp_path_factory.mktemp("mukha_module")
+    input_dir = tmp_path / "Input"
+    input_dir.mkdir(exist_ok=True)
+    output_dir = tmp_path / "Output"
+    output_dir.mkdir(exist_ok=True)
+    runtime_dir = tmp_path / "Runtime"
+    runtime_dir.mkdir(exist_ok=True)
+
+    agni = Agni(
+        runtime_root=runtime_dir,
+        output_root=output_dir,
+    )
+    with agni:
+        yield agni
+
+
+@pytest.fixture(scope="module")
+def module_web_server(module_agni: Agni) -> Any:
+    """Provide running MukhaWebServer on a free loopback port shared within module."""
+    server = MukhaWebServer(agni=module_agni, host="127.0.0.1", port=0)
     server.start()
     yield server
     server.stop()
+
+
+@pytest.fixture
+def web_server(module_web_server: MukhaWebServer) -> MukhaWebServer:
+    """Provide running MukhaWebServer, resetting runner state between tests."""
+    module_web_server.reset()
+    yield module_web_server
+    module_web_server.reset()
 
 
 class CaseInsensitiveHeaders(dict):

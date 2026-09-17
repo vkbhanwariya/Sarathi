@@ -258,29 +258,25 @@ class CTranslate2TranslationEngine:
                         except Exception:
                             device = "cpu"
 
+                    cpu_fn = getattr(os, "process_cpu_count", None)
+                    cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
+                    default_concurrency = max(1, min(4, cpu_count // 4))
+
                     approved = (
                         execution_binding.approved_concurrency
                         if execution_binding is not None and execution_binding.approved_concurrency > 0
-                        else 1
+                        else default_concurrency
                     )
                     if device == "cpu":
-                        inter_threads = approved
-                        cpu_fn = getattr(os, "process_cpu_count", None)
-                        cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count()
-                        intra_threads = max(1, min(4, (cpu_count or 4) // 2))
-                        if "OMP_NUM_THREADS" not in os.environ:
-                            os.environ["OMP_NUM_THREADS"] = str(intra_threads)
-                        if "MKL_NUM_THREADS" not in os.environ:
-                            os.environ["MKL_NUM_THREADS"] = str(intra_threads)
-                        if "KMP_AFFINITY" not in os.environ:
-                            os.environ["KMP_AFFINITY"] = "granularity=fine,compact,1,0"
-                        if "KMP_BLOCKTIME" not in os.environ:
-                            os.environ["KMP_BLOCKTIME"] = "0"
+                        # Thread budget invariant: scale worker processes and intra-threads to saturate CPU
+                        # without thrashing: inter_threads * intra_threads <= host logical capacity
+                        inter_threads = max(1, min(4, approved))
+                        intra_threads = max(2, min(6, (cpu_count + 1) // inter_threads))
                     else:
                         inter_threads = approved
                         intra_threads = 0
 
-                    trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}"
+                    trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}:{inter_threads}:{intra_threads}"
                     spm_src_key = f"src:{spm_src_path.resolve()}"
                     spm_tgt_key = f"tgt:{spm_tgt_path.resolve()}"
                     with self._lock:
@@ -323,13 +319,19 @@ class CTranslate2TranslationEngine:
                     else:
                         tokenized = [spm_src.encode_as_pieces(s) for s in sentences]
 
-                    results = translator.translate_batch(tokenized)
+                    # Token-based batching bounds token count per forward pass, eliminating tail latency
+                    # on uneven sentence lengths while distributing work across worker threads.
+                    results = translator.translate_batch(
+                        tokenized,
+                        batch_type="tokens",
+                        max_batch_size=1024,
+                    )
 
                     decoded_sentences: list[str] = []
                     for r in results:
                         text = spm_tgt.decode_pieces(r.hypotheses[0])
                         if norm_engine == "indictrans2":
-                            for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>"):
+                            for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>", "\u2047", "Â"):
                                 text = text.replace(tag, "")
                         text = text.replace("\u2581", " ")
                         text = " ".join(text.split())

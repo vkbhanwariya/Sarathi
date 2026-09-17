@@ -364,3 +364,63 @@ def test_translate_batch_multi_sentence_batching_and_ordering(test_backend: Any)
     assert len(results[3].translated_text) > 0
     assert len(results[4].translated_text) > 0
     assert results[0].protected_spans_count >= 0
+
+
+def test_structural_placeholder_not_translated_and_markdown_table_exported(tmp_path: Path) -> None:
+    """Verify {{TABLE:Table_1}} is not passed to machine translation and exports clean markdown in .txt."""
+    from sarathi.sankalpa import TableData
+    from sarathi.shakti.translation.models import Language, TranslationDirection, TranslationResult
+
+    called_inputs: list[str] = []
+
+    class CapturingTranslationEngine:
+        def translate(
+            self,
+            text: str,
+            direction: TranslationDirection,
+            execution_binding: Any = None,
+            **kwargs: Any,
+        ) -> TranslationResult:
+            called_inputs.append(text)
+            return TranslationResult(
+                translated_text=f"अनुवाद: {text}",
+                source_language=Language.ENGLISH,
+                target_language=Language.HINDI,
+                direction=direction,
+                protected_spans_count=0,
+                metadata={},
+            )
+
+    cap = TranslationCapability()
+    cap._engine = CapturingTranslationEngine()
+
+    table = TableData(
+        name="Table_1",
+        headers=("Col1", "Col2"),
+        rows=(("Data1", "Data2"), ("Data3", "Data4")),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-tbl-1",
+        text="{{TABLE:Table_1}}",
+        tables=(table,),
+    )
+    prior = Result(data=doc)
+    ctx = ExecutionContext("run-tbl-1", "req-tbl-1", "t-1", "s-1")
+    inp = InputRef(input_id="inp-tbl-1", source_path=tmp_path / "table.pdf", display_name="table.pdf", size_bytes=100)
+    req = Request(request_id="req-tbl-1", requirement="translation", inputs=(inp,))
+
+    result = cap.execute(req, ctx, prior_result=prior)
+
+    # 1. Verify that {{TABLE:Table_1}} was NEVER sent to the translation engine
+    assert "{{TABLE:Table_1}}" not in called_inputs
+
+    # 2. Verify translated_doc.text keeps {{TABLE:Table_1}} anchor intact for DOCX builder
+    assert isinstance(result.data, CanonicalDocument)
+    assert result.data.text == "{{TABLE:Table_1}}"
+
+    # 3. Verify Translated_Document.txt artifact payload contains formatted markdown table
+    txt_payload = next(p for p in result.artifact_payloads if p.intent.name.endswith(".txt"))
+    txt_content = txt_payload.content.decode("utf-8")
+    assert "| अनुवाद: Col1 | अनुवाद: Col2 |" in txt_content
+    assert "| --- | --- |" in txt_content
+    assert "{{TABLE:Table_1}}" not in txt_content

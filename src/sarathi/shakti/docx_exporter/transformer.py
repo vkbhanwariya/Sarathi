@@ -181,14 +181,18 @@ def transform_docx_artifact(
 def _extract_paragraph_translation_unit(
     p: ET.Element,
 ) -> tuple[str, dict[str, ET.Element]]:
-    """Extract translatable text from a paragraph, wrapping runs with distinct visual formatting in <fmt id="N">."""
+    """Extract translatable text from a paragraph.
+
+    If all text runs share uniform visual formatting (or there is only one text run),
+    clean text is returned without intrusive <fmt> tags, and the formatting is stored
+    under '__uniform__'.
+    If mixed formatting is present across runs, runs with visual formatting are wrapped in <fmt id="N">.
+    """
     r_tag = f"{{{_W_NS}}}r"
     t_tag = f"{{{_W_NS}}}t"
     rpr_tag = f"{{{_W_NS}}}rPr"
 
-    parts: list[str] = []
-    fmt_map: dict[str, ET.Element] = {}
-
+    runs_info: list[tuple[str, ET.Element | None, bool, str]] = []
     for child in p:
         if child.tag == r_tag:
             t_elem = child.find(t_tag)
@@ -198,19 +202,42 @@ def _extract_paragraph_translation_unit(
 
             rpr = child.find(rpr_tag)
             has_formatting = False
+            rpr_sig = ""
             if rpr is not None:
                 for prop in rpr:
                     tname = prop.tag.split("}")[-1]
                     if tname in ("b", "bCs", "i", "iCs", "u", "strike", "dstrike", "color", "highlight"):
                         has_formatting = True
                         break
+                if has_formatting:
+                    rpr_sig = ET.tostring(rpr).decode("utf-8")
 
-            if has_formatting and rpr is not None:
-                fmt_id = str(len(fmt_map))
-                fmt_map[fmt_id] = rpr
-                parts.append(f'<fmt id="{fmt_id}">{text}</fmt>')
-            else:
-                parts.append(text)
+            runs_info.append((text, rpr, has_formatting, rpr_sig))
+
+    if not runs_info:
+        return "", {}
+
+    # Check if all runs share uniform formatting
+    first_has_fmt = runs_info[0][2]
+    first_sig = runs_info[0][3]
+    is_uniform = all(has_fmt == first_has_fmt and sig == first_sig for _, _, has_fmt, sig in runs_info)
+
+    fmt_map: dict[str, ET.Element] = {}
+    if is_uniform:
+        plain_text = "".join(text for text, _, _, _ in runs_info)
+        if first_has_fmt and runs_info[0][1] is not None:
+            fmt_map["__uniform__"] = runs_info[0][1]
+        return plain_text, fmt_map
+
+    # Mixed formatting across runs: wrap formatted runs with <fmt id="N">
+    parts: list[str] = []
+    for text, rpr, has_fmt, _ in runs_info:
+        if has_fmt and rpr is not None:
+            fmt_id = str(len(fmt_map))
+            fmt_map[fmt_id] = rpr
+            parts.append(f'<fmt id="{fmt_id}">{text}</fmt>')
+        else:
+            parts.append(text)
 
     return "".join(parts), fmt_map
 
@@ -244,36 +271,52 @@ def _reconstruct_translated_paragraph(
     if not translated_text:
         return
 
-    # 2. Parse <fmt id="..."> tags
-    tag_pattern = re.compile(r'<fmt id="([^"]+)">(.*?)</fmt>', re.DOTALL)
+    default_rpr = fmt_map.get("__uniform__")
+
+    # 2. Parse <fmt id="..."> tags with resilient support for spacing, primes, and NMT distortions
+    tag_pattern = re.compile(
+        r'<\s*fmt\s+(?:id|idmir)\s*[=′\':\s]*["\'′]?([^\s"\'′>]+)["\'′]?\s*[>′\']?(.*?)(?:<\s*/\s*fmt[′\']?\s*>|/\s*fmt[′\']?|$)',
+        re.DOTALL | re.IGNORECASE,
+    )
+    clean_tag_re = re.compile(
+        r'<\s*/?\s*fmt[^>]*>|/\s*fmt[′\']?|fmt\s+idmir[^\s>]*|idmir[′\'][^′\']*[\'′]|<\s*/?\s*fmt[′\']?|/fmt',
+        re.IGNORECASE,
+    )
+
     pos = 0
     run_specs: list[tuple[str, ET.Element | None]] = []
+    matched_any = False
     for m in tag_pattern.finditer(translated_text):
+        matched_any = True
         prefix = translated_text[pos : m.start()]
         if prefix:
-            run_specs.append((prefix, None))
+            run_specs.append((prefix, default_rpr))
         fmt_id = m.group(1)
         inner = m.group(2)
-        run_specs.append((inner, fmt_map.get(fmt_id)))
+        target_rpr = fmt_map.get(fmt_id) or default_rpr
+        run_specs.append((inner, target_rpr))
         pos = m.end()
     suffix = translated_text[pos:]
     if suffix:
-        run_specs.append((suffix, None))
+        run_specs.append((suffix, default_rpr))
 
-    # Fallback if no tags were matched
-    if not run_specs:
-        clean = re.sub(r"</?fmt[^>]*>", "", translated_text)
-        run_specs = [(clean, None)]
+    if not matched_any:
+        run_specs = [(translated_text, default_rpr)]
 
     # 3. Create new runs
     for text_chunk, rpr_template in run_specs:
-        clean_chunk = re.sub(r"</?fmt[^>]*>", "", text_chunk)
-        if not clean_chunk:
+        clean_chunk = clean_tag_re.sub("", text_chunk)
+        # Collapse degenerate repeated line-break loops from NMT hallucinations
+        clean_chunk = re.sub(r"(?:<\s*br\s*/?\s*>\s*)+", " ", clean_chunk, flags=re.IGNORECASE)
+        # Normalize stray spacing artifacts
+        clean_chunk = re.sub(r"[ \t]+", " ", clean_chunk)
+        if not clean_chunk.strip():
             continue
 
         new_r = ET.Element(r_tag)
-        if rpr_template is not None:
-            new_rpr = ET.fromstring(ET.tostring(rpr_template))
+        target_template = rpr_template or default_rpr
+        if target_template is not None:
+            new_rpr = ET.fromstring(ET.tostring(target_template))
         else:
             new_rpr = ET.Element(f"{{{_W_NS}}}rPr")
 

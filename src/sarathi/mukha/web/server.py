@@ -64,6 +64,10 @@ class MukhaWebServer:
         """Return True when an interactive processing run is active."""
         return self._runner.is_busy()
 
+    def reset(self) -> None:
+        """Reset runner state on the presentation server."""
+        self._runner.reset()
+
     @property
     def agni(self) -> Any:
         """Return the current Agni composition root."""

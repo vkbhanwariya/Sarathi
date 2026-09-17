@@ -118,7 +118,8 @@ class TestTranslationDeviceBinding:
             res = engine.translate("नमस्ते", direction=TranslationDirection.HI_TO_EN, execution_binding=binding_cuda)
 
             assert res.translated_text == "Hello"
-            expected_intra = max(1, min(4, (os.cpu_count() or 4) // 2))
+            cpu_total = os.cpu_count() or 4
+            expected_intra = max(2, min(6, (cpu_total + 1) // 1))
             mock_trans_cls.assert_called_once_with(
                 str(models_dir), device="cpu", device_index=0, inter_threads=1, intra_threads=expected_intra
             )

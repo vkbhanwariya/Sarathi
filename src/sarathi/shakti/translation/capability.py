@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from contextlib import nullcontext
 from pathlib import Path
@@ -21,6 +22,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Request,
     Result,
+    TableData,
     WarningRecord,
 )
 from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
@@ -41,6 +43,72 @@ from sarathi.shakti.translation.engine import (
 from sarathi.shakti.translation.models import TranslationDirection, TranslationResult
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
+
+_STRUCTURAL_TAG_RE: re.Pattern[str] = re.compile(
+    r"^(?:\{\{[A-Z_]+:[^}]+\}\}|<!--\s*[A-Z_]+:[^>]+-->|\[[A-Z_]+:[^\]]+\]|---\s*Page\s*\d+\s*---)$",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SPLIT_RE: re.Pattern[str] = re.compile(
+    r"(\{\{[A-Z_]+:[^}]+\}\}|<!--\s*[A-Z_]+:[^>]+-->|\[[A-Z_]+:[^\]]+\]|---\s*Page\s*\d+\s*---)",
+    re.IGNORECASE,
+)
+
+
+def _is_structural_placeholder(text: str | None) -> bool:
+    """Return True if text is purely an internal structural tag or page separator."""
+    if not text:
+        return False
+    return bool(_STRUCTURAL_TAG_RE.match(text.strip()))
+
+
+def _format_table_as_markdown(table: TableData) -> str:
+    """Format a TableData instance as readable GitHub-flavored markdown."""
+    lines: list[str] = []
+    if table.name and not table.name.startswith("Table_") and not table.name.startswith("Page_"):
+        lines.append(f"### {table.name}\n")
+    if table.headers:
+        lines.append("| " + " | ".join(str(c).strip() for c in table.headers) + " |")
+        lines.append("| " + " | ".join("---" for _ in table.headers) + " |")
+    for row in table.rows:
+        lines.append("| " + " | ".join(str(c).strip() for c in row) + " |")
+    return "\n".join(lines)
+
+
+def _format_translated_document_text(doc: CanonicalDocument) -> str:
+    """Format translated document text for plaintext export, serializing tables cleanly."""
+    if not doc.tables:
+        return doc.text
+
+    table_map: dict[str, TableData] = {}
+    for idx, tbl in enumerate(doc.tables, 1):
+        if tbl.name:
+            table_map[tbl.name.strip().lower()] = tbl
+        table_map[f"table_{idx}"] = tbl
+        table_map[f"table {idx}"] = tbl
+
+    rendered_tables: set[int] = set()
+
+    from sarathi.shakti.docx_exporter.builder import _TABLE_ANCHOR_RE
+
+    def _replace_anchor(match: re.Match[str]) -> str:
+        name = (match.group(1) or match.group(2) or match.group(3)).strip().lower()
+        tbl = table_map.get(name)
+        if tbl is not None:
+            rendered_tables.add(id(tbl))
+            return "\n\n" + _format_table_as_markdown(tbl) + "\n\n"
+        return match.group(0)
+
+    formatted = _TABLE_ANCHOR_RE.sub(_replace_anchor, doc.text)
+
+    unrendered = [t for t in doc.tables if id(t) not in rendered_tables]
+    if unrendered:
+        parts = [formatted.strip()] if formatted.strip() and formatted.strip() != doc.text.strip() else []
+        for t in unrendered:
+            parts.append(_format_table_as_markdown(t))
+        if parts:
+            formatted = "\n\n".join(parts)
+
+    return formatted.strip() if formatted.strip() else doc.text
 
 
 class TranslationCapability:
@@ -279,7 +347,16 @@ class TranslationCapability:
                 seen_texts: set[str] = set()
 
                 def _collect(s: str | None) -> None:
-                    if s and s.strip() and s not in seen_texts:
+                    if not s or not s.strip():
+                        return
+                    if _is_structural_placeholder(s):
+                        return
+                    if "{{" in s and ("{{TABLE:" in s or "{{PAGE:" in s):
+                        for chunk in _STRUCTURAL_SPLIT_RE.split(s):
+                            if chunk.strip() and not _is_structural_placeholder(chunk) and chunk not in seen_texts:
+                                seen_texts.add(chunk)
+                                unique_texts.append(chunk)
+                    elif s not in seen_texts:
                         seen_texts.add(s)
                         unique_texts.append(s)
 
@@ -341,6 +418,19 @@ class TranslationCapability:
                 def _trans_text(raw: str) -> str:
                     if not raw or not raw.strip():
                         return raw
+                    if _is_structural_placeholder(raw):
+                        return raw
+                    if "{{" in raw and ("{{TABLE:" in raw or "{{PAGE:" in raw):
+                        chunks = _STRUCTURAL_SPLIT_RE.split(raw)
+                        translated_chunks: list[str] = []
+                        for c in chunks:
+                            if _is_structural_placeholder(c):
+                                translated_chunks.append(c)
+                            elif c.strip():
+                                translated_chunks.append(_trans_text(c))
+                            else:
+                                translated_chunks.append(c)
+                        return "".join(translated_chunks)
                     if raw not in translation_cache:
                         try:
                             translation_cache[raw] = self._engine.translate(
@@ -420,7 +510,7 @@ class TranslationCapability:
                         role="translated_text",
                         media_type="text/plain",
                     ),
-                    content=translated_doc.text.encode("utf-8"),
+                    content=_format_translated_document_text(translated_doc).encode("utf-8"),
                 )
                 doc_has_dev = contains_devanagari(translated_doc.text) or (tgt_lang == "hi")
                 doc_font = output_font(contains_devanagari=doc_has_dev)
@@ -430,7 +520,11 @@ class TranslationCapability:
                 if matching_inp and matching_inp.source_path and str(matching_inp.source_path).lower().endswith(".docx"):
                     try:
                         def _batch_trans(batch: list[str]) -> list[str]:
-                            missing = [t for t in set(batch) if t and t.strip() and t not in translation_cache]
+                            missing = [
+                                t
+                                for t in set(batch)
+                                if t and t.strip() and not _is_structural_placeholder(t) and t not in translation_cache
+                            ]
                             if missing:
                                 if hasattr(self._engine, "translate_batch"):
                                     try:

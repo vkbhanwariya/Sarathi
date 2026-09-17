@@ -33,6 +33,7 @@ class Allocation:
     allocator_id: str
     backend: str = "cpu"
     backend_device_id: str = "CPU"
+    granted_units: int = 1
     _allocator: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -50,6 +51,8 @@ class Allocation:
             raise ValueError("backend must be a non-empty string.")
         if not self.backend_device_id or not isinstance(self.backend_device_id, str):
             raise ValueError("backend_device_id must be a non-empty string.")
+        if not isinstance(self.granted_units, int) or isinstance(self.granted_units, bool) or self.granted_units < 1:
+            raise ValueError("granted_units must be a positive integer >= 1.")
 
     @contextmanager
     def child_permit(self, timeout: float | None = None):
@@ -83,10 +86,10 @@ class _ResourceAllocator:
         self._max_queue_depth: int = max_queue_depth
         self._allocator_id: str = uuid.uuid4().hex[:12]
         self._lock: threading.Lock = threading.Lock()
-        self._used_slots: dict[str, int] = {dev.device_id: 0 for dev in inventory.devices}
-        self._device_semaphores: dict[str, threading.BoundedSemaphore] = {
-            dev.device_id: threading.BoundedSemaphore(dev.capacity) for dev in inventory.devices
-        }
+        self._cv: threading.Condition = threading.Condition(self._lock)
+        self._used_units: dict[str, int] = {dev.device_id: 0 for dev in inventory.devices}
+        self._used_slots: dict[str, int] = self._used_units
+        self._active_device_permits: dict[str, int] = {dev.device_id: 0 for dev in inventory.devices}
         self._active_allocations: dict[str, Allocation] = {}
         self._waiting_queue: list[_WaitEntry] = []
         self._counter: int = 0
@@ -95,31 +98,46 @@ class _ResourceAllocator:
     @contextmanager
     def device_permit(self, device_id: str, timeout: float | None = None):
         """Acquire an elastic execution permit for the device, strictly bounded by capacity."""
-        with self._lock:
+        start_time = time.monotonic()
+        with self._cv:
+            dev = self._inventory.get_device(device_id)
+            if dev is None:
+                yield
+                return
+
+            while self._active_device_permits[device_id] >= dev.capacity:
+                if self._is_closed:
+                    raise DoshError(
+                        code=FailureCode.RESOURCE_UNAVAILABLE,
+                        message="Allocator is closed.",
+                    )
+                if timeout is not None:
+                    elapsed = time.monotonic() - start_time
+                    remaining = timeout - elapsed
+                    if remaining <= 0:
+                        raise DoshError(
+                            code=FailureCode.RESOURCE_UNAVAILABLE,
+                            message=f"Device '{device_id}' capacity saturated; timed out waiting for permit.",
+                        )
+                    self._cv.wait(timeout=min(0.05, remaining))
+                else:
+                    self._cv.wait(timeout=0.05)
+
             if self._is_closed:
                 raise DoshError(
                     code=FailureCode.RESOURCE_UNAVAILABLE,
                     message="Allocator is closed.",
                 )
-            sem = self._device_semaphores.get(device_id)
 
-        if sem is None:
-            yield
-            return
+            self._active_device_permits[device_id] += 1
 
-        acquired = sem.acquire(timeout=timeout) if timeout is not None else sem.acquire()
-        if not acquired:
-            raise DoshError(
-                code=FailureCode.RESOURCE_UNAVAILABLE,
-                message=f"Device '{device_id}' capacity saturated; timed out waiting for permit.",
-            )
         try:
             yield
         finally:
-            try:
-                sem.release()
-            except ValueError:
-                pass
+            with self._cv:
+                curr = self._active_device_permits.get(device_id, 0)
+                self._active_device_permits[device_id] = max(0, curr - 1)
+                self._cv.notify_all()
 
     @property
     def inventory(self) -> DeviceInventory:
@@ -287,7 +305,7 @@ class _ResourceAllocator:
         if not isinstance(allocation, Allocation):
             raise TypeError(f"allocation must be an Allocation instance, got {type(allocation).__name__}.")
 
-        with self._lock:
+        with self._cv:
             registered = self._active_allocations.get(allocation.allocation_id)
             if registered is None:
                 raise DoshError(
@@ -306,10 +324,11 @@ class _ResourceAllocator:
 
             # Dispatch next compatible queued waiter
             self._dispatch_waiting_unlocked()
+            self._cv.notify_all()
 
     def close(self) -> None:
         """Close allocator, rejecting any queued waiters."""
-        with self._lock:
+        with self._cv:
             self._is_closed = True
             for entry in self._waiting_queue:
                 entry.error = DoshError(
@@ -318,6 +337,7 @@ class _ResourceAllocator:
                 )
                 entry.event.set()
             self._waiting_queue.clear()
+            self._cv.notify_all()
 
     def _is_device_compatible(self, dev: DeviceInfo, requirement: DeviceRequirement) -> bool:
         """Check factual compatibility between device and requirement."""
@@ -379,16 +399,24 @@ class _ResourceAllocator:
                 if (
                     dev.device_type == pref_type
                     and self._is_device_compatible(dev, requirement)
-                    and self._used_slots[dev.device_id] < dev.capacity
                 ):
-                    backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
-                    return self._create_allocation(
-                        dev.device_id,
-                        dev.device_type,
-                        is_spillover=False,
-                        backend=backend,
-                        backend_device_id=backend_dev_id,
-                    )
+                    avail = dev.capacity - self._used_units[dev.device_id]
+                    if avail > 0:
+                        requested = (
+                            requirement.inference_slots
+                            if requirement.inference_slots > 1
+                            else dev.capacity
+                        ) if requirement.parallelizable else 1
+                        granted = min(avail, requested)
+                        backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
+                        return self._create_allocation(
+                            dev.device_id,
+                            dev.device_type,
+                            is_spillover=False,
+                            backend=backend,
+                            backend_device_id=backend_dev_id,
+                            granted_units=granted,
+                        )
 
         # 2. Spill over through supported devices in order
         for supp_type in requirement.supported_devices:
@@ -398,22 +426,30 @@ class _ResourceAllocator:
                 if (
                     dev.device_type == supp_type
                     and self._is_device_compatible(dev, requirement)
-                    and self._used_slots[dev.device_id] < dev.capacity
                 ):
-                    backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
-                    return self._create_allocation(
-                        dev.device_id,
-                        dev.device_type,
-                        is_spillover=True,
-                        backend=backend,
-                        backend_device_id=backend_dev_id,
-                    )
+                    avail = dev.capacity - self._used_units[dev.device_id]
+                    if avail > 0:
+                        requested = (
+                            requirement.inference_slots
+                            if requirement.inference_slots > 1
+                            else dev.capacity
+                        ) if requirement.parallelizable else 1
+                        granted = min(avail, requested)
+                        backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
+                        return self._create_allocation(
+                            dev.device_id,
+                            dev.device_type,
+                            is_spillover=True,
+                            backend=backend,
+                            backend_device_id=backend_dev_id,
+                            granted_units=granted,
+                        )
 
         return None
 
     def _release_slot_unlocked(self, registered: Allocation) -> None:
-        curr = self._used_slots.get(registered.device_id, 0)
-        self._used_slots[registered.device_id] = max(0, curr - 1)
+        curr = self._used_units.get(registered.device_id, 0)
+        self._used_units[registered.device_id] = max(0, curr - registered.granted_units)
 
     def _dispatch_waiting_unlocked(self) -> None:
         for i, entry in enumerate(self._waiting_queue):
@@ -432,8 +468,9 @@ class _ResourceAllocator:
         is_spillover: bool,
         backend: str = "cpu",
         backend_device_id: str = "CPU",
+        granted_units: int = 1,
     ) -> Allocation:
-        self._used_slots[device_id] += 1
+        self._used_units[device_id] += granted_units
         self._counter += 1
         alloc_id = f"alloc-{self._allocator_id}-{self._counter}"
         allocation = Allocation(
@@ -444,6 +481,7 @@ class _ResourceAllocator:
             allocator_id=self._allocator_id,
             backend=backend,
             backend_device_id=backend_device_id,
+            granted_units=granted_units,
             _allocator=self,
         )
         self._active_allocations[alloc_id] = allocation

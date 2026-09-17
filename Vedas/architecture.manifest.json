@@ -118,7 +118,12 @@
         "quarantine"
       ],
       "may_import": [
-        "*"
+        "sarathi.dosh",
+        "sarathi.sankalpa",
+        "sarathi.kavacha",
+        "sarathi.darpana",
+        "sarathi.smriti",
+        "sarathi.yantra"
       ]
     },
     "shakti": {
@@ -142,7 +147,11 @@
         "translation"
       ],
       "may_import": [
-        "*"
+        "sarathi.dosh",
+        "sarathi.sankalpa",
+        "sarathi.darpana",
+        "sarathi.sutra",
+        "sarathi.yantra"
       ]
     },
     "mukha": {
@@ -155,7 +164,12 @@
         "web"
       ],
       "may_import": [
-        "*"
+        "sarathi.dosh",
+        "sarathi.sankalpa",
+        "sarathi.kavacha",
+        "sarathi.darpana",
+        "sarathi.sutra",
+        "sarathi.agni"
       ]
     },
     "agni": {
@@ -186,7 +200,8 @@
         "sarathi.shakti.mistral",
         "sarathi.shakti.gemini",
         "sarathi.shakti.azure",
-        "sarathi.shakti.bhashini"
+        "sarathi.shakti.bhashini",
+        "sarathi.shakti.statutory"
       ],
       "mutually_independent": false
     }

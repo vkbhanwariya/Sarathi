@@ -72,3 +72,60 @@ def test_translation_protector_shields_glossary_terms() -> None:
     assert "High Court" not in protected_text
     assert "Supreme Court" not in protected_text
     assert len(spans) == 2
+
+
+def test_translation_protector_numeric_placeholders_and_dictionary_words() -> None:
+    """Verify TranslationProtector uses SentencePiece-safe numeric placeholders and ignores English words."""
+    protector = TranslationProtector()
+
+    # Verify placeholder format
+    assert protector.format_placeholder(0) == "9990000"
+    assert protector.format_placeholder(1) == "9990001"
+
+    # Verify uppercase English words are NOT masked as IDs
+    sample = "THE COURT ISSUED AN ORDER TO THE POLICE STATION IN DELHI REGARDING TABLE DATA."
+    protected, spans = protector.protect(sample)
+    assert "THE" in protected
+    assert "COURT" in protected
+    assert "ORDER" in protected
+    assert "POLICE" in protected
+    assert "TABLE" in protected
+    assert len(spans) == 0
+
+    # Verify alphanumeric IDs with numbers or hyphens ARE protected
+    id_sample = "Case REF-2026, Account ACC-998811, Section 120B, DL12AB1234."
+    protected_id, id_spans = protector.protect(id_sample)
+    assert "REF-2026" not in protected_id
+    assert "ACC-998811" not in protected_id
+    assert "120B" not in protected_id
+    assert "DL12AB1234" not in protected_id
+    assert len(id_spans) == 4
+
+    # Verify restoration byte-for-byte
+    restored, issues = protector.restore_with_validation(protected_id, id_spans)
+    assert issues == []
+    assert restored == id_sample
+
+
+def test_translation_protector_recovers_collapsed_digits() -> None:
+    """Verify TranslationProtector recovers placeholders when NMT collapses or modifies 999 to 99."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class DummySpan:
+        placeholder: str
+        original_text: str
+
+    protector = TranslationProtector()
+    spans = [
+        DummySpan(placeholder="9990003", original_text="5"),
+        DummySpan(placeholder="9990004", original_text="PMLA-2002"),
+    ]
+
+    # Model collapsed 9990003 to 990003 and inserted spaces in 999 0004
+    corrupted_output = "उचित कार्रवाई कर रहे हैं u/s990003of PMLA तथा नियम 9 9 9 0004 के तहत।"
+    restored, issues = protector.restore_with_validation(corrupted_output, spans)
+
+    assert issues == []
+    assert "u/s5of PMLA" in restored
+    assert "नियम PMLA-2002 के तहत" in restored

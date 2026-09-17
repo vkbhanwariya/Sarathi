@@ -325,3 +325,89 @@ def test_translation_capability_dispatches_in_place_for_docx(tmp_path: Path) -> 
     assert tbl is not None, "In-place table must be retained in translated DOCX payload"
     grid_span = tbl.find(f".//{{{_W_NS}}}gridSpan")
     assert grid_span is not None and grid_span.get(f"{{{_W_NS}}}val") == "3"
+
+
+def test_docx_translation_uniform_runs_emit_clean_text() -> None:
+    """Verify paragraphs with uniform formatting emit clean text without <fmt> tags and retain style."""
+    doc_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        '  <w:body>\n'
+        '    <w:p>\n'
+        '      <w:r><w:rPr><w:b/></w:rPr><w:t>Case Name *</w:t></w:r>\n'
+        '    </w:p>\n'
+        '  </w:body>\n'
+        '</w:document>'
+    )
+    raw_bytes = _build_minimal_test_docx(doc_xml)
+
+    captured_inputs: list[str] = []
+
+    def _spy_translate(batch: list[str]) -> list[str]:
+        captured_inputs.extend(batch)
+        return ["केस का नाम *" for _ in batch]
+
+    result = transform_docx_translation_artifact(
+        raw_bytes,
+        translate_fn=_spy_translate,
+        filename="uniform_styled.docx",
+    )
+
+    # 1. Verify clean text was sent without pseudo-XML markup
+    assert len(captured_inputs) == 1
+    assert captured_inputs[0] == "Case Name *"
+    assert "<fmt" not in captured_inputs[0]
+
+    # 2. Verify reconstructed document preserves the bold styling
+    with zipfile.ZipFile(io.BytesIO(result.content), "r") as zf:
+        out_xml = zf.read("word/document.xml").decode("utf-8")
+
+    root = ET.fromstring(out_xml)
+    t_elem = root.find(f".//{{{_W_NS}}}t")
+    assert t_elem is not None and t_elem.text == "केस का नाम *"
+    r_elem = root.find(f".//{{{_W_NS}}}r")
+    assert r_elem is not None
+    rpr = r_elem.find(f"{{{_W_NS}}}rPr")
+    assert rpr is not None and rpr.find(f"{{{_W_NS}}}b") is not None
+
+
+def test_docx_translation_sanitizes_hallucinated_tags_and_repetition_loops() -> None:
+    """Verify that hallucinated <fmt idmir...> and runaway <br/> loops from NMT do not leak."""
+    doc_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        '  <w:body>\n'
+        '    <w:p>\n'
+        '      <w:r><w:t>Notice: </w:t></w:r>\n'
+        '      <w:r><w:rPr><w:b/></w:rPr><w:t>Confidential</w:t></w:r>\n'
+        '    </w:p>\n'
+        '  </w:body>\n'
+        '</w:document>'
+    )
+    raw_bytes = _build_minimal_test_docx(doc_xml)
+
+    # Simulate NMT returning hallucinated <fmt idmir'0'> tag and repeated <br/> loop
+    def _hallucinating_translate(batch: list[str]) -> list[str]:
+        return [
+            "< fmt idmir′0′ गोपनीय / fmt′ < br / > < br / > < br / > < br / >"
+        ]
+
+    result = transform_docx_translation_artifact(
+        raw_bytes,
+        translate_fn=_hallucinating_translate,
+        filename="sanitized.docx",
+    )
+
+    with zipfile.ZipFile(io.BytesIO(result.content), "r") as zf:
+        out_xml = zf.read("word/document.xml").decode("utf-8")
+
+    root = ET.fromstring(out_xml)
+    runs = root.findall(f".//{{{_W_NS}}}r")
+    full_text = " ".join(r.find(f"{{{_W_NS}}}t").text or "" for r in runs if r.find(f"{{{_W_NS}}}t") is not None)
+
+    # Corrupted tags must be stripped and not leaked into final DOCX
+    assert "idmir" not in full_text
+    assert "< fmt" not in full_text
+    assert "/ fmt" not in full_text
+    assert "< br" not in full_text
+    assert "गोपनीय" in full_text

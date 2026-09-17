@@ -176,6 +176,8 @@ class Yantra:
                 attributes={
                     "preferred_devices": tuple(d.value for d in requirement.preferred_devices),
                     "priority": requirement.priority,
+                    "parallelizable": requirement.parallelizable,
+                    "inference_slots": requirement.inference_slots,
                 },
             )
             if self._darpana is not None and context is not None
@@ -365,6 +367,7 @@ class Yantra:
                 attributes={
                     "device_id": allocation.device_id,
                     "device_type": allocation.device_type.value,
+                    "granted_units": allocation.granted_units,
                 },
             )
             if self._darpana is not None and context is not None
@@ -421,19 +424,13 @@ class Yantra:
                 context.cancellation_token.check_cancelled()
 
             # Construct factual ExecutionBinding directly from allocator reservation
-            dev = self.inventory.get_device(allocation.device_id)
-            is_parallelizable = capability.declaration.device_requirement.parallelizable
-            if is_parallelizable and dev is not None:
-                approved_concurrency = dev.capacity
-            else:
-                approved_concurrency = 1
             binding = ExecutionBinding(
                 device_id=allocation.device_id,
                 device_type=allocation.device_type,
                 backend=allocation.backend,
                 backend_device_id=allocation.backend_device_id,
                 is_spillover=allocation.is_spillover,
-                approved_concurrency=approved_concurrency,
+                approved_concurrency=allocation.granted_units,
             )
             bound_context = context.with_execution_binding(binding)
 
@@ -448,6 +445,8 @@ class Yantra:
                         "device_type": allocation.device_type.value,
                         "backend": binding.backend,
                         "is_spillover": binding.is_spillover,
+                        "granted_units": allocation.granted_units,
+                        "approved_concurrency": binding.approved_concurrency,
                     },
                 )
                 if self._darpana is not None

@@ -31,11 +31,13 @@ from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
 class ThreadTrackingBackend:
     """Mock backend that tracks in-flight concurrency across thread execution."""
 
-    def __init__(self, delay_sec: float = 0.02) -> None:
+    def __init__(self, delay_sec: float = 0.02, wait_for_concurrency: int = 1) -> None:
         self.delay_sec = delay_sec
+        self.wait_for_concurrency = wait_for_concurrency
         self.current_active = 0
         self.max_active_seen = 0
         self.lock = threading.Lock()
+        self.cond = threading.Condition(self.lock)
         self.call_order: list[str] = []
 
     def translate_sentences(
@@ -44,11 +46,17 @@ class ThreadTrackingBackend:
         direction: TranslationDirection,
         execution_binding: Any = None,
     ) -> list[str]:
-        with self.lock:
+        with self.cond:
             self.current_active += 1
             if self.current_active > self.max_active_seen:
                 self.max_active_seen = self.current_active
             self.call_order.append(sentences[0] if sentences else "")
+            self.cond.notify_all()
+            if self.wait_for_concurrency > 1 and self.max_active_seen < self.wait_for_concurrency:
+                self.cond.wait_for(
+                    lambda: self.max_active_seen >= self.wait_for_concurrency,
+                    timeout=2.0,
+                )
 
         time.sleep(self.delay_sec)
 
@@ -177,7 +185,7 @@ def test_translation_concurrent_and_sequential_semantic_equivalence(test_backend
 
 def test_translation_concurrency_bounded_by_approved_concurrency() -> None:
     """Verify that multi-document translation concurrency honors approved_concurrency bounds and preserves exact order."""
-    tracking_backend = ThreadTrackingBackend(delay_sec=0.03)
+    tracking_backend = ThreadTrackingBackend(delay_sec=0.02, wait_for_concurrency=2)
 
     inv = DeviceInventory([DeviceInfo("cpu-0", DeviceType.CPU, capacity=8)])
     yantra = Yantra(inv)
@@ -259,3 +267,55 @@ def test_translation_concurrent_cancellation_honored() -> None:
         cap.execute(request=req, context=ctx, prior_result=prior_result)
 
     assert exc_info.value.code == FailureCode.OPERATION_CANCELLED
+
+
+@pytest.mark.real_model
+def test_ctranslate2_concurrency_cache_key_differentiates_profiles() -> None:
+    """Verify that backend translator cache keys separate different concurrency levels."""
+    from sarathi.sankalpa import DeviceType, ExecutionBinding
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+
+    engine = CTranslate2TranslationEngine()
+    backend = engine._ensure_backend()
+
+    b1 = ExecutionBinding(
+        device_id="cpu-0",
+        device_type=DeviceType.CPU,
+        backend="cpu",
+        backend_device_id="CPU",
+        approved_concurrency=1,
+    )
+    b4 = ExecutionBinding(
+        device_id="cpu-0",
+        device_type=DeviceType.CPU,
+        backend="cpu",
+        backend_device_id="CPU",
+        approved_concurrency=4,
+    )
+
+    # Run single-stream translation
+    backend.translate_sentences(["Hello world"], TranslationDirection.EN_TO_HI, execution_binding=b1)
+    # Run multi-stream translation
+    backend.translate_sentences(["Hello world"], TranslationDirection.EN_TO_HI, execution_binding=b4)
+
+    # Translators map should have distinct entries for different concurrency profiles
+    keys = list(backend._translators.keys())
+    assert any(":1:" in k for k in keys), f"Expected 1-thread entry in {keys}"
+    assert any(":4:" in k for k in keys), f"Expected 4-thread entry in {keys}"
+
+
+@pytest.mark.real_model
+def test_ctranslate2_does_not_mutate_global_openmp_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that CTranslate2 native backend does not pollute global os.environ with OpenMP settings."""
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    monkeypatch.delenv("MKL_NUM_THREADS", raising=False)
+
+    engine = CTranslate2TranslationEngine()
+    backend = engine._ensure_backend()
+    backend.translate_sentences(["Testing thread isolation"], TranslationDirection.EN_TO_HI)
+
+    import os
+    assert "OMP_NUM_THREADS" not in os.environ, "Translation must not pollute global OMP_NUM_THREADS"
+    assert "MKL_NUM_THREADS" not in os.environ, "Translation must not pollute global MKL_NUM_THREADS"

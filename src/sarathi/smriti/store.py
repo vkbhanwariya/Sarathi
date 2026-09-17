@@ -25,6 +25,7 @@ class SQLiteCacheStore:
     def __init__(self, db_path: Path, policy: CachePolicy | None = None) -> None:
         self._db_path = db_path.resolve()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._artifacts_dir = self._db_path.parent / "artifacts"
         self._policy = policy or CachePolicy()
         self._lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
@@ -79,7 +80,7 @@ class SQLiteCacheStore:
                 (now, key.key_hash),
             )
             try:
-                res = deserialize_result(data_json)
+                res = deserialize_result(data_json, artifacts_dir=self._artifacts_dir)
                 return res, float(created_at)
             except (json.JSONDecodeError, ValueError, KeyError, TypeError):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
@@ -96,7 +97,7 @@ class SQLiteCacheStore:
             return
 
         try:
-            data_json = serialize_result(result)
+            data_json = serialize_result(result, artifacts_dir=self._artifacts_dir)
         except (ValueError, TypeError):
             return
 

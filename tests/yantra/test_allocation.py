@@ -270,6 +270,69 @@ class TestResourceAllocation:
         with pytest.raises(TypeError, match="allocation must be an Allocation instance"):
             yantra.release("not_an_allocation")  # type: ignore
 
+    def test_weighted_allocation_granted_units_and_release(self) -> None:
+        inv = DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=12)])
+        yantra = Yantra(inv)
+
+        # 1. Parallelizable request claims full available capacity
+        req_full = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,),
+            supported_devices=(DeviceType.CPU,),
+            parallelizable=True,
+        )
+        alloc_full = yantra.allocate(req_full)
+        assert alloc_full.granted_units == 12
+        assert yantra._allocator.get_available_capacity("cpu-0") == 0
+
+        # Cannot allocate when fully exhausted
+        with pytest.raises(DoshError) as exc_info:
+            yantra.allocate(req_full)
+        assert exc_info.value.code == FailureCode.RESOURCE_UNAVAILABLE
+
+        # Release restores full capacity
+        yantra.release(alloc_full)
+        assert yantra._allocator.get_available_capacity("cpu-0") == 12
+
+        # 2. Slice allocation with explicit inference_slots
+        req_slice_4 = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,),
+            supported_devices=(DeviceType.CPU,),
+            parallelizable=True,
+            inference_slots=4,
+        )
+        alloc1 = yantra.allocate(req_slice_4)
+        assert alloc1.granted_units == 4
+        assert yantra._allocator.get_available_capacity("cpu-0") == 8
+
+        alloc2 = yantra.allocate(req_slice_4)
+        assert alloc2.granted_units == 4
+        assert yantra._allocator.get_available_capacity("cpu-0") == 4
+
+        # Non-parallelizable allocation takes 1 unit
+        req_single = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,),
+            supported_devices=(DeviceType.CPU,),
+            parallelizable=False,
+        )
+        alloc3 = yantra.allocate(req_single)
+        assert alloc3.granted_units == 1
+        assert yantra._allocator.get_available_capacity("cpu-0") == 3
+
+        # Parallelizable request elastically claims remaining 3 units
+        alloc4 = yantra.allocate(req_full)
+        assert alloc4.granted_units == 3
+        assert yantra._allocator.get_available_capacity("cpu-0") == 0
+
+        # Release partial allocations
+        yantra.release(alloc1)
+        assert yantra._allocator.get_available_capacity("cpu-0") == 4
+        yantra.release(alloc2)
+        assert yantra._allocator.get_available_capacity("cpu-0") == 8
+        yantra.release(alloc3)
+        assert yantra._allocator.get_available_capacity("cpu-0") == 9
+        yantra.release(alloc4)
+        assert yantra._allocator.get_available_capacity("cpu-0") == 12
+
     def test_yantra_exports_only_public_symbols(self) -> None:
         expected = {"Allocation", "DeviceInfo", "DeviceInventory", "Yantra"}
         assert set(yantra_module.__all__) == expected

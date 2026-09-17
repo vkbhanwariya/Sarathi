@@ -407,14 +407,13 @@ class OCRCapability:
                         input_id=inp.input_id,
                     )
 
-        dpi = 150
+        # Locked standard 200 DPI resolution for OCR across all profiles
+        dpi = 200
         if request.custom_options and "dpi" in request.custom_options:
             try:
                 dpi = int(request.custom_options["dpi"])
             except (ValueError, TypeError):
-                dpi = 150
-        elif request.profile in (ExecutionProfile.ACCURATE, ExecutionProfile.LAYOUT_PRESERVING):
-            dpi = 200
+                dpi = 200
 
         if can_parallelize:
             all_items: list[tuple[InputRef, int, int]] = []
