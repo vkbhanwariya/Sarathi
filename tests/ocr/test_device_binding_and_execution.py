@@ -100,6 +100,7 @@ class TestOCREngineDeviceBinding:
         q: queue.Queue[int] = queue.Queue()
         q.put(0)
         q.put(1)
+        engine._engines[cache_key] = mock_slot0
         engine._gpu_pools[cache_key] = q
         engine._gpu_engines[cache_key] = [mock_slot0, mock_slot1]
         engine._model_labels[cache_key] = "PP-OCRv6"
