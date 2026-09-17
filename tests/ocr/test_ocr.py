@@ -24,6 +24,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Request,
     Result,
+    TableData,
 )
 from sarathi.shakti.native_extraction import (
     CAPABILITY_DECLARATION as NATIVE_DECLARATION,
@@ -167,15 +168,28 @@ class TestOCRDeclarations:
         assert res.confidence.evidence["engine"] == "rapidocr"
         assert res.confidence.evidence["backend"] == "openvino"
 
-        # Confirmed artifact payloads
-        assert len(res.artifact_payloads) == 3
+        # Confirmed artifact payloads (default: clean output without .json)
+        assert len(res.artifact_payloads) == 2
         names = [p.intent.name for p in res.artifact_payloads]
         assert "invoice_ocr.txt" in names
-        assert "invoice_ocr.json" in names
         assert "invoice_ocr.docx" in names
+        assert "invoice_ocr.json" not in names
         txt_payload = next(p for p in res.artifact_payloads if p.intent.name == "invoice_ocr.txt")
         assert b"INVOICE-98765" in txt_payload.content
         assert res.confidence.evidence["model"] == "PP-OCRv5-Devanagari"
+
+        # Explicit export_json=True produces .json as well
+        req_with_json = Request(
+            request_id="req-json",
+            requirement="ocr",
+            inputs=req.inputs,
+            profile=req.profile,
+            custom_options={"export_json": True},
+        )
+        res_with_json = ocr_capability.execute(req_with_json, context)
+        assert len(res_with_json.artifact_payloads) == 3
+        json_names = [p.intent.name for p in res_with_json.artifact_payloads]
+        assert "invoice_ocr.json" in json_names
 
         # Provenance verification
         assert len(res.provenance) == 1
@@ -1464,3 +1478,113 @@ def test_ruled_table_ignores_isolated_header_footer_lines() -> None:
     tables, consumed = detect_ruled_tables(arr, spans)
     assert len(tables) == 0, "Isolated header/footer divider lines must not be classified as a ruled table"
     assert len(consumed) == 0, "No body spans should be consumed by non-existent table"
+
+
+def test_ocr_full_text_includes_tables_and_strips_markdown_headings(tmp_path: Path) -> None:
+    """Proves OCR capability embeds tabular data in full_text and strips markdown hashes in plain text export."""
+    from unittest.mock import MagicMock
+
+    from PIL import Image
+
+    tbl = TableData(name="Summary", headers=("Metric", "Value"), rows=(("Pages", "55"), ("Accuracy", "99%")))
+    p1 = PageData(
+        page_number=1,
+        text="# Main Report Title\n## Section 1\nBody narrative line.",
+        tables=(tbl,),
+    )
+
+    cap = OCRCapability()
+    cap._engine = MagicMock()
+    cap._engine.ocr_page.return_value = (
+        p1,
+        ProvenanceRecord(page_number=1, capability_id="ocr", evidence={"confidence": 0.95}),
+        "dev",
+        [],
+    )
+
+    img = Image.new("RGB", (100, 100), color="white")
+    img_path = tmp_path / "test.png"
+    img.save(img_path)
+
+    req = Request(
+        request_id="req-tbl-text",
+        requirement="ocr",
+        inputs=(
+            InputRef(
+                input_id="inp-1",
+                source_path=img_path,
+                display_name="test.png",
+                size_bytes=img_path.stat().st_size,
+                media_type="image/png",
+            ),
+        ),
+        profile=ExecutionProfile.INSTANT,
+    )
+    ctx = ExecutionContext(request_id="req-tbl-text", run_id="run-1", trace_id="trace-1", span_id="span-1")
+    res = cap.execute(req, ctx)
+
+    # 1. CanonicalDocument text contains both narrative and serialized table
+    doc = res.data if isinstance(res.data, CanonicalDocument) else res.data["documents"][0]
+    assert "Main Report Title" in doc.text
+    assert "Metric | Value" in doc.text
+    assert "Pages | 55" in doc.text
+
+    # 2. Plain text payload has markdown headers stripped
+    txt_payload = next(p for p in res.artifact_payloads if p.intent.name.endswith(".txt"))
+    txt_content = txt_payload.content.decode("utf-8")
+    assert "# " not in txt_content
+    assert "## " not in txt_content
+    assert "Main Report Title" in txt_content
+    assert "Metric | Value" in txt_content
+
+
+def test_ocr_scanned_pdf_avoids_duplicate_native_provenance(tmp_path: Path) -> None:
+    """Proves OCR capability does not append read_pdf provenance for scanned PDFs with zero usable native text."""
+    from unittest.mock import MagicMock, patch
+
+    cap = OCRCapability()
+    cap._engine = MagicMock()
+
+    # Create dummy 1-page scanned PDF
+    doc = pymupdf.open()
+    doc.new_page(width=300, height=400)
+    pdf_path = tmp_path / "scanned.pdf"
+    doc.save(str(pdf_path))
+    doc.close()
+
+    p_scanned = PageData(page_number=1, text="", metadata={"is_scanned_image": True})
+    p_ocr = PageData(page_number=1, text="Scanned OCR Text", metadata={"confidence": 0.95})
+    ocr_prov = ProvenanceRecord(page_number=1, capability_id="ocr", evidence={"confidence": 0.95})
+
+    cap._engine.ocr_page.return_value = (p_ocr, ocr_prov, "en", [])
+
+    with patch("sarathi.shakti.native_extraction.readers.pdf.read_pdf") as mock_read_pdf:
+        # Mock read_pdf returning unusable scanned page and a native provenance record
+        native_prov = ProvenanceRecord(page_number=1, capability_id="read_native", evidence={"confidence": 1.0})
+        mock_read_pdf.return_value = (
+            CanonicalDocument(document_id="doc-native", pages=(p_scanned,)),
+            (native_prov,),
+            [],
+        )
+
+        req = Request(
+            request_id="req-scanned-prov",
+            requirement="ocr",
+            inputs=(
+                InputRef(
+                    input_id="inp-scanned",
+                    source_path=pdf_path,
+                    display_name="scanned.pdf",
+                    size_bytes=pdf_path.stat().st_size,
+                    media_type="application/pdf",
+                ),
+            ),
+            profile=ExecutionProfile.INSTANT,
+        )
+        ctx = ExecutionContext(request_id="req-scanned-prov", run_id="run-1", trace_id="trace-1", span_id="span-1")
+        res = cap.execute(req, ctx)
+
+        # Provenance must only contain ocr, NEVER read_native
+        caps = [pr.capability_id for pr in res.provenance]
+        assert "read_native" not in caps
+        assert "ocr" in caps

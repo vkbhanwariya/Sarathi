@@ -788,3 +788,98 @@ def test_docx_table_typography_standardization() -> None:
     with zipfile.ZipFile(io.BytesIO(payload_dense.content)) as zf:
         xml_dense = zf.read("word/document.xml").decode("utf-8")
         assert '<w:sz w:val="20"/>' in xml_dense
+
+
+def test_build_docx_payload_without_markdown_headings_preserves_uniform_size() -> None:
+    """Verify build_docx_payload with interpret_markdown_headings=False avoids false heading inflation."""
+    doc = CanonicalDocument(
+        document_id="doc_ocr_uniform",
+        text="# Government of Rajasthan\n## Reference 1234\nNormal text description.",
+    )
+    payload = build_docx_payload(
+        doc=doc,
+        filename="ocr_uniform.docx",
+        interpret_markdown_headings=False,
+    )
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+        tree = ET.fromstring(doc_xml.encode("utf-8"))
+
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    paragraphs = list(tree.iter(f"{{{w_ns}}}p"))
+    assert len(paragraphs) == 3
+
+    # All paragraphs must stay at baseline 12 pt (sz=24), with no 16 pt or 14 pt inflation
+    for p in paragraphs:
+        sz = p.find(f".//{{{w_ns}}}sz")
+        assert sz is not None and sz.attrib[f"{{{w_ns}}}val"] == "24"
+
+    # Leading '# ' and '## ' should be stripped from text content
+    t0 = paragraphs[0].find(f".//{{{w_ns}}}t")
+    assert t0 is not None and t0.text == "Government of Rajasthan"
+    t1 = paragraphs[1].find(f".//{{{w_ns}}}t")
+    assert t1 is not None and t1.text == "Reference 1234"
+
+
+def test_build_docx_payload_dual_channel_font_assignment() -> None:
+    """Verify standard English paragraph receives dual-channel Times New Roman with Nirmala UI complex script fallback."""
+    doc = CanonicalDocument(
+        document_id="doc_dual_font",
+        text="Standard English circular text.",
+    )
+    payload = build_docx_payload(doc, "dual_font.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+        tree = ET.fromstring(doc_xml.encode("utf-8"))
+
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    rf = tree.find(f".//{{{w_ns}}}rFonts")
+    assert rf is not None
+    assert rf.attrib.get(f"{{{w_ns}}}ascii") == "Times New Roman"
+    assert rf.attrib.get(f"{{{w_ns}}}hAnsi") == "Times New Roman"
+    assert rf.attrib.get(f"{{{w_ns}}}cs") == "Nirmala UI"
+
+
+def test_build_docx_payload_single_column_layout_for_isolated_multicolumn_pages() -> None:
+    """Verify that docx export keeps single-column layout when < 75% of pages are multi-column."""
+    # 9 single-column pages, 1 page with metadata column_count=2
+    pages = [
+        PageData(page_number=i, text=f"Page {i} single column text.", metadata={"column_count": 1})
+        for i in range(1, 10)
+    ]
+    pages.append(PageData(page_number=10, text="Page 10 right-aligned signature.", metadata={"column_count": 2}))
+    doc = CanonicalDocument(
+        document_id="doc_column_test",
+        pages=tuple(pages),
+        text="Full document text",
+    )
+    payload = build_docx_payload(doc, "single_col.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+
+    # In single column, <w:cols> must not have w:num="2"
+    assert 'w:num="2"' not in doc_xml
+
+
+def test_build_docx_payload_preserves_multiple_tables_with_same_name() -> None:
+    """Verify that unanchored tables with identical generic names (e.g. Table 1) across pages are not dropped."""
+    tbl1 = TableData(name="Table 1", headers=("A", "B"), rows=(("1", "2"),))
+    tbl2 = TableData(name="Table 1", headers=("X", "Y"), rows=(("7", "8"),))
+
+    p1 = PageData(page_number=1, text="Page 1 text", tables=(tbl1,))
+    p2 = PageData(page_number=2, text="Page 2 text", tables=(tbl2,))
+
+    doc = CanonicalDocument(
+        document_id="doc_tables_test",
+        pages=(p1, p2),
+        tables=(tbl1, tbl2),
+        text="Page 1 text\n\nPage 2 text",
+    )
+    payload = build_docx_payload(doc, "tables.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+        tree = ET.fromstring(doc_xml.encode("utf-8"))
+
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    docx_tables = list(tree.iter(f"{{{w_ns}}}tbl"))
+    assert len(docx_tables) == 2, "Both tables must be rendered, none dropped due to duplicate generic name"

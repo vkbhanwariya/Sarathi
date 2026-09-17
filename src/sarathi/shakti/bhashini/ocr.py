@@ -176,6 +176,7 @@ class BhashiniOCRCapability:
                     filename=docx_name,
                     role="ocr_document",
                     header_text=f"Bhashini OCR - {inp.display_name}",
+                    interpret_markdown_headings=False,
                 )
             )
 

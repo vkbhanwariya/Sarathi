@@ -31,12 +31,17 @@ def _format_run_xml(
     bold: bool = False,
     italic: bool = False,
     shadow: bool = False,
+    *,
+    cs_font: str | None = None,
+    size_cs_half_pt: int | None = None,
 ) -> str:
-    """Format an OpenXML <w:r> run string."""
+    """Format an OpenXML <w:r> run string with dual-channel font support."""
+    eff_cs_font = cs_font or font
+    eff_cs_size = size_cs_half_pt if size_cs_half_pt is not None else size_half_pt
     props: list[str] = [
-        f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:cs="{font}"/>',
+        f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:cs="{eff_cs_font}"/>',
         f'<w:sz w:val="{size_half_pt}"/>',
-        f'<w:szCs w:val="{size_half_pt}"/>',
+        f'<w:szCs w:val="{eff_cs_size}"/>',
     ]
     if bold:
         props.append("<w:b/><w:bCs/>")
@@ -103,13 +108,15 @@ def _format_paragraph_xml(
             ]
     else:
         # General Unicode DOCX policy:
-        # English-only -> Times New Roman
+        # English-only -> Times New Roman with Nirmala UI complex script fallback
         # Hindi-only or Hindi-English mixed -> Nirmala UI (unified run per §18)
+        has_devanagari = bool(_DEVANAGARI_CHAR_RE.search(text))
         if default_font:
             font = default_font
+            cs_font = default_font
         else:
-            has_devanagari = bool(_DEVANAGARI_CHAR_RE.search(text))
             font = _HINDI_FONT if has_devanagari else _ENGLISH_FONT
+            cs_font = _HINDI_FONT
 
         runs = [
             _format_run_xml(
@@ -119,6 +126,7 @@ def _format_paragraph_xml(
                 bold=bold,
                 italic=italic,
                 shadow=shadow,
+                cs_font=cs_font,
             )
         ]
 
@@ -303,6 +311,7 @@ def build_docx_payload(
     default_font: str | None = None,
     default_size_pt: float | None = None,
     legacy_target_font: str | None = None,
+    interpret_markdown_headings: bool = True,
 ) -> ArtifactPayload:
     """Generate a clean, standard OpenXML DOCX ArtifactPayload from a CanonicalDocument.
 
@@ -414,24 +423,35 @@ def build_docx_payload(
                     line_bold = False
                     line_size = default_size_pt
                     clean_line = trimmed
-                    if trimmed.startswith("# "):
-                        cand = trimmed[2:].strip()
-                        if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
-                            clean_line = cand
+                    if interpret_markdown_headings:
+                        if trimmed.startswith("# "):
+                            cand = trimmed[2:].strip()
+                            if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
+                                clean_line = cand
+                                line_bold = True
+                                line_size = 16.0
+                        elif trimmed.startswith("## "):
+                            cand = trimmed[3:].strip()
+                            if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
+                                clean_line = cand
+                                line_bold = True
+                                line_size = 14.0
+                        elif trimmed.startswith("### "):
+                            cand = trimmed[4:].strip()
+                            if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
+                                clean_line = cand
+                                line_bold = True
+                                line_size = 13.0
+                    else:
+                        if trimmed.startswith("### "):
+                            clean_line = trimmed[4:].strip()
                             line_bold = True
-                            line_size = 16.0
-                    elif trimmed.startswith("## "):
-                        cand = trimmed[3:].strip()
-                        if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
-                            clean_line = cand
+                        elif trimmed.startswith("## "):
+                            clean_line = trimmed[3:].strip()
                             line_bold = True
-                            line_size = 14.0
-                    elif trimmed.startswith("### "):
-                        cand = trimmed[4:].strip()
-                        if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
-                            clean_line = cand
+                        elif trimmed.startswith("# "):
+                            clean_line = trimmed[2:].strip()
                             line_bold = True
-                            line_size = 13.0
 
                     body_parts.append(
                         _format_paragraph_xml(
@@ -446,11 +466,8 @@ def build_docx_payload(
             # Unanchored tables on current page rendered at natural bottom of page
             if p.tables:
                 for tbl in p.tables:
-                    norm_name = tbl.name.strip().lower() if tbl.name else ""
-                    if id(tbl) not in rendered_table_ids and (not norm_name or norm_name not in rendered_table_names):
+                    if id(tbl) not in rendered_table_ids:
                         rendered_table_ids.add(id(tbl))
-                        if norm_name:
-                            rendered_table_names.add(norm_name)
                         if tbl.name and not tbl.name.startswith("Page_") and not tbl.name.startswith("Table_"):
                             body_parts.append(
                                 _format_paragraph_xml(
@@ -530,24 +547,35 @@ def build_docx_payload(
             line_bold = False
             line_size = default_size_pt
             clean_line = trimmed
-            if trimmed.startswith("# "):
-                cand = trimmed[2:].strip()
-                if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
-                    clean_line = cand
+            if interpret_markdown_headings:
+                if trimmed.startswith("# "):
+                    cand = trimmed[2:].strip()
+                    if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
+                        clean_line = cand
+                        line_bold = True
+                        line_size = 16.0
+                elif trimmed.startswith("## "):
+                    cand = trimmed[3:].strip()
+                    if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
+                        clean_line = cand
+                        line_bold = True
+                        line_size = 14.0
+                elif trimmed.startswith("### "):
+                    cand = trimmed[4:].strip()
+                    if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
+                        clean_line = cand
+                        line_bold = True
+                        line_size = 13.0
+            else:
+                if trimmed.startswith("### "):
+                    clean_line = trimmed[4:].strip()
                     line_bold = True
-                    line_size = 16.0
-            elif trimmed.startswith("## "):
-                cand = trimmed[3:].strip()
-                if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
-                    clean_line = cand
+                elif trimmed.startswith("## "):
+                    clean_line = trimmed[3:].strip()
                     line_bold = True
-                    line_size = 14.0
-            elif trimmed.startswith("### "):
-                cand = trimmed[4:].strip()
-                if cand and not cand.endswith((".", "।", ";")) and len(cand.split()) <= 12:
-                    clean_line = cand
+                elif trimmed.startswith("# "):
+                    clean_line = trimmed[2:].strip()
                     line_bold = True
-                    line_size = 13.0
 
             body_parts.append(
                 _format_paragraph_xml(
@@ -594,16 +622,25 @@ def build_docx_payload(
                 body_parts.append("<w:p/>")
 
     # Multi-column section styling
+    # Invariant: a document should only use multi-column section styling if an overwhelming
+    # majority (>= 75%) of pages are multi-column, or if explicitly declared in doc.metadata.
+    # Isolated multi-column pages in a multi-page document must not corrupt the document layout.
     col_count = 1
     if doc.pages:
-        for p in doc.pages:
-            c = p.metadata.get("column_count", 1)
-            if isinstance(c, int) and c > col_count:
-                col_count = c
+        multi_pages = sum(
+            1 for p in doc.pages
+            if isinstance(p.metadata.get("column_count"), int) and p.metadata["column_count"] >= 2
+        )
+        if len(doc.pages) == 1:
+            col_count = doc.pages[0].metadata.get("column_count", 1)
+        elif multi_pages >= 0.75 * len(doc.pages):
+            col_count = 2
     elif doc.metadata:
         c = doc.metadata.get("column_count", 1)
-        if isinstance(c, int) and c > col_count:
+        if isinstance(c, int) and c >= 2:
             col_count = c
+    if not isinstance(col_count, int) or col_count < 1:
+        col_count = 1
 
     cols_xml = f'<w:cols w:num="{col_count}" w:space="720"/>' if col_count >= 2 else '<w:cols w:space="720"/>'
 

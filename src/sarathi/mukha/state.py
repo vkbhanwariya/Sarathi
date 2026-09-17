@@ -166,6 +166,7 @@ class FileRunView:
     current_stage: str = ""
     warning_count: int = 0
     error_message: str | None = None
+    cached: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +251,7 @@ class RunSummaryView:
     warnings: tuple[str, ...] = ()
     failures: tuple[str, ...] = ()
     request_id: str | None = None
+    cached: bool = False
 
 
 @dataclass(frozen=True, slots=True)

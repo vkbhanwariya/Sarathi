@@ -86,6 +86,7 @@ export interface FileRunView {
   current_stage: string;
   warning_count: number;
   error_message: string | null;
+  cached?: boolean;
 }
 
 export interface DeviceProgressView {
@@ -169,6 +170,7 @@ export interface RunSummaryView {
   warnings: readonly string[];
   failures: readonly string[];
   request_id?: string | null;
+  cached?: boolean;
 }
 
 export interface WorkerPerformanceView {

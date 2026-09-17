@@ -522,7 +522,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                 output_root=mukha.output_root,
                 recursive=body.get("recursive", True),
             )
-            mukha.runner.set_intake_selection(selection, inputs)
+            mukha.runner.set_intake_selection(selection, inputs, preflight=preflight)
             return _json(
                 200,
                 {

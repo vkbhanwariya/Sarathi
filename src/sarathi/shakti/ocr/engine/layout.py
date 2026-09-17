@@ -353,28 +353,49 @@ def detect_borderless_tables(
             t_indices = [item[0] for item in t_items]
 
             headers, data_rows, has_spanning = _cluster_spans_into_grid(t_spans)
-            if headers and data_rows and len(headers) >= 2:
-                bx0 = min(s.bounding_box[0] for s in t_spans)
-                by0 = min(s.bounding_box[1] for s in t_spans)
-                bx1 = max(s.bounding_box[2] for s in t_spans)
-                by1 = max(s.bounding_box[3] for s in t_spans)
+            if headers and data_rows and len(headers) >= 2 and len(data_rows) >= 1:
+                all_cells = list(headers) + [c for r in data_rows for c in r]
+                non_empty = [c.strip() for c in all_cells if c and c.strip()]
+                occupancy = len(non_empty) / max(1, len(all_cells))
+                avg_len = sum(len(c) for c in non_empty) / max(1, len(non_empty))
+                max_len = max((len(c) for c in non_empty), default=0)
 
-                tables.append(
-                    TableData(
-                        name=f"Table {t_idx}",
-                        headers=headers,
-                        rows=data_rows,
-                        metadata={
-                            "bounding_box": (bx0, by0, bx1, by1),
-                            "kind": "borderless_table",
-                            "has_spanning_cells": has_spanning,
-                        },
-                    )
+                # Require at least 2 distinct columns populated in data rows
+                cols_populated = sum(
+                    1 for c_idx in range(len(headers))
+                    if sum(1 for r in data_rows if r[c_idx].strip()) >= 1
                 )
-                new_consumed.update(t_indices)
-                t_idx += 1
-                i = j
-                continue
+
+                # Invariants: genuine data table (high occupancy, concise cell data, non-prose)
+                is_real_table = (
+                    occupancy >= 0.40
+                    and avg_len <= 80.0
+                    and max_len <= 200
+                    and cols_populated >= 2
+                )
+
+                if is_real_table:
+                    bx0 = min(s.bounding_box[0] for s in t_spans)
+                    by0 = min(s.bounding_box[1] for s in t_spans)
+                    bx1 = max(s.bounding_box[2] for s in t_spans)
+                    by1 = max(s.bounding_box[3] for s in t_spans)
+
+                    tables.append(
+                        TableData(
+                            name=f"Table {t_idx}",
+                            headers=headers,
+                            rows=data_rows,
+                            metadata={
+                                "bounding_box": (bx0, by0, bx1, by1),
+                                "kind": "borderless_table",
+                                "has_spanning_cells": has_spanning,
+                            },
+                        )
+                    )
+                    new_consumed.update(t_indices)
+                    t_idx += 1
+                    i = j
+                    continue
 
         i += 1
 
@@ -534,7 +555,10 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
                 is_short_text = len(words) <= 12
                 no_sentence_end = not trimmed_ln.endswith(_TERMINAL_PUNCT)
                 is_isolated = (line_w <= 0.95 * max_w) or (size_pt >= 17.0) or len(lines) <= 2
-                if is_short_text and no_sentence_end and is_isolated:
+                letters_count = sum(1 for ch in trimmed_ln if ch.isalpha())
+                has_valid_word = any(len(w) >= 3 and any(ch.isalpha() for ch in w) for w in words)
+                is_letter_dense = (letters_count / max(1, len(trimmed_ln))) >= 0.50
+                if is_short_text and no_sentence_end and is_isolated and has_valid_word and is_letter_dense:
                     if size_pt >= 17.0:
                         ln.text = f"# {ln.text}"
                     else:
@@ -598,21 +622,29 @@ def detect_column_count(spans: Sequence[TextSpan]) -> int:
     min_x = min(b[0] for b in items)
     max_x = max(b[2] for b in items)
     total_w = max_x - min_x
-    if total_w > 100.0:
-        filtered = [b for b in items if (b[2] - b[0]) < 0.72 * total_w]
-        if len(filtered) >= 4:
-            items = filtered
+    min_y = min(b[1] for b in items)
+    max_y = max(b[3] for b in items)
+    total_h = max_y - min_y
+
+    if total_w < 100.0 or total_h < 50.0:
+        return 1
+
+    filtered = [b for b in items if (b[2] - b[0]) < 0.65 * total_w]
+    if len(filtered) < 4:
+        return 1
+    items = filtered
 
     avg_h = sum(b[3] - b[1] for b in items) / len(items)
-    min_v_gap = max(15.0, avg_h * 0.75)
+    min_gutter = max(20.0, avg_h * 1.0)
 
+    # Sort primarily by X, then Y
     sorted_by_x = sorted(items, key=lambda b: (b[0], b[1]))
     cols: list[list[tuple[float, float, float, float]]] = []
     curr_col = [sorted_by_x[0]]
     max_x1 = sorted_by_x[0][2]
 
     for b in sorted_by_x[1:]:
-        if b[0] >= max_x1 + min_v_gap:
+        if b[0] >= max_x1 + min_gutter:
             cols.append(curr_col)
             curr_col = [b]
             max_x1 = b[2]
@@ -622,7 +654,32 @@ def detect_column_count(spans: Sequence[TextSpan]) -> int:
     if curr_col:
         cols.append(curr_col)
 
-    if len(cols) >= 2 and all(len(c) >= 2 for c in cols):
+    if len(cols) >= 2:
+        # Multi-column content must represent a substantial portion of the page:
+        # at least 35% of page items or at least 25% of total page height.
+        col_total_items = sum(len(c) for c in cols)
+        max_col_h = max(max(b[3] for b in c) - min(b[1] for b in c) for c in cols)
+        if col_total_items < 0.35 * len(items) and max_col_h < 0.25 * total_h:
+            return 1
+
+        # Check pairwise adjacent column balance and vertical overlap
+        for ci in range(len(cols) - 1):
+            c1, c2 = cols[ci], cols[ci + 1]
+            # 1. Line count balance (rejects e.g. 25 lines vs 2 signature lines)
+            len_ratio = min(len(c1), len(c2)) / max(len(c1), len(c2))
+            if len_ratio < 0.35:
+                return 1
+            # 2. Vertical overlap: columns must run side-by-side
+            c1_y0 = min(b[1] for b in c1)
+            c1_y1 = max(b[3] for b in c1)
+            c2_y0 = min(b[1] for b in c2)
+            c2_y1 = max(b[3] for b in c2)
+            c1_h = max(1.0, c1_y1 - c1_y0)
+            c2_h = max(1.0, c2_y1 - c2_y0)
+            y_overlap = max(0.0, min(c1_y1, c2_y1) - max(c1_y0, c2_y0))
+            if (y_overlap / min(c1_h, c2_h)) < 0.40:
+                return 1
+
         return min(3, len(cols))
     return 1
 

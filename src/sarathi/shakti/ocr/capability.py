@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -76,6 +77,28 @@ def _is_usable_document(doc: CanonicalDocument) -> bool:
     return has_text or has_tables
 
 
+def _format_page_text_with_tables(page: PageData) -> str:
+    """Format full page text preserving both narrative body and tabular data."""
+    parts: list[str] = []
+    if page.text and page.text.strip():
+        parts.append(page.text.strip())
+    if page.tables:
+        for tbl in page.tables:
+            tbl_lines: list[str] = []
+            if tbl.name and not tbl.name.startswith("Page_") and not tbl.name.startswith("Table_"):
+                tbl_lines.append(f"[{tbl.name}]")
+            if tbl.headers:
+                tbl_lines.append(" | ".join(str(c).strip() for c in tbl.headers))
+                tbl_lines.append(" | ".join("---" for _ in tbl.headers))
+            for row in tbl.rows:
+                tbl_lines.append(" | ".join(str(c).strip() for c in row))
+            if tbl_lines:
+                tbl_str = "\n".join(tbl_lines)
+                if not page.text or tbl_str not in page.text:
+                    parts.append(tbl_str)
+    return "\n\n".join(parts)
+
+
 _FLOAT_CUSTOM_OPTIONS: frozenset[str] = frozenset({
     "fallback_threshold",
     "retry_threshold",
@@ -104,6 +127,8 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
     "progress_callback",
     "skip_header_footer",
     "dpi",
+    "force_ocr",
+    "export_json",
 })
 _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "engine",
@@ -263,8 +288,6 @@ class OCRCapability:
                 for p in prior_doc.pages:
                     if _is_usable_page(p):
                         native_pages[p.page_number] = p
-            existing_native_pages_by_input[inp.input_id] = native_pages
-
             try:
                 data = inp.source_path.read_bytes()
             except OSError as exc:
@@ -275,6 +298,42 @@ class OCRCapability:
 
             if context.cancellation_token is not None:
                 context.cancellation_token.check_cancelled()
+
+            force_ocr = bool(request.custom_options and request.custom_options.get("force_ocr"))
+            if not force_ocr and inp.input_id not in prior_docs and (
+                inp.media_type == "application/pdf"
+                or (inp.source_path and str(inp.source_path).lower().endswith(".pdf"))
+            ):
+                try:
+                    from sarathi.shakti.native_extraction.readers.pdf import read_pdf
+
+                    pdf_doc, pdf_prov, pdf_warns = read_pdf(data, inp.input_id)
+                    for p in pdf_doc.pages:
+                        if _is_usable_page(p):
+                            p_meta = dict(p.metadata)
+                            p_meta.setdefault("confidence", 1.0)
+                            p_meta["extraction_method"] = "native_fastpath"
+                            native_pages[p.page_number] = PageData(
+                                page_number=p.page_number,
+                                text=p.text,
+                                spans=p.spans,
+                                tables=p.tables,
+                                metadata=p_meta,
+                            )
+                    if pdf_warns and native_pages:
+                        all_warnings.extend(
+                            [w for w in pdf_warns if getattr(w, "page_number", None) in native_pages]
+                            if any(getattr(w, "page_number", None) is not None for w in pdf_warns)
+                            else pdf_warns
+                        )
+                    if pdf_prov and native_pages:
+                        all_provenance.extend(
+                            [pr for pr in pdf_prov if pr.page_number in native_pages]
+                        )
+                except Exception:
+                    pass
+
+            existing_native_pages_by_input[inp.input_id] = native_pages
 
             skip_pages = set(native_pages.keys())
             total_pages = get_page_count_from_bytes(data)
@@ -328,9 +387,25 @@ class OCRCapability:
         doc_page_results: dict[str, list[tuple[int, PageData, ProvenanceRecord | None, list[WarningRecord]]]] = {
             inp.input_id: [] for inp, _, _, _, _ in ocr_inputs
         }
-        for inp, _, _, _, _ in ocr_inputs:
-            for p_num, p_data in existing_native_pages_by_input.get(inp.input_id, {}).items():
+        for inp, _, tot_pages, _, _ in ocr_inputs:
+            native_p = existing_native_pages_by_input.get(inp.input_id, {})
+            for p_num, p_data in sorted(native_p.items(), key=lambda x: x[0]):
                 doc_page_results[inp.input_id].append((p_num, p_data, None, []))
+                if progress_cb is not None:
+                    dev_str = (
+                        context.execution_binding.device_type.value
+                        if context.execution_binding
+                        else "CPU"
+                    )
+                    progress_cb(
+                        file_display_name=inp.display_name,
+                        page_number=p_num,
+                        total_pages=tot_pages,
+                        worker_id="native",
+                        stage="Optical Character Recognition (OCR)",
+                        device_type=dev_str,
+                        input_id=inp.input_id,
+                    )
 
         dpi = 150
         if request.custom_options and "dpi" in request.custom_options:
@@ -583,13 +658,16 @@ class OCRCapability:
                 page_sections = []
                 for p in pages:
                     heading = f"--- Page {p.page_number} ---"
-                    if p.text:
-                        page_sections.append(f"{heading}\n{p.text}")
+                    p_formatted = _format_page_text_with_tables(p)
+                    if p_formatted:
+                        page_sections.append(f"{heading}\n{p_formatted}")
                     else:
                         page_sections.append(heading)
                 full_text = "\n\n".join(page_sections)
             else:
-                full_text = "\n\n".join(p.text for p in pages if p.text)
+                full_text = "\n\n".join(
+                    _format_page_text_with_tables(p) for p in pages if _format_page_text_with_tables(p)
+                )
 
             all_tables = tuple(t for p in pages for t in p.tables)
             ocr_doc = CanonicalDocument(
@@ -650,14 +728,18 @@ class OCRCapability:
             }
         }
 
+        export_json = bool(request.custom_options and request.custom_options.get("export_json"))
+
         # Construct confirmed artifact payloads for extracted text and structured JSON
         payloads: list[ArtifactPayload] = []
         for idx, (inp, doc) in enumerate(zip(request.inputs, final_docs)):
             txt_name = format_artifact_filename(inp, "ocr", "txt", all_inputs=request.inputs, index=idx)
-            json_name = format_artifact_filename(inp, "ocr", "json", all_inputs=request.inputs, index=idx)
             docx_name = format_artifact_filename(inp, "ocr", "docx", all_inputs=request.inputs, index=idx)
 
-            # 1. Plain text extracted output
+            # 1. Plain text extracted output (clean plain text without markdown heading hashes)
+            clean_txt = "\n".join(
+                re.sub(r"^(?:#{1,6}\s+)", "", line) for line in (doc.text or "").splitlines()
+            )
             payloads.append(
                 ArtifactPayload(
                     intent=ArtifactIntent(
@@ -665,55 +747,57 @@ class OCRCapability:
                         role="extracted_text",
                         media_type="text/plain",
                     ),
-                    content=(doc.text or "").encode("utf-8"),
+                    content=clean_txt.encode("utf-8"),
                 )
             )
 
-            # 2. Structured JSON output
-            doc_dict: dict[str, Any] = {
-                "document_id": doc.document_id,
-                "source_input_id": doc.source_input_id,
-                "detected_type": doc.detected_type,
-                "text": doc.text,
-                "pages": [
-                    {
-                        "page_number": p.page_number,
-                        "text": p.text,
-                        "metadata": dict(p.metadata),
-                        "tables": [
-                            {
-                                "name": t.name,
-                                "headers": list(t.headers),
-                                "rows": [list(row) for row in t.rows],
-                                "metadata": dict(t.metadata) if t.metadata else {},
-                            }
-                            for t in p.tables
-                        ],
-                        "spans": [
-                            {
-                                "text": s.text,
-                                "bounding_box": list(s.bounding_box) if s.bounding_box else None,
-                                "confidence": s.confidence,
-                                "language": s.language,
-                                "script": s.script,
-                                "metadata": dict(s.metadata) if s.metadata else {},
-                            }
-                            for s in p.spans
-                        ],
-                    }
-                    for p in doc.pages
-                ],
-            }
-            payloads.append(
-                ArtifactPayload(
-                    intent=ArtifactIntent(
-                        name=json_name,
-                        role="ocr_document",
-                        media_type="application/json",
-                    ),
-                    content=json.dumps(doc_dict, ensure_ascii=False, indent=2).encode("utf-8"),
+            # 2. Structured JSON output (optional, defaults to omitted for clean output)
+            if export_json:
+                json_name = format_artifact_filename(inp, "ocr", "json", all_inputs=request.inputs, index=idx)
+                doc_dict: dict[str, Any] = {
+                    "document_id": doc.document_id,
+                    "source_input_id": doc.source_input_id,
+                    "detected_type": doc.detected_type,
+                    "text": doc.text,
+                    "pages": [
+                        {
+                            "page_number": p.page_number,
+                            "text": p.text,
+                            "metadata": dict(p.metadata),
+                            "tables": [
+                                {
+                                    "name": t.name,
+                                    "headers": list(t.headers),
+                                    "rows": [list(row) for row in t.rows],
+                                    "metadata": dict(t.metadata) if t.metadata else {},
+                                }
+                                for t in p.tables
+                            ],
+                            "spans": [
+                                {
+                                    "text": s.text,
+                                    "bounding_box": list(s.bounding_box) if s.bounding_box else None,
+                                    "confidence": s.confidence,
+                                    "language": s.language,
+                                    "script": s.script,
+                                    "metadata": dict(s.metadata) if s.metadata else {},
+                                }
+                                for s in p.spans
+                            ],
+                        }
+                        for p in doc.pages
+                    ],
+                }
+                payloads.append(
+                    ArtifactPayload(
+                        intent=ArtifactIntent(
+                            name=json_name,
+                            role="ocr_document",
+                            media_type="application/json",
+                        ),
+                        content=json.dumps(doc_dict, ensure_ascii=False, indent=2).encode("utf-8"),
+                    )
                 )
-            )
 
             doc_has_dev = contains_devanagari(doc.text)
             doc_font = output_font(contains_devanagari=doc_has_dev)
@@ -727,6 +811,7 @@ class OCRCapability:
                     role="ocr_document",
                     default_font=doc_font,
                     default_size_pt=doc_size,
+                    interpret_markdown_headings=False,
                 )
             )
 

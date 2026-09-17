@@ -232,6 +232,7 @@ class MistralOCRCapability:
                     filename=docx_name,
                     role="ocr_document",
                     header_text=f"OCR - {inp.display_name}",
+                    interpret_markdown_headings=False,
                 )
             )
 

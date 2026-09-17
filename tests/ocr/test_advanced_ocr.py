@@ -346,3 +346,70 @@ def test_rapidocr_angle_cls_profile_and_option_behavior() -> None:
     )
     assert calls[0].get("use_cls") is True
     assert prov.evidence.get("use_angle_cls") is True
+
+
+def test_digital_pdf_auto_triage_fast_path(tmp_path: Path) -> None:
+    """Verify that a digital PDF is auto-triaged to native fast-path without invoking neural OCR engine."""
+    import pymupdf
+
+    from sarathi.sankalpa import ExecutionContext, InputRef, Request
+    from sarathi.shakti.ocr.capability import OCRCapability
+
+    # 1. Create a digital PDF with embedded vector text
+    pdf_doc = pymupdf.open()
+    page = pdf_doc.new_page()
+    page.insert_text((50, 50), "Government of Rajasthan\nFinance Department Circular\nOfficial Notification 2026.")
+    pdf_bytes = pdf_doc.tobytes()
+    pdf_doc.close()
+
+    pdf_file = tmp_path / "digital_notification.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+
+    # 2. Mock engine that tracks if it was invoked
+    engine_calls = []
+
+    def mock_ocr(arr: Any, **kwargs: Any) -> Any:
+        engine_calls.append(kwargs)
+        raise AssertionError("Neural OCR engine should NOT be invoked for digital PDF!")
+
+    engine = RapidOCREngine()
+    engine._engine = mock_ocr
+
+    cap = OCRCapability(engine=engine)
+    req = Request(
+        request_id="req-fastpath",
+        requirement="ocr",
+        inputs=[InputRef(input_id="inp-pdf", source_path=pdf_file, display_name="digital_notification.pdf", size_bytes=len(pdf_bytes), media_type="application/pdf")],
+    )
+    ctx = ExecutionContext("run-fast", "req-fastpath", "t-fast", "s-fast")
+
+    res = cap.execute(req, ctx)
+    assert res is not None
+    assert isinstance(res.data, CanonicalDocument)
+    doc: CanonicalDocument = res.data
+    assert len(doc.pages) == 1
+    assert "Government of Rajasthan" in doc.pages[0].text
+    assert "Finance Department Circular" in doc.pages[0].text
+    assert doc.pages[0].metadata.get("extraction_method") == "native_fastpath"
+    assert len(engine_calls) == 0  # Zero neural inference calls!
+
+    # 3. Verify force_ocr bypasses fast-path
+    req_force = Request(
+        request_id="req-force",
+        requirement="ocr",
+        inputs=[InputRef(input_id="inp-pdf", source_path=pdf_file, display_name="digital_notification.pdf", size_bytes=len(pdf_bytes), media_type="application/pdf")],
+        custom_options={"force_ocr": True},
+    )
+
+    def mock_ocr_allow(arr: Any, **kwargs: Any) -> DummyRapidOCROutput:
+        engine_calls.append(kwargs)
+        return DummyRapidOCROutput(
+            txts=["Forced OCR Output"],
+            boxes=[[[10, 10], [100, 10], [100, 30], [10, 30]]],
+            scores=[0.92],
+        )
+
+    engine._engine = mock_ocr_allow
+    res_force = cap.execute(req_force, ctx)
+    assert len(engine_calls) == 1
+    assert "Forced OCR Output" in res_force.data.pages[0].text

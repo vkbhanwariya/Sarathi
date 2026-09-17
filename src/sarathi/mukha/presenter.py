@@ -418,6 +418,13 @@ class MukhaPresenter:
 
         warnings = tuple(str(w.message) for w in result.warnings) if result is not None else ()
 
+        is_cached = bool(result.metadata.get("cached")) if result and result.metadata else False
+        if not is_cached and maruti_records:
+            is_cached = any(
+                r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
+                for r in maruti_records
+            )
+
         return RunSummaryView(
             run_id=run_id,
             status=status,
@@ -437,6 +444,7 @@ class MukhaPresenter:
             warnings=warnings,
             failures=tuple(failures),
             request_id=request.request_id if request else request_id,
+            cached=is_cached,
         )
 
     @staticmethod

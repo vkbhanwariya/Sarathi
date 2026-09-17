@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
-from sarathi.mukha.state import InputSelectionView, ReviewIntent, RunSummaryView
+from sarathi.mukha.state import InputSelectionView, PreflightView, ReviewIntent, RunSummaryView
 from sarathi.mukha.web.security import _format_public_error, _sanitize_message
 from sarathi.mukha.web.state_builder import get_reviewable_warnings, get_run_telemetry
 from sarathi.sankalpa import (
@@ -94,6 +94,7 @@ class RunCoordinator:
         self._review_intents: dict[str, ReviewIntent] = {}
         self._state_revision: int = 1
         self._intake_selection: InputSelectionView | None = None
+        self._intake_preflight: PreflightView | None = None
         self._input_path_registry: dict[str, Path] = {}
         self._run_summaries: dict[str, RunSummaryView] = {}
         self._auto_discover_input_root()
@@ -103,7 +104,7 @@ class RunCoordinator:
         if not self._agni.input_root.is_dir():
             return
         try:
-            inputs, selection, _ = MukhaPresenter.intake_from_paths(
+            inputs, selection, preflight = MukhaPresenter.intake_from_paths(
                 [self._agni.input_root],
                 kavacha=self._agni.kavacha,
                 runtime_root=self._agni.runtime_root,
@@ -111,7 +112,7 @@ class RunCoordinator:
                 recursive=True,
             )
             if inputs:
-                self.set_intake_selection(selection, inputs)
+                self.set_intake_selection(selection, inputs, preflight=preflight)
         except Exception:
             pass
 
@@ -130,10 +131,12 @@ class RunCoordinator:
         self,
         input_selection: InputSelectionView | None,
         inputs: Sequence[InputRef] | None = None,
+        preflight: PreflightView | None = None,
     ) -> None:
         """Cache intake input selection and register known input paths for safe preview."""
         with self._lock:
             self._intake_selection = input_selection
+            self._intake_preflight = preflight
             if inputs:
                 for inp in inputs:
                     if inp.source_path:
@@ -148,6 +151,11 @@ class RunCoordinator:
         """Return cached intake selection view."""
         with self._lock:
             return self._intake_selection
+
+    def get_intake_preflight(self) -> PreflightView | None:
+        """Return cached intake preflight view."""
+        with self._lock:
+            return self._intake_preflight
 
     def get_input_path(self, input_id: str) -> Path | None:
         """Resolve absolute source Path for an intake input_id."""
@@ -419,7 +427,7 @@ class RunCoordinator:
                 effective_paths = [str(self._agni.input_root)]
 
         # Intake and resolve input references outside lock
-        inputs, _, _ = MukhaPresenter.intake_from_paths(
+        inputs, selection, preflight = MukhaPresenter.intake_from_paths(
             effective_paths,
             kavacha=self._agni.kavacha,
             runtime_root=self._agni.runtime_root,
@@ -439,6 +447,8 @@ class RunCoordinator:
                     error_message="An interactive processing run is already active.",
                 )
 
+            self._intake_selection = selection
+            self._intake_preflight = preflight
             for inp in inputs:
                 if inp.source_path:
                     self._input_path_registry[inp.input_id] = Path(inp.source_path).resolve()
@@ -602,6 +612,14 @@ class RunCoordinator:
                         warning_cnt = 0
                         failed_cnt = 0
 
+                        is_run_cached = bool(result.metadata.get("cached")) if result and result.metadata else False
+                        if not is_run_cached and maruti_recs:
+                            is_run_cached = any(
+                                r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
+                                for r in maruti_recs
+                            )
+                        stage_label = "Completed (Cached)" if is_run_cached else "Completed"
+
                         for inp in request.inputs:
                             existing = (
                                 self._file_progress.get(inp.input_id)
@@ -663,10 +681,11 @@ class RunCoordinator:
                                 "input_id": inp.input_id,
                                 "file_display_name": inp.display_name,
                                 "status": f_stat,
-                                "stage": "Completed",
+                                "stage": stage_label,
                                 "started_ns": start_t,
                                 "duration_ns": duration,
                                 "warning_count": w_count,
+                                "cached": is_run_cached,
                             }
                             self._file_progress[inp.input_id] = info
                             self._file_progress[inp.display_name] = info
@@ -787,6 +806,7 @@ class RunCoordinator:
                             )
                             self._run_summaries[run_id] = self._terminal_summary
                         self._live_workers.clear()
+                        self._active_thread = None
                         self._state_revision += 1
 
             self._active_thread = threading.Thread(

@@ -593,3 +593,42 @@ def test_is_usable_page_scanned_image_arbitration() -> None:
         metadata={"image_coverage": 0.85},
     )
     assert _is_usable_page(dense_text_with_bg) is True
+
+
+# ==============================================================================
+# 13. Borderless Table Prose Protection & Column Detection
+# ==============================================================================
+
+def test_borderless_table_rejects_long_prose_paragraphs() -> None:
+    """Proves detect_borderless_tables does not swallow long prose lines into a pseudo-table."""
+    from sarathi.shakti.ocr.engine.layout import detect_borderless_tables
+
+    # Simulate multi-line prose where lines happen to be broken into 2 visual spans
+    # but each span has long sentences (>100 characters).
+    prose_spans = [
+        _make_span("This is the first half of a long narrative paragraph describing the procedural history of the case in detail.", (50.0, 100.0, 450.0, 120.0)),
+        _make_span("continuing further with substantial facts and allegations set forth by the investigating officer in the report.", (460.0, 100.0, 850.0, 120.0)),
+        _make_span("The second sentence proceeds to analyze the testimonies recorded during the investigation under relevant statutes.", (50.0, 130.0, 450.0, 150.0)),
+        _make_span("and explains why each witness was examined and what documents were seized from the respective premises.", (460.0, 130.0, 850.0, 150.0)),
+        _make_span("Finally the conclusion reached by the inquiry indicates that further corroboration was deemed necessary.", (50.0, 160.0, 450.0, 180.0)),
+        _make_span("before filing the formal complaint before the competent judicial authority having jurisdiction.", (460.0, 160.0, 850.0, 180.0)),
+    ]
+
+    tables, consumed = detect_borderless_tables(prose_spans, consumed_indices=set())
+    assert len(tables) == 0, "Long prose paragraphs must not be detected as borderless tables"
+    assert len(consumed) == 0, "No prose spans should be consumed"
+
+
+def test_detect_column_count_rejects_bottom_signature_as_multicolumn() -> None:
+    """Proves detect_column_count treats pages with narrative text and isolated right signature as 1 column."""
+    # 20 lines of body text on left (x: 50..450, y: 100..600)
+    spans = [
+        _make_span(f"Body text line {i} of the official judicial order or chargesheet.", (50.0, 100.0 + i * 25.0, 450.0, 120.0 + i * 25.0))
+        for i in range(20)
+    ]
+    # 2 signature lines at bottom right (x: 550..750, y: 700..750)
+    spans.append(_make_span("Special Judge, CBI Court", (550.0, 700.0, 750.0, 720.0)))
+    spans.append(_make_span("Date: 12.10.2024", (550.0, 725.0, 750.0, 745.0)))
+
+    col_count = detect_column_count(spans)
+    assert col_count == 1, "Page with narrative text and bottom-right signature must be classified as 1 column"

@@ -390,6 +390,13 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
                 default_value=True,
                 description="Pramana confidence verification",
             ),
+            ActionParameterView(
+                parameter_id="export_json",
+                display_name="Export Structured JSON",
+                kind="toggle",
+                default_value=False,
+                description="Emit machine-readable coordinate JSON (ocr.json)",
+            ),
         )
     if act_id == "font_conversion":
         supported_fonts = (
@@ -554,6 +561,13 @@ def build_application_view_state(
                     f_stage = "Failed"
                     f_elapsed = f_prog.get("duration_ns") if f_prog else None
 
+            f_cached = bool(f_prog.get("cached")) if f_prog else False
+            if not f_cached and maruti_recs:
+                f_cached = any(
+                    r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
+                    for r in maruti_recs
+                )
+
             files_list.append(
                 FileRunView(
                     input_id=inp.input_id,
@@ -563,6 +577,7 @@ def build_application_view_state(
                     elapsed_ns=f_elapsed,
                     current_stage=f_stage,
                     warning_count=f_warn_count,
+                    cached=f_cached,
                 )
             )
         files = tuple(files_list)
@@ -648,7 +663,12 @@ def build_application_view_state(
             )
         )
 
-    if active_req:
+    cached_sel = getattr(runner, "get_intake_selection", lambda: None)()
+    cached_preflight = getattr(runner, "get_intake_preflight", lambda: None)()
+
+    if cached_sel is not None:
+        input_sel = cached_sel
+    elif active_req and is_alive:
         input_sel = InputSelectionView(
             total_files=len(active_req.inputs),
             total_size_bytes=sum(getattr(inp, "size_bytes", 0) or 0 for inp in active_req.inputs),
@@ -665,11 +685,7 @@ def build_application_view_state(
             ),
         )
     else:
-        cached_sel = getattr(runner, "get_intake_selection", lambda: None)()
-        if cached_sel is not None:
-            input_sel = cached_sel
-        else:
-            input_sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
+        input_sel = InputSelectionView(total_files=0, total_size_bytes=0, is_grouped=False)
 
     current_screen = "monitor" if active_run_id and is_alive else ("summary" if last_summary else "home")
     inspector_view = build_inspector_view(agni, runner, active_run_id, host, port) if active_run_id else None
@@ -709,6 +725,7 @@ def build_application_view_state(
         terminal_summary=last_summary,
         inspector=inspector_view,
         available_actions=tuple(available_actions),
+        preflight=cached_preflight,
         schema_version=1,
         state_revision=getattr(runner, "state_revision", 0),
     )

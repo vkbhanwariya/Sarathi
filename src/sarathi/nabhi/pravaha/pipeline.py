@@ -223,7 +223,16 @@ def execute_pipeline(
                     )
 
             if cached_result is not None:
-                prior_result = _sync_warnings(cached_result)
+                synced = _sync_warnings(cached_result)
+                prior_meta = dict(synced.metadata) if synced and synced.metadata else {}
+                cached_caps = list(prior_meta.get("cached_capabilities", []))
+                if cap.declaration.capability_id not in cached_caps:
+                    cached_caps.append(cap.declaration.capability_id)
+                prior_meta["cached_capabilities"] = cached_caps
+                prior_meta["cached"] = True
+                if cache_tier:
+                    prior_meta["cache_tier"] = cache_tier
+                prior_result = replace(synced, metadata=prior_meta) if synced is not None else None
             else:
                 try:
                     scope = (

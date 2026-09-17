@@ -175,6 +175,91 @@ class TestMukhaWebServerAPI:
         assert status == 200
         assert reveal_data["revealed"] is True
 
+    def test_consecutive_runs_intake_retention_and_execution(
+        self,
+        web_server: MukhaWebServer,
+        tmp_path: Path,
+    ) -> None:
+        """Verify that multiple consecutive runs with different intake files execute cleanly without server restart."""
+        doc1 = tmp_path / "doc1.txt"
+        doc1.write_text("First document contents.", encoding="utf-8")
+        doc2 = tmp_path / "doc2.txt"
+        doc2.write_text("Second document contents.", encoding="utf-8")
+
+        # 1. Intake doc1
+        status1, intake1 = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
+            data={"paths": [str(doc1)], "recursive": False},
+        )
+        assert status1 == 200
+        assert intake1["ok"] is True
+        assert intake1["input_selection"]["total_files"] == 1
+        assert intake1["input_selection"]["items"][0]["display_name"] == "doc1.txt"
+
+        # State should project doc1
+        status_st1, body_st1, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+        assert status_st1 == 200
+        st1 = json.loads(body_st1.decode("utf-8"))["state"]
+        assert st1["input_selection"]["total_files"] == 1
+        assert st1["input_selection"]["items"][0]["display_name"] == "doc1.txt"
+
+        # 2. Run 1 execution
+        status_run1, run1_data = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+            data={
+                "paths": [str(doc1)],
+                "requirement": "read_native",
+                "profile": "instant",
+            },
+        )
+        assert status_run1 == 200
+        assert run1_data["ok"] is True
+        _wait_for_idle(web_server)
+
+        # Confirm Run 1 has terminated and runner is ready for a new run
+        assert not web_server.runner.is_busy()
+        assert web_server.runner.get_active_snapshot().is_alive is False
+
+        # 3. Intake doc2 for Run 2 without restarting server
+        status2, intake2 = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/intake",
+            data={"paths": [str(doc2)], "recursive": False},
+        )
+        assert status2 == 200
+        assert intake2["ok"] is True
+        assert intake2["input_selection"]["total_files"] == 1
+        assert intake2["input_selection"]["items"][0]["display_name"] == "doc2.txt"
+
+        # State projection must reflect doc2, NOT lingering doc1 from previous run
+        status_st2, body_st2, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+        assert status_st2 == 200
+        st2 = json.loads(body_st2.decode("utf-8"))["state"]
+        assert st2["input_selection"]["total_files"] == 1
+        assert st2["input_selection"]["items"][0]["display_name"] == "doc2.txt"
+        assert st2["preflight"] is not None
+        assert st2["preflight"]["eligible_count"] == 1
+
+        # 4. Start Run 2 with doc2 - must succeed without "run already active" error
+        status_run2, run2_data = _http_post(
+            f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+            data={
+                "paths": [str(doc2)],
+                "requirement": "read_native",
+                "profile": "instant",
+            },
+        )
+        assert status_run2 == 200
+        assert run2_data["ok"] is True
+        assert run2_data["run_id"] != run1_data["run_id"]
+        _wait_for_idle(web_server)
+
+        # Confirm Run 2 terminal summary
+        assert not web_server.runner.is_busy()
+        status_st3, body_st3, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+        assert status_st3 == 200
+        st3 = json.loads(body_st3.decode("utf-8"))["state"]
+        assert st3["terminal_summary"]["run_id"] == run2_data["run_id"]
+
     def test_cancel_active_run(self, web_server: MukhaWebServer) -> None:
         """POST /api/runs/<run_id>/cancel cooperatively cancels the active run."""
         status, data = _http_post(
@@ -203,6 +288,35 @@ class TestMukhaWebServerAPI:
         assert state["terminal_summary"] is not None
         assert state["terminal_summary"]["status"] == "SUCCESS"
         assert state["terminal_summary"]["run_id"] == run_id
+
+    def test_cached_run_telemetry_and_summary_badge(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+        """Verify cached run execution properly reflects cached: True on summary and file progress."""
+        from sarathi.sankalpa import Result
+
+        test_file = tmp_path / "cached_doc.txt"
+        test_file.write_text("Hello Cached", encoding="utf-8")
+
+        mock_result = Result(
+            data=None,
+            metadata={"cached": True, "cached_capabilities": ["read_native"]},
+        )
+        with patch.object(web_server.agni, "execute", return_value=mock_result):
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={"paths": [str(test_file)], "requirement": "read_native"},
+            )
+            assert status == 200
+            run_id = data["run_id"]
+            _wait_for_idle(web_server)
+
+            status_st, body_st, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+            assert status_st == 200
+            state = json.loads(body_st.decode("utf-8"))["state"]
+            assert state["terminal_summary"] is not None
+            assert state["terminal_summary"]["run_id"] == run_id
+            assert state["terminal_summary"]["cached"] is True
+            assert state["active_run"] is not None
+            assert any(f.get("cached") is True for f in state["active_run"]["files"])
 
     def test_cancelled_run_displays_cancelled_with_no_raw_exception(
         self, web_server: MukhaWebServer, tmp_path: Path

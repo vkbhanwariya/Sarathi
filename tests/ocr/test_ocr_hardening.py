@@ -769,6 +769,7 @@ def test_json_export_preserves_metadata_and_tables() -> None:
         "ocr",
         inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
         profile=ExecutionProfile.INSTANT,
+        custom_options={"export_json": True},
     )
     ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
 
@@ -794,6 +795,43 @@ def test_json_export_preserves_metadata_and_tables() -> None:
             assert span_json["script"] == "Devanagari"
             assert span_json["metadata"]["span_id"] == "sp-1"
             assert span_json["metadata"]["custom"] == "meta"
+
+
+def test_default_ocr_omits_json_artifact_for_clean_output() -> None:
+    """Verify default OCR execution omits ocr.json, leaving clean .docx and .txt outputs."""
+    from unittest.mock import MagicMock, patch
+
+    from sarathi.sankalpa import (
+        ExecutionContext,
+        ExecutionProfile,
+        InputRef,
+        PageData,
+        Request,
+    )
+    from sarathi.shakti.ocr.capability import OCRCapability
+
+    p = PageData(page_number=1, text="Simple OCR line", spans=(), tables=())
+    req = Request(
+        "req-clean",
+        "ocr",
+        inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
+        profile=ExecutionProfile.INSTANT,
+    )
+    ctx = ExecutionContext("run-clean", "req-clean", "t1", "s1")
+
+    mock_engine = MagicMock()
+    mock_engine.ocr_page.return_value = (p, None, None, ())
+    cap = OCRCapability(engine=mock_engine)
+
+    with patch.object(Path, "read_bytes", return_value=b"fake_image_bytes"):
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock()]):
+            with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=1):
+                res = cap.execute(req, ctx)
+
+    payload_names = [pl.intent.name for pl in res.artifact_payloads]
+    assert any(n.endswith(".docx") for n in payload_names)
+    assert any(n.endswith(".txt") for n in payload_names)
+    assert not any(n.endswith(".json") for n in payload_names)
 
 
 def test_factory_sets_rec_text_score_zero(tmp_path: Path) -> None:
@@ -915,5 +953,74 @@ def test_ocr_coordinator_serializes_concurrent_inference_calls() -> None:
         t.join()
 
     assert not errors, f"Concurrent OCR threw errors: {errors}"
+    assert max_concurrent_seen == 1, f"Expected strictly 1 concurrent inference call, got {max_concurrent_seen}"
+    assert all(r is not None for r in results)
+
+
+def test_weak_crop_retry_concurrency_guards_infer_request() -> None:
+    """Verify weak-crop retry stays protected under inference lock/pool without Infer Request is busy."""
+    import threading
+    import time
+    from unittest.mock import MagicMock
+
+    import numpy as np
+    from PIL import Image
+
+    from sarathi.sankalpa import ExecutionProfile
+    from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
+
+    coordinator = RapidOCREngine()
+
+    active_calls = 0
+    max_concurrent_seen = 0
+    call_lock = threading.Lock()
+
+    def mock_engine(img: Any, use_det: bool = True, use_cls: bool = True) -> MagicMock:
+        nonlocal active_calls, max_concurrent_seen
+        with call_lock:
+            active_calls += 1
+            if active_calls > max_concurrent_seen:
+                max_concurrent_seen = active_calls
+            if active_calls > 1:
+                raise RuntimeError("Infer Request is busy")
+
+        time.sleep(0.01)
+
+        with call_lock:
+            active_calls -= 1
+
+        res = MagicMock()
+        res.boxes = np.array([[[10, 10], [50, 10], [50, 20], [10, 20]]])
+        res.txts = ["Test"]
+        res.scores = [0.40]
+        return res
+
+    coordinator._engine = mock_engine
+
+    num_threads = 4
+    errors: list[Exception] = []
+    results = [None] * num_threads
+
+    def worker(idx: int) -> None:
+        img = Image.new("RGB", (100, 100), color="white")
+        try:
+            p_data, p_prov, conf, warns = coordinator.ocr_page(
+                img,
+                page_number=idx + 1,
+                input_id=f"inp-{idx}",
+                profile=ExecutionProfile.ACCURATE,
+                custom_options={"retry_enabled": True},
+            )
+            results[idx] = p_data
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(num_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Concurrent OCR with retry threw errors: {errors}"
     assert max_concurrent_seen == 1, f"Expected strictly 1 concurrent inference call, got {max_concurrent_seen}"
     assert all(r is not None for r in results)

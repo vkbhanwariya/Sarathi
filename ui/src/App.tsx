@@ -674,12 +674,25 @@ function Home({
   const [page, setPage] = useState(1);
 
   useEffect(() => {
+    if (working) return;
     setSelection(state.input_selection);
     setPreflight(state.preflight);
-    if (state.input_selection.items.length && (!roots.length || roots.every((r) => !r))) {
-      setRoots(state.input_selection.items.flatMap((item) => (item.source_path ? [item.source_path] : [])));
+    const newItems = state.input_selection.items;
+    if (newItems.length === 0) {
+      setRoots([]);
+      setExcluded(new Set());
+    } else if (!roots.length || roots.every((r) => !r)) {
+      setRoots(newItems.flatMap((item) => (item.source_path ? [item.source_path] : [])));
+    } else {
+      const hasAnyMatch = roots.some((r) =>
+        newItems.some((item) => item.source_path && (item.source_path === r || item.source_path.startsWith(r)))
+      );
+      if (!hasAnyMatch) {
+        setRoots(newItems.flatMap((item) => (item.source_path ? [item.source_path] : [])));
+        setExcluded(new Set());
+      }
     }
-  }, [state.input_selection, state.preflight]);
+  }, [state.input_selection, state.preflight, working]);
 
   const visibleItems = useMemo(
     () => selection.items.filter((item) => !item.source_path || !excluded.has(item.source_path)),
@@ -2001,7 +2014,15 @@ function Home({
   );
 }
 
-function Monitor({ state, onError }: { state: ApplicationViewState; onError: (message: string | null) => void }) {
+function Monitor({
+  state,
+  onError,
+  onNavigate,
+}: {
+  state: ApplicationViewState;
+  onError: (message: string | null) => void;
+  onNavigate?: (screen: Screen) => void;
+}) {
   const [localRun, setLocalRun] = useState(state.active_run);
   const [cancelling, setCancelling] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -2029,6 +2050,26 @@ function Monitor({ state, onError }: { state: ApplicationViewState; onError: (me
           <div><span class="eyebrow">Live run</span><h3 id="monitor-run-id">{run?.run_id || "No active run"}</h3></div>
           <div class="button-row">
             <span class="badge badge--active">{run?.status || "IDLE"}</span>
+            {run?.status && run.status !== "RUNNING" && onNavigate && (
+              <>
+                <button
+                  id="btn-monitor-view-summary"
+                  class="button secondary"
+                  onClick={() => onNavigate("summary")}
+                  type="button"
+                >
+                  View Summary
+                </button>
+                <button
+                  id="btn-monitor-process-another"
+                  class="button primary"
+                  onClick={() => onNavigate("home")}
+                  type="button"
+                >
+                  Process Another Document
+                </button>
+              </>
+            )}
             <button
               id="btn-cancel-run"
               class="button danger"
@@ -2131,7 +2172,10 @@ function Monitor({ state, onError }: { state: ApplicationViewState; onError: (me
             {run.files.map((file) => (
               <div class="data-row wide" key={file.input_id}>
                 <strong>{file.display_name}</strong>
-                <span>{file.status}</span>
+                <span>
+                  {file.status}
+                  {file.cached ? <span class="badge badge-cached" style={{ marginLeft: "8px", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "4px", padding: "1px 6px", fontSize: "0.75rem", fontWeight: 600 }}>⚡ Cached</span> : null}
+                </span>
                 <span>{file.current_stage || "—"}</span>
                 <span>{formatDuration(file.elapsed_ns)}</span>
                 <span>{file.error_message || (file.warning_count ? `${file.warning_count} warning(s)` : "")}</span>
@@ -2333,7 +2377,19 @@ function Review({ state, onRefresh, onError }: { state: ApplicationViewState; on
   );
 }
 
-function Summary({ summary, onReveal, onError, onPreview }: { summary: RunSummaryView | null; onReveal: (runId: string) => Promise<boolean>; onError: (message: string | null) => void; onPreview: (pathOrUrl: string, displayName: string) => void }) {
+function Summary({
+  summary,
+  onReveal,
+  onError,
+  onPreview,
+  onNavigate,
+}: {
+  summary: RunSummaryView | null;
+  onReveal: (runId: string) => Promise<boolean>;
+  onError: (message: string | null) => void;
+  onPreview: (pathOrUrl: string, displayName: string) => void;
+  onNavigate?: (screen: Screen) => void;
+}) {
   const [revealing, setRevealing] = useState(false);
   if (!summary) return <EmptyState title="No completed run" detail="Run outcomes and confirmed artifacts will appear here." />;
 
@@ -2358,7 +2414,25 @@ function Summary({ summary, onReveal, onError, onPreview }: { summary: RunSummar
             <h3 id="summary-title">{formatSummaryTitle(summary.status)}</h3>
             <span id="summary-run-id" style="display:none">{summary.run_id}</span>
           </div>
-          <div class="button-row"><span class="badge badge--active">{summary.status}</span><button class="button secondary" disabled={revealing} onClick={() => void handleReveal()} type="button">{revealing ? "Opening…" : "Open output folder"}</button></div>
+          <div class="button-row">
+            <span class="badge badge--active">{summary.status}</span>
+            {summary.cached ? (
+              <span class="badge badge-cached" style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "4px", padding: "2px 8px", fontSize: "0.75rem", fontWeight: 600 }}>
+                ⚡ Cached
+              </span>
+            ) : null}
+            {onNavigate && (
+              <button
+                id="btn-summary-process-another"
+                class="button primary"
+                onClick={() => onNavigate("home")}
+                type="button"
+              >
+                Process Another Document
+              </button>
+            )}
+            <button class="button secondary" disabled={revealing} onClick={() => void handleReveal()} type="button">{revealing ? "Opening…" : "Open output folder"}</button>
+          </div>
         </div>
         <div class="metrics-grid compact">
           <Metric label="Inputs" value={summary.total_inputs} />
@@ -2694,6 +2768,15 @@ export function App() {
     setScreen(next);
   };
 
+  const handleProcessAnother = async () => {
+    try {
+      await intakePaths([], false);
+    } catch {
+      // ignore
+    }
+    chooseScreen("home");
+  };
+
   const handleClearHistory = async () => {
     if (!window.confirm("Clear all historical run records and telemetry? This cannot be undone.")) return;
     try {
@@ -2886,13 +2969,13 @@ export function App() {
               <Home state={state} onError={setError} onStarted={(runId) => { setSummaryOverride(null); setInspectorOverride(null); chooseScreen("monitor"); void refresh().catch(() => undefined); if (!runId) setError("Run started without an identifier."); }} onPreview={(pathOrUrl, displayName) => setPreviewTarget({ pathOrUrl, displayName })} />
             </div>
             <div id="screen-monitor" class={`screen-view ${screen === "monitor" ? "active" : "hidden"}`}>
-              <Monitor state={state} onError={setError} />
+              <Monitor state={state} onError={setError} onNavigate={(scr) => { if (scr === "home") void handleProcessAnother(); else chooseScreen(scr); }} />
             </div>
             <div id="screen-review" class={`screen-view ${screen === "review" ? "active" : "hidden"}`}>
               <Review state={state} onError={setError} onRefresh={refresh} />
             </div>
             <div id="screen-summary" class={`screen-view ${screen === "summary" ? "active" : "hidden"}`} data-run-id={summary?.run_id ?? ""}>
-              <Summary summary={summary} onError={setError} onReveal={revealRun} onPreview={(pathOrUrl, displayName) => setPreviewTarget({ pathOrUrl, displayName })} />
+              <Summary summary={summary} onError={setError} onReveal={revealRun} onPreview={(pathOrUrl, displayName) => setPreviewTarget({ pathOrUrl, displayName })} onNavigate={(scr) => { if (scr === "home") void handleProcessAnother(); else chooseScreen(scr); }} />
             </div>
             <div id="screen-inspector" class={`screen-view ${screen === "inspector" ? "active" : "hidden"}`}>
               <Inspector inspector={inspector} />
