@@ -77,7 +77,13 @@ _TITLECASE_PHRASE_RE = re.compile(
     rf"(?:\b{_TITLE_WORD})(?:{_LATIN_SEP}(?:{_CONJ_WORD}\s+{_TITLE_WORD}|{_TITLE_WORD}))+"
 )
 _KNOWN_LATIN_RE = re.compile(
-    r"(?:\bM/s\.?|\bM/S\.?|\b(?:Govt|Government|India|State|Bank|SBI|HDFC|ICICI|Axis|Kotak|Pvt|Ltd|Limited|Private|Company|Distributor|Trading|Sponsored|Bail|PMLA|FIR|Tower|Flat|Road|Street|Apartment|Park|Avenue|Lane|Pass|Authorized|Signatory|Signatories|Account|Holder|Branch|Savings|Expenditure|Duration|Purpose|Connect|Mudra|Digi|Tulip|Global|Amway|Thailand|Malaysia|Singapore|China|Dubai|Sharjah)\b\.?)",
+    r"(?:\bM/s\.?|\bM/S\.?|\b(?:FIR|PMLA|CrPC|BNSS|BSA|BNS|IPC|CBI|ED|GST|GSTIN|PAN|TAN|UIDAI|RTI|"
+    r"ADM|SDM|SSP|DSP|SHO|IO|U/S|SEC|NO|F\.No|HON'BLE|HONBLE|"
+    r"Govt|Government|India|State|Bank|SBI|HDFC|ICICI|Axis|Kotak|PNB|BOB|Canara|"
+    r"Pvt|Ltd|Limited|Private|Company|Distributor|Trading|Sponsored|Bail|"
+    r"Tower|Flat|Road|Street|Apartment|Park|Avenue|Lane|Pass|Authorized|Signatory|"
+    r"Signatories|Account|Holder|Branch|Savings|Expenditure|Duration|Purpose|Connect|"
+    r"Mudra|Digi|Tulip|Global|Amway|Thailand|Malaysia|Singapore|China|Dubai|Sharjah)\b\.?)",
     re.IGNORECASE,
 )
 
@@ -125,7 +131,6 @@ class TextProtector(BaseSpanProtector):
         # 5. For unknown-font content, also protect remaining structured English phrases and known institutional terms
         if not is_explicit_legacy:
             text = _LABEL_RE.sub(lambda m: _repl(m, "english_label"), text)
-            text = _PAREN_LATIN_RE.sub(lambda m: _repl(m, "paren_latin"), text)
 
             def _titlecase_repl(match: re.Match) -> str:
                 nonlocal placeholder_idx

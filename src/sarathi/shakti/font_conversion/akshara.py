@@ -10,7 +10,13 @@ Handles Devanagari syllable structure:
 
 from __future__ import annotations
 
-import re
+try:
+    import regex as re
+    _HAS_REGEX = True
+except ImportError:
+    import re  # type: ignore[no-redef]
+    _HAS_REGEX = False
+
 import unicodedata
 
 # Unicode Devanagari Character Ranges and Sets
@@ -24,8 +30,8 @@ DEVA_CONSONANTS = "[\u0915-\u0939\u0958-\u095f\u0978-\u097f]"
 # Independent Vowels: 0904-0914, 0960, 0961, 0972-0977
 DEVA_INDEPENDENT_VOWELS = "[\u0904-\u0914\u0960\u0961\u0972-\u0977]"
 
-# Dependent Vowel Signs (Matras): 093A-094C, 094E, 094F, 0955-0957, 0962, 0963
-DEVA_MATRAS = "[\u093a-\u094c\u094e\u094f\u0955-\u0957\u0962\u0963]"
+# Dependent Vowel Signs (Matras): 093A, 093B, 093E-094C (excluding 093C Nukta and 093D Avagraha), 094E, 094F, 0955-0957, 0962, 0963
+DEVA_MATRAS = "[\u093a\u093b\u093e-\u094c\u094e\u094f\u0955-\u0957\u0962\u0963]"
 
 # Modifiers: Anusvara (0902), Visarga (0903), Chandrabindu (0901)
 DEVA_MODIFIERS = "[\u0901-\u0903]"
@@ -125,6 +131,22 @@ def synthesize_akshara_unicode(text: str) -> str:
     text = text.replace("\u0948\u093e", "\u094c")
     text = text.replace("\u093e\u0945", "\u0949")
     text = text.replace("\u0945\u093e", "\u0949")
+
+    # Compose Devanagari independent vowels typed as base vowel + dependent matras:
+    # 'अ' (\u0905) + aa matra (\u093e) -> 'आ' (\u0906)
+    # 'अ' (\u0905) + o matra (\u094b)  -> 'ओ' (\u0913)
+    # 'अ' (\u0905) + au matra (\u094c) -> 'औ' (\u0914)
+    # 'अ' (\u0905) + candra-e (\u0945) -> 'ऑ' (\u0911)
+    # 'ए' (\u090f) + e matra (\u0947)  -> 'ऐ' (\u0910)
+    text = text.replace("\u0905\u093e", "\u0906")
+    text = text.replace("\u0905\u094b", "\u0913")
+    text = text.replace("\u0905\u094c", "\u0914")
+    text = text.replace("\u0905\u0945", "\u0911")
+    text = text.replace("\u090f\u0947", "\u0910")
+
+    # Reorder misplaced Nukta typed after dependent matra or virama to immediately follow consonant
+    text = re.sub(rf"({DEVA_CONSONANTS})({DEVA_MATRAS}|{DEVA_VIRAMA})({DEVA_NUKTA})", r"\1\3\2", text)
+    text = re.sub(rf"{DEVA_NUKTA}+", DEVA_NUKTA, text)
 
     # Resolve conflicting consecutive e/ai matras (e.g. \u0947\u0948 -> \u0948)
     text = re.sub(r"[\u0947\u0948]{2,}", "\u0948", text)

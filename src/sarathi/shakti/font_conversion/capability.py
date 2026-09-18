@@ -49,6 +49,12 @@ from sarathi.sutra import get_canonical_data_root
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
 
 
+def _normalize_font_key(font: str | None) -> str | None:
+    if not font:
+        return None
+    return "".join(c for c in font.lower() if c.isalnum())
+
+
 def _stitch_compatible_page_spans(spans: tuple[TextSpan, ...] | list[TextSpan]) -> tuple[TextSpan, ...]:
     """Merge adjacent compatible runs within each paragraph to resolve cross-run split Aksharas."""
     if not spans:
@@ -57,11 +63,11 @@ def _stitch_compatible_page_spans(spans: tuple[TextSpan, ...] | list[TextSpan]) 
     for s in spans:
         if not isinstance(s, TextSpan) or not s.text:
             continue
-        s_font = s.metadata.get("font_name") if s.metadata else None
+        s_font = _normalize_font_key(s.metadata.get("font_name")) if s.metadata else None
         s_p_idx = s.metadata.get("paragraph_index") if s.metadata else None
         if stitched:
             prev = stitched[-1]
-            prev_font = prev.metadata.get("font_name") if prev.metadata else None
+            prev_font = _normalize_font_key(prev.metadata.get("font_name")) if prev.metadata else None
             prev_p_idx = prev.metadata.get("paragraph_index") if prev.metadata else None
             if s_font == prev_font and (s_p_idx is None or s_p_idx == prev_p_idx):
                 merged_text = prev.text + s.text
@@ -233,7 +239,15 @@ class FontConversionCapability:
             if not raw or not raw.strip():
                 return raw
 
-            cache_key = (raw, font_name)
+            resolved_font_id: str | None = font_name
+            if font_name:
+                p_id, fam = resolve_profile_from_font_name(font_name, self._profiles)
+                if fam == "modern":
+                    return raw
+                if p_id is not None:
+                    resolved_font_id = p_id
+
+            cache_key = (raw, resolved_font_id)
             if cache_key in text_conv_cache:
                 return text_conv_cache[cache_key]
 
@@ -473,17 +487,24 @@ class FontConversionCapability:
         if request.custom_options and callable(request.custom_options.get("progress_callback")):
             progress_cb = request.custom_options["progress_callback"]
 
-        for idx, doc in enumerate(docs):
+        def _process_doc(
+            idx: int, doc: CanonicalDocument
+        ) -> tuple[int, CanonicalDocument, list[WarningRecord], ProvenanceRecord | None, list[ArtifactPayload], DoshError | None]:
             if _is_doc_empty(doc):
-                converted_docs.append(doc)
-                all_warnings.append(
-                    WarningRecord(
-                        code="EMPTY_DOCUMENT_SKIPPED",
-                        message=f"Document '{doc.document_id}' is empty; skipped font conversion.",
-                        stage="font_conversion",
-                    )
+                return (
+                    idx,
+                    doc,
+                    [
+                        WarningRecord(
+                            code="EMPTY_DOCUMENT_SKIPPED",
+                            message=f"Document '{doc.document_id}' is empty; skipped font conversion.",
+                            stage="font_conversion",
+                        )
+                    ],
+                    None,
+                    [],
+                    None,
                 )
-                continue
 
             if progress_cb is not None:
                 dev_str = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
@@ -492,7 +513,7 @@ class FontConversionCapability:
                     file_display_name=doc.document_id,
                     page_number=1,
                     total_pages=tot_pages,
-                    worker_id="1",
+                    worker_id=str(idx + 1),
                     stage="Legacy Font Conversion",
                     device_type=dev_str,
                     input_id=doc.document_id,
@@ -565,7 +586,6 @@ class FontConversionCapability:
                         all_inputs=request.inputs,
                         index=idx,
                     )
-                    txt_content: str
                     if converted_doc.pages and len(converted_doc.pages) > 1:
                         page_texts = [f"--- Page {p.page_number} ---\n{p.text}" for p in converted_doc.pages]
                         txt_content = "\n\n".join(page_texts)
@@ -584,8 +604,6 @@ class FontConversionCapability:
                         all_inputs=request.inputs,
                         index=idx,
                     )
-
-                    docx_payload: ArtifactPayload | None = None
 
                     legacy_target_font = (
                         ("Kruti Dev 010" if target_mode == "to_krutidev" else "DevLys 010") if is_to_legacy else None
@@ -616,30 +634,33 @@ class FontConversionCapability:
                             legacy_target_font=legacy_target_font,
                         )
 
-                    # Commit to batch aggregates only after complete generation succeeds
-                    converted_docs.append(converted_doc)
-                    all_warnings.extend(doc_warnings)
-                    all_provs.append(prov)
-                    payloads.append(txt_payload)
-                    payloads.append(docx_payload)
+                    return (idx, converted_doc, doc_warnings, prov, [txt_payload, docx_payload], None)
 
             except DoshError as doc_err:
                 if not is_batch:
                     raise
-                all_warnings.append(
+                err_warnings = [
                     WarningRecord(
                         code=f"FONT_CONVERSION_{doc_err.code.name}",
                         message=f"Document '{doc.document_id}' failed font conversion: {doc_err.message}",
                         stage="font_conversion",
                         context={"document_id": doc.document_id, "failure_code": doc_err.code.name},
                     )
-                )
+                ]
                 new_meta = dict(doc.metadata) if doc.metadata else {}
                 new_meta["conversion_status"] = "failed"
                 new_meta["failure_code"] = doc_err.code.name
                 failed_doc = replace(doc, metadata=new_meta)
-                converted_docs.append(failed_doc)
-                continue
+                return (idx, failed_doc, err_warnings, None, [], doc_err)
+
+        doc_results = [_process_doc(idx, doc) for idx, doc in enumerate(docs)]
+
+        for _idx, converted_doc, doc_warnings, prov, doc_payloads, doc_err in doc_results:
+            converted_docs.append(converted_doc)
+            all_warnings.extend(doc_warnings)
+            if prov is not None:
+                all_provs.append(prov)
+            payloads.extend(doc_payloads)
 
         if is_batch and not payloads and converted_docs:
             first_fail = next((w for w in all_warnings if w.code.startswith("FONT_CONVERSION_")), None)

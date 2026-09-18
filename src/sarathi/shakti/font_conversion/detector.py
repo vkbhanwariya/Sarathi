@@ -1,9 +1,19 @@
 """Evidence-based Legacy Font Detector for Roopa."""
 
-from __future__ import annotations
+try:
+    import regex as re
+    _HAS_REGEX = True
+except ImportError:
+    import re  # type: ignore[no-redef]
+    _HAS_REGEX = False
+
+try:
+    from rapidfuzz import fuzz
+    _HAS_RAPIDFUZZ = True
+except ImportError:
+    _HAS_RAPIDFUZZ = False
 
 import json
-import re
 import struct
 from pathlib import Path
 
@@ -254,7 +264,9 @@ def resolve_profile_from_font_name(
     if not cleaned:
         return None, None
 
-    if cleaned in _KNOWN_MODERN_FONTS:
+    cleaned_base = re.sub(r"(normal|regular|bold|italic|oblique|medium|truetype|opentype|type1|tt)$", "", cleaned)
+
+    if cleaned in _KNOWN_MODERN_FONTS or (cleaned_base and cleaned_base in _KNOWN_MODERN_FONTS):
         return None, "modern"
 
     if profiles is None:
@@ -263,8 +275,6 @@ def resolve_profile_from_font_name(
             _DEFAULT_PROFILES = load_font_profiles()
         profiles = _DEFAULT_PROFILES
 
-    cleaned_base = re.sub(r"(normal|regular|bold|italic|oblique|medium)$", "", cleaned)
-
     # Check against registered profiles
     for prof in profiles.values():
         cand_keys = [prof.profile_id, prof.name] + list(prof.aliases)
@@ -272,6 +282,24 @@ def resolve_profile_from_font_name(
             cand_clean = "".join(c for c in cand.lower() if c.isalnum())
             if cleaned == cand_clean or (cleaned_base and cleaned_base == cand_clean):
                 return prof.profile_id, prof.family
+
+    # Fuzzy matching for noisy Word font names (e.g. "Shusha02_Normal", "KrutiDev-010-Rev")
+    if _HAS_RAPIDFUZZ and len(cleaned) >= 5:
+        best_match = None
+        best_score = 0.0
+        target = cleaned_base if cleaned_base else cleaned
+        for prof in profiles.values():
+            cand_keys = [prof.profile_id, prof.name] + list(prof.aliases)
+            for cand in cand_keys:
+                cand_clean = "".join(c for c in cand.lower() if c.isalnum())
+                if not cand_clean:
+                    continue
+                score = max(fuzz.ratio(cleaned, cand_clean), fuzz.ratio(target, cand_clean))
+                if score > best_score and score >= 85.0:
+                    best_score = score
+                    best_match = (prof.profile_id, prof.family)
+        if best_match:
+            return best_match
 
     return None, "unknown"
 
@@ -296,6 +324,8 @@ def rank_profiles_from_text(
     )
 
     candidates: list[ConversionCandidate] = []
+    tokens = text.split()
+    sample_tokens = tokens[:60] if len(tokens) > 60 else tokens
 
     for prof in eval_profiles:
         # Signatures
@@ -321,9 +351,8 @@ def rank_profiles_from_text(
         unmapped_samples: list[str] = []
 
         if prof.compiled_forward_regex is not None:
-            # Check how many characters or tokens are covered by mappings
-            tokens = text.split()
-            for t in tokens:
+            # Check how many characters or tokens are covered by mappings in sampled tokens
+            for t in sample_tokens:
                 # If word has at least 2 chars of legacy mapping
                 m_chars = sum(len(m.group(0)) for m in prof.compiled_forward_regex.finditer(t))
                 if m_chars > 0:
@@ -397,8 +426,8 @@ def decide_run_profile(
             )
         if resolved_prof is not None:
             if run_text and run_text.strip():
-                cands = rank_profiles_from_text(run_text, profiles)
-                cand = next((c for c in cands if c.profile_id == resolved_prof), None)
+                cands = rank_profiles_from_text(run_text, profiles, candidate_profiles=[resolved_prof])
+                cand = cands[0] if cands else None
                 if cand is not None:
                     if cand.negative_signatures or (
                         not cand.is_structurally_valid and "COLLAPSED_CONSONANTS" in cand.structural_defects
@@ -488,14 +517,13 @@ class LegacyFontDetector(BaseLegacyFontDetector):
         if not text or not text.strip():
             return None, 0.0
 
-        candidates = rank_profiles_from_text(text, self._profiles)
-        cand_map = {c.profile_id: c for c in candidates}
-
         if font_hint:
             prof_id, fam = resolve_profile_from_font_name(font_hint, self._profiles)
             if fam == "modern" or prof_id is None:
                 return None, 0.0
 
+            candidates = rank_profiles_from_text(text, self._profiles)
+            cand_map = {c.profile_id: c for c in candidates}
             cand = cand_map.get(prof_id)
             if cand is not None:
                 # Reject hint if text exhibits negative signatures or severe structural collapse
@@ -521,6 +549,7 @@ class LegacyFontDetector(BaseLegacyFontDetector):
         if not self.is_legacy_text(text):
             return None, 0.0
 
+        candidates = rank_profiles_from_text(text, self._profiles)
         if not candidates or candidates[0].score < 2.0:
             return None, 0.0
 

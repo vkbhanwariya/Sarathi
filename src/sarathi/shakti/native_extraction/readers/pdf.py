@@ -28,13 +28,57 @@ from sarathi.shakti.text.typography import (
 _PDF_TEXT_FLAGS = pymupdf.TEXT_DEHYPHENATE | pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_PRESERVE_LIGATURES
 
 
+def _resolve_pdf_font_names(doc: pymupdf.Document) -> dict[str, str]:
+    """Extract embedded TrueType SFNT metadata from PyMuPDF to map obfuscated font names to true families."""
+    from sarathi.shakti.font_conversion.detector import extract_ttf_font_family
+
+    font_map: dict[str, str] = {}
+    seen_xrefs: set[int] = set()
+
+    for page_idx in range(len(doc)):
+        try:
+            page_fonts = doc[page_idx].get_fonts()
+        except Exception:
+            continue
+        for f in page_fonts:
+            if not f or len(f) < 5:
+                continue
+            xref, ext, _, basefont, ref_name = f[0], str(f[1]).lower(), f[2], str(f[3]), str(f[4])
+            clean_base = basefont
+            if "+" in clean_base:
+                parts = clean_base.split("+", 1)
+                if len(parts[0]) == 6 and parts[0].isalpha() and parts[1].strip():
+                    clean_base = parts[1].strip()
+
+            if clean_base:
+                font_map[basefont] = clean_base
+                font_map[ref_name] = clean_base
+
+            # If embedded TrueType font exists, extract TTF table to find canonical Name ID 1/4
+            if xref > 0 and xref not in seen_xrefs and ext in ("ttf", "otf", "cff", "n/a"):
+                seen_xrefs.add(xref)
+                try:
+                    extracted = doc.extract_font(xref)
+                    buf = extracted.get("buffer") if extracted else None
+                    if buf and isinstance(buf, (bytes, bytearray)):
+                        family = extract_ttf_font_family(buf)
+                        if family:
+                            font_map[basefont] = family
+                            font_map[ref_name] = family
+                            if clean_base:
+                                font_map[clean_base] = family
+                except Exception:
+                    pass
+    return font_map
+
+
 def read_pdf(
     data: bytes,
     input_id: str,
-    use_layout: bool = False,
     skip_header_footer: bool = False,
+    use_layout: bool = False,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
-    """Extract native text, spans, and embedded tables from PDF via PyMuPDF or pymupdf-layout."""
+    """Extract full text, pages, rich text spans, and tables from a native PDF document."""
     fallback_warning: WarningRecord | None = None
     if use_layout:
         try:
@@ -69,6 +113,7 @@ def read_pdf(
         total_pages = len(doc)
         all_page_blocks: list[list[tuple[str, tuple[float, float, float, float]]]] = []
         page_heights: list[float] = []
+        doc_font_map = _resolve_pdf_font_names(doc)
 
         # Pass 1: Collect spatial text blocks for cross-page recurring header/footer analysis
         for page_idx in range(total_pages):
@@ -149,12 +194,13 @@ def read_pdf(
                                     s_bbox = tuple(float(v) for v in s.get("bbox", (0.0, 0.0, 0.0, 0.0)))
                                     s_size = float(s.get("size", 12.0))
                                     s_font = str(s.get("font", ""))
+                                    resolved_font = doc_font_map.get(s_font) or s_font
                                     spans.append(
                                         TextSpan(
                                             text=s_text.strip(),
                                             bounding_box=s_bbox,
                                             metadata={
-                                                "font_name": s_font,
+                                                "font_name": resolved_font,
                                                 "font_size_pt": round(s_size, 1),
                                                 "is_heading": s_size >= 14.0,
                                             },

@@ -166,3 +166,20 @@ def test_unlabelled_table_cell_with_multiline_mixed_content() -> None:
     assert "बयान करता हूँ" in conv_cell
     assert "S.No. Name of Firm Key Holder Relationship with me" in conv_cell
     assert "M/s Digi Mudra Connect Pvt. Ltd." in conv_cell
+
+
+def test_statutory_and_legal_acronyms_protection() -> None:
+    """Verify statutory, judicial, and financial acronyms are preserved untouched in legacy runs."""
+    protector = TextProtector()
+    converter = FontConverter()
+    validator = FontConversionValidator()
+
+    sample = "FIR No. 123/2026 u/s 302 IPC, BNS Sec 103, BNSS, BSA, PMLA Case by CBI & ED GSTIN: 07AAAAA0000A1Z5 Hkkjr ljdkj"
+    protected, spans = protector.protect(sample)
+    converted = converter.convert(protected, "krutidev010")
+    final_text = protector.restore(converted, spans)
+
+    for acronym in ["FIR", "IPC", "BNS", "BNSS", "BSA", "PMLA", "CBI", "ED", "GSTIN"]:
+        assert acronym in final_text, f"Acronym '{acronym}' was corrupted!"
+    assert "भारत सरकार" in final_text
+    assert validator.validate_protection_integrity(final_text, spans) is True

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import io
 import json
 import re
@@ -122,6 +123,15 @@ def transform_docx_artifact(
             styles_xml = in_zf.read("word/styles.xml") if "word/styles.xml" in in_zf.namelist() else None
             style_resolver = DocxStyleResolver(styles_xml, font_resolver=font_resolver)
 
+            converter_takes_font = False
+            try:
+                sig = inspect.signature(converter_fn)
+                converter_takes_font = len(sig.parameters) >= 2 or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+            except Exception:
+                converter_takes_font = False
+
             for item in in_zf.infolist():
                 raw_entry = in_zf.read(item.filename)
 
@@ -149,6 +159,7 @@ def transform_docx_artifact(
                             profiles=profiles,
                             font_resolver=font_resolver,
                             profile_resolver=profile_resolver,
+                            converter_takes_font=converter_takes_font,
                         )
                         updated_entry = _serialize_xml_preserving_namespaces(tree, raw_entry)
                         out_zf.writestr(item, updated_entry)
@@ -609,6 +620,7 @@ def _transform_xml_tree(
     profiles: Mapping[str, Any] | None = None,
     font_resolver: Callable[..., str | None] | None = None,
     profile_resolver: Callable[..., tuple[str | None, str | None]] | None = None,
+    converter_takes_font: bool | None = None,
 ) -> None:
     """Transform paragraphs and runs within an ElementTree OpenXML element."""
     p_tag = f"{{{_W_NS}}}p"
@@ -622,16 +634,14 @@ def _transform_xml_tree(
 
     profiles = profiles if profiles is not None else get_default_profiles()
 
-    import inspect
-
-    converter_takes_font = False
-    try:
-        sig = inspect.signature(converter_fn)
-        converter_takes_font = len(sig.parameters) >= 2 or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        )
-    except Exception:
-        converter_takes_font = False
+    if converter_takes_font is None:
+        try:
+            sig = inspect.signature(converter_fn)
+            converter_takes_font = len(sig.parameters) >= 2 or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+        except Exception:
+            converter_takes_font = False
 
     # Process all containers that can hold runs (paragraphs, table cells, hyperlinks, sdt)
     for p in tree.iter(p_tag):

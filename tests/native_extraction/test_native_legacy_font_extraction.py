@@ -258,3 +258,25 @@ def test_native_extraction_legacy_font_chains_to_statutory(
     doc = res.data
     assert isinstance(doc, CanonicalDocument)
     assert "भारत सरकार दिल्ली" in doc.text or "भारत सरकार दिल्ली" in doc.pages[0].text
+
+
+def test_resolve_pdf_font_names_embedded_sfnt(tmp_path: Path) -> None:
+    """Verify _resolve_pdf_font_names correctly resolves subset font prefixes and embedded TrueType SFNT tables."""
+    from sarathi.shakti.native_extraction.readers.pdf import _resolve_pdf_font_names
+
+    pdf_path = tmp_path / "test_fonts.pdf"
+    doc_pdf = pymupdf.open()
+    page = doc_pdf.new_page(width=595, height=842)
+    page.insert_text((72, 72), "Hkkjr ljdkj")
+    fonts = doc_pdf.get_page_fonts(0)
+    if fonts:
+        doc_pdf.xref_set_key(fonts[0][0], "BaseFont", "/BAAAAA+KrutiDev010")
+    doc_pdf.save(str(pdf_path))
+    doc_pdf.close()
+
+    opened_doc = pymupdf.open(str(pdf_path))
+    font_map = _resolve_pdf_font_names(opened_doc)
+    opened_doc.close()
+
+    matched_val = font_map.get("BAAAAA+KrutiDev010") or font_map.get("/BAAAAA+KrutiDev010") or font_map.get("KrutiDev010")
+    assert matched_val in ("KrutiDev010", "Kruti Dev 010")

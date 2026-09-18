@@ -265,3 +265,43 @@ def test_krutidev_extended_ligatures_and_glyphs() -> None:
         conv = converter.convert(prot, "krutidev010")
         restored = protector.restore(conv, spans)
         assert expected in restored, f"Failed converting '{raw}': got '{restored}', expected '{expected}'"
+
+
+def test_independent_vowel_synthesis_and_nukta_reordering() -> None:
+    """Verify independent vowel synthesis and misplaced Nukta correction in akshara engine."""
+    # Independent vowel synthesis
+    assert synthesize_akshara_unicode("अा") == "आ"
+    assert synthesize_akshara_unicode("अो") == "ओ"
+    assert synthesize_akshara_unicode("अौ") == "औ"
+    assert synthesize_akshara_unicode("अॅ") == "ऑ"
+    assert synthesize_akshara_unicode("एे") == "ऐ"
+    assert synthesize_akshara_unicode("अाप") == "आप"
+    assert synthesize_akshara_unicode("अोर") == "ओर"
+
+    # Misplaced Nukta reordering: क + ि + ़ -> क़ + ि
+    # In Unicode: \u0915\u093f\u093c -> \u0958\u093f (क़ि)
+    res_nukta = synthesize_akshara_unicode("क\u093f\u093c")
+    assert res_nukta == "क़ि" or res_nukta == "क\u093c\u093f"
+
+
+def test_rapidfuzz_noisy_font_name_resolution() -> None:
+    """Verify rapidfuzz fuzzy matching handles noisy TrueType and Word font names."""
+    from sarathi.shakti.font_conversion.detector import resolve_profile_from_font_name
+
+    # Noisy font names from real Word and PDF documents
+    pid1, fam1 = resolve_profile_from_font_name("Kruti Dev 010 (TrueType)")
+    assert pid1 == "krutidev010"
+    assert fam1 == "krutidev"
+
+    pid2, fam2 = resolve_profile_from_font_name("DEVLYS_010-Bold")
+    assert pid2 == "devlys010"
+    assert fam2 == "devlys"
+
+    pid3, fam3 = resolve_profile_from_font_name("Shusha02_Normal")
+    assert pid3 == "shusha010"
+    assert fam3 == "shusha"
+
+    # Modern font still cleanly recognized without false legacy match
+    pid_mod, fam_mod = resolve_profile_from_font_name("Calibri (TrueType)")
+    assert pid_mod is None
+    assert fam_mod == "modern"

@@ -31,7 +31,10 @@ translation = [
     "ctranslate2>=4.8.0",
     "sentencepiece>=0.2.2",
 ]
-font_conversion = []
+font_conversion = [
+    "rapidfuzz>=3.9.0",
+    "regex>=2024.11.1",
+]
 layout = [
     "pymupdf-layout==1.28.2",
 ]
