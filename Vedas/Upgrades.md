@@ -1,6 +1,6 @@
 # Upgrades — High-ROI Architectural Capabilities Specification
 
-This document serves as the authoritative technical specification and design reference for the **6 High-ROI Architectural Capabilities** planned for Sarathi. Each specification defines the problem, architectural owner, technical design, contracts, hardware synergy, and verification criteria.
+This document serves as the authoritative technical specification and design reference for the **7 High-ROI Architectural Capabilities** planned for Sarathi. Each specification defines the problem, architectural owner, technical design, contracts, hardware synergy, and verification criteria.
 
 ---
 
@@ -8,29 +8,33 @@ This document serves as the authoritative technical specification and design ref
 
 | # | Capability | Canonical Owner | Primary Target | Expected ROI |
 | :- | :--- | :--- | :--- | :--- |
-| **1** | **Legacy Font Identification & Staged Transduction (FontTools + SIL NRSI Oracle)** | `shakti.font_conversion` | PDF embedded fonts & legacy Devanagari text | 100% binary font identity + staged decoding fixing KrutiDev digits, dead Shusha reph, and variant deltas. |
+| **1** | **Legacy Font Identification & Staged Transduction (FontTools + SIL NRSI + KrutiExtract)** | `shakti.font_conversion` & `native_extraction` | PDF embedded fonts & legacy Devanagari text | 100% binary font identity + stream-order extraction + 7-pass staged decoding fixing digits & Shusha. |
 | **2** | **In-Place Multi-Part DOCX Transcoder** | `shakti.docx_exporter` | `.docx` documents with legacy fonts | Transcodes headers, footers, footnotes, and tables in-place with zero formatting loss. |
 | **3** | **Vector Drawing PDF Table Extractor** | `shakti.native_extraction` | Native vector-ruled PDFs (statements, gazettes) | Sub-millisecond table boundary reconstruction directly from vector strokes without neural models. |
 | **4** | **Banking Integrity & UTR/IFSC Auto-Repair** | `shakti.bank_statements` | Scanned & native financial statements | Mathematical double-entry balance verification and deterministic OCR confusion repair (`0`↔`O`, `1`↔`I`). |
 | **5** | **Proper-Noun Legal Transliteration Guard** | `shakti.translation` | Administrative, court, and revenue records | Rule-based phonetic transliteration protecting Indian names/villages from semantic NMT mistranslation. |
 | **6** | **High-Throughput Stage Pipeline Overlap** | `nabhi.pravaha` / `yantra` | Multi-document and multi-stage jobs | Overlaps Intel Arc iGPU (OCR) and Core Ultra CPU (Translation) for up to 2× batch throughput. |
+| **7** | **Self-Grounded OCR Benchmark & Hardware Tuning** | `tools` / `shakti.ocr` | Born-digital legacy PDFs & RapidOCR/OpenVINO | Automated ground-truth generation without human transcription; empirical Pareto tuning for Arc iGPU. |
 
 ---
 
-## 1. Legacy Font Identification & Staged Transduction (FontTools & SIL NRSI Oracle)
+## 1. Legacy Font Identification & Staged Transduction (FontTools, SIL NRSI & KrutiExtract)
 
 ### Objective
-Pair **authoritative binary font identification** (inspecting embedded TrueType/OpenType font structures with FontTools) with **staged Devanagari decoding** derived from SIL NRSI's legacy conversion mapping tables (`silnrsi/wsresources/scripts/Deva/legacy`), replacing flat dictionary replacements with a staged pure-Python transduction pipeline and fixing critical profile bugs in KrutiDev and Shusha.
+Pair **authoritative binary font identification** (FontTools) with **stream-order native extraction** (KrutiExtract) and **7-pass staged Devanagari decoding** (SIL NRSI), preventing visual geometry scrambled keystrokes (`vkSj` ➔ `vkjS`), replacing flat dictionary replacements with a staged pure-Python transduction pipeline, and resolving critical profile bugs in KrutiDev and Shusha.
 
 ### Canonical Ownership
-- **Owner**: `sarathi.shakti.font_conversion`
+- **Owner**: `sarathi.shakti.font_conversion` & `sarathi.shakti.native_extraction`
 - **Modules**:
   - `src/sarathi/shakti/font_conversion/font_inspector.py` (Binary font identification & GSUB guard)
   - `src/sarathi/shakti/font_conversion/converter.py` (Staged `AksharaConverter` execution pipeline)
   - `src/sarathi/shakti/font_conversion/profiles.py` (Extended `LegacyFontProfile` schema & inheritance)
+  - `src/sarathi/shakti/font_conversion/byte_normalizer.py` (MacRoman ➔ Windows-1252 byte stream repair)
+  - `src/sarathi/shakti/native_extraction/readers/pdf.py` (Stream-order legacy conversion before layout reconstruction)
 - **Developer Tools**:
   - `tools/audit_legacy_font.py` (TTF validation & cmap signature generator)
   - `tools/audit_sil_legacy_maps.py` (Build-time SIL `.map` differential fixture generator)
+  - `tools/glyph_sheet.py` (Visual glyph crop audit sheet generator)
 - **Profiles & Data**:
   - `data/fonts/krutidev_base.json` (Shared KrutiDev rules)
   - `data/fonts/krutidev010.json`, `krutidev011.json`, `krutidev290.json` (Variant overlay deltas)
@@ -108,6 +112,35 @@ Pair **authoritative binary font identification** (inspecting embedded TrueType/
    - **Zero Native Dependency**: Does **not** introduce the TECkit C/C++ runtime into Sarathi. Keeps Sarathi 100% pure Python.
    - **Offline Fixture Generation**: Parses human-readable SIL `.map` files into deterministic JSON test vectors under `tests/font_conversion/fixtures/sil/`.
    - **Permanent Regression Guard**: Automatically validates Sarathi's `AksharaConverter` against SIL's canonical input/output pairs.
+
+---
+
+### Part C: Stream-Order Ingestion & Font-Run Arbitration (KrutiExtract Invariants)
+
+1. **Logical Character Stream Preservation (P0 — Essential Pipeline Inversion)**:
+   - **The Failure Mode**: In legacy typewriter fonts, characters appear in the PDF content stream in keystroke typing order (`v`, `k`, `S`, `j` for `vkSj` ➔ `और`). When spatial layout engines sort text spans geometrically by 2D bounding boxes, diacritics and top matras (with zero/negative horizontal advances or elevated bounding boxes) get misplaced: $\texttt{vkSj} \xrightarrow{\text{spatial sort}} \texttt{vkjS}$. Once jumbled, even a 100% perfect mapping table produces corrupted gibberish.
+   - **Pipeline Inversion Invariant**: For any page where a legacy font is confirmed, convert the raw text stream to Unicode *before* applying spatial/geometry line reconstruction:
+     $$\text{PDF Content Stream} \longrightarrow \text{Stream-Order Legacy Conversion} \longrightarrow \text{Unicode Text (NFC)} \longrightarrow \text{Layout / Line Reconstruction}$$
+   - Guarantees that multi-character aksharas, pre-base matras (`ि`), and reph are converted while their phonetic keystroke sequence remains intact.
+
+2. **Font-Run-Based Arbitration & Fail-Closed Protection (P0)**:
+   - Evaluates `TextSpan.metadata["font_name"]` as the authoritative primary arbitrator, eliminating fragile text-level English/Hindi regex heuristics for ambiguous sequences (e.g. `thou`, `rail`, `case`):
+     - **Modern Unicode Font** (e.g. `Mangal`, `Noto Sans Devanagari`, `Nirmala UI`) ➔ **PRESERVE** (zero conversion).
+     - **Known Latin Font** (e.g. `Times New Roman`, `Calibri`, `Arial`) ➔ **PRESERVE** (zero conversion).
+     - **Exact Supported Legacy Font** (e.g. `Kruti Dev 010`, `DevLys 010`, `Chanakya`) ➔ **CONVERT** with exact profile.
+     - **Unsupported Legacy Font** (e.g. `Shivaji01`, `Akruti`, `Ajanta`) ➔ **PRESERVE + WARNING** (`UNSUPPORTED_LEGACY_FONT`). Enforces the strict invariant: **wrong conversion < no conversion**. Never guess a nearest profile.
+     - **Unknown / Obfuscated Font** ➔ Fall back to `TextProtector` and detection signatures.
+
+3. **MacRoman ➔ Windows-1252 Byte Stream Normalization (P0/P1)**:
+   - **Root Cause**: Defective PDF generators embed 8-bit legacy Devanagari fonts under `/Encoding /MacRomanEncoding` rather than `/WinAnsiEncoding`. PyMuPDF decodes bytes `0x80..0xFF` into MacRoman Unicode representations (e.g. `⁄UÊ¡SÕÊŸ`), breaking both font detection and mapping tables.
+   - **Normalizer (`src/sarathi/shakti/font_conversion/byte_normalizer.py`)**:
+     - Detects diagnostic MacRoman signature characters (`⁄` U+2044, `◊` U+25CA, `‚` U+201A, `ﬂ` U+FB02, `ﬁ` U+FB01, `Ÿ` U+0178, `Ê` U+00CA).
+     - Deterministically inverts the mapping: `text.encode("mac_roman").decode("cp1252", errors="replace")`.
+     - Completely idempotent and zero-op for standard text streams.
+
+4. **Glyph-Sheet Visual Audit Utility (`tools/glyph_sheet.py`)**:
+   - Renders each source byte/codepoint alongside its rendered vector glyph crop from the actual PDF/font.
+   - Enables human visual verification when auditing new or ambiguous legacy font encodings.
 
 ### Fallback Policy
 - `fonttools` is declared in `pyproject.toml` under optional dependencies `[font_conversion]` and `[dependency-groups] dev`.
@@ -252,6 +285,35 @@ Maximize hardware utilization across the **Intel Core Ultra 5 125H CPU** and **I
 
 ---
 
+## 7. Self-Grounded OCR Ground-Truth Benchmark & Hardware Tuning
+
+### Objective
+Provide an autonomous, empirical OCR benchmarking engine that generates **100% mathematically exact Unicode ground truth** from born-digital legacy PDFs without human transcription, enabling quantitative hyperparameter, resolution, and preprocessing tuning for RapidOCR / OpenVINO on the **Intel Arc iGPU** and **Core Ultra 5 125H CPU**.
+
+### Canonical Ownership
+- **Owner**: `sarathi.shakti.ocr` & `sarathi.yantra`
+- **Tool**: `tools/benchmark_ocr_legacy_gold.py`
+- **Consumer**: `sarathi.shakti.ocr.engine` & adaptive rerasterization policies
+
+### Technical Specification
+1. **Self-Grounded Gold Truth Generation**:
+   - Born-digital legacy PDFs (e.g. state gazettes, court judgments, circulars typed in KrutiDev/DevLys) contain both clean vector/raster glyphs and native keystroke bytes.
+   - **Step 1 (Ground Truth)**: Extracts native legacy text and converts via `AksharaConverter` ➔ **100% exact reference Unicode text (GOLD TRUTH)**.
+   - **Step 2 (Rasterization)**: Renders the identical PDF page/region using `BoundedPageRasterizer` across resolution ladders ($150, 200, 250, 300, 350, 400$ DPI).
+   - **Step 3 (Neural Inference)**: Executes RapidOCR with OpenVINO FP16 on the **Intel Arc iGPU**.
+   - **Step 4 (Evaluation)**: Normalizes both texts (Unicode NFC, whitespace) and computes Character Error Rate (CER) and Word Error Rate (WER) via Levenshtein edit distance.
+2. **Empirical Resolution & Preprocessing Sweeps**:
+   - Evaluates DPI settings across clean documents, simulated photocopy degradation, and complex small-font tables.
+   - Benchmarks image preprocessing operators (CLAHE, bilateral filter, adaptive thresholding, deskew, unsharp mask) against unadulterated renders.
+   - Quantifies the hardware Pareto frontier:
+     $$\text{Pareto Metric} = \frac{\text{Accuracy (1 - CER)}}{\text{Latency (ms)} \times \text{Peak VRAM (MB)}}$$
+3. **Adaptive Rerasterization Threshold Calibration**:
+   - Provides empirical data to settle the adaptive rerasterization policy:
+     - Measures whether $200$ DPI solves $\ge 85\%$ of production pages.
+     - Calibrates the exact OCR confidence cutoff that triggers selective $300$ DPI rerasterization, preventing expensive global high-DPI execution.
+
+---
+
 ## Verification & Acceptance Criteria
 
 Every capability will be validated through dedicated unit and integration tests complying with the compound pre-commit fast gate:
@@ -266,9 +328,11 @@ uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --
 | :--- | :--- | :--- |
 | **FontTools & Inspector** | `uv run --group dev pytest tests/font_conversion/test_font_inspector.py -q` | Correct family extraction from TTF bytes; GSUB modern font classification; symbol cmap detection. |
 | **SIL Differential Oracle** | `uv run --group dev pytest tests/font_conversion/test_sil_differential.py -q` | 100% agreement on KrutiDev 010/011/290 and Shusha test vectors; correct Latin digit preservation. |
+| **Legacy Stream Extraction** | `uv run --group dev pytest tests/native_extraction/test_pdf_legacy_stream.py -q` | Stream-order conversion preserves keystroke sequence; zero geometric matra jumbling. |
 | **DOCX Transcoding** | `uv run --group dev pytest tests/font_conversion/test_docx_multipart.py -q` | Headers, footers, footnotes, and body converted to Unicode; all OpenXML styles and namespaces preserved. |
 | **Vector PDF Tables** | `uv run --group dev pytest tests/native_extraction/test_pdf_vector_tables.py -q` | Extract ruled tables with exact bounding boxes and cell contents without OCR. |
 | **Banking Integrity** | `uv run --group dev pytest tests/bank_statements/test_utr_repair.py -q` | Detect and repair corrupted UTR/IFSC codes; flag debit/credit balance mismatches with exact row references. |
 | **Proper-Noun Guard** | `uv run --group dev pytest tests/translation/test_proper_noun_guard.py -q` | Honorific/kinship names transliterated phonetically; zero semantic mistranslations in IndicTrans2 output. |
 | **Pipeline Overlap** | `uv run --group dev pytest tests/nabhi/test_pipeline_overlap.py -q` | Document N translates on CPU concurrently while Document N+1 performs OCR on iGPU. |
+| **Self-Grounded OCR Benchmark** | `uv run python tools/benchmark_ocr_legacy_gold.py --dry-run` | Automated gold truth extraction from legacy PDF; CER/WER evaluation on Arc iGPU. |
 | **Architecture Gate** | `uv run --group dev pytest -q -m architecture` | Instant verification that code topology and manifest remain 100% synchronized. |
