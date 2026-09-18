@@ -207,10 +207,11 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
      `कि`, `क्ति`, `क्र`, `त्र`, `प्र`, `श्र`, `क्ष`, `ज्ञ`, `द्ध`, `द्व`, `र्‍`, `र्कीं`, `ड़क`, `ढ़`, `फ़`, `क़`, `ज़`, `र्क`, `र्क्ष`.
 
 6. **Phased Implementation Roadmap**:
-   - **Phase 1 (Ingestion & Arbitration)**: Stream-order PDF extraction in `pdf.py`, font-run arbitration (`TextSpan.font_name`), and MacRoman byte normalizer.
-   - **Phase 2 (Declarative Decoder & Profile Audits)**: P0 ASCII digits fix in `krutidev010.json`, authentic Shusha reconstruction, declarative 7-pass transduction in `converter.py`, and unmapped symbol histogram telemetry.
-   - **Phase 3 (Variant Deltas & Reverse Fidelity)**: Profile inheritance (`krutidev_base.json` + `011`/`290` deltas), explicit `reverse_preferred` schema enforcement, and `font_inspector.py`.
-   - **Phase 4 (Visual Metric Retrieval & Verification)**: OpenVINO FP16 visual font fallback (`visual_resolver.py`) with open-set rejection, SIL differential oracle fixtures, `tools/audit_font_profile.py`, `tools/mine_mapping_candidates.py`, `tools/glyph_sheet.py`, and `tools/benchmark_ocr_legacy_gold.py`.
+   - Capability 1 execution spans Phases 1 through 4 of the master repository roadmap (see [Section 8: Phase-Wise Implementation Roadmap](#8-phase-wise-implementation-roadmap)):
+     - *Phase 1*: Stream-order PDF extraction in `readers/pdf.py`, font-run arbitration, and MacRoman `byte_normalizer.py`.
+     - *Phase 2*: Declarative 7-pass transduction in `converter.py`, P0 ASCII digits fix in `krutidev010.json`, Shusha reconstruction in `shusha010.json`, and SIL differential oracle in `tools/audit_sil_legacy_maps.py`.
+     - *Phase 3*: Binary font inspection in `font_inspector.py`, profile inheritance (`krutidev_base.json` + `011`/`290`), and profile fidelity auditor in `tools/audit_font_profile.py`.
+     - *Phase 4*: Visual prototype retrieval fallback in `visual_resolver.py` (OpenVINO FP16 on Arc iGPU) and self-grounded OCR benchmark in `tools/benchmark_ocr_legacy_gold.py`.
 
 ### Fallback Policy
 - `fonttools` is declared in `pyproject.toml` under optional dependencies `[font_conversion]` and `[dependency-groups] dev`.
@@ -420,6 +421,66 @@ Provide an autonomous, empirical OCR benchmarking engine that generates **100% m
      - Calculate target DPI to normalize Devanagari glyphs to the optimal OCR recognition height ($32\text{ px}$):
        $$\text{Target DPI} = \min\left(400, \text{round}\left(200 \times \frac{32}{h_{\text{median}}}\right)\right)$$
      - Rerasterize the specific bounding box directly from the underlying vector PDF at the computed Target DPI using `BoundedPageRasterizer`, preserving sharp stroke topology without global page overhead.
+
+---
+
+## 8. Phase-Wise Implementation Roadmap
+
+To ensure zero regression, high velocity, and adherence to the pre-commit compound fast gate, execution is organized into **6 discrete, dependency-ordered phases**:
+
+```mermaid
+flowchart TD
+    P1["Phase 1: Ingestion & Stream Arbitration\n(readers/pdf.py, byte_normalizer.py)"] --> P2["Phase 2: Staged Transduction & Profile Fixes\n(converter.py, krutidev010, shusha010)"]
+    P2 --> P3["Phase 3: Binary Inspection & Profile Fidelity\n(font_inspector.py, audit tools)"]
+    P3 --> P4["Phase 4: OpenVINO Visual Font Fallback & OCR Benchmark\n(visual_resolver.py, benchmark_ocr_legacy_gold.py)"]
+    P4 --> P5["Phase 5: DOCX, Vector Tables, Banking & Legal NMT\n(transformer.py, utr_repair.py, protector.py)"]
+    P5 --> P6["Phase 6: High-Throughput Stage Pipeline Overlap\n(nabhi/pravaha/pipeline.py)"]
+```
+
+### Phase 1: Stream-Order Ingestion, Font-Run Arbitration & MacRoman Normalization
+- **Goal**: Prevent 2D geometric sorting from scrambling raw keystroke typing sequences ($\texttt{vkSj} \xrightarrow{\text{spatial sort}} \texttt{vkjS}$), enforce font-run-based fail-closed arbitration (`TextSpan.font_name` as ground truth), and normalize corrupted MacRoman byte streams.
+- **Key Deliverables**:
+  - `src/sarathi/shakti/font_conversion/byte_normalizer.py` (`normalize_macroman_bytes`)
+  - `src/sarathi/shakti/native_extraction/readers/pdf.py` (pipeline inversion: legacy conversion before spatial line reconstruction)
+  - `tests/native_extraction/test_pdf_legacy_stream.py`
+
+### Phase 2: Declarative 7-Pass Transduction, P0 Profile Bug Fixes & Telemetry
+- **Goal**: Replace flat dictionary replacements with a staged pure-Python transduction pipeline, resolve critical data profile bugs in KrutiDev010 (corrupted ASCII digits) and Shusha (fatal reph deadlock), build the SIL differential test oracle, and add runtime conversion telemetry.
+- **Key Deliverables**:
+  - `data/fonts/krutidev010.json` (P0 ASCII digits fix: preserve `0..9` as Latin, Alt-code bytes `131..140` to Devanagari numerals)
+  - `data/fonts/shusha010.json` (P0 Shusha reconstruction from SIL `Shusha.map`)
+  - `src/sarathi/shakti/font_conversion/converter.py` (7-pass `AksharaConverter` execution pipeline, zero family branching, unmapped symbol histogram telemetry)
+  - `tools/audit_sil_legacy_maps.py` & `tests/font_conversion/test_sil_differential.py`
+
+### Phase 3: Binary Font Identification, Profile Inheritance & Fidelity Auditor
+- **Goal**: Integrate FontTools for binary SFNT name parsing, `GSUB` modern font protection, and anchor glyph outline fingerprinting; implement file-based profile inheritance (`krutidev_base.json` + `011`/`290` deltas); build profile fidelity and mapping candidate mining tools.
+- **Key Deliverables**:
+  - `src/sarathi/shakti/font_conversion/font_inspector.py` (`fontTools.ttLib.TTFont`, `GSUB` guard, multi-subtable CMap, anchor outline hashes)
+  - `data/fonts/krutidev_base.json`, `krutidev011.json`, `krutidev290.json`
+  - `tools/audit_legacy_font.py`, `tools/audit_font_profile.py`, `tools/mine_mapping_candidates.py`, `tools/glyph_sheet.py`
+  - `tests/font_conversion/test_font_inspector.py`
+
+### Phase 4: OpenVINO Visual Font Fallback & Self-Grounded OCR Benchmarking
+- **Goal**: Build the Tier 4 visual font identification fallback with open-set rejection and per-family calibrated thresholds on Intel Arc iGPU (OpenVINO FP16) to resolve obfuscated PDF font subsets (`ABCDEF+F1`); implement the autonomous self-grounded OCR benchmark and glyph line-height adaptive DPI rerasterization formula.
+- **Key Deliverables**:
+  - `src/sarathi/shakti/font_conversion/visual_resolver.py` (OpenVINO FP16 feature extractor, prototype metric retrieval over `data/fonts/legacy_prototypes.bin`, open-set rejection, patch voting, crop caching)
+  - `tools/benchmark_ocr_legacy_gold.py` (autonomous gold-truth generation, Pareto frontier sweep, glyph line-height adaptive DPI calculation)
+  - `tests/font_conversion/test_visual_resolver.py`
+
+### Phase 5: Multi-Part DOCX Transcoder, Vector PDF Tables, Banking & Legal NMT
+- **Goal**: Deliver domain capabilities: lossless in-place OpenXML transcoding across headers/footers/footnotes/tables; sub-millisecond vector drawing table extraction without OCR; banking UTR/IFSC syntax repair and ledger balance verification; proper-noun legal transliteration guard protecting names from NMT mistranslation.
+- **Key Deliverables**:
+  - `src/sarathi/shakti/docx_exporter/transformer.py` (multi-part OpenXML traversal, `Mangal` substitution, font size normalization)
+  - `src/sarathi/shakti/native_extraction/readers/pdf.py` (table line-snap configuration, vector stroke fallback clustering)
+  - `src/sarathi/shakti/bank_statements/utr_repair.py` & `validator.py` (RBI syntax regexes, deterministic OCR repair, double-entry balance verification)
+  - `src/sarathi/shakti/translation/protector.py` (honorific/kinship regex detection, ISO 15919 transliteration, SentencePiece placeholder isolation)
+  - Domain tests: `test_docx_multipart.py`, `test_pdf_vector_tables.py`, `test_utr_repair.py`, `test_proper_noun_guard.py`
+
+### Phase 6: High-Throughput Stage Pipeline Overlap
+- **Goal**: Maximize hardware concurrency across the **Intel Core Ultra 5 125H CPU** (CTranslate2 translation) and **Intel Arc iGPU** (OpenVINO OCR) simultaneously during multi-document processing.
+- **Key Deliverables**:
+  - `src/sarathi/nabhi/pravaha/pipeline.py` (pipelined asynchronous stage handoff: Document $i$ translates on CPU while Document $i+1$ performs OCR on iGPU)
+  - `tests/nabhi/test_pipeline_overlap.py`
 
 ---
 
