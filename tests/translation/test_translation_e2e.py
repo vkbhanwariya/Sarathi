@@ -428,3 +428,75 @@ def test_structural_placeholder_not_translated_and_markdown_table_exported(tmp_p
     assert "| अनुवाद: Col1 | अनुवाद: Col2 |" in txt_content
     assert "| --- | --- |" in txt_content
     assert "{{TABLE:Table_1}}" not in txt_content
+
+
+def test_translation_capability_extracts_legal_context_and_populates_provenance(
+    tmp_path: Path, test_backend: Any
+) -> None:
+    """Verify TranslationCapability extracts legal context and attaches it to document metadata and provenance."""
+    darpana = Darpana(capacity=50)
+    cap = TranslationCapability(darpana=darpana, backend=test_backend)
+
+    legal_sample = """
+    IN THE HIGH COURT OF DELHI AT NEW DELHI
+    W.P.(C) 4567/2023
+    CNR No. DLHC010045672023
+
+    RAMESH CHANDRA ... PETITIONER
+    VERSUS
+    UNION OF INDIA & ORS. ... RESPONDENTS
+
+    CORAM:
+    HON'BLE MR. JUSTICE PRATEEK JALAN
+
+    JUDGMENT
+    1. The petitioner approached this Hon'ble Court under Article 226 of the Constitution of India and Section 482 of the CrPC.
+    2. Reliance is placed on AIR 1980 SC 1789.
+    """
+
+    doc = CanonicalDocument(
+        document_id="doc-legal-1",
+        text=legal_sample,
+        pages=(PageData(page_number=1, text=legal_sample),),
+    )
+    prior = Result(data=doc)
+    ctx = ExecutionContext("run-leg-1", "req-leg-1", "t-leg", "s-leg")
+    inp = InputRef(
+        input_id="inp-leg-1",
+        source_path=tmp_path / "order.txt",
+        display_name="order.txt",
+        size_bytes=len(legal_sample),
+    )
+    req = Request(
+        request_id="req-leg-1",
+        requirement="translation",
+        inputs=(inp,),
+        metadata={"direction": "en-hi"},
+    )
+
+    result = cap.execute(req, ctx, prior_result=prior)
+
+    assert result.data is not None
+    assert isinstance(result.data, CanonicalDocument)
+    res_doc: CanonicalDocument = result.data
+
+    # 1. Verify legal context attached to document metadata
+    assert "legal_context" in res_doc.metadata
+    leg_meta = res_doc.metadata["legal_context"]
+    assert leg_meta["is_legal_document"] is True
+    assert leg_meta["court_name"] == "High Court of Delhi"
+    assert leg_meta["cnr_number"] == "DLHC010045672023"
+    assert any("Article 226" in r for r in leg_meta["statutory_references"])
+    assert any("AIR 1980 SC" in r for r in leg_meta["statutory_references"])
+
+    # 2. Verify legal context attached to Darpana provenance
+    assert len(result.provenance) > 0
+    prov = result.provenance[-1]
+    assert "legal_context" in prov.evidence
+    prov_legal = prov.evidence["legal_context"]
+    assert prov_legal["court_name"] == "High Court of Delhi"
+    assert prov_legal["cnr_number"] == "DLHC010045672023"
+
+    # 3. Verify statutory citations survive translation in output
+    assert "DLHC010045672023" in res_doc.text
+    assert "AIR 1980 SC 1789" in res_doc.text

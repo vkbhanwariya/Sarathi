@@ -27,6 +27,14 @@ _TRANSLATION_ID_RE: re.Pattern[str] = re.compile(
 )
 
 
+def _compile_term_pattern(term: str) -> re.Pattern[str]:
+    """Compile boundary-aware regex pattern for a glossary or custom term."""
+    esc = re.escape(term)
+    prefix = r"(?<!\w)" if term and term[0].isalnum() else ""
+    suffix = r"(?!\w)" if term and term[-1].isalnum() else ""
+    return re.compile(f"{prefix}{esc}{suffix}")
+
+
 class TranslationProtector(BaseSpanProtector):
     """Protects and restores non-translatable factual spans using SentencePiece-safe placeholders."""
 
@@ -49,14 +57,14 @@ class TranslationProtector(BaseSpanProtector):
             sorted_srcs = sorted([s for s in glossary_mappings.keys() if s.strip()], key=len, reverse=True)
             for src in sorted_srcs:
                 target_val = glossary_mappings[src]
-                for m in re.finditer(re.escape(src), text):
+                for m in _compile_term_pattern(src).finditer(text):
                     raw_matches.append((m.start(), m.end(), target_val, "glossary_term", 10))
 
         # 2. Custom Terms (Priority 20)
         if custom_terms:
             sorted_terms = sorted([t for t in custom_terms if t.strip()], key=len, reverse=True)
             for term in sorted_terms:
-                for m in re.finditer(re.escape(term), text):
+                for m in _compile_term_pattern(term).finditer(text):
                     raw_matches.append((m.start(), m.end(), m.group(0), "custom_term", 20))
 
         # 3. URLs & Emails (Priority 30)

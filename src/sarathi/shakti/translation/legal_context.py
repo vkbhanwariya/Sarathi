@@ -313,8 +313,8 @@ class LegalContextBuilder:
             return {}
 
         # Search for domain terms present in text
-        # Filter terms to meaningful words (length >= 3)
-        candidates = [t for t in available_terms.keys() if len(t) >= 3 and t in text]
+        # Filter terms to meaningful words (length >= 2)
+        candidates = [t for t in available_terms.keys() if len(t) >= 2 and t in text]
         if not candidates:
             return {}
 

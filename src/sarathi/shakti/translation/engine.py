@@ -8,7 +8,7 @@ import re
 import threading
 import tomllib
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceType, ExecutionBinding
@@ -362,6 +362,8 @@ class CTranslate2TranslationEngine:
         direction: TranslationDirection = TranslationDirection.HI_TO_EN,
         execution_binding: ExecutionBinding | None = None,
         engine: str = "indictrans2",
+        glossary_terms: Mapping[str, str] | None = None,
+        custom_terms: Sequence[str] = (),
     ) -> TranslationResult:
         """Translate normalized Unicode text via CTranslate2 with span protection and glossary."""
         src_lang = Language.HINDI if direction == TranslationDirection.HI_TO_EN else Language.ENGLISH
@@ -384,10 +386,14 @@ class CTranslate2TranslationEngine:
             )
 
         # 1. Retrieve domain glossary mappings for this direction
-        glossary_terms = self._glossary.get_terms(direction)
+        active_glossary = glossary_terms if glossary_terms is not None else self._glossary.get_terms(direction)
 
-        # 2. Protect factual spans and domain glossary terms (Finding 37)
-        protected_text, spans = self._protector.protect(text, glossary_mappings=glossary_terms)
+        # 2. Protect factual spans, custom terms (e.g. legal citations), and domain glossary terms
+        protected_text, spans = self._protector.protect(
+            text,
+            custom_terms=custom_terms,
+            glossary_mappings=active_glossary,
+        )
 
         # 3. Split into sentences
         raw_sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.findall(protected_text) if s.strip()]
@@ -449,6 +455,8 @@ class CTranslate2TranslationEngine:
         direction: TranslationDirection = TranslationDirection.HI_TO_EN,
         execution_binding: ExecutionBinding | None = None,
         engine: str = "indictrans2",
+        glossary_terms: Mapping[str, str] | None = None,
+        custom_terms: Sequence[str] = (),
     ) -> list[TranslationResult]:
         """Translate a batch of normalized texts via CTranslate2 with multi-core batch decoder."""
         if not texts:
@@ -461,7 +469,7 @@ class CTranslate2TranslationEngine:
             target_device = execution_binding.backend_device_id or "cuda"
 
         norm_engine = str(engine or "indictrans2").lower().strip()
-        glossary_terms = self._glossary.get_terms(direction)
+        active_glossary = glossary_terms if glossary_terms is not None else self._glossary.get_terms(direction)
         dir_key = direction.value
 
         text_slices: list[tuple[int, int, list[tuple[str, str]], int]] = []
@@ -472,7 +480,11 @@ class CTranslate2TranslationEngine:
                 text_slices.append((idx, 0, [], 0))
                 continue
 
-            protected_text, spans = self._protector.protect(text, glossary_mappings=glossary_terms)
+            protected_text, spans = self._protector.protect(
+                text,
+                custom_terms=custom_terms,
+                glossary_mappings=active_glossary,
+            )
             raw_sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.findall(protected_text) if s.strip()]
             if not raw_sentences:
                 raw_sentences = [protected_text]

@@ -129,3 +129,59 @@ def test_translation_protector_recovers_collapsed_digits() -> None:
     assert issues == []
     assert "u/s5of PMLA" in restored
     assert "नियम PMLA-2002 के तहत" in restored
+
+
+def test_translation_protector_word_boundaries_prevent_substring_corruption() -> None:
+    """Verify that word boundaries prevent terms like 'order' from corrupting 'border' or 'disorder'."""
+    protector = TranslationProtector()
+    glossary = {"order": "आदेश", "ऋण": "Debt"}
+    sample = "The border patrol observed no disorder, but executed the court order. वह ऋण मुक्त है।"
+
+    protected, spans = protector.protect(sample, glossary_mappings=glossary)
+
+    assert "border" in protected
+    assert "disorder" in protected
+    assert "court 999" in protected or "999" in protected
+    # Only "order" and "ऋण" should be protected
+    assert len(spans) == 2
+
+    restored, issues = protector.restore_with_validation(protected, spans)
+    assert issues == []
+    assert "The border patrol observed no disorder, but executed the court आदेश." in restored
+    assert "वह Debt मुक्त है।" in restored
+
+
+def test_local_translation_engine_preserves_statutory_citations_and_glossaries(test_backend: Any) -> None:
+    """Verify CTranslate2TranslationEngine preserves case law citations, FIRs, and applies scoped glossary."""
+    protector = TranslationProtector()
+    engine = CTranslate2TranslationEngine(backend=test_backend, protector=protector)
+
+    sample = (
+        "माननीय उच्चतम न्यायालय ने (2021) 4 SCC 123 तथा AIR 1980 SC 1789 में अभिनिर्धारित किया। "
+        "याचिकाकर्ता के विरुद्ध प्राथमिकी FIR No. 123/2024 दर्ज की गई। अभियोजन पक्ष विफल रहा।"
+    )
+
+    custom_citations = ("(2021) 4 SCC 123", "AIR 1980 SC 1789", "FIR No. 123/2024")
+    scoped_glossary = {
+        "उच्चतम न्यायालय": "Supreme Court",
+        "याचिकाकर्ता": "Petitioner",
+        "अभियोजन पक्ष": "Prosecution",
+    }
+
+    result = engine.translate(
+        sample,
+        direction=TranslationDirection.HI_TO_EN,
+        glossary_terms=scoped_glossary,
+        custom_terms=custom_citations,
+    )
+    translated = result.translated_text
+
+    # Verify statutory and case citations survive verbatim
+    assert "(2021) 4 SCC 123" in translated
+    assert "AIR 1980 SC 1789" in translated
+    assert "FIR No. 123/2024" in translated
+
+    # Verify domain legal terminology is restored
+    assert "Supreme Court" in translated
+    assert "Petitioner" in translated
+    assert "Prosecution" in translated

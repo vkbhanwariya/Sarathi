@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 import time
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Mapping
+from typing import TYPE_CHECKING, Callable, Mapping, Sequence
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -41,6 +42,7 @@ from sarathi.shakti.translation.engine import (
     CTranslate2TranslationEngine,
     TranslatorBackend,
 )
+from sarathi.shakti.translation.legal_context import LegalContextBuilder
 from sarathi.shakti.translation.models import TranslationDirection, TranslationResult
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
@@ -137,6 +139,7 @@ class TranslationCapability:
                 protector=self._protector,
             )
         )
+        self._legal_builder = LegalContextBuilder(glossary_store=getattr(self._engine, "_glossary", None))
 
     @property
     def asset_version(self) -> str:
@@ -317,17 +320,26 @@ class TranslationCapability:
                     input_id=doc.document_id,
                 )
 
-            full_text = doc.text
-            if not full_text.strip() and doc.tables:
-                table_lines = []
+            sample_parts: list[str] = [doc.text] if doc.text else []
+            if doc.tables:
                 for t in doc.tables:
                     if t.headers:
-                        table_lines.append(" ".join(str(c) for c in t.headers))
+                        sample_parts.append(" ".join(str(c) for c in t.headers))
                     for r in t.rows:
-                        table_lines.append(" ".join(str(c) for c in r))
-                full_text = "\n".join(table_lines)
-            if not full_text.strip() and doc.pages:
-                full_text = "\n".join(p.text for p in doc.pages if p.text)
+                        sample_parts.append(" ".join(str(c) for c in r))
+            if doc.pages:
+                for p in doc.pages:
+                    if p.text:
+                        sample_parts.append(p.text)
+                    for s in p.spans:
+                        if s.text:
+                            sample_parts.append(s.text)
+                    for t in p.tables:
+                        if t.headers:
+                            sample_parts.append(" ".join(str(c) for c in t.headers))
+                        for r in t.rows:
+                            sample_parts.append(" ".join(str(c) for c in r))
+            combined_text = "\n".join(sample_parts) if sample_parts else doc.text
 
             req_direction = (
                 request.metadata.get("direction")
@@ -340,8 +352,82 @@ class TranslationCapability:
                 else "indictrans2"
             )
             direction = self._detector.resolve_direction(
-                full_text, requested_direction=str(req_direction) if req_direction else None
+                combined_text, requested_direction=str(req_direction) if req_direction else None
             )
+
+            # Extract domain legal context, dynamic glossary candidates, and statutory citations
+            legal_context = self._legal_builder.extract_context(
+                text=combined_text,
+                direction=direction,
+                custom_options=request.custom_options,
+                max_glossary_terms=100,
+            )
+            verbatim_citations: list[str] = []
+            if legal_context.cnr_number:
+                verbatim_citations.append(legal_context.cnr_number)
+            if legal_context.case_number:
+                verbatim_citations.append(legal_context.case_number)
+            for ref in legal_context.statutory_references:
+                if direction == TranslationDirection.HI_TO_EN and contains_devanagari(ref):
+                    continue
+                if any(k in ref for k in ("SCC", "AIR", "INSC", "ILR", "FIR", "Crime No", "CNR", "W.P.", "Crl.A.")):
+                    verbatim_citations.append(ref)
+                elif direction == TranslationDirection.EN_TO_HI and not contains_devanagari(ref):
+                    verbatim_citations.append(ref)
+
+            active_glossary = legal_context.matched_glossary_terms
+
+            def _call_engine_translate_single(text_s: str) -> TranslationResult:
+                try:
+                    return self._engine.translate(
+                        text_s,
+                        direction=direction,
+                        execution_binding=context.execution_binding,
+                        engine=req_engine,
+                        glossary_terms=active_glossary,
+                        custom_terms=verbatim_citations,
+                    )
+                except TypeError:
+                    try:
+                        return self._engine.translate(
+                            text_s,
+                            direction=direction,
+                            execution_binding=context.execution_binding,
+                            engine=req_engine,
+                        )
+                    except TypeError:
+                        return self._engine.translate(
+                            text_s,
+                            direction=direction,
+                            execution_binding=context.execution_binding,
+                        )
+
+            def _call_engine_translate_batch(batch: Sequence[str]) -> list[TranslationResult]:
+                if hasattr(self._engine, "translate_batch"):
+                    try:
+                        return self._engine.translate_batch(
+                            batch,
+                            direction=direction,
+                            execution_binding=context.execution_binding,
+                            engine=req_engine,
+                            glossary_terms=active_glossary,
+                            custom_terms=verbatim_citations,
+                        )
+                    except TypeError:
+                        try:
+                            return self._engine.translate_batch(
+                                batch,
+                                direction=direction,
+                                execution_binding=context.execution_binding,
+                                engine=req_engine,
+                            )
+                        except TypeError:
+                            return self._engine.translate_batch(
+                                batch,
+                                direction=direction,
+                                execution_binding=context.execution_binding,
+                            )
+                return [_call_engine_translate_single(s) for s in batch]
 
             scope = (
                 self._darpana.time_scope(context=context, phase_name="translation", component="shakti.translation")
@@ -392,37 +478,9 @@ class TranslationCapability:
 
                 # 2. Batch-translate all unique texts in a single pass to saturate all CPU P-cores
                 if unique_texts:
-                    if hasattr(self._engine, "translate_batch"):
-                        try:
-                            batch_results = self._engine.translate_batch(
-                                unique_texts,
-                                direction=direction,
-                                execution_binding=context.execution_binding,
-                                engine=req_engine,
-                            )
-                        except TypeError:
-                            batch_results = self._engine.translate_batch(
-                                unique_texts,
-                                direction=direction,
-                                execution_binding=context.execution_binding,
-                            )
-                        for raw_s, res in zip(unique_texts, batch_results):
-                            translation_cache[raw_s] = res
-                    else:
-                        for raw_s in unique_texts:
-                            try:
-                                translation_cache[raw_s] = self._engine.translate(
-                                    raw_s,
-                                    direction=direction,
-                                    execution_binding=context.execution_binding,
-                                    engine=req_engine,
-                                )
-                            except TypeError:
-                                translation_cache[raw_s] = self._engine.translate(
-                                    raw_s,
-                                    direction=direction,
-                                    execution_binding=context.execution_binding,
-                                )
+                    batch_results = _call_engine_translate_batch(unique_texts)
+                    for raw_s, res in zip(unique_texts, batch_results):
+                        translation_cache[raw_s] = res
 
                 # 3. Transform document with instant O(1) cache lookups
                 def _trans_text(raw: str) -> str:
@@ -442,19 +500,7 @@ class TranslationCapability:
                                 translated_chunks.append(c)
                         return "".join(translated_chunks)
                     if raw not in translation_cache:
-                        try:
-                            translation_cache[raw] = self._engine.translate(
-                                raw,
-                                direction=direction,
-                                execution_binding=context.execution_binding,
-                                engine=req_engine,
-                            )
-                        except TypeError:
-                            translation_cache[raw] = self._engine.translate(
-                                raw,
-                                direction=direction,
-                                execution_binding=context.execution_binding,
-                            )
+                        translation_cache[raw] = _call_engine_translate_single(raw)
                     return translation_cache[raw].translated_text
 
                 tgt_lang = "en" if direction == TranslationDirection.HI_TO_EN else "hi"
@@ -467,6 +513,9 @@ class TranslationCapability:
                     target_lang=tgt_lang,
                     target_script=tgt_script,
                 )
+                meta = dict(translated_doc.metadata) if translated_doc.metadata else {}
+                meta["legal_context"] = legal_context.to_dict()
+                translated_doc = replace(translated_doc, metadata=meta)
                 trans_dur_ns = max(0, time.perf_counter_ns() - t_trans_start)
 
                 primary_res = translation_cache.get(doc.text) or (
@@ -501,6 +550,7 @@ class TranslationCapability:
                         "device": device_val,
                         "backend": "ctranslate2",
                         "engine": req_engine,
+                        "legal_context": legal_context.to_dict(),
                     },
                 )
 
@@ -541,37 +591,9 @@ class TranslationCapability:
                                 if t and t.strip() and not _is_structural_placeholder(t) and t not in translation_cache
                             ]
                             if missing:
-                                if hasattr(self._engine, "translate_batch"):
-                                    try:
-                                        b_res = self._engine.translate_batch(
-                                            missing,
-                                            direction=direction,
-                                            execution_binding=context.execution_binding,
-                                            engine=req_engine,
-                                        )
-                                    except TypeError:
-                                        b_res = self._engine.translate_batch(
-                                            missing,
-                                            direction=direction,
-                                            execution_binding=context.execution_binding,
-                                        )
-                                    for raw_t, r in zip(missing, b_res):
-                                        translation_cache[raw_t] = r
-                                else:
-                                    for raw_t in missing:
-                                        try:
-                                            translation_cache[raw_t] = self._engine.translate(
-                                                raw_t,
-                                                direction=direction,
-                                                execution_binding=context.execution_binding,
-                                                engine=req_engine,
-                                            )
-                                        except TypeError:
-                                            translation_cache[raw_t] = self._engine.translate(
-                                                raw_t,
-                                                direction=direction,
-                                                execution_binding=context.execution_binding,
-                                            )
+                                b_res = _call_engine_translate_batch(missing)
+                                for raw_t, r in zip(missing, b_res):
+                                    translation_cache[raw_t] = r
                             return [_trans_text(t) for t in batch]
 
                         docx_bytes = matching_inp.source_path.read_bytes()
