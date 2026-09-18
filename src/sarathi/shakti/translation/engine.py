@@ -128,6 +128,14 @@ class CTranslate2TranslationEngine:
     def asset_version(self) -> str:
         return self._asset_version
 
+    def warmup(self, execution_binding: ExecutionBinding | None = None) -> bool:
+        """Pre-initialize CTranslate2 engine and load neural weights."""
+        try:
+            self._ensure_backend()
+            return True
+        except Exception:
+            return False
+
     def _ensure_backend(self) -> TranslatorBackend:
         """Validate local CTranslate2 model manifest/assets and initialize backend."""
         if self._backend is not None:

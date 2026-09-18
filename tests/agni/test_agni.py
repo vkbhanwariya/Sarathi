@@ -647,3 +647,27 @@ class TestAgniBootstrap:
         agni.close()
         assert mock_darpana.close_called is True
         assert agni.is_closed is True
+
+    def test_agni_prewarm_triggers_capability_warmup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Agni.prewarm invokes warmup on registered capabilities with preferred binding."""
+        agni = Agni(
+            runtime_root=tmp_path / "runtime",
+            output_root=tmp_path / "output",
+        )
+        warmup_calls = []
+
+        # Find a capability with warmup
+        cap = next(c for c in agni.capabilities.values() if hasattr(c, "warmup"))
+        monkeypatch.setattr(cap, "warmup", lambda execution_binding=None: warmup_calls.append(execution_binding))
+
+        # Synchronous prewarm test
+        agni.prewarm(async_mode=False)
+        assert len(warmup_calls) == 1
+        assert warmup_calls[0] is not None
+        assert warmup_calls[0].device_id is not None
+
+        # Asynchronous prewarm test
+        thread = agni.prewarm(async_mode=True)
+        assert thread is not None
+        thread.join(timeout=2.0)
+        assert len(warmup_calls) == 2

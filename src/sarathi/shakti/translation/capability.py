@@ -17,6 +17,7 @@ from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
     CanonicalDocument,
+    ExecutionBinding,
     ExecutionContext,
     InputRef,
     ProvenanceRecord,
@@ -136,6 +137,12 @@ class TranslationCapability:
     @property
     def asset_version(self) -> str:
         return getattr(self._engine, "asset_version", "")
+
+    def warmup(self, execution_binding: ExecutionBinding | None = None) -> bool:
+        """Pre-initialize translation engine and neural models."""
+        if hasattr(self._engine, "warmup"):
+            return bool(self._engine.warmup(execution_binding=execution_binding))
+        return False
 
     def _record_telemetry(
         self,

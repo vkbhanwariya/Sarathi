@@ -92,6 +92,14 @@ class RapidOCREngine:
     def default_lang(self) -> str:
         return self._default_lang
 
+    def warmup(self, execution_binding: ExecutionBinding | None = None) -> bool:
+        """Pre-initialize RapidOCR engine and compile OpenVINO models for the target device."""
+        try:
+            self._get_engine(self._default_lang, execution_binding=execution_binding)
+            return True
+        except Exception:
+            return False
+
     def _get_engine(
         self,
         lang: str = "devanagari",

@@ -16,6 +16,7 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     ConfidenceValue,
+    ExecutionBinding,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
@@ -160,6 +161,12 @@ class OCRCapability:
     @property
     def asset_version(self) -> str:
         return getattr(self._engine, "asset_version", "")
+
+    def warmup(self, execution_binding: ExecutionBinding | None = None) -> bool:
+        """Pre-initialize RapidOCR engine and compile OpenVINO models for the target device."""
+        if hasattr(self._engine, "warmup"):
+            return bool(self._engine.warmup(execution_binding=execution_binding))
+        return False
 
     def _record_page_telemetry(
         self,

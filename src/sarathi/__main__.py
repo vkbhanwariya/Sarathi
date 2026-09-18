@@ -103,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
 
                 server = MukhaWebServer(agni=agni)
                 server.start()
+                agni.prewarm(async_mode=True)
                 local_url = server.local_url
                 print(f"Sarathi Dashboard running at: {local_url}")
                 print("Press Ctrl+C to stop.")

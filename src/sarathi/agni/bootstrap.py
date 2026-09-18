@@ -6,6 +6,7 @@ execution to Pravaha. It intentionally avoids a separate lifecycle-manager layer
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -29,6 +30,8 @@ from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Pravaha, QuarantineSt
 from sarathi.sankalpa import (
     Capability,
     CapabilityReadiness,
+    DeviceType,
+    ExecutionBinding,
     ExecutionContext,
     PluginInfo,
     PluginProvider,
@@ -219,6 +222,58 @@ class Agni:
 
     def audit_readiness(self, force_refresh: bool = False) -> Mapping[str, CapabilityReadiness]:
         return self._readiness_auditor.audit(force_refresh=force_refresh)
+
+    def _resolve_preferred_binding(self) -> ExecutionBinding | None:
+        """Resolve the preferred ExecutionBinding for pre-warming (preferring GPU, then CPU)."""
+        if self._inventory is None:
+            return None
+        gpu_dev = next((d for d in self._inventory if d.device_type == DeviceType.GPU), None)
+        if gpu_dev is not None:
+            backend = "openvino" if "openvino" in (gpu_dev.supported_backends or ()) else "cpu"
+            backend_dev = (gpu_dev.backend_locators or {}).get(backend, gpu_dev.device_id)
+            return ExecutionBinding(
+                device_id=gpu_dev.device_id,
+                device_type=gpu_dev.device_type,
+                backend=backend,
+                backend_device_id=backend_dev,
+                approved_concurrency=1,
+            )
+        cpu_dev = next((d for d in self._inventory if d.device_type == DeviceType.CPU), None)
+        if cpu_dev is not None:
+            backend = "openvino" if "openvino" in (cpu_dev.supported_backends or ()) else "cpu"
+            backend_dev = (cpu_dev.backend_locators or {}).get(backend, cpu_dev.device_id)
+            return ExecutionBinding(
+                device_id=cpu_dev.device_id,
+                device_type=cpu_dev.device_type,
+                backend=backend,
+                backend_device_id=backend_dev,
+                approved_concurrency=1,
+            )
+        return None
+
+    def prewarm(self, async_mode: bool = True) -> threading.Thread | None:
+        """Pre-warm registered capabilities (e.g. OpenVINO JIT compilation and CTranslate2 model load)."""
+        preferred_binding = self._resolve_preferred_binding()
+
+        def _do_warmup() -> None:
+            for cap in self._capabilities.values():
+                if hasattr(cap, "warmup") and callable(cap.warmup):
+                    try:
+                        cap.warmup(execution_binding=preferred_binding)
+                    except Exception:
+                        pass
+
+        if async_mode:
+            thread = threading.Thread(
+                target=_do_warmup,
+                name="sarathi-prewarmer",
+                daemon=True,
+            )
+            thread.start()
+            return thread
+        else:
+            _do_warmup()
+            return None
 
     def register_component(self, component_id: str, component: Any) -> None:
         """Register a process-level component that exposes start() and close()."""
