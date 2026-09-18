@@ -60,6 +60,7 @@ def _make_span(text: str, bbox: tuple[float, float, float, float], conf: float =
 # 1. Continuous Paragraph Reconstruction in all OCR modes
 # ==============================================================================
 
+
 @pytest.mark.parametrize(
     "profile,custom_opts",
     [
@@ -89,10 +90,12 @@ def test_continuous_paragraph_reconstruction_in_all_modes(
     mock_output = MagicMock()
     mock_output.txts = [s.text for s in spans]
     mock_output.boxes = [
-        [[s.bounding_box[0], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[3]],
-         [s.bounding_box[0], s.bounding_box[3]]]
+        [
+            [s.bounding_box[0], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[3]],
+            [s.bounding_box[0], s.bounding_box[3]],
+        ]
         for s in spans
     ]
     mock_output.scores = [0.95, 0.94, 0.96]
@@ -107,14 +110,19 @@ def test_continuous_paragraph_reconstruction_in_all_modes(
         custom_options=custom_opts,
     )
 
-    expected = "This is the first sentence of a continuous paragraph that wraps across multiple detected visual rows cleanly."
+    expected = (
+        "This is the first sentence of a continuous paragraph that wraps across multiple detected visual rows cleanly."
+    )
     assert page_data.text.strip() == expected
-    assert "\n" not in page_data.text.strip(), "Consecutive rows in same paragraph must be joined with space, not newline"
+    assert "\n" not in page_data.text.strip(), (
+        "Consecutive rows in same paragraph must be joined with space, not newline"
+    )
 
 
 # ==============================================================================
 # 2. Genuine Paragraph Breaks (Gap, Indent, Early Terminal Line)
 # ==============================================================================
+
 
 def test_genuine_paragraph_breaks_preserved() -> None:
     """Proves large vertical gap, first-line indent, and early terminal line create real breaks."""
@@ -142,6 +150,7 @@ def test_genuine_paragraph_breaks_preserved() -> None:
 # ==============================================================================
 # 3. Headings and List Bullet Items
 # ==============================================================================
+
 
 def test_headings_and_lists_preserved() -> None:
     """Proves headings and bullet/numbered list items are kept distinct from normal paragraphs."""
@@ -175,9 +184,15 @@ def test_heading_invariants_reject_tall_body_lines_with_sentence_punctuation() -
     """Proves tall body lines with periods or long word counts are not falsely mutated into headings."""
     spans = [
         # Normal line (line height 20px)
-        _make_span("The Hon'ble Court has considered the detailed application filed by the Petitioner.", (50.0, 50.0, 420.0, 70.0)),
+        _make_span(
+            "The Hon'ble Court has considered the detailed application filed by the Petitioner.",
+            (50.0, 50.0, 420.0, 70.0),
+        ),
         # Tall line (line height 32px, ratio 1.6x) but ending with a period and 11 words
-        _make_span("This is an ordinary sentence with tall diacritics and matras ending in a period.", (50.0, 80.0, 420.0, 112.0)),
+        _make_span(
+            "This is an ordinary sentence with tall diacritics and matras ending in a period.",
+            (50.0, 80.0, 420.0, 112.0),
+        ),
         # Another line ending in purna virama
         _make_span("यह एक सामान्य वाक्य है जो पूर्ण विराम पर समाप्त होता है।", (50.0, 120.0, 400.0, 152.0)),
     ]
@@ -185,8 +200,6 @@ def test_heading_invariants_reject_tall_body_lines_with_sentence_punctuation() -
     # Neither line should have "# " or "## " prepended
     for line in text.splitlines():
         assert not line.startswith(("# ", "## ", "### ")), f"Line was falsely marked as heading: {line}"
-
-
 
 
 def test_font_metric_gap_aware_span_reconstruction_in_lines() -> None:
@@ -204,6 +217,7 @@ def test_font_metric_gap_aware_span_reconstruction_in_lines() -> None:
 # ==============================================================================
 # 4. Multi-Column Reading Order
 # ==============================================================================
+
 
 def test_multi_column_reading_order_preservation() -> None:
     """Proves Recursive XY-Cut reads left column completely before right column."""
@@ -230,6 +244,7 @@ def test_multi_column_reading_order_preservation() -> None:
 # ==============================================================================
 # 5. Ruled Table Detection
 # ==============================================================================
+
 
 def test_ruled_table_detection() -> None:
     """Proves OpenCV morphological line detection finds ruled tables and extracts TableData."""
@@ -284,6 +299,7 @@ def test_ruled_table_detection() -> None:
 # 6. Borderless Table Detection
 # ==============================================================================
 
+
 def test_borderless_table_detection() -> None:
     """Proves coordinate-based column alignment extracts borderless tables without lines."""
     spans = [
@@ -322,6 +338,7 @@ def test_borderless_table_detection() -> None:
 # 7. Layout Reconstruction Gating by Profile
 # ==============================================================================
 
+
 def test_layout_reconstruction_profile_gating() -> None:
     """Proves tables are extracted ONLY in LAYOUT_PRESERVING and CUSTOM(preserve_layout=True)."""
     engine = RapidOCREngine()
@@ -337,10 +354,12 @@ def test_layout_reconstruction_profile_gating() -> None:
     mock_output = MagicMock()
     mock_output.txts = [s.text for s in spans]
     mock_output.boxes = [
-        [[s.bounding_box[0], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[3]],
-         [s.bounding_box[0], s.bounding_box[3]]]
+        [
+            [s.bounding_box[0], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[3]],
+            [s.bounding_box[0], s.bounding_box[3]],
+        ]
         for s in spans
     ]
     mock_output.scores = [0.95] * len(spans)
@@ -379,6 +398,7 @@ def test_layout_reconstruction_profile_gating() -> None:
 # 8. Layout-Preserving DOCX Export
 # ==============================================================================
 
+
 def test_layout_preserving_docx_export(tmp_path: Path) -> None:
     """Proves end-to-end OCR execution in LAYOUT_PRESERVING generates a Word table (<w:tbl>) in DOCX."""
     img_path = tmp_path / "table_doc.png"
@@ -410,10 +430,12 @@ def test_layout_preserving_docx_export(tmp_path: Path) -> None:
     mock_output = MagicMock()
     mock_output.txts = [s.text for s in all_spans]
     mock_output.boxes = [
-        [[s.bounding_box[0], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[3]],
-         [s.bounding_box[0], s.bounding_box[3]]]
+        [
+            [s.bounding_box[0], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[3]],
+            [s.bounding_box[0], s.bounding_box[3]],
+        ]
         for s in all_spans
     ]
     mock_output.scores = [0.95] * len(all_spans)
@@ -451,6 +473,7 @@ def test_layout_preserving_docx_export(tmp_path: Path) -> None:
 # 9. Original Confidence & Text Evidence Invariance
 # ==============================================================================
 
+
 def test_original_confidence_and_evidence_invariance() -> None:
     """Proves layout reconstruction preserves original span confidence scores and text evidence."""
     spans = [
@@ -462,10 +485,12 @@ def test_original_confidence_and_evidence_invariance() -> None:
     mock_output = MagicMock()
     mock_output.txts = [s.text for s in spans]
     mock_output.boxes = [
-        [[s.bounding_box[0], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[3]],
-         [s.bounding_box[0], s.bounding_box[3]]]
+        [
+            [s.bounding_box[0], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[3]],
+            [s.bounding_box[0], s.bounding_box[3]],
+        ]
         for s in spans
     ]
     mock_output.scores = [0.8876, 0.7432]
@@ -484,6 +509,7 @@ def test_original_confidence_and_evidence_invariance() -> None:
 # ==============================================================================
 # 10. Multi-Column Layout Detection
 # ==============================================================================
+
 
 def test_detect_column_count_single_vs_multi() -> None:
     """Proves detect_column_count correctly differentiates single-column vs multi-column layouts."""
@@ -511,6 +537,7 @@ def test_detect_column_count_single_vs_multi() -> None:
 # 11. Ragged Row and Spanning Cell Warning Detection
 # ==============================================================================
 
+
 def test_ragged_table_warning_emission() -> None:
     """Proves RapidOCREngine emits LAYOUT_TABLE_ROW_RAGGED warning when a table has irregular row widths."""
     engine = RapidOCREngine()
@@ -523,10 +550,12 @@ def test_ragged_table_warning_emission() -> None:
     mock_output = MagicMock()
     mock_output.txts = [s.text for s in spans]
     mock_output.boxes = [
-        [[s.bounding_box[0], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[1]],
-         [s.bounding_box[2], s.bounding_box[3]],
-         [s.bounding_box[0], s.bounding_box[3]]]
+        [
+            [s.bounding_box[0], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[1]],
+            [s.bounding_box[2], s.bounding_box[3]],
+            [s.bounding_box[0], s.bounding_box[3]],
+        ]
         for s in spans
     ]
     mock_output.scores = [0.95, 0.95]
@@ -559,6 +588,7 @@ def test_ragged_table_warning_emission() -> None:
 # ==============================================================================
 # 12. Scanned Image Arbitration in Usable Page Checks
 # ==============================================================================
+
 
 def test_is_usable_page_scanned_image_arbitration() -> None:
     """Proves _is_usable_page routes pages with high image coverage and sparse text to OCR."""
@@ -599,6 +629,7 @@ def test_is_usable_page_scanned_image_arbitration() -> None:
 # 13. Borderless Table Prose Protection & Column Detection
 # ==============================================================================
 
+
 def test_borderless_table_rejects_long_prose_paragraphs() -> None:
     """Proves detect_borderless_tables does not swallow long prose lines into a pseudo-table."""
     from sarathi.shakti.ocr.engine.layout import detect_borderless_tables
@@ -606,12 +637,30 @@ def test_borderless_table_rejects_long_prose_paragraphs() -> None:
     # Simulate multi-line prose where lines happen to be broken into 2 visual spans
     # but each span has long sentences (>100 characters).
     prose_spans = [
-        _make_span("This is the first half of a long narrative paragraph describing the procedural history of the case in detail.", (50.0, 100.0, 450.0, 120.0)),
-        _make_span("continuing further with substantial facts and allegations set forth by the investigating officer in the report.", (460.0, 100.0, 850.0, 120.0)),
-        _make_span("The second sentence proceeds to analyze the testimonies recorded during the investigation under relevant statutes.", (50.0, 130.0, 450.0, 150.0)),
-        _make_span("and explains why each witness was examined and what documents were seized from the respective premises.", (460.0, 130.0, 850.0, 150.0)),
-        _make_span("Finally the conclusion reached by the inquiry indicates that further corroboration was deemed necessary.", (50.0, 160.0, 450.0, 180.0)),
-        _make_span("before filing the formal complaint before the competent judicial authority having jurisdiction.", (460.0, 160.0, 850.0, 180.0)),
+        _make_span(
+            "This is the first half of a long narrative paragraph describing the procedural history of the case in detail.",
+            (50.0, 100.0, 450.0, 120.0),
+        ),
+        _make_span(
+            "continuing further with substantial facts and allegations set forth by the investigating officer in the report.",
+            (460.0, 100.0, 850.0, 120.0),
+        ),
+        _make_span(
+            "The second sentence proceeds to analyze the testimonies recorded during the investigation under relevant statutes.",
+            (50.0, 130.0, 450.0, 150.0),
+        ),
+        _make_span(
+            "and explains why each witness was examined and what documents were seized from the respective premises.",
+            (460.0, 130.0, 850.0, 150.0),
+        ),
+        _make_span(
+            "Finally the conclusion reached by the inquiry indicates that further corroboration was deemed necessary.",
+            (50.0, 160.0, 450.0, 180.0),
+        ),
+        _make_span(
+            "before filing the formal complaint before the competent judicial authority having jurisdiction.",
+            (460.0, 160.0, 850.0, 180.0),
+        ),
     ]
 
     tables, consumed = detect_borderless_tables(prose_spans, consumed_indices=set())
@@ -623,7 +672,10 @@ def test_detect_column_count_rejects_bottom_signature_as_multicolumn() -> None:
     """Proves detect_column_count treats pages with narrative text and isolated right signature as 1 column."""
     # 20 lines of body text on left (x: 50..450, y: 100..600)
     spans = [
-        _make_span(f"Body text line {i} of the official judicial order or chargesheet.", (50.0, 100.0 + i * 25.0, 450.0, 120.0 + i * 25.0))
+        _make_span(
+            f"Body text line {i} of the official judicial order or chargesheet.",
+            (50.0, 100.0 + i * 25.0, 450.0, 120.0 + i * 25.0),
+        )
         for i in range(20)
     ]
     # 2 signature lines at bottom right (x: 550..750, y: 700..750)

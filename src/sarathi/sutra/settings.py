@@ -13,13 +13,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import Any, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
-
-if TYPE_CHECKING:
-    from sarathi.kavacha import SecurityPolicy
-    from sarathi.smriti import CachePolicy
 
 
 def _freeze_value(value: Any) -> Any:
@@ -379,33 +375,6 @@ class Settings:
                 message=f"cache.max_entries_l2 must be a positive integer, got {raw!r}.",
             )
         return raw
-
-    def cache_policy(self) -> CachePolicy:
-        """Construct a validated CachePolicy from configuration."""
-        from sarathi.smriti import CachePolicy
-
-        return CachePolicy(
-            ttl_seconds=self.cache_ttl_seconds,
-            max_entries_l1=self.cache_max_entries_l1,
-            max_entries_l2=self.cache_max_entries_l2,
-        )
-
-    def security_policy(self) -> SecurityPolicy:
-        """Construct a validated SecurityPolicy from configuration."""
-        from sarathi.kavacha import SecurityPolicy
-
-        try:
-            return SecurityPolicy(
-                allow_pii_access=self.allow_pii_access,
-                allow_network_access=self.allow_network_access,
-                allow_external_processing=self.allow_external_processing,
-                allowed_secrets=self.allowed_secrets,
-            )
-        except (ValueError, TypeError) as err:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="Invalid security policy configuration.",
-            ) from err
 
     @property
     def plugins_disabled(self) -> tuple[str, ...]:

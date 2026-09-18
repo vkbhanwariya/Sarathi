@@ -196,7 +196,11 @@ class _ResourceAllocator:
                 )
 
             # Check immediate cancellation
-            if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+            if (
+                context is not None
+                and context.cancellation_token is not None
+                and context.cancellation_token.is_cancelled
+            ):
                 context.cancellation_token.check_cancelled()
 
             # 1. Check if slots are currently available (preferred then supported)
@@ -205,10 +209,7 @@ class _ResourceAllocator:
                 return alloc
 
             # 2. Check if ANY device in inventory could EVER satisfy this requirement
-            has_compatible_device = any(
-                self._is_device_compatible(dev, requirement)
-                for dev in self._inventory.devices
-            )
+            has_compatible_device = any(self._is_device_compatible(dev, requirement) for dev in self._inventory.devices)
             if not has_compatible_device:
                 raise DoshError(
                     code=FailureCode.RESOURCE_UNAVAILABLE,
@@ -247,7 +248,11 @@ class _ResourceAllocator:
         start_time = time.monotonic()
         while True:
             # Check cooperative cancellation
-            if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+            if (
+                context is not None
+                and context.cancellation_token is not None
+                and context.cancellation_token.is_cancelled
+            ):
                 with self._lock:
                     self._cleanup_abandoned_waiter_unlocked(entry)
                 context.cancellation_token.check_cancelled()
@@ -266,7 +271,11 @@ class _ResourceAllocator:
                 step_timeout = min(step_timeout, remaining)
 
             if entry.event.wait(timeout=step_timeout):
-                if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                if (
+                    context is not None
+                    and context.cancellation_token is not None
+                    and context.cancellation_token.is_cancelled
+                ):
                     with self._lock:
                         self._cleanup_abandoned_waiter_unlocked(entry)
                     context.cancellation_token.check_cancelled()
@@ -377,11 +386,13 @@ class _ResourceAllocator:
             backend_dev_id = locators[chosen_backend]
         elif dev.device_type == DeviceType.GPU:
             import re
+
             m = re.search(r"(\d+)", dev.device_id)
             idx_str = m.group(1) if m else "0"
             backend_dev_id = f"GPU.{idx_str}" if chosen_backend == "openvino" else idx_str
         elif dev.device_type == DeviceType.NPU:
             import re
+
             m = re.search(r"(\d+)", dev.device_id)
             idx_str = m.group(1) if m else ""
             backend_dev_id = f"NPU.{idx_str}" if idx_str else "NPU"
@@ -396,17 +407,14 @@ class _ResourceAllocator:
         # 1. Check preferred devices in order
         for pref_type in requirement.preferred_devices:
             for dev in self._inventory.devices:
-                if (
-                    dev.device_type == pref_type
-                    and self._is_device_compatible(dev, requirement)
-                ):
+                if dev.device_type == pref_type and self._is_device_compatible(dev, requirement):
                     avail = dev.capacity - self._used_units[dev.device_id]
                     if avail > 0:
                         requested = (
-                            requirement.inference_slots
-                            if requirement.inference_slots > 1
-                            else dev.capacity
-                        ) if requirement.parallelizable else 1
+                            (requirement.inference_slots if requirement.inference_slots > 1 else dev.capacity)
+                            if requirement.parallelizable
+                            else 1
+                        )
                         granted = min(avail, requested)
                         backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
                         return self._create_allocation(
@@ -423,17 +431,14 @@ class _ResourceAllocator:
             if supp_type in requirement.preferred_devices:
                 continue
             for dev in self._inventory.devices:
-                if (
-                    dev.device_type == supp_type
-                    and self._is_device_compatible(dev, requirement)
-                ):
+                if dev.device_type == supp_type and self._is_device_compatible(dev, requirement):
                     avail = dev.capacity - self._used_units[dev.device_id]
                     if avail > 0:
                         requested = (
-                            requirement.inference_slots
-                            if requirement.inference_slots > 1
-                            else dev.capacity
-                        ) if requirement.parallelizable else 1
+                            (requirement.inference_slots if requirement.inference_slots > 1 else dev.capacity)
+                            if requirement.parallelizable
+                            else 1
+                        )
                         granted = min(avail, requested)
                         backend, backend_dev_id = self._resolve_backend_for_device(dev, requirement)
                         return self._create_allocation(

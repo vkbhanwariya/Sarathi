@@ -147,9 +147,7 @@ class FontConversionCapability:
         full_text = _extract_doc_text(doc)
 
         # 1. Detect legacy font profile
-        detected_profile, conf = self._detector.detect(
-            full_text, font_hint=str(font_hint) if font_hint else None
-        )
+        detected_profile, conf = self._detector.detect(full_text, font_hint=str(font_hint) if font_hint else None)
 
         valid_modes = frozenset({"auto_unicode", "auto", "to_krutidev", "to_devlys"})
         if target_mode not in valid_modes:
@@ -191,8 +189,10 @@ class FontConversionCapability:
         # If auto_unicode and no legacy detected, preserve original doc
         if not is_to_legacy and detected_profile is None:
             has_any_legacy_span = any(
-                s.metadata.get("font_name") and resolve_profile_from_font_name(s.metadata.get("font_name"), self._profiles)[0]
-                for p in doc.pages for s in p.spans
+                s.metadata.get("font_name")
+                and resolve_profile_from_font_name(s.metadata.get("font_name"), self._profiles)[0]
+                for p in doc.pages
+                for s in p.spans
             )
             is_legacy_content = self._detector.is_legacy_text(full_text)
             if not has_any_legacy_span and not is_legacy_content:
@@ -378,7 +378,8 @@ class FontConversionCapability:
             is_struct_valid, defects = self._validator.validate_devanagari_structure(final_text)
             if metrics.runs_ambiguous > 0:
                 defects = [
-                    d for d in defects
+                    d
+                    for d in defects
                     if not d.startswith("RESIDUAL_LEGACY_GLYPHS") and not d.startswith("RESIDUAL_UNMAPPED_DIGRAPH")
                 ]
             if defects:
@@ -437,7 +438,9 @@ class FontConversionCapability:
         prior_result: Result | None = None,
     ) -> Result:
         """Execute font conversion on the request inputs or prior CanonicalDocument(s)."""
-        msg_req = "FontConversionCapability requires a prior Result containing a CanonicalDocument or tuple of documents."
+        msg_req = (
+            "FontConversionCapability requires a prior Result containing a CanonicalDocument or tuple of documents."
+        )
         if prior_result is None or prior_result.data is None:
             raise DoshError(code=FailureCode.VALIDATION_FAILED, message=msg_req)
 
@@ -448,14 +451,12 @@ class FontConversionCapability:
         is_batch = not isinstance(prior_result.data, CanonicalDocument)
 
         if not docs:
-            raise DoshError(code=FailureCode.VALIDATION_FAILED, message="No CanonicalDocument provided to FontConversionCapability.")
+            raise DoshError(
+                code=FailureCode.VALIDATION_FAILED, message="No CanonicalDocument provided to FontConversionCapability."
+            )
 
         def _is_doc_empty(d: CanonicalDocument) -> bool:
-            return (
-                not d.text.strip()
-                and not d.tables
-                and not any(p.text.strip() or p.tables for p in d.pages)
-            )
+            return not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages)
 
         # Item-scoped batch escalation: if all documents are completely empty, request OCR handoff
         if all(_is_doc_empty(d) for d in docs):
@@ -464,7 +465,9 @@ class FontConversionCapability:
         converted_docs: list[CanonicalDocument] = []
         payloads: list[ArtifactPayload] = []
         all_provs: list[ProvenanceRecord] = list(prior_result.provenance)
-        all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
+        all_warnings: list[WarningRecord] = (
+            list(prior_result.warnings) if prior_result and prior_result.warnings else []
+        )
 
         progress_cb = None
         if request.custom_options and callable(request.custom_options.get("progress_callback")):
@@ -551,7 +554,9 @@ class FontConversionCapability:
                     )
 
                     conv_dur_ns = max(0, time.perf_counter_ns() - t_conv_start)
-                    emit_conversion_telemetry(self._darpana, context, converted_doc, naming_inp, res.confidence, dur_ns=conv_dur_ns)
+                    emit_conversion_telemetry(
+                        self._darpana, context, converted_doc, naming_inp, res.confidence, dur_ns=conv_dur_ns
+                    )
 
                     txt_artifact_name = format_artifact_filename(
                         naming_inp,
@@ -562,10 +567,7 @@ class FontConversionCapability:
                     )
                     txt_content: str
                     if converted_doc.pages and len(converted_doc.pages) > 1:
-                        page_texts = [
-                            f"--- Page {p.page_number} ---\n{p.text}"
-                            for p in converted_doc.pages
-                        ]
+                        page_texts = [f"--- Page {p.page_number} ---\n{p.text}" for p in converted_doc.pages]
                         txt_content = "\n\n".join(page_texts)
                     else:
                         txt_content = _extract_doc_text(converted_doc)
@@ -586,9 +588,7 @@ class FontConversionCapability:
                     docx_payload: ArtifactPayload | None = None
 
                     legacy_target_font = (
-                        ("Kruti Dev 010" if target_mode == "to_krutidev" else "DevLys 010")
-                        if is_to_legacy
-                        else None
+                        ("Kruti Dev 010" if target_mode == "to_krutidev" else "DevLys 010") if is_to_legacy else None
                     )
 
                     if (

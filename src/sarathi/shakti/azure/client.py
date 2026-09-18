@@ -27,7 +27,9 @@ class AzureClient:
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         self._api_key = api_key or os.environ.get("AZURE_API_KEY") or os.environ.get("AZURE_VISION_KEY")
-        self._endpoint = (endpoint or os.environ.get("AZURE_ENDPOINT") or os.environ.get("AZURE_VISION_ENDPOINT") or "").rstrip("/")
+        self._endpoint = (
+            endpoint or os.environ.get("AZURE_ENDPOINT") or os.environ.get("AZURE_VISION_ENDPOINT") or ""
+        ).rstrip("/")
         self._translator_key = translator_key or os.environ.get("AZURE_TRANSLATOR_KEY") or self._api_key
         self._translator_region = translator_region or os.environ.get("AZURE_TRANSLATOR_REGION")
         self._translator_endpoint = (translator_endpoint or _DEFAULT_TRANSLATOR_URL).rstrip("/")

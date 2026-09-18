@@ -71,9 +71,7 @@ def preview_execution_plan(
             stages.append({"stage_id": capability_id, "name": f"Execution: {capability_name} (Yantra)"})
 
         artifact_stage_name = (
-            "Artifact Commitment & Smriti Persistence"
-            if agni.smriti is not None
-            else "Artifact Commitment"
+            "Artifact Commitment & Smriti Persistence" if agni.smriti is not None else "Artifact Commitment"
         )
         stages.append({"stage_id": "artifacts", "name": artifact_stage_name})
 

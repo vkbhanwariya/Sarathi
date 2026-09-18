@@ -81,7 +81,7 @@ def _content_disposition(path: Path, *, download: bool) -> str:
     disposition = "attachment" if download else "inline"
     safe_name = path.name.replace('"', "").replace("\r", "").replace("\n", "")
     encoded_name = urllib.parse.quote(path.name)
-    return f'{disposition}; filename="{safe_name}"; filename*=UTF-8\'\'{encoded_name}'
+    return f"{disposition}; filename=\"{safe_name}\"; filename*=UTF-8''{encoded_name}"
 
 
 def _raw_file_response(target: Path, *, download: bool = False, media_type: str | None = None) -> Response:

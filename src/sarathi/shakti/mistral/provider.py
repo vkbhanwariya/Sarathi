@@ -83,4 +83,3 @@ class MistralProvider(PluginProvider):
             "mistral_ocr": ready_res,
             "mistral_translation": ready_res,
         }
-

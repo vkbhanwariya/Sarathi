@@ -28,14 +28,10 @@ class TestArchitectureManifest:
     def test_internal_dependency_policy_is_pragmatic(self) -> None:
         repo_root = get_repo_root()
         manifest = json.loads((repo_root / "Vedas" / "architecture.manifest.json").read_text(encoding="utf-8"))
-        assert manifest["dependency_policy"]["default_internal_policy"] == "allow"
+        assert manifest["dependency_policy"]["default_internal_policy"] == "deny"
 
     def test_single_application_composition_root(self) -> None:
         repo_root = get_repo_root()
         manifest = json.loads((repo_root / "Vedas" / "architecture.manifest.json").read_text(encoding="utf-8"))
-        roots = [
-            info["package"]
-            for info in manifest["modules"].values()
-            if info.get("composition_root") is True
-        ]
+        roots = [info["package"] for info in manifest["modules"].values() if info.get("composition_root") is True]
         assert roots == ["sarathi.agni"]

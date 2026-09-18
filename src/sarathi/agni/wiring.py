@@ -15,7 +15,7 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha
 from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Pravaha, QuarantineStore, RetryPolicy
 from sarathi.sankalpa import Capability, PluginInfo, PluginProvider, PluginServices
-from sarathi.smriti import SmritiCache
+from sarathi.smriti import CachePolicy, SmritiCache
 from sarathi.sutra import Settings, get_canonical_data_root
 from sarathi.yantra import Yantra
 
@@ -133,7 +133,12 @@ def assemble_platform_services(
         active_smriti = smriti
     elif settings.cache_enabled:
         cache_dir = settings.cache_dir or (runtime_root / "Cache")
-        active_smriti = SmritiCache(cache_dir=cache_dir, policy=settings.cache_policy())
+        policy = CachePolicy(
+            ttl_seconds=settings.cache_ttl_seconds,
+            max_entries_l1=settings.cache_max_entries_l1,
+            max_entries_l2=settings.cache_max_entries_l2,
+        )
+        active_smriti = SmritiCache(cache_dir=cache_dir, policy=policy)
 
     pravaha = Pravaha(
         manthan=manthan,

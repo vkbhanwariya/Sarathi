@@ -320,6 +320,7 @@ def test_large_binary_artifact_content_addressed_storage(tmp_path: Path) -> None
 
     # Invariant: Large payload is NOT stored as base64 in JSON
     import json
+
     data = json.loads(serialized_json)
     payload_info = data["artifact_payloads"][0]
     assert "content_hash" in payload_info

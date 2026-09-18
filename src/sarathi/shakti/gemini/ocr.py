@@ -62,9 +62,7 @@ class GeminiOCRCapability:
             context.cancellation_token.check_cancelled()
 
         model = (
-            request.custom_options.get("model", "gemini-2.5-flash")
-            if request.custom_options
-            else "gemini-2.5-flash"
+            request.custom_options.get("model", "gemini-2.5-flash") if request.custom_options else "gemini-2.5-flash"
         )
 
         all_docs: list[CanonicalDocument] = []
@@ -129,10 +127,7 @@ class GeminiOCRCapability:
             for p_num, p_text in enumerate(raw_pages, start=1):
                 p_text_clean = p_text.strip()
                 paragraphs = [p.strip() for p in p_text_clean.split("\n\n") if p.strip()]
-                spans: list[TextSpan] = [
-                    TextSpan(text=p, confidence=confidence_score)
-                    for p in paragraphs
-                ]
+                spans: list[TextSpan] = [TextSpan(text=p, confidence=confidence_score) for p in paragraphs]
                 tables = extract_markdown_tables(p_text_clean)
                 page_meta: dict[str, Any] = {
                     "confidence": confidence_score,
@@ -176,7 +171,9 @@ class GeminiOCRCapability:
                                 score=confidence_score,
                                 method="gemini_logprob",
                                 evidence=page_evidence,
-                            ) if confidence_score is not None else None,
+                            )
+                            if confidence_score is not None
+                            else None,
                             attributes={
                                 "level": "page",
                                 "page_number": p_num,
@@ -218,13 +215,7 @@ class GeminiOCRCapability:
 
         output_data = all_docs[0] if len(all_docs) == 1 else tuple(all_docs)
 
-        all_confs = [
-            s.confidence
-            for doc in all_docs
-            for p in doc.pages
-            for s in p.spans
-            if s.confidence is not None
-        ]
+        all_confs = [s.confidence for doc in all_docs for p in doc.pages for s in p.spans if s.confidence is not None]
         overall_confidence: ConfidenceValue | None = None
         if all_confs:
             overall_confidence = ConfidenceValue(

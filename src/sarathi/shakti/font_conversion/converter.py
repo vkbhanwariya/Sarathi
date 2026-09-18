@@ -149,9 +149,7 @@ class FontConverter:
 
         # 3. Apply Multi-char and Single-char mappings using precompiled forward transducer
         if profile.compiled_forward_regex is not None:
-            text = profile.compiled_forward_regex.sub(
-                lambda m: profile.mappings.get(m.group(0), m.group(0)), text
-            )
+            text = profile.compiled_forward_regex.sub(lambda m: profile.mappings.get(m.group(0), m.group(0)), text)
 
         # 4. Handle Postfix Reph at logical Akshara level
         reph_char = profile.postfix_reph
@@ -203,8 +201,6 @@ class FontConverter:
         # 3. Apply precompiled reverse mapping (Unicode -> Legacy)
         if profile.compiled_reverse_regex is not None:
             rev_map = profile.compiled_reverse_map
-            norm_text = profile.compiled_reverse_regex.sub(
-                lambda m: rev_map.get(m.group(0), m.group(0)), norm_text
-            )
+            norm_text = profile.compiled_reverse_regex.sub(lambda m: rev_map.get(m.group(0), m.group(0)), norm_text)
 
         return norm_text

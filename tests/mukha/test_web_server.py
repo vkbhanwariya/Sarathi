@@ -75,7 +75,6 @@ class TestMukhaWebServerSecurityAndStatic:
             assert any(term in str(exc) for term in ("10053", "ConnectionAbortedError", "ConnectionResetError"))
 
 
-
 class TestMukhaWebServerAPI:
     """Verify Mukha Web API endpoints for intake, state, native picker, runs, and artifacts."""
 
@@ -462,7 +461,6 @@ class TestMukhaWebServerAPI:
             )
             assert status == 403
 
-
     def test_run_accepts_custom_options_and_forwards_to_request(
         self, web_server: MukhaWebServer, tmp_path: Path
     ) -> None:
@@ -500,11 +498,10 @@ class TestMukhaWebServerAPI:
             assert web_server.reveal_output_directory(run_id) is True
         reveal.assert_called_once_with(run_id)
 
-    def test_active_workers_and_page_progress_in_view_state(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_active_workers_and_page_progress_in_view_state(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Verify that live progress updates populate active_workers and page numbers in state."""
         import threading
+
         test_file = tmp_path / "report.pdf"
         test_file.write_text("dummy", encoding="utf-8")
 
@@ -524,11 +521,14 @@ class TestMukhaWebServerAPI:
             started_evt.set()
             finish_evt.wait(timeout=2.0)
             from sarathi.sankalpa import Result
+
             return Result(data=None)
 
         with (
             patch.object(web_server.agni, "execute", side_effect=mock_execute),
-            patch("sarathi.mukha.presenter.MukhaPresenter.audit_capability_status", return_value={"ocr": (True, "Ready")}),
+            patch(
+                "sarathi.mukha.presenter.MukhaPresenter.audit_capability_status", return_value={"ocr": (True, "Ready")}
+            ),
         ):
             status, data = _http_post(
                 f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
@@ -649,9 +649,7 @@ def test_artifact_endpoint_rejects_path_traversal(web_server: MukhaWebServer) ->
     assert status == 400
 
     # 2. Invalid characters in run_id -> 400
-    status, _, _ = _http_get(
-        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/bad!id/artifacts/art123"
-    )
+    status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/bad!id/artifacts/art123")
     assert status == 400
 
 
@@ -686,14 +684,18 @@ def test_api_clear_history_and_cache_endpoints(web_server: MukhaWebServer) -> No
     assert "cleared_entries" in resp
 
 
-
 def test_api_review_endpoints(web_server: MukhaWebServer) -> None:
     from sarathi.sankalpa import Result, WarningRecord
 
     web_server.runner._last_result = Result(
         data=None,
         warnings=(
-            WarningRecord(code="UNCERTAIN_GLYPH", message="Suspicious character", stage="ocr", context={"source": "a", "output": "b", "attempt_id": "att-test-1"}),
+            WarningRecord(
+                code="UNCERTAIN_GLYPH",
+                message="Suspicious character",
+                stage="ocr",
+                context={"source": "a", "output": "b", "attempt_id": "att-test-1"},
+            ),
         ),
     )
 
@@ -947,7 +949,12 @@ def test_api_review_intent_workflow(web_server: MukhaWebServer) -> None:
     web_server.runner._last_result = Result(
         data=None,
         warnings=(
-            WarningRecord(code="UNCERTAIN_GLYPH", message="Suspicious character", stage="ocr", context={"source": "vkn", "output": "vkd", "attempt_id": "span-42"}),
+            WarningRecord(
+                code="UNCERTAIN_GLYPH",
+                message="Suspicious character",
+                stage="ocr",
+                context={"source": "vkn", "output": "vkd", "attempt_id": "span-42"},
+            ),
         ),
     )
 
@@ -1030,9 +1037,7 @@ def test_intake_preview_by_input_id(web_server: MukhaWebServer, tmp_path: Path) 
     input_id = items[0]["input_id"]
 
     # 2. Preview document via /api/inputs/<input_id>/preview
-    prev_status, prev_data, _ = _http_get(
-        f"http://127.0.0.1:{web_server.resolved_port}/api/inputs/{input_id}/preview"
-    )
+    prev_status, prev_data, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/inputs/{input_id}/preview")
     assert prev_status == 200
     prev_payload = json.loads(prev_data.decode("utf-8"))
     assert prev_payload["ok"] is True
@@ -1044,9 +1049,7 @@ def test_get_run_summary_endpoint(web_server: MukhaWebServer) -> None:
     """Verify GET /api/runs/<run_id>/summary returns a terminal run summary."""
     from sarathi.mukha.state import RunSummaryView
 
-    status_404, _, _ = _http_get(
-        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run-fake/summary"
-    )
+    status_404, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run-fake/summary")
     assert status_404 == 404
 
     mock_summary = RunSummaryView(
@@ -1183,7 +1186,6 @@ def test_preview_failure_boundary_does_not_leak_raw_exceptions(web_server: Mukha
         assert res["error"] == "Failed to read document preview."
         assert "/secret/disk/denied" not in res["error"]
         assert "PermissionError" not in res["error"]
-
 
 
 def test_persisted_run_summary_reopening_across_restarts(web_server: MukhaWebServer) -> None:
@@ -1403,6 +1405,7 @@ def test_concurrent_intake_does_not_block_server_lock(tmp_path: Path) -> None:
 
 def test_inspector_endpoint_returns_200_for_run(web_server: MukhaWebServer, tmp_path: Path) -> None:
     from sarathi.sankalpa import Result
+
     f1 = tmp_path / "doc.txt"
     f1.write_text("Hello Inspector", encoding="utf-8")
 
@@ -1415,9 +1418,7 @@ def test_inspector_endpoint_returns_200_for_run(web_server: MukhaWebServer, tmp_
         run_id = data["run_id"]
         time.sleep(0.5)
 
-        status, body, _ = _http_get(
-            f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/inspector"
-        )
+        status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/inspector")
         assert status == 200
         insp_data = json.loads(body.decode("utf-8"))
         assert insp_data["ok"] is True
@@ -1435,9 +1436,7 @@ def test_inspector_endpoint_rejects_invalid_id(web_server: MukhaWebServer) -> No
 
 
 def test_inspector_endpoint_404_for_unknown_run(web_server: MukhaWebServer) -> None:
-    status, _, _ = _http_get(
-        f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run_nonexistent_999/inspector"
-    )
+    status, _, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/run_nonexistent_999/inspector")
     assert status == 404
 
 
@@ -1445,6 +1444,7 @@ def test_preview_execution_plan_no_inputs() -> None:
     from unittest.mock import MagicMock
 
     from sarathi.mukha.web.planner import preview_execution_plan
+
     mock_agni = MagicMock()
     mock_agni.kavacha = MagicMock()
     mock_agni.runtime_root = Path(".runtime")
@@ -1577,6 +1577,7 @@ def test_preview_dialog_and_close_button_contract(web_server: MukhaWebServer) ->
 def test_action_parameter_view_serialization() -> None:
     from sarathi.mukha.state import ActionParameterView
     from sarathi.mukha.web.security import _serialize_dataclass
+
     param = ActionParameterView(
         parameter_id="profile",
         display_name="OCR Execution Profile",
@@ -1594,6 +1595,7 @@ def test_action_parameter_view_serialization() -> None:
 
 def test_build_action_parameters_ocr_and_font() -> None:
     from sarathi.mukha.web.state_builder import _build_action_parameters
+
     ocr_params = _build_action_parameters("ocr")
     assert any(p.parameter_id == "profile" for p in ocr_params)
     assert any(p.parameter_id == "lang" for p in ocr_params)

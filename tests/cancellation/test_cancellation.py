@@ -315,6 +315,7 @@ def test_cancelled_run_cleans_ordinary_committed_artifacts(tmp_path: Path) -> No
     class CapStagingArtifactsThenCancels(MockSlowCapability):
         def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
             from sarathi.sankalpa import ArtifactIntent, ArtifactPayload
+
             res = super().execute(request, context, prior_result)
             payload = ArtifactPayload(
                 intent=ArtifactIntent("pages.json", "application/json", "output"),
@@ -362,6 +363,7 @@ def test_token_raises_operation_cancelled() -> None:
 
 def test_maruti_record_allows_cancelled_outcome() -> None:
     from sarathi.darpana import MarutiRecord
+
     rec = MarutiRecord(
         run_id="run-1",
         request_id="req-1",

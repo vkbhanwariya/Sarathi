@@ -79,16 +79,16 @@ def test_transform_docx_artifact_preserves_formatting() -> None:
     doc_xml_content = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
+        "  <w:body>\n"
+        "    <w:p>\n"
         '      <w:pPr><w:jc w:val="center"/></w:pPr>\n'
-        '      <w:r>\n'
+        "      <w:r>\n"
         '        <w:rPr><w:b/><w:shadow/><w:rFonts w:ascii="Kruti Dev 010"/><w:sz w:val="24"/></w:rPr>\n'
-        '        <w:t>vkns\'k</w:t>\n'
-        '      </w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "        <w:t>vkns'k</w:t>\n"
+        "      </w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     with zipfile.ZipFile(in_buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types/>")
@@ -138,10 +138,10 @@ def test_mc_ignorable_namespace_preservation() -> None:
         'xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" '
         'xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" '
         'mc:Ignorable="w14 w15 wp14">\n'
-        '  <w:body>\n'
-        '    <w:p><w:r><w:t>Hello</w:t></w:r></w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p><w:r><w:t>Hello</w:t></w:r></w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     with zipfile.ZipFile(in_buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types/>")
@@ -173,10 +173,10 @@ def test_arbitrary_extension_namespace_preservation() -> None:
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
         'xmlns:customExt="http://schemas.example.com/customExtension">\n'
-        '  <w:body>\n'
-        '    <w:p><w:r><w:t>Custom</w:t></w:r></w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p><w:r><w:t>Custom</w:t></w:r></w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     with zipfile.ZipFile(in_buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types/>")
@@ -199,13 +199,13 @@ def test_last_rendered_page_break_survives_run_merging() -> None:
     doc_xml_content = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r><w:rPr><w:b/></w:rPr><w:t>Page 1 end. </w:t></w:r>\n'
-        '      <w:r><w:rPr><w:b/></w:rPr><w:lastRenderedPageBreak/><w:t>Page 2 start.</w:t></w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r><w:rPr><w:b/></w:rPr><w:t>Page 1 end. </w:t></w:r>\n"
+        "      <w:r><w:rPr><w:b/></w:rPr><w:lastRenderedPageBreak/><w:t>Page 2 start.</w:t></w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     with zipfile.ZipFile(in_buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types/>")
@@ -231,14 +231,14 @@ def test_semantic_run_children_never_lost() -> None:
     doc_xml_content = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r><w:t>Prefix</w:t></w:r>\n'
-        '      <w:r><w:tab/><w:t>After Tab</w:t></w:r>\n'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r><w:t>Prefix</w:t></w:r>\n"
+        "      <w:r><w:tab/><w:t>After Tab</w:t></w:r>\n"
         '      <w:r><w:fldChar w:fldCharType="begin"/><w:t>Field</w:t></w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     with zipfile.ZipFile(in_buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types/>")
@@ -263,21 +263,22 @@ def test_mixed_font_channels_kruti_ascii_mangal_cs() -> None:
     doc_xml_content = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r>\n'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r>\n"
         '        <w:rPr><w:rFonts w:ascii="Kruti Dev 010" w:hAnsi="Kruti Dev 010" w:cs="Mangal"/></w:rPr>\n'
-        '        <w:t>LFkkÃ irk</w:t>\n'
-        '      </w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "        <w:t>LFkkÃ irk</w:t>\n"
+        "      </w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     with zipfile.ZipFile(in_buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types/>")
         zf.writestr("word/document.xml", doc_xml_content)
 
     from sarathi.shakti.font_conversion.converter import FontConverter
+
     conv = FontConverter()
 
     def converter(s: str, font_name: str | None = None) -> str:
@@ -307,15 +308,15 @@ def test_genuine_unicode_hindi_with_mangal_cs_preserved() -> None:
     doc_xml_content = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r>\n'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r>\n"
         '        <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Mangal"/></w:rPr>\n'
-        '        <w:t>यह शुद्ध हिन्दी है</w:t>\n'
-        '      </w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "        <w:t>यह शुद्ध हिन्दी है</w:t>\n"
+        "      </w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     with zipfile.ZipFile(in_buf, "w") as zf:
         zf.writestr("[Content_Types].xml", "<Types/>")
@@ -396,18 +397,22 @@ def test_dynamic_font_size_scaling_in_transform_docx() -> None:
     doc_xml_content = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         f'<w:document xmlns:w="{w_ns}">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
+        "  <w:body>\n"
+        "    <w:p>\n"
         '      <w:r><w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr><w:t>c;ku</w:t></w:r>\n'
-        '      <w:r><w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:sz w:val="48"/><w:szCs w:val="48"/></w:rPr><w:t>' + "vkns'k" + '</w:t></w:r>\n'
+        '      <w:r><w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:sz w:val="48"/><w:szCs w:val="48"/></w:rPr><w:t>'
+        + "vkns'k"
+        + "</w:t></w:r>\n"
         '      <w:r><w:rPr><w:rFonts w:ascii="Bookman Old Style"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr><w:t>Flat 1411</w:t></w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     in_buf = io.BytesIO()
     with zipfile.ZipFile(in_buf, "w") as zf:
-        zf.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        zf.writestr(
+            "[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+        )
         zf.writestr("word/document.xml", doc_xml_content)
 
     def _dummy_converter(text: str, **kw: str) -> str:
@@ -522,9 +527,15 @@ def test_docx_exporter_autonomous_no_font_conversion_import() -> None:
     )
 
     # Verify neutral font resolution rules
-    assert resolve_neutral_ooxml_font(ascii_font="Times New Roman", cs_font="Mangal", run_text="English") == "Times New Roman"
+    assert (
+        resolve_neutral_ooxml_font(ascii_font="Times New Roman", cs_font="Mangal", run_text="English")
+        == "Times New Roman"
+    )
     assert resolve_neutral_ooxml_font(ascii_font="Times New Roman", cs_font="Mangal", run_text="हिन्दी") == "Mangal"
-    assert resolve_neutral_ooxml_font(ascii_font="Kruti Dev 010", cs_font="Mangal", run_text="LFkkÃ irk") == "Kruti Dev 010"
+    assert (
+        resolve_neutral_ooxml_font(ascii_font="Kruti Dev 010", cs_font="Mangal", run_text="LFkkÃ irk")
+        == "Kruti Dev 010"
+    )
 
     # Verify font size adjustment
     assert isinstance(FontSizeAdjustment(scale=0.75), FontSizeAdjustment)
@@ -564,13 +575,12 @@ def test_transform_docx_merges_adjacent_runs_across_word_boundaries() -> None:
     """Verify transform_docx_artifact merges adjacent runs with identical formatting."""
     p_xml = (
         f'<w:p xmlns:w="{_W_NS}">'
-        f'<w:r><w:rPr><w:b/></w:rPr><w:t>Kruti</w:t></w:r>'
-        f'<w:r><w:rPr><w:b/></w:rPr><w:t>Dev</w:t></w:r>'
-        f'</w:p>'
+        f"<w:r><w:rPr><w:b/></w:rPr><w:t>Kruti</w:t></w:r>"
+        f"<w:r><w:rPr><w:b/></w:rPr><w:t>Dev</w:t></w:r>"
+        f"</w:p>"
     )
     doc_xml = (
-        f'<?xml version="1.0" encoding="UTF-8"?>'
-        f'<w:document xmlns:w="{_W_NS}"><w:body>{p_xml}</w:body></w:document>'
+        f'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="{_W_NS}"><w:body>{p_xml}</w:body></w:document>'
     )
 
     buf = io.BytesIO()
@@ -754,7 +764,7 @@ def test_docx_table_multiline_cells_and_ragged_rows() -> None:
         assert "Line 2" in xml
 
         # 1 header row + 2 data rows = 3 rows in total, each having 3 cells
-        rows = re.findall(r'<w:tr>.*?</w:tr>', xml)
+        rows = re.findall(r"<w:tr>.*?</w:tr>", xml)
         assert len(rows) == 3
         for r in rows:
             tc_count = r.count("<w:tc>")

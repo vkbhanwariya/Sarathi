@@ -52,15 +52,7 @@ class TestShaktiTextPrimitives:
 
     def test_markdown_table_parser_preserves_existing_cloud_ocr_contract(self) -> None:
         """Verify the shared parser keeps the provider table shape and numbering contract."""
-        text = (
-            "before\n"
-            "| Case | Year |\n"
-            "|---|:---:|\n"
-            "| 101 | 2026 |\n"
-            "after\n"
-            "| Name | Amount |\n"
-            "| Alice | 500 |"
-        )
+        text = "before\n| Case | Year |\n|---|:---:|\n| 101 | 2026 |\nafter\n| Name | Amount |\n| Alice | 500 |"
 
         tables = extract_markdown_tables(text)
 

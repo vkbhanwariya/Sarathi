@@ -216,9 +216,7 @@ class TestMukhaInputAndIntakeTruth:
         assert len(refs) == 1
         assert refs[0].display_name == "valid_doc.pdf"
 
-    def test_cli_intake_folder_and_recursive_parity(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_cli_intake_folder_and_recursive_parity(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         from sarathi.__main__ import main
 
         folder = tmp_path / "cli_inbox"
@@ -266,9 +264,7 @@ class TestMukhaInputAndIntakeTruth:
         captured_rec = capsys.readouterr()
         assert "Status: Success" in captured_rec.out
 
-    def test_cli_intake_defaults_to_input_root(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_cli_intake_defaults_to_input_root(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         from sarathi.__main__ import main
 
         input_root = tmp_path / "Input"
@@ -350,7 +346,6 @@ class TestMukhaInputAndIntakeTruth:
             resp = coordinator.start_run(paths=(), requirement="read_native")
             assert resp.status.value == "ok"
             assert resp.run_id is not None
-
 
     def test_build_home_view_is_pure_projection(self) -> None:
         sel = InputSelectionView(total_files=2, total_size_bytes=1024, is_grouped=False)
@@ -652,11 +647,21 @@ class TestMukhaSummaryAndArtifactsTruth:
         from sarathi.mukha.state import FileRunView, RunViewState
 
         files = [
-            FileRunView(input_id="f1", display_name="f1.pdf", ordinal=1, status="success", elapsed_ns=10, current_stage="done"),
-            FileRunView(input_id="f2", display_name="f2.pdf", ordinal=2, status="SUCCESS", elapsed_ns=10, current_stage="done"),
-            FileRunView(input_id="f3", display_name="f3.pdf", ordinal=3, status="Completed", elapsed_ns=10, current_stage="done"),
-            FileRunView(input_id="f4", display_name="f4.pdf", ordinal=4, status="FAILED", elapsed_ns=10, current_stage="err"),
-            FileRunView(input_id="f5", display_name="f5.pdf", ordinal=5, status="running", elapsed_ns=10, current_stage="ocr"),
+            FileRunView(
+                input_id="f1", display_name="f1.pdf", ordinal=1, status="success", elapsed_ns=10, current_stage="done"
+            ),
+            FileRunView(
+                input_id="f2", display_name="f2.pdf", ordinal=2, status="SUCCESS", elapsed_ns=10, current_stage="done"
+            ),
+            FileRunView(
+                input_id="f3", display_name="f3.pdf", ordinal=3, status="Completed", elapsed_ns=10, current_stage="done"
+            ),
+            FileRunView(
+                input_id="f4", display_name="f4.pdf", ordinal=4, status="FAILED", elapsed_ns=10, current_stage="err"
+            ),
+            FileRunView(
+                input_id="f5", display_name="f5.pdf", ordinal=5, status="running", elapsed_ns=10, current_stage="ocr"
+            ),
         ]
 
         # Prior terminal state
@@ -705,7 +710,9 @@ class TestMukhaAuditCapabilityStatus:
         mock_agni = MagicMock()
         mock_agni.audit_readiness.return_value = {
             "ocr": CapabilityReadiness(ready=True, status=ReadinessStatus.READY, reason="Ready (OCR)"),
-            "translation": CapabilityReadiness(ready=False, status=ReadinessStatus.DEPENDENCY_UNAVAILABLE, reason="No model"),
+            "translation": CapabilityReadiness(
+                ready=False, status=ReadinessStatus.DEPENDENCY_UNAVAILABLE, reason="No model"
+            ),
         }
 
         statuses = MukhaPresenter.audit_capability_status(agni=mock_agni)
@@ -834,9 +841,7 @@ class TestMukhaAuditCapabilityStatus:
         req = Request(
             request_id="req-acc",
             requirement="read_native",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=in_file, display_name="in.txt", size_bytes=5),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=in_file, display_name="in.txt", size_bytes=5),),
         )
 
         acc_val = AccuracyValue(score=0.98, method="cer", evidence={"ground_truth": "test"})
@@ -972,9 +977,7 @@ class TestMukhaAuditCapabilityStatus:
         req = Request(
             request_id="req-ocr-sum",
             requirement="ocr",
-            inputs=(
-                InputRef(input_id="inp-1", source_path=in_file, display_name="test.png", size_bytes=5),
-            ),
+            inputs=(InputRef(input_id="inp-1", source_path=in_file, display_name="test.png", size_bytes=5),),
         )
 
         maruti_recs = [
@@ -1031,7 +1034,11 @@ class TestMukhaAuditCapabilityStatus:
             ),
         ]
 
-        res = Result(data=None, artifacts=(), confidence=ConfidenceValue(score=0.95, method="aggregate", evidence={"source": "ocr"}))
+        res = Result(
+            data=None,
+            artifacts=(),
+            confidence=ConfidenceValue(score=0.95, method="aggregate", evidence={"source": "ocr"}),
+        )
 
         summary = MukhaPresenter.build_summary_view(
             run_id="req-ocr-sum",

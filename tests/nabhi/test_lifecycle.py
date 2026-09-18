@@ -242,10 +242,12 @@ class TestYantraLifecycleUnderAgni:
         )
         from sarathi.yantra import DeviceInfo, DeviceInventory
 
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=2),
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=2),
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
 
         class MockCapability:
             def __init__(self, decl: CapabilityDeclaration) -> None:
@@ -304,7 +306,15 @@ class TestYantraLifecycleUnderAgni:
         req = Request(
             request_id="req-e2e",
             requirement="test_cap",
-            inputs=(InputRef(input_id="in-1", source_path=inp_file, display_name="test.txt", size_bytes=5, media_type="text/plain"),),
+            inputs=(
+                InputRef(
+                    input_id="in-1",
+                    source_path=inp_file,
+                    display_name="test.txt",
+                    size_bytes=5,
+                    media_type="text/plain",
+                ),
+            ),
         )
 
         res = agni.execute(req)

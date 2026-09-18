@@ -336,3 +336,6 @@ export interface DocumentPreviewData {
   rows?: readonly (readonly string[])[];
   data_url?: string;
 }
+
+export type Screen = "home" | "monitor" | "review" | "summary" | "inspector";
+export type InputFilter = "all" | "eligible" | "issues";

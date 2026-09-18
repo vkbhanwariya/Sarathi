@@ -38,9 +38,7 @@ class Kosh:
             plugin = provider.plugin_info
             declarations = tuple(provider.declarations)
             if not isinstance(plugin, PluginInfo):
-                raise TypeError(
-                    f"provider.plugin_info must be a PluginInfo instance, got {type(plugin).__name__}."
-                )
+                raise TypeError(f"provider.plugin_info must be a PluginInfo instance, got {type(plugin).__name__}.")
             if not all(isinstance(declaration, CapabilityDeclaration) for declaration in declarations):
                 raise TypeError("provider.declarations must contain only CapabilityDeclaration instances.")
 
@@ -93,8 +91,7 @@ class Kosh:
                     raise DoshError(
                         code=FailureCode.VALIDATION_FAILED,
                         message=(
-                            "Conflicting capability declaration already registered for "
-                            f"'{declaration.capability_id}'."
+                            f"Conflicting capability declaration already registered for '{declaration.capability_id}'."
                         ),
                     )
                 if existing_capability is not None and existing_capability.plugin_id != plugin.plugin_id:

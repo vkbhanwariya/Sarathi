@@ -78,7 +78,9 @@ def record_ocr_page_telemetry(
         page_attrs["fallback_engine"] = page_data.metadata.get("fallback_engine", "same_engine_retry")
         page_attrs["fallback_improved_count"] = page_data.metadata.get("fallback_improved_count", 0)
         page_attrs["fallback_intercepted_count"] = page_data.metadata.get("fallback_intercepted_count", 0)
-        fb_delta = page_data.metadata.get("raw_confidence_score_delta", page_data.metadata.get("fallback_total_gain", 0.0))
+        fb_delta = page_data.metadata.get(
+            "raw_confidence_score_delta", page_data.metadata.get("fallback_total_gain", 0.0)
+        )
         page_attrs["raw_confidence_score_delta"] = fb_delta
         page_attrs["fallback_total_gain"] = fb_delta
         page_evidence["fallback_applied"] = True

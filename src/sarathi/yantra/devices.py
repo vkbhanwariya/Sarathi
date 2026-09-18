@@ -55,7 +55,9 @@ class DeviceInfo:
             if isinstance(self.supported_backends, set):
                 raise TypeError("supported_backends must be an ordered sequence (list or tuple), not a set.")
             if not isinstance(self.supported_backends, (list, tuple)):
-                raise TypeError(f"supported_backends must be a sequence of strings, got {type(self.supported_backends)}.")
+                raise TypeError(
+                    f"supported_backends must be a sequence of strings, got {type(self.supported_backends)}."
+                )
             cleaned_backends = tuple(str(b).strip().lower() for b in self.supported_backends if str(b).strip())
             object.__setattr__(self, "supported_backends", cleaned_backends)
 
@@ -67,9 +69,7 @@ class DeviceInfo:
             if not isinstance(self.backend_locators, Mapping):
                 raise TypeError(f"backend_locators must be a Mapping, got {type(self.backend_locators).__name__}.")
             cleaned_locators = {
-                str(k).strip().lower(): str(v).strip()
-                for k, v in self.backend_locators.items()
-                if str(k).strip()
+                str(k).strip().lower(): str(v).strip() for k, v in self.backend_locators.items() if str(k).strip()
             }
             object.__setattr__(self, "backend_locators", MappingProxyType(cleaned_locators))
 

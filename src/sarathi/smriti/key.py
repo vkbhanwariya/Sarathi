@@ -33,7 +33,9 @@ def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
     hasher.update(f"COUNT:{len(inputs)}:".encode("utf-8"))
     for idx, inp in enumerate(inputs):
         hasher.update(
-            f"INP:{idx}:ID:{len(inp.input_id)}:{inp.input_id}:NAME:{len(inp.display_name)}:{inp.display_name}:SIZE:{inp.size_bytes}:TYPE:{inp.media_type or ''}:".encode("utf-8")
+            f"INP:{idx}:ID:{len(inp.input_id)}:{inp.input_id}:NAME:{len(inp.display_name)}:{inp.display_name}:SIZE:{inp.size_bytes}:TYPE:{inp.media_type or ''}:".encode(
+                "utf-8"
+            )
         )
         file_read_ok = False
         if inp.source_path and inp.source_path.is_file():
@@ -164,16 +166,10 @@ def compute_cache_key(
         fingerprint = compute_input_fingerprint(request.inputs)
     options = custom_options if custom_options is not None else request.custom_options
     clean_options = (
-        {k: v for k, v in options.items() if not callable(v) and k != "progress_callback"}
-        if options
-        else {}
+        {k: v for k, v in options.items() if not callable(v) and k != "progress_callback"} if options else {}
     )
     options_str = json.dumps(clean_options, sort_keys=True, default=str) if clean_options else ""
-    metadata_clean = (
-        {k: v for k, v in request.metadata.items() if not callable(v)}
-        if request.metadata
-        else {}
-    )
+    metadata_clean = {k: v for k, v in request.metadata.items() if not callable(v)} if request.metadata else {}
     metadata_str = json.dumps(metadata_clean, sort_keys=True, default=str) if metadata_clean else ""
     prior_digest = compute_prior_result_digest(prior_result)
     effective_asset_version = asset_version or str(request.metadata.get("asset_version", ""))

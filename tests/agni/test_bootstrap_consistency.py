@@ -173,8 +173,12 @@ def test_duplicate_plugin_id_across_providers_raises_validation_failed(tmp_path:
     decl1 = _make_decl("cap_a", "duplicate.plugin")
     p_info = PluginInfo(plugin_id="duplicate.plugin", name="Dup", version="1.0.0", capabilities=("cap_a",))
 
-    prov1 = SimpleTestProvider(_plugin_info=p_info, _declarations=(decl1,), _capabilities={"cap_a": SimpleTestCapability(decl1)})
-    prov2 = SimpleTestProvider(_plugin_info=p_info, _declarations=(decl1,), _capabilities={"cap_a": SimpleTestCapability(decl1)})
+    prov1 = SimpleTestProvider(
+        _plugin_info=p_info, _declarations=(decl1,), _capabilities={"cap_a": SimpleTestCapability(decl1)}
+    )
+    prov2 = SimpleTestProvider(
+        _plugin_info=p_info, _declarations=(decl1,), _capabilities={"cap_a": SimpleTestCapability(decl1)}
+    )
 
     with pytest.raises(DoshError) as exc_info:
         Agni(
@@ -196,8 +200,12 @@ def test_duplicate_capability_id_across_providers_raises_validation_failed(tmp_p
     p1 = PluginInfo(plugin_id="plugin.alpha", name="Alpha", version="1.0.0", capabilities=("clashing_cap",))
     p2 = PluginInfo(plugin_id="plugin.beta", name="Beta", version="1.0.0", capabilities=("clashing_cap",))
 
-    prov1 = SimpleTestProvider(_plugin_info=p1, _declarations=(decl1,), _capabilities={"clashing_cap": SimpleTestCapability(decl1)})
-    prov2 = SimpleTestProvider(_plugin_info=p2, _declarations=(decl2,), _capabilities={"clashing_cap": SimpleTestCapability(decl2)})
+    prov1 = SimpleTestProvider(
+        _plugin_info=p1, _declarations=(decl1,), _capabilities={"clashing_cap": SimpleTestCapability(decl1)}
+    )
+    prov2 = SimpleTestProvider(
+        _plugin_info=p2, _declarations=(decl2,), _capabilities={"clashing_cap": SimpleTestCapability(decl2)}
+    )
 
     with pytest.raises(DoshError) as exc_info:
         Agni(

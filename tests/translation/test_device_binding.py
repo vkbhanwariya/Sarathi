@@ -182,7 +182,15 @@ class TestTranslationDeviceBinding:
         req = Request(
             request_id="req-trans",
             requirement="translate",
-            inputs=(InputRef(input_id="in-1", source_path="dummy.txt", display_name="dummy.txt", size_bytes=10, media_type="text/plain"),),
+            inputs=(
+                InputRef(
+                    input_id="in-1",
+                    source_path="dummy.txt",
+                    display_name="dummy.txt",
+                    size_bytes=10,
+                    media_type="text/plain",
+                ),
+            ),
         )
         prior_doc = CanonicalDocument(
             document_id="doc-1",
@@ -191,6 +199,7 @@ class TestTranslationDeviceBinding:
             pages=(PageData(page_number=1, text="कुछ पाठ"),),
         )
         from sarathi.sankalpa import Result
+
         prior_res = Result(
             data=prior_doc,
         )
@@ -210,10 +219,12 @@ class TestTranslationDeviceBinding:
         assert TRANSLATION_DECL.device_requirement.preferred_devices == (DeviceType.GPU,)
         assert TRANSLATION_DECL.device_requirement.supported_devices == (DeviceType.GPU, DeviceType.CPU)
 
-        inventory = DeviceInventory([
-            DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=1),
-            DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
-        ])
+        inventory = DeviceInventory(
+            [
+                DeviceInfo(device_id="gpu-0", device_type=DeviceType.GPU, capacity=1),
+                DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=4),
+            ]
+        )
         yantra = Yantra(inventory)
 
         # First allocation receives preferred GPU slot

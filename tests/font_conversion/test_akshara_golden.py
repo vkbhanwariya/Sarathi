@@ -43,7 +43,7 @@ def test_krutidev_akshara_golden_corpus() -> None:
         "dk;Zokgh": "कार्यवाही",
         "vk'p;Z": "आश्चर्य",
         "lEiw.kZ": "सम्पूर्ण",
-        "okf\"kZd": "वार्षिक",
+        'okf"kZd': "वार्षिक",
         "vUrxZr": "अन्तर्गत",
     }
 
@@ -206,6 +206,7 @@ def test_devlys_complex_reph_akshara() -> None:
 def test_detector_hint_and_evidence_matrix() -> None:
     """Verify detector hint and evidence matrix for legacy text vs English."""
     from pathlib import Path
+
     _fixture = Path(__file__).parent / "fixtures" / "krutidev_sample.txt"
     legacy_text = _fixture.read_text(encoding="utf-8")
     detector = LegacyFontDetector()

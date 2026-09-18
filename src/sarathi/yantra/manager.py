@@ -236,7 +236,11 @@ class Yantra:
         if len(subtasks) == 1 or effective_concurrency == 1:
             results = []
             for task in subtasks:
-                if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                if (
+                    context is not None
+                    and context.cancellation_token is not None
+                    and context.cancellation_token.is_cancelled
+                ):
                     context.cancellation_token.check_cancelled()
                 if target_dev_id is not None:
                     with self._allocator.device_permit(target_dev_id):
@@ -283,7 +287,11 @@ class Yantra:
         try:
             while next_task_idx < len(subtasks) or in_flight:
                 # 1. Check cancellation before submitting more work
-                if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                if (
+                    context is not None
+                    and context.cancellation_token is not None
+                    and context.cancellation_token.is_cancelled
+                ):
                     _cancel_and_drain(settle=True)
                     context.cancellation_token.check_cancelled()
 
@@ -292,11 +300,14 @@ class Yantra:
                     idx = next_task_idx
                     raw_fn = subtasks[idx]
                     if target_dev_id is not None:
+
                         def _make_runner(fn: Callable[[], Any], dev_key: str) -> Callable[[], Any]:
                             def _run() -> Any:
                                 with self._allocator.device_permit(dev_key):
                                     return fn()
+
                             return _run
+
                         task_fn = _make_runner(raw_fn, target_dev_id)
                     else:
                         task_fn = raw_fn
@@ -326,7 +337,11 @@ class Yantra:
                         if terminal_error is None:
                             terminal_error = exc
 
-                if context is not None and context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                if (
+                    context is not None
+                    and context.cancellation_token is not None
+                    and context.cancellation_token.is_cancelled
+                ):
                     _cancel_and_drain(settle=True)
                     context.cancellation_token.check_cancelled()
 

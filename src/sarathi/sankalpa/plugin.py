@@ -92,7 +92,6 @@ class PluginServices:
     data_root: Path | None = None
 
 
-
 @runtime_checkable
 class PluginProvider(Protocol):
     """Canonical provider contract owning the integration description and factory of a plugin."""

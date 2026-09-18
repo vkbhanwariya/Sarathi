@@ -27,7 +27,6 @@ from sarathi.sutra import get_canonical_data_root
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
 
 
-
 def extract_ttf_font_family(ttf_bytes: bytes) -> str | None:
     """Parse TrueType SFNT binary header 'name' table to extract font family or full name."""
     if not isinstance(ttf_bytes, (bytes, bytearray)) or len(ttf_bytes) < 12:
@@ -49,9 +48,7 @@ def extract_ttf_font_family(ttf_bytes: bytes) -> str | None:
         if name_table_offset is None or name_table_offset + 6 > len(ttf_bytes):
             return None
 
-        format_val, count, string_offset = struct.unpack(
-            ">HHH", ttf_bytes[name_table_offset : name_table_offset + 6]
-        )
+        format_val, count, string_offset = struct.unpack(">HHH", ttf_bytes[name_table_offset : name_table_offset + 6])
         for i in range(count):
             rec_off = name_table_offset + 6 + i * 12
             if rec_off + 12 > len(ttf_bytes):
@@ -79,7 +76,9 @@ def extract_ttf_font_family(ttf_bytes: bytes) -> str | None:
     return None
 
 
-def _validate_and_compile_profile(data: dict, source_name: str, seen_ids: set[str], seen_aliases: dict[str, str]) -> LegacyFontProfile:
+def _validate_and_compile_profile(
+    data: dict, source_name: str, seen_ids: set[str], seen_aliases: dict[str, str]
+) -> LegacyFontProfile:
     """Validate font profile schema strictly and compile forward/reverse regexes."""
     pid = data.get("profile_id")
     if not pid or not isinstance(pid, str) or not pid.strip():
@@ -147,12 +146,10 @@ def _validate_and_compile_profile(data: dict, source_name: str, seen_ids: set[st
     reph_unicode = str(data.get("reph_unicode", "र्"))
 
     post_corrections = tuple(
-        tuple(c) for c in data.get("post_corrections", ())
-        if isinstance(c, (list, tuple)) and len(c) == 2
+        tuple(c) for c in data.get("post_corrections", ()) if isinstance(c, (list, tuple)) and len(c) == 2
     )
     family_corrections = tuple(
-        tuple(c) for c in data.get("family_corrections", ())
-        if isinstance(c, (list, tuple)) and len(c) == 2
+        tuple(c) for c in data.get("family_corrections", ()) if isinstance(c, (list, tuple)) and len(c) == 2
     )
     symbols = dict(data.get("symbols", {}))
     reverse_preferred = dict(data.get("reverse_preferred", {}))
@@ -230,6 +227,7 @@ def load_font_profiles(fonts_dir: Path | None = None) -> dict[str, LegacyFontPro
 
     return profiles
 
+
 _DEFAULT_PROFILES: dict[str, LegacyFontProfile] | None = None
 
 
@@ -294,9 +292,7 @@ def rank_profiles_from_text(
         profiles = _DEFAULT_PROFILES
 
     eval_profiles = (
-        [profiles[p] for p in candidate_profiles if p in profiles]
-        if candidate_profiles
-        else list(profiles.values())
+        [profiles[p] for p in candidate_profiles if p in profiles] if candidate_profiles else list(profiles.values())
     )
 
     candidates: list[ConversionCandidate] = []
@@ -404,7 +400,9 @@ def decide_run_profile(
                 cands = rank_profiles_from_text(run_text, profiles)
                 cand = next((c for c in cands if c.profile_id == resolved_prof), None)
                 if cand is not None:
-                    if cand.negative_signatures or (not cand.is_structurally_valid and "COLLAPSED_CONSONANTS" in cand.structural_defects):
+                    if cand.negative_signatures or (
+                        not cand.is_structurally_valid and "COLLAPSED_CONSONANTS" in cand.structural_defects
+                    ):
                         return ConversionDecision(
                             decision="preserve",
                             reason="conflicting_profile_evidence",
@@ -485,7 +483,6 @@ class LegacyFontDetector(BaseLegacyFontDetector):
         """Return the immutable mapping of loaded font profiles."""
         return self._profiles
 
-
     def detect(self, text: str, font_hint: str | None = None) -> tuple[str | None, float]:
         """Detect legacy font profile from font hint or actual text evidence."""
         if not text or not text.strip():
@@ -510,7 +507,12 @@ class LegacyFontDetector(BaseLegacyFontDetector):
                 if len(text.strip()) >= 15 and not cand.positive_signatures:
                     return None, 0.0
                 # If another family has overwhelmingly strong evidence
-                if candidates and candidates[0].profile_id != prof_id and candidates[0].score >= 3.0 and cand.score <= 0:
+                if (
+                    candidates
+                    and candidates[0].profile_id != prof_id
+                    and candidates[0].score >= 3.0
+                    and cand.score <= 0
+                ):
                     return None, 0.0
 
                 conf = max(0.8, min(1.0, 0.5 + len(cand.positive_signatures) * 0.1))
@@ -533,4 +535,3 @@ class LegacyFontDetector(BaseLegacyFontDetector):
 
         conf = min(1.0, 0.5 + len(top.positive_signatures) * 0.1)
         return top.profile_id, conf
-

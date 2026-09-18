@@ -225,7 +225,10 @@ class CTranslate2TranslationEngine:
                             )
                         # Check indictrans2 subdirectory first, then fallback to root models
                         model_path = self._root / "models" / "indictrans2" / dir_key
-                        if not (model_path.exists() and any((model_path / f).exists() for f in ("model.bin", "model.SRC", "spm.model"))):
+                        if not (
+                            model_path.exists()
+                            and any((model_path / f).exists() for f in ("model.bin", "model.SRC", "spm.model"))
+                        ):
                             model_path = self._root / "models" / dir_key
 
                         # Resolve source SentencePiece model
@@ -254,7 +257,10 @@ class CTranslate2TranslationEngine:
                     device_index = 0
                     if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
                         try:
-                            if hasattr(ctranslate2, "get_cuda_device_count") and ctranslate2.get_cuda_device_count() > 0:
+                            if (
+                                hasattr(ctranslate2, "get_cuda_device_count")
+                                and ctranslate2.get_cuda_device_count() > 0
+                            ):
                                 device = "cuda"
                                 dev_str = str(execution_binding.backend_device_id).strip()
                                 if ":" in dev_str:

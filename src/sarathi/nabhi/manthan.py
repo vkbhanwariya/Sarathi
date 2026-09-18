@@ -190,10 +190,7 @@ class Manthan:
                         f"requested execution profile '{profile.value}'."
                     )
                 else:
-                    message = (
-                        f"Capability '{cap_id}' does not support requested "
-                        f"execution profile '{profile.value}'."
-                    )
+                    message = f"Capability '{cap_id}' does not support requested execution profile '{profile.value}'."
                 raise DoshError(code=FailureCode.UNSUPPORTED, message=message)
 
             if cap_id in cap.prerequisites:

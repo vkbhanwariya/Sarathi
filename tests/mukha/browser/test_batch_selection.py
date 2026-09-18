@@ -18,14 +18,16 @@ def _make_synthetic_items(count: int, issues_ratio: float = 0.0) -> list[dict]:
     items = []
     for i in range(count):
         is_issue = i < int(count * issues_ratio)
-        items.append({
-            "input_id": f"inp_{i:04d}",
-            "source_path": f"E:/Docs/doc_{i:04d}.pdf",
-            "display_name": f"doc_{i:04d}.pdf",
-            "size_bytes": 1024 * (i + 1),
-            "is_eligible": not is_issue,
-            "issue_reason": "Encrypted PDF file" if is_issue else None,
-        })
+        items.append(
+            {
+                "input_id": f"inp_{i:04d}",
+                "source_path": f"E:/Docs/doc_{i:04d}.pdf",
+                "display_name": f"doc_{i:04d}.pdf",
+                "size_bytes": 1024 * (i + 1),
+                "is_eligible": not is_issue,
+                "issue_reason": "Encrypted PDF file" if is_issue else None,
+            }
+        )
     return items
 
 
@@ -157,8 +159,20 @@ def test_batch_boundaries_100_and_101_files_pagination(app_page: Page) -> None:
 def test_duplicate_filenames_in_different_directories(app_page: Page) -> None:
     """Duplicate display names across different directory paths render without collision."""
     items = [
-        {"input_id": "1", "source_path": "E:/FolderA/invoice.pdf", "display_name": "invoice.pdf", "size_bytes": 100, "is_eligible": True},
-        {"input_id": "2", "source_path": "E:/FolderB/invoice.pdf", "display_name": "invoice.pdf", "size_bytes": 200, "is_eligible": True},
+        {
+            "input_id": "1",
+            "source_path": "E:/FolderA/invoice.pdf",
+            "display_name": "invoice.pdf",
+            "size_bytes": 100,
+            "is_eligible": True,
+        },
+        {
+            "input_id": "2",
+            "source_path": "E:/FolderB/invoice.pdf",
+            "display_name": "invoice.pdf",
+            "size_bytes": 200,
+            "is_eligible": True,
+        },
     ]
     app_page.evaluate(
         """(items) => {
@@ -182,8 +196,20 @@ def test_duplicate_filenames_in_different_directories(app_page: Page) -> None:
 def test_search_filtering_preserves_selection_and_handles_empty(app_page: Page) -> None:
     """Search filtering updates visible items without dropping existing checked selections."""
     items = [
-        {"input_id": "1", "source_path": "E:/docs/alpha.pdf", "display_name": "alpha.pdf", "size_bytes": 100, "is_eligible": True},
-        {"input_id": "2", "source_path": "E:/docs/beta.pdf", "display_name": "beta.pdf", "size_bytes": 200, "is_eligible": True},
+        {
+            "input_id": "1",
+            "source_path": "E:/docs/alpha.pdf",
+            "display_name": "alpha.pdf",
+            "size_bytes": 100,
+            "is_eligible": True,
+        },
+        {
+            "input_id": "2",
+            "source_path": "E:/docs/beta.pdf",
+            "display_name": "beta.pdf",
+            "size_bytes": 200,
+            "is_eligible": True,
+        },
     ]
     app_page.evaluate(
         """(items) => {
@@ -209,9 +235,28 @@ def test_search_filtering_preserves_selection_and_handles_empty(app_page: Page) 
 def test_filter_tabs_all_eligible_issues(app_page: Page) -> None:
     """Filter tabs for All, Eligible, and Issues filter correctly and display accurate counts."""
     items = [
-        {"input_id": "1", "source_path": "E:/doc1.pdf", "display_name": "doc1.pdf", "size_bytes": 100, "is_eligible": True},
-        {"input_id": "2", "source_path": "E:/doc2.pdf", "display_name": "doc2.pdf", "size_bytes": 100, "is_eligible": True},
-        {"input_id": "3", "source_path": "E:/doc3.pdf", "display_name": "doc3.pdf", "size_bytes": 100, "is_eligible": False, "issue_reason": "Encrypted"},
+        {
+            "input_id": "1",
+            "source_path": "E:/doc1.pdf",
+            "display_name": "doc1.pdf",
+            "size_bytes": 100,
+            "is_eligible": True,
+        },
+        {
+            "input_id": "2",
+            "source_path": "E:/doc2.pdf",
+            "display_name": "doc2.pdf",
+            "size_bytes": 100,
+            "is_eligible": True,
+        },
+        {
+            "input_id": "3",
+            "source_path": "E:/doc3.pdf",
+            "display_name": "doc3.pdf",
+            "size_bytes": 100,
+            "is_eligible": False,
+            "issue_reason": "Encrypted",
+        },
     ]
     app_page.evaluate(
         """(items) => {
@@ -304,7 +349,14 @@ def test_accessible_issue_buttons_and_html_escaping(app_page: Page) -> None:
     """Issue badges are keyboard-accessible buttons with aria-label and safely escaped dynamic text."""
     xss_reason = '<script>alert("xss")</script> & "bad" quote'
     items = [
-        {"input_id": "1", "source_path": "E:/bad.pdf", "display_name": "bad.pdf", "size_bytes": 100, "is_eligible": False, "issue_reason": xss_reason},
+        {
+            "input_id": "1",
+            "source_path": "E:/bad.pdf",
+            "display_name": "bad.pdf",
+            "size_bytes": 100,
+            "is_eligible": False,
+            "issue_reason": xss_reason,
+        },
     ]
     app_page.evaluate(
         """(items) => {

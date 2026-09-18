@@ -154,6 +154,7 @@ def test_yantra_execute_subtasks_bounded_sliding_window_and_order_preservation()
             with lock:
                 active_count -= 1
             return i * 10
+
         return _task
 
     tasks = [make_task(i) for i in range(20)]

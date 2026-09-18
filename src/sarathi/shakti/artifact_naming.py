@@ -40,9 +40,7 @@ def format_artifact_filename(
     Returns:
         Clean, unambiguous artifact filename string.
     """
-    raw_name = input_ref.display_name or (
-        input_ref.source_path.name if input_ref.source_path else input_ref.input_id
-    )
+    raw_name = input_ref.display_name or (input_ref.source_path.name if input_ref.source_path else input_ref.input_id)
     stem = Path(raw_name).stem if raw_name else input_ref.input_id
     clean_stem = sanitize_filename_component(stem)
 
@@ -116,4 +114,3 @@ def resolve_source_input(
         display_name=f"{fallback_id}.txt",
         size_bytes=0,
     )
-

@@ -281,8 +281,7 @@ def execute_manual_retry(
     cap = capabilities[cap_id]
     if not isinstance(cap, Capability):
         raise TypeError(
-            f"Provided capability '{cap_id}' does not implement Capability protocol, "
-            f"got {type(cap).__name__}."
+            f"Provided capability '{cap_id}' does not implement Capability protocol, got {type(cap).__name__}."
         )
 
     registered_decl = registry.get_capability(cap_id)

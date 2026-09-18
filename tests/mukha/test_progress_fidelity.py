@@ -17,9 +17,7 @@ from tests.mukha.conftest import _http_post, _wait_for_idle
 class TestProgressFidelity:
     """Verify factual per-file tracking, worker timings, and zero false metrics."""
 
-    def test_unstarted_files_pending_and_none_elapsed(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_unstarted_files_pending_and_none_elapsed(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Files that haven't started processing must report PENDING with elapsed_ns=None."""
         f1 = tmp_path / "file1.txt"
         f2 = tmp_path / "file2.txt"
@@ -78,9 +76,7 @@ class TestProgressFidelity:
 
             finish_evt.set()
 
-    def test_worker_timing_split_elapsed_and_idle(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_worker_timing_split_elapsed_and_idle(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Worker elapsed_ns must preserve start time, while idle_ns tracks update time."""
         f1 = tmp_path / "doc.txt"
         f1.write_text("content", encoding="utf-8")
@@ -166,9 +162,7 @@ class TestProgressFidelity:
 
             finish_evt.set()
 
-    def test_no_device_defaulting_to_cpu(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_no_device_defaulting_to_cpu(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Unknown device types must not be fabricated as CPU."""
         f1 = tmp_path / "doc.txt"
         f1.write_text("test", encoding="utf-8")
@@ -203,9 +197,7 @@ class TestProgressFidelity:
 
             finish_evt.set()
 
-    def test_real_run_populates_confirmed_artifacts(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_real_run_populates_confirmed_artifacts(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Completing a real run must automatically register result.artifacts in _confirmed_artifacts."""
         f1 = tmp_path / "doc.txt"
         f1.write_text("Hello World", encoding="utf-8")
@@ -239,9 +231,7 @@ class TestProgressFidelity:
             assert resolved_ref is not None
             assert resolved_ref.artifact_id == "art-real-001"
 
-    def test_cancel_run_returns_false_for_finished_run(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_cancel_run_returns_false_for_finished_run(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """cancel_run must return False when the run is already finished."""
         f1 = tmp_path / "doc.txt"
         f1.write_text("test", encoding="utf-8")
@@ -266,9 +256,7 @@ class TestProgressFidelity:
             assert status == 200
             assert cancel_data["cancelled"] is False
 
-    def test_start_run_409_busy_vs_400_invalid_inputs(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_start_run_409_busy_vs_400_invalid_inputs(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Server returns 409 Conflict when busy and 400 Bad Request when inputs are invalid."""
         # 1. Invalid / empty inputs -> 400 Bad Request
         status, data = _http_post(
@@ -309,9 +297,7 @@ class TestProgressFidelity:
 
             finish_evt.set()
 
-    def test_duplicate_basename_progress_no_collision(
-        self, web_server: MukhaWebServer, tmp_path: Path
-    ) -> None:
+    def test_duplicate_basename_progress_no_collision(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Two distinct input files with identical names in different dirs do not overwrite each other."""
         dir_a = tmp_path / "dir_a"
         dir_b = tmp_path / "dir_b"

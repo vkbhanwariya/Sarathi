@@ -174,13 +174,13 @@ class MukhaWebServer:
                         )
                     prov = mdata.get("provenance", [])
                     distinct_inputs = {
-                        p.get("source_input_id")
-                        for p in prov
-                        if isinstance(p, dict) and p.get("source_input_id")
+                        p.get("source_input_id") for p in prov if isinstance(p, dict) and p.get("source_input_id")
                     }
                     if mdata.get("input_outcomes") and isinstance(mdata["input_outcomes"], dict):
                         input_outcomes = mdata["input_outcomes"]
-                    elif mdata.get("metadata", {}).get("input_outcomes") and isinstance(mdata["metadata"]["input_outcomes"], dict):
+                    elif mdata.get("metadata", {}).get("input_outcomes") and isinstance(
+                        mdata["metadata"]["input_outcomes"], dict
+                    ):
                         input_outcomes = mdata["metadata"]["input_outcomes"]
 
                     if input_outcomes:
@@ -193,11 +193,15 @@ class MukhaWebServer:
                     pass
 
         if input_outcomes:
-            successful_files = sum(1 for s in input_outcomes.values() if s.upper() in ("SUCCESS", "WARNING", "COMPLETED"))
+            successful_files = sum(
+                1 for s in input_outcomes.values() if s.upper() in ("SUCCESS", "WARNING", "COMPLETED")
+            )
             failed_files = sum(1 for s in input_outcomes.values() if s.upper() in ("FAILED", "FAILURE"))
         else:
             if total_inputs is None:
-                total_inputs = 1 if (status == "SUCCESS" or terminal.artifact_count > 0) else (1 if status == "FAILED" else 0)
+                total_inputs = (
+                    1 if (status == "SUCCESS" or terminal.artifact_count > 0) else (1 if status == "FAILED" else 0)
+                )
             successful_files = total_inputs if status == "SUCCESS" else 0
             failed_files = total_inputs if status == "FAILED" else 0
 

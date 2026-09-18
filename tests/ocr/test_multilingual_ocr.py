@@ -39,7 +39,6 @@ def _create_sample_image(text: str, path: Path) -> None:
     img.save(path)
 
 
-
 @pytest.mark.real_model
 def test_multilingual_default_engine_routing(tmp_path: Path) -> None:
     """Proves RapidOCREngine routes to PP-OCRv5 Devanagari by default when no lang option is passed."""
@@ -102,6 +101,7 @@ def test_multilingual_v6_english_engine_routing(tmp_path: Path) -> None:
 def test_capability_validates_unsupported_language(tmp_path: Path) -> None:
     """Proves OCRCapability rejects unrecognized custom_options language."""
     from unittest.mock import MagicMock
+
     img_path = tmp_path / "sample.png"
     _create_sample_image("TEXT", img_path)
 
@@ -119,7 +119,6 @@ def test_capability_validates_unsupported_language(tmp_path: Path) -> None:
         cap.execute(req, ctx)
     assert exc_info.value.code == FailureCode.VALIDATION_FAILED
     assert "Requested OCR language" in exc_info.value.message
-
 
 
 def test_device_inventory_default_vs_detect_accelerators() -> None:

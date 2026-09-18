@@ -367,10 +367,17 @@ def test_time_and_value_date_wiring() -> None:
 
     table = TableData(
         name="icici_txns",
-        headers=("Transaction Date", "Value Date", "Time", "Particulars", "Cheque No.", "Withdrawal", "Deposit", "Balance"),
-        rows=(
-            ("10/02/2026", "11/02/2026", "14:30:00", "Cheque Clearing", "000123", "1500.00", "", "8500.00"),
+        headers=(
+            "Transaction Date",
+            "Value Date",
+            "Time",
+            "Particulars",
+            "Cheque No.",
+            "Withdrawal",
+            "Deposit",
+            "Balance",
         ),
+        rows=(("10/02/2026", "11/02/2026", "14:30:00", "Cheque Clearing", "000123", "1500.00", "", "8500.00"),),
     )
 
     doc = CanonicalDocument(
@@ -401,7 +408,6 @@ def test_bank_eod_balance_row_classification() -> None:
     """Rows marked with EOD Balance must be classified as EOD_BALANCE."""
     row = ("31/01/2026", "EOD BALANCE", "", "", "50000.00")
     assert classify_row(row) == RowType.EOD_BALANCE
-
 
 
 def test_bank_models_expose_canonical_veda_properties() -> None:

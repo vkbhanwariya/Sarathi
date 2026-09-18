@@ -578,7 +578,6 @@ class TestNativeExtraction:
         assert len(doc.tables) == 1
         assert "Dépôt" in doc.text
 
-
     def test_empty_native_output_requests_ocr(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
     ) -> None:
@@ -962,7 +961,9 @@ class TestNativeExtraction:
         assert "sample_doc_extracted.docx" in payload_names
         docx_payload = next(p for p in res.artifact_payloads if p.intent.name == "sample_doc_extracted.docx")
         assert len(docx_payload.content) > 0
-        assert docx_payload.intent.media_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        assert (
+            docx_payload.intent.media_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
 
     def test_csv_ingestion_preserves_leading_zeros_and_decimal_precision(
         self, capability: NativeExtractionCapability, context: ExecutionContext, tmp_path: Path
@@ -999,19 +1000,19 @@ class TestNativeExtraction:
             '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"'
             ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
             '<Worksheet ss:Name="Sheet1">'
-            '<Table>'
-            '<Row>'
+            "<Table>"
+            "<Row>"
             '<Cell><Data ss:Type="String">Date</Data></Cell>'
             '<Cell><Data ss:Type="String">Debit</Data></Cell>'
             '<Cell><Data ss:Type="String">Credit</Data></Cell>'
-            '</Row>'
-            '<Row>'
+            "</Row>"
+            "<Row>"
             '<Cell><Data ss:Type="String">01/01/2026</Data></Cell>'
             '<Cell ss:Index="3"><Data ss:Type="Number">100</Data></Cell>'
-            '</Row>'
-            '</Table>'
-            '</Worksheet>'
-            '</Workbook>'
+            "</Row>"
+            "</Table>"
+            "</Worksheet>"
+            "</Workbook>"
         )
         xml_file = tmp_path / "statement.xml"
         xml_file.write_text(xml_content, encoding="utf-8")
@@ -1075,7 +1076,9 @@ class TestNativeExtraction:
     ) -> None:
         """Item 10: Multi-line plain prose without delimiter/table structure is treated as text in pages, not a 1-column table."""
         prose_file = tmp_path / "prose.txt"
-        prose_file.write_text("This is line one of a story.\nThis is line two of the story.\nLine three concludes it.\n", encoding="utf-8")
+        prose_file.write_text(
+            "This is line one of a story.\nThis is line two of the story.\nLine three concludes it.\n", encoding="utf-8"
+        )
 
         req = Request(
             request_id="req-prose",

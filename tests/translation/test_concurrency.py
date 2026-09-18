@@ -134,7 +134,12 @@ def test_translation_concurrent_and_sequential_semantic_equivalence(test_backend
         request_id="req-1",
         requirement="translation",
         inputs=tuple(
-            InputRef(input_id=f"in-{i + 1}", source_path=Path(f"doc_{i + 1}.txt"), display_name=f"doc_{i + 1}.txt", size_bytes=100)
+            InputRef(
+                input_id=f"in-{i + 1}",
+                source_path=Path(f"doc_{i + 1}.txt"),
+                display_name=f"doc_{i + 1}.txt",
+                size_bytes=100,
+            )
             for i in range(4)
         ),
         profile=ExecutionProfile.ACCURATE,
@@ -206,7 +211,12 @@ def test_translation_concurrency_bounded_by_approved_concurrency() -> None:
         request_id="req-2",
         requirement="translation",
         inputs=tuple(
-            InputRef(input_id=f"in-{i + 1}", source_path=Path(f"doc_{i + 1}.txt"), display_name=f"doc_{i + 1}.txt", size_bytes=100)
+            InputRef(
+                input_id=f"in-{i + 1}",
+                source_path=Path(f"doc_{i + 1}.txt"),
+                display_name=f"doc_{i + 1}.txt",
+                size_bytes=100,
+            )
             for i in range(6)
         ),
         profile=ExecutionProfile.ACCURATE,
@@ -226,7 +236,9 @@ def test_translation_concurrency_bounded_by_approved_concurrency() -> None:
 
     # Invariant: Concurrency must be > 1 (parallelism active) and <= 2 (approved_concurrency bound)
     assert tracking_backend.max_active_seen > 1, f"Expected concurrency > 1, got {tracking_backend.max_active_seen}"
-    assert tracking_backend.max_active_seen <= 2, f"Concurrency exceeded approved_concurrency (2): {tracking_backend.max_active_seen}"
+    assert tracking_backend.max_active_seen <= 2, (
+        f"Concurrency exceeded approved_concurrency (2): {tracking_backend.max_active_seen}"
+    )
 
 
 def test_translation_concurrent_cancellation_honored() -> None:
@@ -255,7 +267,12 @@ def test_translation_concurrent_cancellation_honored() -> None:
         request_id="req-3",
         requirement="translation",
         inputs=tuple(
-            InputRef(input_id=f"in-{i + 1}", source_path=Path(f"doc_{i + 1}.txt"), display_name=f"doc_{i + 1}.txt", size_bytes=100)
+            InputRef(
+                input_id=f"in-{i + 1}",
+                source_path=Path(f"doc_{i + 1}.txt"),
+                display_name=f"doc_{i + 1}.txt",
+                size_bytes=100,
+            )
             for i in range(4)
         ),
         profile=ExecutionProfile.ACCURATE,
@@ -317,5 +334,6 @@ def test_ctranslate2_does_not_mutate_global_openmp_env(monkeypatch: pytest.Monke
     backend.translate_sentences(["Testing thread isolation"], TranslationDirection.EN_TO_HI)
 
     import os
+
     assert "OMP_NUM_THREADS" not in os.environ, "Translation must not pollute global OMP_NUM_THREADS"
     assert "MKL_NUM_THREADS" not in os.environ, "Translation must not pollute global MKL_NUM_THREADS"

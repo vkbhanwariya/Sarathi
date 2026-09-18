@@ -111,9 +111,7 @@ def select_aggregate_confidence_records(records: Iterable[PramanaRecord]) -> tup
     """Prefer page observations only within capability/stage groups that actually emit them."""
     measured = tuple(record for record in records if record.confidence is not None)
     page_groups = {
-        (record.capability_id, record.stage)
-        for record in measured
-        if record.attributes.get("level") == "page"
+        (record.capability_id, record.stage) for record in measured if record.attributes.get("level") == "page"
     }
     return tuple(
         record

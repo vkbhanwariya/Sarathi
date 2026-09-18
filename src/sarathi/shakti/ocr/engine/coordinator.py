@@ -253,16 +253,16 @@ class RapidOCREngine:
                 else:
                     clahe = is_low_contrast_image(img_arr)
 
-            remove_stamps = bool(
-                custom_options.get("remove_stamps", False) or custom_options.get("inpaint_stamps", False)
-            ) if custom_options else False
+            remove_stamps = (
+                bool(custom_options.get("remove_stamps", False) or custom_options.get("inpaint_stamps", False))
+                if custom_options
+                else False
+            )
 
             if remove_stamps:
                 applied_stamp_removal = True
 
-            img_arr = ocr_engine.preprocess_ocr_image(
-                img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps
-            )
+            img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps)
 
         is_binarized = False
         if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
@@ -314,7 +314,9 @@ class RapidOCREngine:
 
             if target_lang in DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
                 filter_opt = False
-            elif (target_lang in V6_LANGS) or (target_lang in EN_LANGS and custom_options and custom_options.get("english_numbers_only")):
+            elif (target_lang in V6_LANGS) or (
+                target_lang in EN_LANGS and custom_options and custom_options.get("english_numbers_only")
+            ):
                 filter_opt = True
             else:
                 filter_opt = custom_options.get("english_numbers_only", False) if custom_options else False
@@ -333,9 +335,8 @@ class RapidOCREngine:
                 )
 
             # Same-engine weak-crop retry for ACCURATE, LAYOUT_PRESERVING, or CUSTOM
-            is_high_accuracy = (
-                profile in (ExecutionProfile.ACCURATE, ExecutionProfile.LAYOUT_PRESERVING)
-                or bool(custom_options and (custom_options.get("preserve_layout") or custom_options.get("retry_enabled")))
+            is_high_accuracy = profile in (ExecutionProfile.ACCURATE, ExecutionProfile.LAYOUT_PRESERVING) or bool(
+                custom_options and (custom_options.get("preserve_layout") or custom_options.get("retry_enabled"))
             )
             retry_enabled = (
                 (custom_options.get("retry_enabled", True) if custom_options else True)
@@ -406,11 +407,7 @@ class RapidOCREngine:
                                         if b_txts[i] is not None
                                         else ""
                                     )
-                                    s = (
-                                        float(b_scores[i])
-                                        if b_scores[i] is not None
-                                        else 0.0
-                                    )
+                                    s = float(b_scores[i]) if b_scores[i] is not None else 0.0
                                     recognized_results.append((t, s))
                         except Exception:
                             recognized_results.clear()
@@ -477,11 +474,9 @@ class RapidOCREngine:
                             retry_improved_count += 1
                             retry_total_gain += gain
 
-
         # Layout and table reconstruction
-        is_layout_mode = (
-            profile == ExecutionProfile.LAYOUT_PRESERVING
-            or bool(custom_options and custom_options.get("preserve_layout"))
+        is_layout_mode = profile == ExecutionProfile.LAYOUT_PRESERVING or bool(
+            custom_options and custom_options.get("preserve_layout")
         )
         final_page_text, detected_tables = reconstruct_layout(
             img_arr,
@@ -544,7 +539,9 @@ class RapidOCREngine:
         if target_lang in DEV_LANGS:
             model_label = "PP-OCRv5-Devanagari"
         else:
-            model_label = self._model_labels.get(cache_key) or self._model_labels.get(f"v6_en:{target_device}") or "PP-OCRv6"
+            model_label = (
+                self._model_labels.get(cache_key) or self._model_labels.get(f"v6_en:{target_device}") or "PP-OCRv6"
+            )
 
         page_confidence: ConfidenceValue | None = None
         final_confs = [s.confidence for s in spans if s.confidence is not None]

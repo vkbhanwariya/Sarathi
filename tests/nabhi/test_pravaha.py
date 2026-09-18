@@ -2007,7 +2007,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
             def declaration(self) -> CapabilityDeclaration:
                 return decl_a
 
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 self.executions += 1
                 if self.executions == 1:
                     return Result(
@@ -2023,7 +2025,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
             def declaration(self) -> CapabilityDeclaration:
                 return decl_b
 
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 return Result(data=f"{prior_result.data if prior_result else ''}+stage_b")
 
         caps = {"stage_a": StageA(), "stage_b": StageB()}
@@ -2057,7 +2061,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
             security=SecurityDeclaration(),
             capabilities=("calc_stage",),
         )
-        decl = CapabilityDeclaration("calc_stage", "p_cache", "1.0.0", (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE))
+        decl = CapabilityDeclaration(
+            "calc_stage", "p_cache", "1.0.0", (ExecutionProfile.INSTANT, ExecutionProfile.ACCURATE)
+        )
 
         kosh = Kosh()
         kosh.register_plugin(plugin)
@@ -2077,7 +2083,9 @@ class TestPravahaFailureLifecycleAndQuarantine:
             def declaration(self) -> CapabilityDeclaration:
                 return decl
 
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 return Result(data="calc_success")
 
         pravaha = Pravaha(

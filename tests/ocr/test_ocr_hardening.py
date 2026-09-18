@@ -277,10 +277,12 @@ def test_ocr_declares_gpu_preferred_over_cpu() -> None:
 
 def test_yantra_subtask_concurrency_bounded_by_approved_concurrency() -> None:
     """Yantra.execute_subtasks must bound concurrency by context.execution_binding.approved_concurrency."""
-    inventory = DeviceInventory([
-        DeviceInfo("cpu-0", DeviceType.CPU, capacity=16),
-        DeviceInfo("gpu-0", DeviceType.GPU, capacity=2),
-    ])
+    inventory = DeviceInventory(
+        [
+            DeviceInfo("cpu-0", DeviceType.CPU, capacity=16),
+            DeviceInfo("gpu-0", DeviceType.GPU, capacity=2),
+        ]
+    )
     yantra = Yantra(inventory=inventory)
 
     # Binding allocated for GPU with capacity 2
@@ -289,6 +291,7 @@ def test_yantra_subtask_concurrency_bounded_by_approved_concurrency() -> None:
 
     import threading
     import time
+
     current_active = 0
     max_active_seen = 0
     active_lock = threading.Lock()
@@ -327,6 +330,7 @@ def test_native_extraction_escalates_only_for_pdf_not_docx_or_zero_bytes(tmp_pat
 
     # 2. Corrupted DOCX (valid zip header with corrupt document.xml)
     import zipfile
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("word/document.xml", b"<corrupted-unclosed-tag>")
@@ -393,7 +397,11 @@ def test_ocr_cross_input_concurrency_with_bounded_subtasks(tmp_path: Path) -> No
         p = tmp_path / f"img_{idx + 1}.png"
         img = Image.new("RGB", (30, 30), color="white")
         img.save(p)
-        inputs.append(InputRef(input_id=f"i-{idx + 1}", source_path=p, display_name=f"img_{idx + 1}.png", size_bytes=p.stat().st_size))
+        inputs.append(
+            InputRef(
+                input_id=f"i-{idx + 1}", source_path=p, display_name=f"img_{idx + 1}.png", size_bytes=p.stat().st_size
+            )
+        )
 
     binding = ExecutionBinding("cpu-0", DeviceType.CPU, "cpu", "CPU", approved_concurrency=2)
     ctx = ExecutionContext("run-c", "req-c", "t-c", "s-c", execution_binding=binding)

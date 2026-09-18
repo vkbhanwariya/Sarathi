@@ -137,17 +137,22 @@ class DeviceRequirement:
             if isinstance(self.supported_backends, set):
                 raise TypeError("supported_backends must be an ordered sequence (list or tuple), not a set.")
             if not isinstance(self.supported_backends, (list, tuple)):
-                raise TypeError(f"supported_backends must be a sequence of strings, got {type(self.supported_backends)}.")
+                raise TypeError(
+                    f"supported_backends must be a sequence of strings, got {type(self.supported_backends)}."
+                )
             cleaned_backends = tuple(str(b).strip().lower() for b in self.supported_backends if str(b).strip())
             object.__setattr__(self, "supported_backends", cleaned_backends)
 
-        if not isinstance(self.inference_slots, int) or isinstance(self.inference_slots, bool) or self.inference_slots < 1:
+        if (
+            not isinstance(self.inference_slots, int)
+            or isinstance(self.inference_slots, bool)
+            or self.inference_slots < 1
+        ):
             raise ValueError(f"inference_slots must be a positive integer >= 1 (got {self.inference_slots}).")
         if self.network_provider is not None:
             if not isinstance(self.network_provider, str) or not self.network_provider.strip():
                 raise ValueError("network_provider must be a non-empty string or None.")
             object.__setattr__(self, "network_provider", self.network_provider.strip().lower())
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +184,6 @@ class CapabilityDeclaration:
             object.__setattr__(self, "display_name", self.display_name.strip())
         if not isinstance(self.device_requirement, DeviceRequirement):
             raise TypeError(f"device_requirement must be a DeviceRequirement, got {type(self.device_requirement)}.")
-
 
         if isinstance(self.supported_profiles, set):
             raise TypeError("supported_profiles must be an ordered sequence (list or tuple), not a set.")

@@ -77,21 +77,15 @@ class TranslationProvider(PluginProvider):
             en_hi_model = trans_models / "en-hi"
 
             def _is_complete_model(p: Path) -> bool:
-                has_vocab = (
-                    (p / "shared_vocabulary.json").is_file()
-                    or ((p / "source_vocabulary.json").is_file() and (p / "target_vocabulary.json").is_file())
+                has_vocab = (p / "shared_vocabulary.json").is_file() or (
+                    (p / "source_vocabulary.json").is_file() and (p / "target_vocabulary.json").is_file()
                 )
                 has_spm = (
                     (p / "spm.model").is_file()
                     or ((p / "model.SRC").is_file() and (p / "model.TGT").is_file())
                     or ((p / "src_spm.model").is_file() and (p / "tgt_spm.model").is_file())
                 )
-                return (
-                    p.is_dir()
-                    and (p / "model.bin").is_file()
-                    and has_spm
-                    and has_vocab
-                )
+                return p.is_dir() and (p / "model.bin").is_file() and has_spm and has_vocab
 
             opus_hi_en = trans_models / "opus_mt" / "hi-en"
             opus_en_hi = trans_models / "opus_mt" / "en-hi"

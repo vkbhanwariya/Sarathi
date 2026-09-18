@@ -51,11 +51,7 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
         return DetectedFormat.UNKNOWN
 
     # Standalone raw BIFF stream without OLE header
-    if (
-        data.startswith(b"\x09\x08")
-        or data.startswith(b"\x09\x04")
-        or data.startswith(b"\x09\x02")
-    ):
+    if data.startswith(b"\x09\x08") or data.startswith(b"\x09\x04") or data.startswith(b"\x09\x02"):
         return DetectedFormat.XLS_LEGACY
 
     # 3. ZIP / DOCX / XLSX / XLSM detection

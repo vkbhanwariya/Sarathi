@@ -98,6 +98,5 @@ class TestArchitecturalBoundaries:
                                 )
 
         assert not violations, (
-            f"Cross-subsystem architectural boundary violations found ({len(violations)}):\n"
-            + "\n".join(violations)
+            f"Cross-subsystem architectural boundary violations found ({len(violations)}):\n" + "\n".join(violations)
         )

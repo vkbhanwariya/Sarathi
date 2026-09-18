@@ -228,8 +228,7 @@ class RunCoordinator:
         """Retrieve terminal run summary by run ID or request ID."""
         with self._lock:
             if self._terminal_summary and (
-                self._terminal_summary.run_id == run_id
-                or getattr(self._terminal_summary, "request_id", None) == run_id
+                self._terminal_summary.run_id == run_id or getattr(self._terminal_summary, "request_id", None) == run_id
             ):
                 return self._terminal_summary
             if run_id in self._run_summaries:
@@ -253,7 +252,11 @@ class RunCoordinator:
                 return False
 
             # 3. Enforce run scoping if run_id provided
-            target_run_id = self._last_result_run_id or (self._terminal_summary.run_id if self._terminal_summary else None) or self._active_run_id
+            target_run_id = (
+                self._last_result_run_id
+                or (self._terminal_summary.run_id if self._terminal_summary else None)
+                or self._active_run_id
+            )
             if intent.run_id:
                 if target_run_id and intent.run_id != target_run_id:
                     return False
@@ -292,7 +295,11 @@ class RunCoordinator:
 
             # 7. Check duplicate identical submission
             existing = self._review_intents.get(intent.item_id)
-            if existing is not None and existing.action_id == intent.action_id and existing.proposed_value == intent.proposed_value:
+            if (
+                existing is not None
+                and existing.action_id == intent.action_id
+                and existing.proposed_value == intent.proposed_value
+            ):
                 return False
 
             self._review_intents[intent.item_id] = intent
@@ -317,8 +324,6 @@ class RunCoordinator:
                 self._last_result = None
                 self._last_result_run_id = None
             self._bump_revision()
-
-
 
     @property
     def last_result(self) -> Result | None:
@@ -405,8 +410,7 @@ class RunCoordinator:
             if m_run_id and m_run_id != run_id:
                 with self._lock:
                     is_valid_alias = (
-                        self._run_aliases.get(run_id) == m_run_id
-                        or self._run_aliases.get(m_run_id) == run_id
+                        self._run_aliases.get(run_id) == m_run_id or self._run_aliases.get(m_run_id) == run_id
                     )
                 if not is_valid_alias:
                     if self._agni.darpana is not None:
@@ -673,9 +677,8 @@ class RunCoordinator:
                         stage_label = "Completed (Cached)" if is_run_cached else "Completed"
 
                         for inp in request.inputs:
-                            existing = (
-                                self._file_progress.get(inp.input_id)
-                                or self._file_progress.get(inp.display_name, {})
+                            existing = self._file_progress.get(inp.input_id) or self._file_progress.get(
+                                inp.display_name, {}
                             )
                             start_t = existing.get("started_ns")
                             duration = existing.get("duration_ns")
@@ -703,16 +706,13 @@ class RunCoordinator:
                                         if result.artifacts
                                         else False
                                     )
-                                    has_aggregate_credit = (
-                                        any(bool(art.metadata.get("is_aggregate")) for art in result.artifacts)
-                                        and (inp.input_id in contributing_inputs or not contributing_inputs)
-                                    )
+                                    has_aggregate_credit = any(
+                                        bool(art.metadata.get("is_aggregate")) for art in result.artifacts
+                                    ) and (inp.input_id in contributing_inputs or not contributing_inputs)
                                     has_output = has_input_doc or has_input_artifact or has_aggregate_credit
                                 else:
                                     has_output = (
-                                        inp.input_id in doc_map
-                                        or result.data is not None
-                                        or bool(result.artifacts)
+                                        inp.input_id in doc_map or result.data is not None or bool(result.artifacts)
                                     )
 
                                 if not has_output:
@@ -776,11 +776,7 @@ class RunCoordinator:
                         or "cancelled" in dosh_err.message.lower()
                     )
                     status = "CANCELLED" if is_cancelled else "FAILED"
-                    failures = (
-                        ("Execution cancelled by user.",)
-                        if is_cancelled
-                        else (_format_public_error(dosh_err),)
-                    )
+                    failures = ("Execution cancelled by user.",) if is_cancelled else (_format_public_error(dosh_err),)
                     maruti_recs, pramana_recs = get_run_telemetry(self._agni, run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
                     summary = MukhaPresenter.build_summary_view(
@@ -806,9 +802,7 @@ class RunCoordinator:
                     import traceback
 
                     traceback.print_exc()
-                    sanitized_detail = _sanitize_message(
-                        str(exc).strip().splitlines()[-1] if str(exc).strip() else ""
-                    )
+                    sanitized_detail = _sanitize_message(str(exc).strip().splitlines()[-1] if str(exc).strip() else "")
                     failure_msg = (
                         f"EXECUTION_FAILED: {type(exc).__name__}: {sanitized_detail}"
                         if sanitized_detail
@@ -839,7 +833,9 @@ class RunCoordinator:
                     with self._lock:
                         if self._terminal_summary is None:
                             for inp in request.inputs:
-                                curr = self._file_progress.get(inp.input_id) or self._file_progress.get(inp.display_name)
+                                curr = self._file_progress.get(inp.input_id) or self._file_progress.get(
+                                    inp.display_name
+                                )
                                 if curr and curr.get("status") in ("RUNNING", "PENDING"):
                                     curr["status"] = "FAILED"
                                     curr["stage"] = "Failed"
@@ -908,7 +904,7 @@ class RunCoordinator:
                 # 2. Asynchronously force Explorer window into foreground
                 def _bring_to_foreground() -> None:
                     try:
-                        ps_code = r'''
+                        ps_code = r"""
 $target = [System.IO.Path]::GetFullPath($env:SARATHI_TARGET_DIR).TrimEnd('\').ToLower()
 $targetUri = ([System.Uri]$target).AbsoluteUri.ToLower().TrimEnd('/')
 
@@ -994,7 +990,7 @@ if (-not $activated) {
     $folderName = Split-Path -Leaf $target
     try { $wshell.AppActivate($folderName) | Out-Null } catch {}
 }
-'''
+"""
                         env = os.environ.copy()
                         env["SARATHI_TARGET_DIR"] = str(target_dir)
                         b64 = base64.b64encode(ps_code.encode("utf-16le")).decode("ascii")

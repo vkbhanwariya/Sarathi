@@ -310,7 +310,9 @@ class TestManthanResolver:
         # cap_b requires cap_c
         # cap_a requires cap_b and cap_c (cap_c is redundant transitive)
         c_cap = CapabilityDeclaration("cap_c", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,))
-        b_cap = CapabilityDeclaration("cap_b", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_c",))
+        b_cap = CapabilityDeclaration(
+            "cap_b", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_c",)
+        )
         a_cap = CapabilityDeclaration(
             "cap_a", "topo.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_b", "cap_c")
         )
@@ -340,8 +342,12 @@ class TestManthanResolver:
         )
         registry.register_plugin(p)
 
-        a_cap = CapabilityDeclaration("cap_a", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_b",))
-        b_cap = CapabilityDeclaration("cap_b", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",))
+        a_cap = CapabilityDeclaration(
+            "cap_a", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_b",)
+        )
+        b_cap = CapabilityDeclaration(
+            "cap_b", "cycle.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",)
+        )
         registry.register_capability(a_cap)
         registry.register_capability(b_cap)
 
@@ -368,7 +374,9 @@ class TestManthanResolver:
         )
         registry.register_plugin(p)
 
-        a_cap = CapabilityDeclaration("cap_a", "self.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",))
+        a_cap = CapabilityDeclaration(
+            "cap_a", "self.plugin", "1.0.0", (ExecutionProfile.INSTANT,), prerequisites=("cap_a",)
+        )
         registry.register_capability(a_cap)
 
         manthan = Manthan(registry)
@@ -436,7 +444,10 @@ class TestManthanResolver:
 
         err = exc_info.value
         assert err.code is FailureCode.UNSUPPORTED
-        assert "Prerequisite capability 'cap_child' required by 'cap_parent' does not support requested execution profile 'accurate'" in err.message
+        assert (
+            "Prerequisite capability 'cap_child' required by 'cap_parent' does not support requested execution profile 'accurate'"
+            in err.message
+        )
 
 
 def test_capability_plan_rejects_duplicate_stage_ids() -> None:

@@ -112,7 +112,12 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
         elif actual_delta == inv_delta:
             inv_matches += 1
 
-    if total_testable >= 2 and inv_matches >= 2 and inv_matches > canon_matches and (inv_matches / total_testable) >= 0.75:
+    if (
+        total_testable >= 2
+        and inv_matches >= 2
+        and inv_matches > canon_matches
+        and (inv_matches / total_testable) >= 0.75
+    ):
         statement_issues.append(
             ValidationIssue(
                 code="DEBIT_CREDIT_INVERSION_DETECTED",
@@ -128,9 +133,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
                 },
             )
         )
-        ordered_txns = [
-            replace(tx, debit=tx.credit, credit=tx.debit) for tx in ordered_txns
-        ]
+        ordered_txns = [replace(tx, debit=tx.credit, credit=tx.debit) for tx in ordered_txns]
         total_debits = sum((tx.debit or Decimal("0") for tx in ordered_txns), Decimal("0"))
         total_credits = sum((tx.credit or Decimal("0") for tx in ordered_txns), Decimal("0"))
         if statement.opening_balance is None and statement.closing_balance is not None:
@@ -197,9 +200,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
 
         statement_issues.extend(issues)
         combined_tx_issues = tuple(list(tx.issues) + [i for i in issues if i not in tx.issues])
-        validated_transactions.append(
-            replace(tx, status=tx_status, issues=combined_tx_issues)
-        )
+        validated_transactions.append(replace(tx, status=tx_status, issues=combined_tx_issues))
 
     # Re-order back to original presentation order
     final_txns = list(reversed(validated_transactions)) if is_reverse else validated_transactions

@@ -169,7 +169,9 @@ class MistralOCRCapability:
                                 score=page_avg_conf,
                                 method="mistral_mean",
                                 evidence=page_evidence,
-                            ) if page_avg_conf is not None else None,
+                            )
+                            if page_avg_conf is not None
+                            else None,
                             attributes={
                                 "level": "page",
                                 "page_number": p_idx,
@@ -239,13 +241,7 @@ class MistralOCRCapability:
         output_data = all_docs[0] if len(all_docs) == 1 else tuple(all_docs)
 
         # Aggregate overall measured confidence across all pages
-        all_confs = [
-            s.confidence
-            for doc in all_docs
-            for p in doc.pages
-            for s in p.spans
-            if s.confidence is not None
-        ]
+        all_confs = [s.confidence for doc in all_docs for p in doc.pages for s in p.spans if s.confidence is not None]
         overall_confidence: ConfidenceValue | None = None
         if all_confs:
             overall_confidence = ConfidenceValue(

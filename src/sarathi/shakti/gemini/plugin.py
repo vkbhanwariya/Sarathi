@@ -5,13 +5,13 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from sarathi.sankalpa import (
-     CapabilityDeclaration,
-     DeviceRequirement,
-     DeviceType,
-     ExecutionProfile,
-     PluginInfo,
-     SecurityDeclaration,
- )
+    CapabilityDeclaration,
+    DeviceRequirement,
+    DeviceType,
+    ExecutionProfile,
+    PluginInfo,
+    SecurityDeclaration,
+)
 
 GEMINI_SECURITY = SecurityDeclaration(
     pii_access=True,

@@ -120,13 +120,9 @@ def validate_manifest(
             missing = sorted(physical_components - declared_components)
             stale = sorted(declared_components - physical_components)
             if missing:
-                errors.append(
-                    f"Module '{mod_name}' has undeclared immediate components: " + ", ".join(missing)
-                )
+                errors.append(f"Module '{mod_name}' has undeclared immediate components: " + ", ".join(missing))
             if stale:
-                errors.append(
-                    f"Module '{mod_name}' declares components missing on disk: " + ", ".join(stale)
-                )
+                errors.append(f"Module '{mod_name}' declares components missing on disk: " + ", ".join(stale))
 
     physical_packages = {
         path.name
@@ -136,7 +132,9 @@ def validate_manifest(
     for physical in physical_packages:
         expected_dotted = f"{root_package_name}.{physical}"
         if expected_dotted not in declared_packages:
-            errors.append(f"Physical package '{physical}' in {root_pkg} is not declared in architecture manifest modules")
+            errors.append(
+                f"Physical package '{physical}' in {root_pkg} is not declared in architecture manifest modules"
+            )
 
     for group_name, group_info in manifest.get("groups", {}).items():
         for member in group_info.get("members", []):

@@ -161,7 +161,9 @@ def test_history_storage_failure_isolation(tmp_path: Path) -> None:
     assert in_memory[0].run_id == "run-isolated"
 
 
-def test_history_query_keeps_new_memory_summary_when_save_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_history_query_keeps_new_memory_summary_when_save_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A stale persisted tail must not hide a newer in-memory summary after a failed save."""
     history_file = tmp_path / "telemetry" / "runs.jsonl"
     seed_store = TerminalRunHistoryStore(history_file, format="jsonl")

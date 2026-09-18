@@ -112,17 +112,11 @@ def test_translation_provider_readiness_probe(tmp_path: Path) -> None:
     # Ready if ctranslate2 and sentencepiece are installed
     import importlib.util
 
-    if (
-        importlib.util.find_spec("ctranslate2") is not None
-        and importlib.util.find_spec("sentencepiece") is not None
-    ):
+    if importlib.util.find_spec("ctranslate2") is not None and importlib.util.find_spec("sentencepiece") is not None:
         assert res_ready["translation"].ready is True
     else:
         assert res_ready["translation"].ready is False
-        assert (
-            "ctranslate2" in res_ready["translation"].reason
-            or "sentencepiece" in res_ready["translation"].reason
-        )
+        assert "ctranslate2" in res_ready["translation"].reason or "sentencepiece" in res_ready["translation"].reason
 
 
 def test_agni_audit_readiness_memoization(tmp_path: Path) -> None:

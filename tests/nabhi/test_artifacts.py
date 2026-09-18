@@ -411,9 +411,7 @@ class TestManifestSafetyAndOrdering:
         with pytest.raises(TypeError, match="must be a WarningRecord"):
             ws.finalize(success=True, warnings=[{"code": "BAD_TYPE"}])  # type: ignore
 
-    def test_finalize_in_memory_validation_error_preserves_artifacts_on_disk(
-        self, boundary: ArtifactBoundary
-    ) -> None:
+    def test_finalize_in_memory_validation_error_preserves_artifacts_on_disk(self, boundary: ArtifactBoundary) -> None:
         """In-memory validation failures in finalize must abort before performing filesystem cleanup/deletions."""
         ws = boundary.begin_run(run_id="run-val-order", requirement="ocr")
         intent = ArtifactIntent(name="important.txt", role="data", media_type="text/plain")
@@ -430,7 +428,6 @@ class TestManifestSafetyAndOrdering:
         assert ref.path.exists()
         assert ref.path.read_bytes() == b"critical data payload"
         assert ws.is_finalized is False
-
 
 
 class TestCleanupAndPartialPreservation:
@@ -614,7 +611,9 @@ class TestCleanupAndPartialPreservation:
         assert err.__cause__ is not None
         assert isinstance(err.__cause__, PermissionError)
 
-    def test_context_manager_cleans_staging_and_retains_committed_output_on_exception(self, boundary: ArtifactBoundary) -> None:
+    def test_context_manager_cleans_staging_and_retains_committed_output_on_exception(
+        self, boundary: ArtifactBoundary
+    ) -> None:
         staging_dir = None
         output_dir = None
         try:

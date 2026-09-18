@@ -78,8 +78,6 @@ def test_read_pdf_layout_dispatch(sample_pdf_bytes: bytes) -> None:
         assert not any(w.code == "LAYOUT_PACKAGE_UNAVAILABLE" for w in warns)
 
 
-
-
 def test_read_pdf_layout_fallback_when_unavailable(sample_pdf_bytes: bytes) -> None:
     """read_pdf gracefully falls back to standard PyMuPDF when layout package is unavailable."""
     with patch(

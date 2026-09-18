@@ -70,9 +70,7 @@ _ADDR_KEYWORD = (
 )
 _CONJ_WORD = r"(?:of|and|the|in|for|to|at|by|on|from|with)"
 _ADDR_WORD = r"(?:[A-Z][a-z]+(?:-[A-Z][a-z]+)?|No\.?|\d+)"
-_ADDRESS_RE = re.compile(
-    rf"\b{_ADDR_KEYWORD}\b(?:[,\s\.\-]+(?:{_ADDR_WORD}|{_CONJ_WORD}))+"
-)
+_ADDRESS_RE = re.compile(rf"\b{_ADDR_KEYWORD}\b(?:[,\s\.\-]+(?:{_ADDR_WORD}|{_CONJ_WORD}))+")
 _TITLE_WORD = r"(?:M/s\.?|[A-Z][a-z]+(?:-[A-Z][a-z]+)?\.?|No\.?)"
 _LATIN_SEP = r"(?:,\s*|\s+)"
 _TITLECASE_PHRASE_RE = re.compile(
@@ -134,7 +132,9 @@ class TextProtector(BaseSpanProtector):
                 full_m = match.group(0)
                 if not any(d in full_m for d in _KRUTI_DIGRAPHS) and not any(c in _KRUTI_CHARS for c in full_m):
                     ph = self.format_placeholder(placeholder_idx)
-                    protected_spans.append(ProtectedSpan(placeholder=ph, original_text=full_m, span_type="english_phrase"))
+                    protected_spans.append(
+                        ProtectedSpan(placeholder=ph, original_text=full_m, span_type="english_phrase")
+                    )
                     placeholder_idx += 1
                     return ph
                 words = full_m.split()
@@ -145,7 +145,9 @@ class TextProtector(BaseSpanProtector):
                         if len(non_kruti) >= 2:
                             eng_str = " ".join(non_kruti)
                             ph = self.format_placeholder(placeholder_idx)
-                            protected_spans.append(ProtectedSpan(placeholder=ph, original_text=eng_str, span_type="english_phrase"))
+                            protected_spans.append(
+                                ProtectedSpan(placeholder=ph, original_text=eng_str, span_type="english_phrase")
+                            )
                             placeholder_idx += 1
                             res_parts.append(ph)
                         else:
@@ -157,7 +159,9 @@ class TextProtector(BaseSpanProtector):
                 if len(non_kruti) >= 2:
                     eng_str = " ".join(non_kruti)
                     ph = self.format_placeholder(placeholder_idx)
-                    protected_spans.append(ProtectedSpan(placeholder=ph, original_text=eng_str, span_type="english_phrase"))
+                    protected_spans.append(
+                        ProtectedSpan(placeholder=ph, original_text=eng_str, span_type="english_phrase")
+                    )
                     placeholder_idx += 1
                     res_parts.append(ph)
                 else:

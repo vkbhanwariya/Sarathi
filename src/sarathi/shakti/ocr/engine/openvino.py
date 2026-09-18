@@ -157,7 +157,10 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
             with _COMPILED_MODELS_LOCK:
                 if cache_key not in _COMPILED_MODELS_CACHE:
                     model = core.read_model(model_path)
-                    _COMPILED_MODELS_CACHE[cache_key] = (model, core.compile_model(model=model, device_name=device_name))
+                    _COMPILED_MODELS_CACHE[cache_key] = (
+                        model,
+                        core.compile_model(model=model, device_name=device_name),
+                    )
                 model, compile_model = _COMPILED_MODELS_CACHE[cache_key]
 
             self.model = model
@@ -170,7 +173,6 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
 
 
 _patch_rapidocr_openvino_device = patch_rapidocr_openvino_device
-
 
 
 def resolve_target_device(execution_binding: ExecutionBinding | None) -> str:

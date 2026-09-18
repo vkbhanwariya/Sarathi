@@ -32,11 +32,14 @@ def _create_synthetic_batch(base_dir: Path, count: int) -> list[Path]:
     return files
 
 
-@pytest.mark.parametrize("file_count,max_duration_s", [
-    (10, 0.2),
-    (100, 0.6),
-    (500, 2.5),
-])
+@pytest.mark.parametrize(
+    "file_count,max_duration_s",
+    [
+        (10, 0.2),
+        (100, 0.6),
+        (500, 2.5),
+    ],
+)
 def test_intake_discovery_scaling(tmp_path: Path, file_count: int, max_duration_s: float) -> None:
     """Test intake discovery latency for 10, 100, and 500 documents."""
     batch_dir = tmp_path / f"batch_{file_count}"
@@ -65,11 +68,14 @@ def test_intake_discovery_scaling(tmp_path: Path, file_count: int, max_duration_
     assert elapsed < max_duration_s, f"Intake for {file_count} files took {elapsed:.3f}s (budget: {max_duration_s}s)"
 
 
-@pytest.mark.parametrize("file_count,max_duration_s", [
-    (10, 0.05),
-    (100, 0.20),
-    (500, 0.80),
-])
+@pytest.mark.parametrize(
+    "file_count,max_duration_s",
+    [
+        (10, 0.05),
+        (100, 0.20),
+        (500, 0.80),
+    ],
+)
 def test_state_serialization_scaling(file_count: int, max_duration_s: float) -> None:
     """Test ApplicationViewState JSON-primitive serialization latency for large file runs."""
     file_views = tuple(
@@ -113,4 +119,6 @@ def test_state_serialization_scaling(file_count: int, max_duration_s: float) -> 
     assert len(serialized["active_run"]["files"]) == file_count
     assert serialized["active_run"]["files"][0]["ordinal"] == 1
     assert serialized["active_run"]["files"][-1]["ordinal"] == file_count
-    assert elapsed < max_duration_s, f"Serialization of {file_count} files took {elapsed:.3f}s (budget: {max_duration_s}s)"
+    assert elapsed < max_duration_s, (
+        f"Serialization of {file_count} files took {elapsed:.3f}s (budget: {max_duration_s}s)"
+    )

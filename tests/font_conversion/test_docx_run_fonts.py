@@ -23,9 +23,7 @@ def _create_test_docx_with_runs(runs: list[tuple[str, str | None]]) -> bytes:
     for text, font in runs:
         document_xml.append("<w:r>")
         if font:
-            document_xml.append(
-                f'<w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"/></w:rPr>'
-            )
+            document_xml.append(f'<w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}"/></w:rPr>')
         document_xml.append(f"<w:t>{text}</w:t>")
         document_xml.append("</w:r>")
     document_xml.append("</w:p>")
@@ -35,7 +33,9 @@ def _create_test_docx_with_runs(runs: list[tuple[str, str | None]]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("word/document.xml", "".join(document_xml).encode("utf-8"))
-        z.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        z.writestr(
+            "[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+        )
     return buf.getvalue()
 
 
@@ -226,8 +226,12 @@ def _create_mixed_docx() -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("word/document.xml", doc_xml)
-        zf.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
-        zf.writestr("_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
+        zf.writestr(
+            "[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+        )
+        zf.writestr(
+            "_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+        )
     return buf.getvalue()
 
 
@@ -321,8 +325,12 @@ def _create_symbols_docx() -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("word/document.xml", doc_xml)
-        zf.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
-        zf.writestr("_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
+        zf.writestr(
+            "[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+        )
+        zf.writestr(
+            "_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+        )
     return buf.getvalue()
 
 

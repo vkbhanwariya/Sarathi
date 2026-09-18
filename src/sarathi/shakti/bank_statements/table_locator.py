@@ -25,8 +25,17 @@ class TableType(StrEnum):
 
 _DATE_TOKENS = ("date", "txn", "tran", "दिनांक", "तारीख")
 _AMOUNT_TOKENS = (
-    "debit", "credit", "withdrawal", "deposit", "amount",
-    "dr", "cr", "balance", "bal", "शेष", "राशि",
+    "debit",
+    "credit",
+    "withdrawal",
+    "deposit",
+    "amount",
+    "dr",
+    "cr",
+    "balance",
+    "bal",
+    "शेष",
+    "राशि",
 )
 
 

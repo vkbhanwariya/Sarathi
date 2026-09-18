@@ -143,9 +143,7 @@ def _parse_rapidocr_output(
                 )
             )
 
-        for text_val, box_val, score_val in itertools.zip_longest(
-            raw_txts, raw_boxes, raw_scores, fillvalue=None
-        ):
+        for text_val, box_val, score_val in itertools.zip_longest(raw_txts, raw_boxes, raw_scores, fillvalue=None):
             if text_val is None:
                 continue
             norm_text = unicodedata.normalize("NFC", str(text_val or "").strip())
@@ -157,11 +155,7 @@ def _parse_rapidocr_output(
                 if score_val is not None:
                     try:
                         score_float = float(score_val)
-                        if (
-                            not math.isnan(score_float)
-                            and not math.isinf(score_float)
-                            and 0.0 <= score_float <= 1.0
-                        ):
+                        if not math.isnan(score_float) and not math.isinf(score_float) and 0.0 <= score_float <= 1.0:
                             conf = score_float
                             conf_scores.append(conf)
                         else:

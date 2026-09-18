@@ -163,7 +163,6 @@ def test_accurate_profile_gracefully_handles_retry_failure() -> None:
     assert page_data.spans[0].confidence == 0.45
 
 
-
 @pytest.mark.real_model
 def test_layout_preserving_profile_executes_successfully(tmp_path: Path) -> None:
     """Verify LAYOUT_PRESERVING is officially resolved by Manthan and executed with coordinate retention."""
@@ -208,9 +207,7 @@ def test_layout_preserving_profile_executes_successfully(tmp_path: Path) -> None
     top_y = page.spans[0].bounding_box[1]
     mid_y = page.spans[1].bounding_box[1]
     bot_y = page.spans[2].bounding_box[1]
-    assert top_y < mid_y < bot_y, (
-        f"Spans must be sorted top-to-bottom: top_y={top_y}, mid_y={mid_y}, bot_y={bot_y}"
-    )
+    assert top_y < mid_y < bot_y, f"Spans must be sorted top-to-bottom: top_y={top_y}, mid_y={mid_y}, bot_y={bot_y}"
 
 
 def test_custom_profile_validation_rejects_unsupported_engine(tmp_path: Path) -> None:
@@ -302,8 +299,6 @@ def test_accurate_profile_offline_target_platform_e2e(tmp_path: Path) -> None:
             assert isinstance(span.confidence, float)
 
 
-
-
 def test_rapidocr_angle_cls_profile_and_option_behavior() -> None:
     """Proves use_angle_cls respects profile defaults and explicit custom_options."""
     from sarathi.sankalpa import ExecutionProfile
@@ -379,7 +374,15 @@ def test_digital_pdf_auto_triage_fast_path(tmp_path: Path) -> None:
     req = Request(
         request_id="req-fastpath",
         requirement="ocr",
-        inputs=[InputRef(input_id="inp-pdf", source_path=pdf_file, display_name="digital_notification.pdf", size_bytes=len(pdf_bytes), media_type="application/pdf")],
+        inputs=[
+            InputRef(
+                input_id="inp-pdf",
+                source_path=pdf_file,
+                display_name="digital_notification.pdf",
+                size_bytes=len(pdf_bytes),
+                media_type="application/pdf",
+            )
+        ],
     )
     ctx = ExecutionContext("run-fast", "req-fastpath", "t-fast", "s-fast")
 
@@ -397,7 +400,15 @@ def test_digital_pdf_auto_triage_fast_path(tmp_path: Path) -> None:
     req_force = Request(
         request_id="req-force",
         requirement="ocr",
-        inputs=[InputRef(input_id="inp-pdf", source_path=pdf_file, display_name="digital_notification.pdf", size_bytes=len(pdf_bytes), media_type="application/pdf")],
+        inputs=[
+            InputRef(
+                input_id="inp-pdf",
+                source_path=pdf_file,
+                display_name="digital_notification.pdf",
+                size_bytes=len(pdf_bytes),
+                media_type="application/pdf",
+            )
+        ],
         custom_options={"force_ocr": True},
     )
 

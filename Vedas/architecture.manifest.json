@@ -7,7 +7,7 @@
     "__main__"
   ],
   "dependency_policy": {
-    "default_internal_policy": "allow"
+    "default_internal_policy": "deny"
   },
   "modules": {
     "dosh": {
@@ -102,9 +102,7 @@
       "may_import": [
         "sarathi.dosh",
         "sarathi.sankalpa",
-        "sarathi.darpana",
-        "sarathi.kavacha",
-        "sarathi.smriti"
+        "sarathi.darpana"
       ]
     },
     "nabhi": {
@@ -133,7 +131,6 @@
         "artifact_naming",
         "azure",
         "bank_statements",
-        "bhashini",
         "darshana",
         "docx_exporter",
         "font_conversion",
@@ -184,7 +181,15 @@
       ],
       "composition_root": true,
       "may_import": [
-        "*"
+        "sarathi.darpana",
+        "sarathi.dosh",
+        "sarathi.kavacha",
+        "sarathi.nabhi",
+        "sarathi.sankalpa",
+        "sarathi.shakti",
+        "sarathi.smriti",
+        "sarathi.sutra",
+        "sarathi.yantra"
       ]
     }
   },
@@ -200,7 +205,6 @@
         "sarathi.shakti.mistral",
         "sarathi.shakti.gemini",
         "sarathi.shakti.azure",
-        "sarathi.shakti.bhashini",
         "sarathi.shakti.statutory"
       ],
       "mutually_independent": false

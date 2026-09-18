@@ -1236,6 +1236,7 @@ class TestOCRDeclarations:
 
         pdf_path = tmp_path / "multi_ocr.pdf"
         import fitz
+
         doc = fitz.open()
         for i in range(2):
             page = doc.new_page()
@@ -1289,9 +1290,7 @@ class TestOCRDeclarations:
             assert progress_calls[0]["total_pages"] == 2
             assert progress_calls[1]["page_number"] == 2
 
-    def test_ocr_accurate_mode_none_stdout_graceful_handling(
-        self, context: ExecutionContext, tmp_path: Path
-    ) -> None:
+    def test_ocr_accurate_mode_none_stdout_graceful_handling(self, context: ExecutionContext, tmp_path: Path) -> None:
         canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
         engine = RapidOCREngine(data_root=canonical_src, default_lang="hi")
         cap = OCRCapability(engine=engine)
@@ -1403,11 +1402,11 @@ def test_recursive_xycut_multi_column_reading_order() -> None:
     out.txts = ["Left Line 1", "Right Line 1", "Left Line 2", "Right Line 2", "DOCUMENT TITLE"]
     out.scores = [0.95, 0.94, 0.93, 0.92, 0.98]
     out.boxes = [
-        [[50.0, 80.0], [240.0, 80.0], [240.0, 100.0], [50.0, 100.0]],   # Left Line 1
-        [[280.0, 80.0], [480.0, 80.0], [480.0, 100.0], [280.0, 100.0]], # Right Line 1
-        [[50.0, 110.0], [240.0, 110.0], [240.0, 130.0], [50.0, 130.0]], # Left Line 2
-        [[280.0, 110.0], [480.0, 110.0], [480.0, 130.0], [280.0, 130.0]],# Right Line 2
-        [[50.0, 20.0], [480.0, 20.0], [480.0, 50.0], [50.0, 50.0]],     # DOCUMENT TITLE (top banner)
+        [[50.0, 80.0], [240.0, 80.0], [240.0, 100.0], [50.0, 100.0]],  # Left Line 1
+        [[280.0, 80.0], [480.0, 80.0], [480.0, 100.0], [280.0, 100.0]],  # Right Line 1
+        [[50.0, 110.0], [240.0, 110.0], [240.0, 130.0], [50.0, 130.0]],  # Left Line 2
+        [[280.0, 110.0], [480.0, 110.0], [480.0, 130.0], [280.0, 130.0]],  # Right Line 2
+        [[50.0, 20.0], [480.0, 20.0], [480.0, 50.0], [50.0, 50.0]],  # DOCUMENT TITLE (top banner)
     ]
 
     lines, spans, scores, warnings, _, _ = _parse_rapidocr_output(out, filter_opt=False)
@@ -1471,7 +1470,11 @@ def test_ruled_table_ignores_isolated_header_footer_lines() -> None:
     arr = np.array(img)
 
     spans = [
-        TextSpan(text=f"Paragraph body line {i}", bounding_box=(60.0, float(100 + i * 40), 500.0, float(120 + i * 40)), confidence=0.95)
+        TextSpan(
+            text=f"Paragraph body line {i}",
+            bounding_box=(60.0, float(100 + i * 40), 500.0, float(120 + i * 40)),
+            confidence=0.95,
+        )
         for i in range(15)
     ]
 

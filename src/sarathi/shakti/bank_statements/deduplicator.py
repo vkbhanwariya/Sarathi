@@ -64,7 +64,7 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
         def _check_candidate(existing: Transaction) -> tuple[bool, bool, bool]:
             ex_desc = existing.description.strip()
             ex_ref = (existing.reference_number or existing.cheque_number or "").strip()
-            desc_matches = (ex_desc == tx_desc)
+            desc_matches = ex_desc == tx_desc
             contradiction = False
 
             if (
@@ -113,7 +113,9 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
             existing = unique[existing_idx]
             is_proven, _, contradiction = _check_candidate(existing)
             if not contradiction and is_proven:
-                merged_provenance = existing.provenance + tuple(p for p in tx.provenance if p not in existing.provenance)
+                merged_provenance = existing.provenance + tuple(
+                    p for p in tx.provenance if p not in existing.provenance
+                )
                 surviving = Transaction(
                     transaction_date=existing.transaction_date,
                     description=existing.description,
@@ -123,7 +125,9 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                     cheque_number=existing.cheque_number or tx.cheque_number,
                     debit=existing.debit,
                     credit=existing.credit,
-                    running_balance=existing.running_balance if existing.running_balance is not None else tx.running_balance,
+                    running_balance=existing.running_balance
+                    if existing.running_balance is not None
+                    else tx.running_balance,
                     account_identity=existing.account_identity,
                     currency=existing.currency or tx.currency,
                     status=existing.status,

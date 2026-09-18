@@ -143,7 +143,11 @@ class AzureOCRCapability:
 
                 for w in page_words:
                     w_text = w.get("content", "")
-                    w_conf = float(w["confidence"]) if "confidence" in w and isinstance(w["confidence"], (int, float)) else None
+                    w_conf = (
+                        float(w["confidence"])
+                        if "confidence" in w and isinstance(w["confidence"], (int, float))
+                        else None
+                    )
                     polygon = w.get("polygon", [])
                     bbox = None
                     if len(polygon) >= 8:
@@ -207,7 +211,9 @@ class AzureOCRCapability:
                                 score=page_avg_conf,
                                 method="azure_word_mean",
                                 evidence=page_evidence,
-                            ) if page_avg_conf is not None else None,
+                            )
+                            if page_avg_conf is not None
+                            else None,
                             attributes={
                                 "level": "page",
                                 "page_number": p_idx,
@@ -250,13 +256,7 @@ class AzureOCRCapability:
 
         output_data = all_docs[0] if len(all_docs) == 1 else tuple(all_docs)
 
-        all_confs = [
-            s.confidence
-            for doc in all_docs
-            for p in doc.pages
-            for s in p.spans
-            if s.confidence is not None
-        ]
+        all_confs = [s.confidence for doc in all_docs for p in doc.pages for s in p.spans if s.confidence is not None]
         overall_confidence: ConfidenceValue | None = None
         if all_confs:
             overall_confidence = ConfidenceValue(

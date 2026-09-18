@@ -94,19 +94,23 @@ def read_docx(
                         if r_text:
                             run_count += 1
                             p_runs_text.append(r_text)
-                            effective_font = style_resolver.resolve_run_font(
-                                r, elem, text=r_text
-                            )
+                            effective_font = style_resolver.resolve_run_font(r, elem, text=r_text)
 
                             # Determine font size and heading status
                             eff_half_pt = style_resolver.resolve_run_size_half_pt(r, elem)
                             font_size_pt = round(eff_half_pt / 2.0, 1) if eff_half_pt is not None else None
                             p_style_elem = elem.find(f"{_W_NAMESPACE}pPr/{_W_NAMESPACE}pStyle")
-                            p_style = p_style_elem.attrib.get(f"{_W_NAMESPACE}val", "") if p_style_elem is not None else ""
+                            p_style = (
+                                p_style_elem.attrib.get(f"{_W_NAMESPACE}val", "") if p_style_elem is not None else ""
+                            )
                             is_heading = bool(
                                 "heading" in p_style.lower()
                                 or "title" in p_style.lower()
-                                or (font_size_pt is not None and font_size_pt >= 14.0 and r.find(f"{_W_NAMESPACE}rPr/{_W_NAMESPACE}b") is not None)
+                                or (
+                                    font_size_pt is not None
+                                    and font_size_pt >= 14.0
+                                    and r.find(f"{_W_NAMESPACE}rPr/{_W_NAMESPACE}b") is not None
+                                )
                             )
 
                             # Determine font source
@@ -152,9 +156,9 @@ def read_docx(
                             c_font = ""
                             if first_r is not None:
                                 has_cs = any("\u0900" <= c <= "\u0d7f" for c in tc_text)
-                                c_font = style_resolver.resolve_run_font(
-                                    first_r, first_p, is_ascii_text=not has_cs
-                                ) or ""
+                                c_font = (
+                                    style_resolver.resolve_run_font(first_r, first_p, is_ascii_text=not has_cs) or ""
+                                )
                             row_font_list.append(c_font)
                         if any(row_cells):
                             raw_table_rows.append(tuple(row_cells))

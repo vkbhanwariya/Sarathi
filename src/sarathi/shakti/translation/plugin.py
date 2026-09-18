@@ -27,7 +27,6 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     version="1.0.0",
     display_name="Machine Translation",
     description="Bilingual Hindi-English translation preserving protected facts and domain terminology.",
-
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,

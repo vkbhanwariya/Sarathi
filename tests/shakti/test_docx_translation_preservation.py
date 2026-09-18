@@ -31,14 +31,14 @@ def _build_minimal_test_docx(document_xml: str, extra_parts: dict[str, bytes] | 
             '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
             '  <Default Extension="xml" ContentType="application/xml"/>\n'
             '  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>\n'
-            '</Types>',
+            "</Types>",
         )
         zf.writestr(
             "_rels/.rels",
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
             '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>\n'
-            '</Relationships>',
+            "</Relationships>",
         )
         zf.writestr("word/document.xml", document_xml)
         if extra_parts:
@@ -52,39 +52,39 @@ def test_docx_translation_preserves_table_structure_and_merges() -> None:
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p><w:r><w:t>Introduction paragraph</w:t></w:r></w:p>\n'
-        '    <w:tbl>\n'
-        '      <w:tblPr>\n'
+        "  <w:body>\n"
+        "    <w:p><w:r><w:t>Introduction paragraph</w:t></w:r></w:p>\n"
+        "    <w:tbl>\n"
+        "      <w:tblPr>\n"
         '        <w:tblW w:w="5000" w:type="dxa"/>\n'
         '        <w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tblBorders>\n'
-        '      </w:tblPr>\n'
-        '      <w:tblGrid>\n'
+        "      </w:tblPr>\n"
+        "      <w:tblGrid>\n"
         '        <w:gridCol w:w="2500"/>\n'
         '        <w:gridCol w:w="2500"/>\n'
-        '      </w:tblGrid>\n'
-        '      <w:tr>\n'
-        '        <w:tc>\n'
-        '          <w:tcPr>\n'
+        "      </w:tblGrid>\n"
+        "      <w:tr>\n"
+        "        <w:tc>\n"
+        "          <w:tcPr>\n"
         '            <w:gridSpan w:val="2"/>\n'
         '            <w:shd w:val="clear" w:color="auto" w:fill="D3D3D3"/>\n'
-        '          </w:tcPr>\n'
-        '          <w:p><w:r><w:t>Merged Table Header</w:t></w:r></w:p>\n'
-        '        </w:tc>\n'
-        '      </w:tr>\n'
-        '      <w:tr>\n'
-        '        <w:tc>\n'
+        "          </w:tcPr>\n"
+        "          <w:p><w:r><w:t>Merged Table Header</w:t></w:r></w:p>\n"
+        "        </w:tc>\n"
+        "      </w:tr>\n"
+        "      <w:tr>\n"
+        "        <w:tc>\n"
         '          <w:tcPr><w:vMerge w:val="restart"/></w:tcPr>\n'
-        '          <w:p><w:r><w:t>Vertical Cell 1</w:t></w:r></w:p>\n'
-        '        </w:tc>\n'
-        '        <w:tc>\n'
-        '          <w:tcPr><w:vMerge/></w:tcPr>\n'
-        '          <w:p><w:r><w:t>Regular Cell 2</w:t></w:r></w:p>\n'
-        '        </w:tc>\n'
-        '      </w:tr>\n'
-        '    </w:tbl>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "          <w:p><w:r><w:t>Vertical Cell 1</w:t></w:r></w:p>\n"
+        "        </w:tc>\n"
+        "        <w:tc>\n"
+        "          <w:tcPr><w:vMerge/></w:tcPr>\n"
+        "          <w:p><w:r><w:t>Regular Cell 2</w:t></w:r></w:p>\n"
+        "        </w:tc>\n"
+        "      </w:tr>\n"
+        "    </w:tbl>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     raw_bytes = _build_minimal_test_docx(doc_xml)
 
@@ -142,14 +142,14 @@ def test_docx_translation_inline_formatting_reordering() -> None:
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r><w:t>Notice: </w:t></w:r>\n'
-        '      <w:r><w:rPr><w:b/><w:i/></w:rPr><w:t>Payment is due</w:t></w:r>\n'
-        '      <w:r><w:t> immediately.</w:t></w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r><w:t>Notice: </w:t></w:r>\n"
+        "      <w:r><w:rPr><w:b/><w:i/></w:rPr><w:t>Payment is due</w:t></w:r>\n"
+        "      <w:r><w:t> immediately.</w:t></w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     raw_bytes = _build_minimal_test_docx(doc_xml)
 
@@ -177,7 +177,9 @@ def test_docx_translation_inline_formatting_reordering() -> None:
     runs = root.findall(f".//{{{_W_NS}}}r")
 
     # Find the run containing "भुगतान देय है"
-    fmt_runs = [r for r in runs if r.find(f"{{{_W_NS}}}t") is not None and "भुगतान देय है" in (r.find(f"{{{_W_NS}}}t").text or "")]
+    fmt_runs = [
+        r for r in runs if r.find(f"{{{_W_NS}}}t") is not None and "भुगतान देय है" in (r.find(f"{{{_W_NS}}}t").text or "")
+    ]
     assert len(fmt_runs) >= 1
     bold_run = fmt_runs[0]
     rpr = bold_run.find(f"{{{_W_NS}}}rPr")
@@ -199,10 +201,10 @@ def test_docx_translation_preserves_media_and_non_story_parts() -> None:
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p><w:r><w:t>Simple text</w:t></w:r></w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p><w:r><w:t>Simple text</w:t></w:r></w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     raw_bytes = _build_minimal_test_docx(
         doc_xml,
@@ -229,18 +231,18 @@ def test_docx_translation_preserves_list_numbering() -> None:
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:pPr>\n'
-        '        <w:numPr>\n'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:pPr>\n"
+        "        <w:numPr>\n"
         '          <w:ilvl w:val="0"/>\n'
         '          <w:numId w:val="5"/>\n'
-        '        </w:numPr>\n'
-        '      </w:pPr>\n'
-        '      <w:r><w:t>First numbered item</w:t></w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "        </w:numPr>\n"
+        "      </w:pPr>\n"
+        "      <w:r><w:t>First numbered item</w:t></w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     raw_bytes = _build_minimal_test_docx(doc_xml)
 
@@ -267,14 +269,14 @@ def test_translation_capability_dispatches_in_place_for_docx(tmp_path: Path) -> 
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:tbl>\n'
-        '      <w:tr>\n'
+        "  <w:body>\n"
+        "    <w:tbl>\n"
+        "      <w:tr>\n"
         '        <w:tc><w:tcPr><w:gridSpan w:val="3"/></w:tcPr><w:p><w:r><w:t>Government Notice</w:t></w:r></w:p></w:tc>\n'
-        '      </w:tr>\n'
-        '    </w:tbl>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "      </w:tr>\n"
+        "    </w:tbl>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     docx_file = tmp_path / "sample.docx"
     docx_file.write_bytes(_build_minimal_test_docx(doc_xml))
@@ -309,6 +311,7 @@ def test_translation_capability_dispatches_in_place_for_docx(tmp_path: Path) -> 
         text="Government Notice",
     )
     from sarathi.sankalpa import Result as SankalpaResult
+
     prior_result = SankalpaResult(data=prior_doc)
 
     result = cap.execute(req, ctx, prior_result=prior_result)
@@ -332,12 +335,12 @@ def test_docx_translation_uniform_runs_emit_clean_text() -> None:
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r><w:rPr><w:b/></w:rPr><w:t>Case Name *</w:t></w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r><w:rPr><w:b/></w:rPr><w:t>Case Name *</w:t></w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     raw_bytes = _build_minimal_test_docx(doc_xml)
 
@@ -376,21 +379,19 @@ def test_docx_translation_sanitizes_hallucinated_tags_and_repetition_loops() -> 
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r><w:t>Notice: </w:t></w:r>\n'
-        '      <w:r><w:rPr><w:b/></w:rPr><w:t>Confidential</w:t></w:r>\n'
-        '    </w:p>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r><w:t>Notice: </w:t></w:r>\n"
+        "      <w:r><w:rPr><w:b/></w:rPr><w:t>Confidential</w:t></w:r>\n"
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
     raw_bytes = _build_minimal_test_docx(doc_xml)
 
     # Simulate NMT returning hallucinated <fmt idmir'0'> tag and repeated <br/> loop
     def _hallucinating_translate(batch: list[str]) -> list[str]:
-        return [
-            "< fmt idmir′0′ गोपनीय / fmt′ < br / > < br / > < br / > < br / >"
-        ]
+        return ["< fmt idmir′0′ गोपनीय / fmt′ < br / > < br / > < br / > < br / >"]
 
     result = transform_docx_translation_artifact(
         raw_bytes,

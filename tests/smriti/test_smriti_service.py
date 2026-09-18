@@ -219,6 +219,7 @@ assert copy._deepcopy_dispatch.get(MappingProxyType) is before
 
 def test_ttl_validity_rule() -> None:
     from sarathi.smriti.policy import CachePolicy
+
     policy = CachePolicy(ttl_seconds=100)
     assert policy.is_valid(created_at=1000.0, current_time=1050.0) is True
     assert policy.is_valid(created_at=1000.0, current_time=1101.0) is False
@@ -226,6 +227,7 @@ def test_ttl_validity_rule() -> None:
 
 def test_unlimited_ttl() -> None:
     from sarathi.smriti.policy import CachePolicy
+
     policy = CachePolicy(ttl_seconds=None)
     assert policy.is_valid(created_at=1000.0, current_time=999999.0) is True
 
@@ -446,10 +448,7 @@ def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> N
 
     with store._lock, store._get_connection() as conn:
         keys = [
-            row[0]
-            for row in conn.execute(
-                "SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC"
-            ).fetchall()
+            row[0] for row in conn.execute("SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC").fetchall()
         ]
 
     assert keys == [f"hash_{idx:04d}" for idx in range(5, 15)]

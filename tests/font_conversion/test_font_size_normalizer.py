@@ -76,7 +76,6 @@ def test_case_and_whitespace_insensitivity_in_lookup() -> None:
     assert res == pytest.approx(12.0)
 
 
-
 def test_invalid_font_size_rejected() -> None:
     """Font sizes <= 0 must raise ValueError."""
     with pytest.raises(ValueError, match="greater than zero"):

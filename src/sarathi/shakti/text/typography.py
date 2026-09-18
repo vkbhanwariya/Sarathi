@@ -74,12 +74,7 @@ def reconstruct_line_from_spans(
         eff_size = max(1.0, min(size, last_size))
         if last_x1 is not None:
             gap = sx0 - last_x1
-            if (
-                gap >= 0.20 * eff_size
-                and line_parts
-                and not line_parts[-1].endswith(" ")
-                and not text.startswith(" ")
-            ):
+            if gap >= 0.20 * eff_size and line_parts and not line_parts[-1].endswith(" ") and not text.startswith(" "):
                 line_parts.append(" ")
         line_parts.append(text)
         last_x1 = sx1
@@ -153,12 +148,8 @@ def detect_running_headers_footers(
 
     # A running header or footer must recur across at least 2 distinct pages
     min_pages = 2
-    header_templates = {
-        tmpl for tmpl, p_set in header_page_counts.items() if len(p_set) >= min_pages
-    }
-    footer_templates = {
-        tmpl for tmpl, p_set in footer_page_counts.items() if len(p_set) >= min_pages
-    }
+    header_templates = {tmpl for tmpl, p_set in header_page_counts.items() if len(p_set) >= min_pages}
+    footer_templates = {tmpl for tmpl, p_set in footer_page_counts.items() if len(p_set) >= min_pages}
 
     return header_templates, footer_templates
 

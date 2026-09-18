@@ -76,7 +76,7 @@ def _serialize_xml_preserving_namespaces(
         return serialized
 
     ser_attrs_raw = ser_match.group(2).decode("utf-8", errors="ignore")
-    existing_xmlns_attrs = set(re.findall(r'(xmlns(?::[a-zA-Z0-9_.-]+)?)=', ser_attrs_raw))
+    existing_xmlns_attrs = set(re.findall(r"(xmlns(?::[a-zA-Z0-9_.-]+)?)=", ser_attrs_raw))
 
     missing_xmlns = []
     for attr_name, uri in source_xmlns:
@@ -111,9 +111,14 @@ def transform_docx_artifact(
     try:
         in_buf = io.BytesIO(input_bytes)
         out_buf = io.BytesIO()
-        should_preserve_modern = preserve_modern_fonts if preserve_modern_fonts is not None else (role == "converted_document")
+        should_preserve_modern = (
+            preserve_modern_fonts if preserve_modern_fonts is not None else (role == "converted_document")
+        )
 
-        with zipfile.ZipFile(in_buf, "r") as in_zf, zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
+        with (
+            zipfile.ZipFile(in_buf, "r") as in_zf,
+            zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf,
+        ):
             styles_xml = in_zf.read("word/styles.xml") if "word/styles.xml" in in_zf.namelist() else None
             style_resolver = DocxStyleResolver(styles_xml, font_resolver=font_resolver)
 
@@ -279,7 +284,7 @@ def _reconstruct_translated_paragraph(
         re.DOTALL | re.IGNORECASE,
     )
     clean_tag_re = re.compile(
-        r'<\s*/?\s*fmt[^>]*>|/\s*fmt[′\']?|fmt\s+idmir[^\s>]*|idmir[′\'][^′\']*[\'′]|<\s*/?\s*fmt[′\']?|/fmt',
+        r"<\s*/?\s*fmt[^>]*>|/\s*fmt[′\']?|fmt\s+idmir[^\s>]*|idmir[′\'][^′\']*[\'′]|<\s*/?\s*fmt[′\']?|/fmt",
         re.IGNORECASE,
     )
 
@@ -361,7 +366,10 @@ def transform_docx_translation_artifact(
         in_buf = io.BytesIO(input_bytes)
         out_buf = io.BytesIO()
 
-        with zipfile.ZipFile(in_buf, "r") as in_zf, zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf:
+        with (
+            zipfile.ZipFile(in_buf, "r") as in_zf,
+            zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf,
+        ):
             for item in in_zf.infolist():
                 raw_entry = in_zf.read(item.filename)
 
@@ -433,7 +441,6 @@ def transform_docx_translation_artifact(
         ) from exc
 
 
-
 def normalize_font_family(font_name: str | None) -> str:
     """Normalize a font family name for visual style equality comparisons."""
     if not font_name:
@@ -452,11 +459,15 @@ def _get_run_visual_style(r: ET.Element) -> tuple:
             val = child.attrib.get(f"{{{_W_NS}}}val", "true")
             style_tags.append((tag_name, val))
         elif tag_name == "rFonts":
-            fonts = tuple(sorted({
-                normalize_font_family(v)
-                for k, v in child.attrib.items()
-                if k.split("}")[-1] in ("ascii", "cs", "hAnsi", "eastAsia") and v and normalize_font_family(v)
-            }))
+            fonts = tuple(
+                sorted(
+                    {
+                        normalize_font_family(v)
+                        for k, v in child.attrib.items()
+                        if k.split("}")[-1] in ("ascii", "cs", "hAnsi", "eastAsia") and v and normalize_font_family(v)
+                    }
+                )
+            )
             if fonts:
                 style_tags.append(("rFonts", str(fonts)))
     return tuple(sorted(style_tags))
@@ -477,10 +488,7 @@ def _merge_adjacent_compatible_runs(container: ET.Element) -> None:
         c2 = container[i + 1]
         if c1.tag == r_tag and c2.tag == r_tag:
             # Check if c2 contains any non-deletable child
-            has_non_deletable = any(
-                child.tag.split("}")[-1] in _NON_DELETABLE_RUN_CHILDREN
-                for child in c2
-            )
+            has_non_deletable = any(child.tag.split("}")[-1] in _NON_DELETABLE_RUN_CHILDREN for child in c2)
             style1 = _get_run_visual_style(c1)
             style2 = _get_run_visual_style(c2)
             if style1 == style2:
@@ -615,6 +623,7 @@ def _transform_xml_tree(
     profiles = profiles if profiles is not None else get_default_profiles()
 
     import inspect
+
     converter_takes_font = False
     try:
         sig = inspect.signature(converter_fn)

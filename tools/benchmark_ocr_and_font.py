@@ -124,7 +124,9 @@ def run_ocr_benchmarks() -> dict[str, Any]:
     results["cold_init_ms"] = round(cold_init_ms, 2)
     results["warm_init_ms"] = round(warm_init_ms, 4)
     results["cold_mem_peak_mb"] = round(cold_mem_peak / (1024 * 1024), 2)
-    print(f"  Cold Model Load (Devanagari PP-OCRv5): {cold_init_ms:.2f} ms (Peak RAM: {results['cold_mem_peak_mb']} MB)")
+    print(
+        f"  Cold Model Load (Devanagari PP-OCRv5): {cold_init_ms:.2f} ms (Peak RAM: {results['cold_mem_peak_mb']} MB)"
+    )
     print(f"  Warm Engine Cache Hit:                 {warm_init_ms:.4f} ms")
 
     # B. Character Filtering Data Loss Analysis
@@ -140,12 +142,14 @@ def run_ocr_benchmarks() -> dict[str, Any]:
     for label, raw_text in test_samples:
         filtered = filter_english_and_numbers(raw_text)
         is_lost = len(filtered.strip()) == 0 and len(raw_text.strip()) > 0
-        filter_results.append({
-            "label": label,
-            "raw": raw_text,
-            "filtered": filtered,
-            "data_lost": is_lost,
-        })
+        filter_results.append(
+            {
+                "label": label,
+                "raw": raw_text,
+                "filtered": filtered,
+                "data_lost": is_lost,
+            }
+        )
         status_str = "DATA WIPED OUT" if is_lost else "PRESERVED"
         print(f"  [{status_str}] '{label}':")
         print(f"      Raw:      {raw_text!r}")
@@ -169,6 +173,7 @@ def run_ocr_benchmarks() -> dict[str, Any]:
             nw = int(test_img.width * scale)
             nh = int(test_img.height * scale)
             from PIL import Image
+
             scaled_img = test_img.resize((nw, nh), resample=Image.Resampling.BILINEAR)
         else:
             scaled_img = test_img
@@ -201,17 +206,31 @@ def run_ocr_benchmarks() -> dict[str, Any]:
             "entity_matches": f"{match_count}/{len(entities)}",
         }
         dpi_results.append(trial_data)
-        print(f"  {label}: {rec_dur_ms:.2f} ms | RAM: {trial_data['peak_mem_mb']} MB | CER: {cer:.4f} | Entities: {match_count}/{len(entities)}")
+        print(
+            f"  {label}: {rec_dur_ms:.2f} ms | RAM: {trial_data['peak_mem_mb']} MB | CER: {cer:.4f} | Entities: {match_count}/{len(entities)}"
+        )
     results["dpi_trials"] = dpi_results
 
     # D. Preprocessing Impact on Clean Document (Deskew on vs off)
     print("\n--- D. Preprocessing Impact on Clean Image (Deskew Enabled vs Disabled) ---")
     t_clean_off = time.perf_counter()
-    p_off, _, _, _ = engine.ocr_page(test_img, page_number=1, input_id="bench_clean", profile=ExecutionProfile.ACCURATE, custom_options={"deskew": False, "english_numbers_only": False, "lang": "hi"})
+    p_off, _, _, _ = engine.ocr_page(
+        test_img,
+        page_number=1,
+        input_id="bench_clean",
+        profile=ExecutionProfile.ACCURATE,
+        custom_options={"deskew": False, "english_numbers_only": False, "lang": "hi"},
+    )
     dur_off = (time.perf_counter() - t_clean_off) * 1000
 
     t_clean_on = time.perf_counter()
-    p_on, _, _, _ = engine.ocr_page(test_img, page_number=1, input_id="bench_clean", profile=ExecutionProfile.ACCURATE, custom_options={"deskew": True, "english_numbers_only": False, "lang": "hi"})
+    p_on, _, _, _ = engine.ocr_page(
+        test_img,
+        page_number=1,
+        input_id="bench_clean",
+        profile=ExecutionProfile.ACCURATE,
+        custom_options={"deskew": True, "english_numbers_only": False, "lang": "hi"},
+    )
     dur_on = (time.perf_counter() - t_clean_on) * 1000
 
     cer_off = compute_cer(ground_truth, p_off.text or "")
@@ -355,8 +374,8 @@ def run_font_benchmarks() -> dict[str, Any]:
     syn_rev = synthesize_akshara_unicode(rev_order)
 
     expected = "को"  # \u0915\u094b
-    norm_correct = (syn_norm == expected)
-    rev_correct = (syn_rev == expected)
+    norm_correct = syn_norm == expected
+    rev_correct = syn_rev == expected
 
     results["split_matra"] = {
         "standard_order_composed": norm_correct,
@@ -367,7 +386,9 @@ def run_font_benchmarks() -> dict[str, Any]:
     print(f"  Standard Order (\\u093e\\u0947 -> aa+e): Composed to 'को' ({norm_correct})")
     print(f"  Reverse Order  (\\u0947\\u093e -> e+aa): Composed to 'को' ({rev_correct})")
     if not rev_correct:
-        print(f"  [DEFECT CONFIRMED] Reverse-order split matra \\u0947\\u093e failed to compose to 'को'! Output was: {[hex(ord(c)) for c in syn_rev]}")
+        print(
+            f"  [DEFECT CONFIRMED] Reverse-order split matra \\u0947\\u093e failed to compose to 'को'! Output was: {[hex(ord(c)) for c in syn_rev]}"
+        )
 
     # D. DOCX Double-Conversion Redundancy Measurement
     print("\n--- D. DOCX Transformation Redundancy Test ---")
@@ -384,9 +405,10 @@ def run_font_benchmarks() -> dict[str, Any]:
     # Injected rFonts w:ascii="Kruti Dev 010" into the docx
     xml_str = docx_payload_initial.content.decode("latin1")
     # Replace default font with Kruti Dev 010
-    xml_str = xml_str.replace('w:ascii="Times New Roman"', 'w:ascii="Kruti Dev 010"').replace('w:hAnsi="Times New Roman"', 'w:hAnsi="Kruti Dev 010"')
+    xml_str = xml_str.replace('w:ascii="Times New Roman"', 'w:ascii="Kruti Dev 010"').replace(
+        'w:hAnsi="Times New Roman"', 'w:hAnsi="Kruti Dev 010"'
+    )
     docx_bytes = xml_str.encode("latin1")
-
 
     conv_calls = 0
 
@@ -409,7 +431,6 @@ def run_font_benchmarks() -> dict[str, Any]:
     }
     print(f"  DOCX XML Parsing & Run Transduction Time: {docx_time_ms:.2f} ms ({conv_calls} runs converted)")
     print(f"  Note: In capability.py, CanonicalDocument also converts these {conv_calls} runs separately upfront.")
-
 
     return results
 

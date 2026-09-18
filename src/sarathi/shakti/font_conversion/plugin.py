@@ -27,7 +27,6 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     version="1.0.0",
     display_name="Legacy Font Conversion",
     description="Converts legacy Hindi/Devanagari encodings to standard Unicode with span protection.",
-
     supported_profiles=(
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
@@ -41,14 +40,16 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
         parallelizable=False,
     ),
     produces_artifacts=True,
-    metadata=MappingProxyType({
-        "category": "shakti",
-        "family": "font_conversion",
-        "supported_fonts": (
-            ("krutidev010", "KrutiDev 010 / DevLys"),
-            ("chanakya010", "Chanakya"),
-            ("shusha010", "Shusha"),
-            ("shivaji010", "Shivaji"),
-        ),
-    }),
+    metadata=MappingProxyType(
+        {
+            "category": "shakti",
+            "family": "font_conversion",
+            "supported_fonts": (
+                ("krutidev010", "KrutiDev 010 / DevLys"),
+                ("chanakya010", "Chanakya"),
+                ("shusha010", "Shusha"),
+                ("shivaji010", "Shivaji"),
+            ),
+        }
+    ),
 )

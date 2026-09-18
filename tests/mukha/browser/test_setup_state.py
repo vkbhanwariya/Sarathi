@@ -143,9 +143,7 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     accurate_ocr_card.locator(".action-card-header").click()
     expect(accurate_ocr_card).to_have_class(re.compile(r"\bselected\b"))
 
-    payload = app_page.evaluate(
-        """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
-    )
+    payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
     assert payload is not None
     assert payload["requirement"] == "ocr"
     assert payload["profile"] == "accurate"
@@ -176,7 +174,9 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     label_preserve = app_page.locator("label:has(#param-preserve-layout)")
     label_preserve.click()
     expect(chk_preserve).not_to_be_checked()
-    payload_off = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
+    payload_off = app_page.evaluate(
+        """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
+    )
     assert payload_off["profile"] == "accurate"
 
     # 2. Native Extraction: Deep Layout Analysis toggle
@@ -188,16 +188,13 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     chk_gnn.click()
     expect(chk_gnn).to_be_checked()
 
-    native_payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
+    native_payload = app_page.evaluate(
+        """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
+    )
     assert native_payload is not None
     assert native_payload["requirement"] == "read_native"
     assert native_payload["profile"] == "layout_preserving"
     assert native_payload["custom_options"].get("layout_analysis") is True
-
-
-
-
-
 
 
 def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> None:
@@ -215,7 +212,6 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
     expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
     expect(app_page.locator("#chip-azure-ocr")).to_be_visible()
-    expect(app_page.locator("#chip-bhashini-ocr")).to_be_visible()
 
     # 2. Bank Account Consolidation: Instant Consolidation, Accurate Consolidation
     bank_tab = app_page.locator("#btn-task-bank-consolidation")
@@ -231,7 +227,7 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     expect(app_page.locator("#subtask-unicode-to-devlys")).to_be_visible()
     expect(app_page.locator("#param-source-font")).to_be_visible()
 
-    # 4. Translation: Direction selector first, then 6 engines in exact order
+    # 4. Translation: Direction selector first, then 5 engines in exact order
     trans_tab = app_page.locator("#btn-task-translation")
     trans_tab.click()
     expect(app_page.locator("#btn-direction-auto")).to_be_visible()
@@ -240,7 +236,6 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
 
     expect(app_page.locator("#subtask-engine-indictrans2")).to_be_visible()
     expect(app_page.locator("#subtask-engine-opus-mt")).to_be_visible()
-    expect(app_page.locator("#subtask-engine-bhashini")).to_be_visible()
     expect(app_page.locator("#subtask-engine-gemini")).to_be_visible()
     expect(app_page.locator("#subtask-engine-mistral")).to_be_visible()
     expect(app_page.locator("#subtask-engine-azure")).to_be_visible()
@@ -258,9 +253,7 @@ def test_translation_direction_and_engine_payload(app_page: Page) -> None:
     app_page.locator("#subtask-engine-opus-mt").click()
     expect(app_page.locator("#subtask-engine-opus-mt")).to_have_class(re.compile(r"\bselected\b"))
 
-    payload = app_page.evaluate(
-        """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
-    )
+    payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
     assert payload is not None
     assert payload["requirement"] == "translation"
     assert payload["profile"] == "instant"
@@ -280,20 +273,26 @@ def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
     # Click Documents Extraction to expand
     doc_btn.click()
     expect(doc_btn).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(re.compile(r"\bexpanded\b"))
+    expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(
+        re.compile(r"\bexpanded\b")
+    )
     expect(app_page.locator("#subtask-native")).to_be_visible()
 
     # Click Documents Extraction again to collapse
     doc_btn.click()
     expect(doc_btn).not_to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(re.compile(r"\bcollapsed\b"))
+    expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(
+        re.compile(r"\bcollapsed\b")
+    )
     expect(app_page.locator(".subtask-card")).to_have_count(0)
     expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
 
     # Click Bank Account Consolidation to expand
     bank_btn.click()
     expect(bank_btn).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".accordion-item[data-task='bank_consolidation']")).to_have_class(re.compile(r"\bexpanded\b"))
+    expect(app_page.locator(".accordion-item[data-task='bank_consolidation']")).to_have_class(
+        re.compile(r"\bexpanded\b")
+    )
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
     # Switching to Font Conversion collapses Bank Consolidation and expands Font Conversion

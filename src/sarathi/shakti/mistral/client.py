@@ -139,13 +139,15 @@ class MistralClient:
         source_lang: str,
         target_lang: str,
         model: str = "mistral-large-latest",
+        system_prompt: str | None = None,
+        **kwargs: Any,
     ) -> str:
-        """Translate text using Mistral Chat Completion API preserving protected tokens."""
+        """Translate text using Mistral Chat Completion API preserving protected tokens and legal context."""
         clean_text = text.strip()
         if not clean_text:
             return ""
 
-        system_prompt = (
+        effective_system_prompt = system_prompt or (
             f"You are a professional legal, administrative, and technical translator.\n"
             f"Translate the provided text from {source_lang} to {target_lang}.\n"
             f"Guidelines:\n"
@@ -158,7 +160,7 @@ class MistralClient:
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": effective_system_prompt},
                 {"role": "user", "content": clean_text},
             ],
             "temperature": 0.0,

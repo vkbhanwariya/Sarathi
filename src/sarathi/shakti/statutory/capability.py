@@ -139,7 +139,9 @@ class StatutoryCapability:
                 merged_meta["statutory_entities"] = entities_dict
                 canonical_doc = replace(
                     prior_doc,
-                    detected_type=entities.doc_type.value if entities.doc_type.value != "unknown" else prior_doc.detected_type,
+                    detected_type=entities.doc_type.value
+                    if entities.doc_type.value != "unknown"
+                    else prior_doc.detected_type,
                     metadata=merged_meta,
                 )
             else:
@@ -176,9 +178,7 @@ class StatutoryCapability:
             else tuple(artifacts)
         )
         final_provenance = (
-            tuple(prior_result.provenance) + (prov,)
-            if prior_result and prior_result.provenance
-            else (prov,)
+            tuple(prior_result.provenance) + (prov,) if prior_result and prior_result.provenance else (prov,)
         )
         final_warnings = (
             tuple(prior_result.warnings) + tuple(all_warnings)

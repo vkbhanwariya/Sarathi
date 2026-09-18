@@ -69,7 +69,7 @@ def test_font_telemetry_does_not_synthesize_span_confidence_from_page() -> None:
                 text="sample text",
                 spans=(
                     TextSpan(text="sample", confidence=None),  # Missing span score
-                    TextSpan(text="text", confidence=0.88),   # Present span score
+                    TextSpan(text="text", confidence=0.88),  # Present span score
                 ),
             ),
         ),

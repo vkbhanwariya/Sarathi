@@ -170,11 +170,7 @@ def get_reviewable_warnings(res: Result | None) -> list[tuple[int, Any]]:
     """Return filtered (original_1_based_index, WarningRecord) pairs that represent actionable human review items."""
     if res is None or not getattr(res, "warnings", None):
         return []
-    return [
-        (idx, w)
-        for idx, w in enumerate(res.warnings, start=1)
-        if is_reviewable_warning(w)
-    ]
+    return [(idx, w) for idx, w in enumerate(res.warnings, start=1) if is_reviewable_warning(w)]
 
 
 def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
@@ -296,7 +292,6 @@ def build_inspector_view(
         ("Output Root", str(agni.output_root)),
     )
 
-
     return MukhaPresenter.build_inspector_view(
         run_id=run_id,
         status=status,
@@ -319,8 +314,7 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
                 ExecutionProfile.CUSTOM: "Custom Configuration",
             }
             prof_opts = tuple(
-                (p.value, prof_labels.get(p, p.value.replace("_", " ").title()))
-                for p in decl.supported_profiles
+                (p.value, prof_labels.get(p, p.value.replace("_", " ").title())) for p in decl.supported_profiles
             )
         else:
             prof_opts = (
@@ -400,9 +394,7 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
         )
     if act_id == "font_conversion":
         supported_fonts = (
-            decl.metadata.get("supported_fonts")
-            if decl is not None and getattr(decl, "metadata", None)
-            else None
+            decl.metadata.get("supported_fonts") if decl is not None and getattr(decl, "metadata", None) else None
         )
         if supported_fonts:
             source_font_options = (("", "Auto-Detect Source Font"),) + tuple(supported_fonts)
@@ -564,8 +556,7 @@ def build_application_view_state(
             f_cached = bool(f_prog.get("cached")) if f_prog else False
             if not f_cached and maruti_recs:
                 f_cached = any(
-                    r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
-                    for r in maruti_recs
+                    r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit" for r in maruti_recs
                 )
 
             files_list.append(
@@ -700,7 +691,9 @@ def build_application_view_state(
                 file_display_name=it.get("context", {}).get("source_file", "Document"),
                 stage=it.get("stage", "Review"),
                 source_text=it.get("context", {}).get("source_text", "") or it.get("context", {}).get("source", ""),
-                output_text=it.get("draft_proposal") or it.get("context", {}).get("output_text", "") or it.get("context", {}).get("output", ""),
+                output_text=it.get("draft_proposal")
+                or it.get("context", {}).get("output_text", "")
+                or it.get("context", {}).get("output", ""),
                 issue_reason=it.get("message", "Validation issue"),
                 status=it.get("status", "pending"),
                 draft_proposal=it.get("draft_proposal"),

@@ -211,8 +211,16 @@ class MukhaPresenter:
         elapsed_ns = max(0, now_ns - started_at_ns)
 
         # Factual device execution aggregation: prefer worker_execution records if present, else capability_execution
-        worker_maruti = [r for r in maruti_records if r.phase_name == "worker_execution" and r.attributes.get("device_type")]
-        target_maruti = worker_maruti if worker_maruti else [r for r in maruti_records if r.phase_name == "capability_execution" and r.attributes.get("device_type")]
+        worker_maruti = [
+            r for r in maruti_records if r.phase_name == "worker_execution" and r.attributes.get("device_type")
+        ]
+        target_maruti = (
+            worker_maruti
+            if worker_maruti
+            else [
+                r for r in maruti_records if r.phase_name == "capability_execution" and r.attributes.get("device_type")
+            ]
+        )
 
         device_durations: dict[str, list[int]] = {}
         device_confidences: dict[str, list[float]] = {}
@@ -282,9 +290,7 @@ class MukhaPresenter:
             if current_focus is None:
                 current_focus = op
 
-        terminal_files = sum(
-            1 for f in files if (f.status and f.status.upper() in _TERMINAL_STATUSES)
-        )
+        terminal_files = sum(1 for f in files if (f.status and f.status.upper() in _TERMINAL_STATUSES))
         progress = ProgressState.known(terminal_files, len(files)) if files else ProgressState.indeterminate()
 
         return RunViewState(
@@ -334,8 +340,16 @@ class MukhaPresenter:
         )
 
         # Device execution summary: prefer worker_execution records if present, else capability_execution
-        worker_maruti = [r for r in maruti_records if r.phase_name == "worker_execution" and r.attributes.get("device_type")]
-        target_maruti = worker_maruti if worker_maruti else [r for r in maruti_records if r.phase_name == "capability_execution" and r.attributes.get("device_type")]
+        worker_maruti = [
+            r for r in maruti_records if r.phase_name == "worker_execution" and r.attributes.get("device_type")
+        ]
+        target_maruti = (
+            worker_maruti
+            if worker_maruti
+            else [
+                r for r in maruti_records if r.phase_name == "capability_execution" and r.attributes.get("device_type")
+            ]
+        )
 
         device_map: dict[str, list[int]] = {}
         span_to_device: dict[str, str] = {}
@@ -421,8 +435,7 @@ class MukhaPresenter:
         is_cached = bool(result.metadata.get("cached")) if result and result.metadata else False
         if not is_cached and maruti_records:
             is_cached = any(
-                r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
-                for r in maruti_records
+                r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit" for r in maruti_records
             )
 
         return RunSummaryView(
@@ -583,10 +596,18 @@ class MukhaPresenter:
 
             is_fallback = bool(
                 pr.attributes.get("fallback_applied")
-                or (pr.confidence is not None and getattr(pr.confidence, "evidence", None) and pr.confidence.evidence.get("fallback_applied"))
+                or (
+                    pr.confidence is not None
+                    and getattr(pr.confidence, "evidence", None)
+                    and pr.confidence.evidence.get("fallback_applied")
+                )
             )
             raw_eng = pr.attributes.get("fallback_engine") or pr.attributes.get("retry_engine") or "Same-Engine"
-            fallback_eng = "Same-Engine Retry" if raw_eng in ("same_engine", "same_engine_retry", "rapidocr", "retry") else ("NE-OCR" if raw_eng in ("ne_ocr", "NE-OCR") else str(raw_eng))
+            fallback_eng = (
+                "Same-Engine Retry"
+                if raw_eng in ("same_engine", "same_engine_retry", "rapidocr", "retry")
+                else ("NE-OCR" if raw_eng in ("ne_ocr", "NE-OCR") else str(raw_eng))
+            )
             orig_conf = pr.attributes.get("original_confidence")
             conf_gain = pr.attributes.get("confidence_gain")
 

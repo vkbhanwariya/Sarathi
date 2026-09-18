@@ -15,20 +15,63 @@ IRN_PATTERN = re.compile(r"^[a-fA-F0-9]{64}$")
 
 VALID_PAN_TYPES = frozenset({"P", "C", "H", "F", "A", "T", "B", "L", "J", "G"})
 
-VALID_STATE_CODES = frozenset(
-    {f"{i:02d}" for i in range(1, 39)} | {"97", "99"}
+VALID_STATE_CODES = frozenset({f"{i:02d}" for i in range(1, 39)} | {"97", "99"})
+
+VALID_INDIAN_STATES = frozenset(
+    {
+        "AP",
+        "AR",
+        "AS",
+        "BR",
+        "CG",
+        "CH",
+        "DD",
+        "DL",
+        "DN",
+        "GA",
+        "GJ",
+        "HR",
+        "HP",
+        "JH",
+        "JK",
+        "KA",
+        "KL",
+        "LA",
+        "LD",
+        "MH",
+        "ML",
+        "MN",
+        "MP",
+        "MZ",
+        "NL",
+        "OD",
+        "OR",
+        "PB",
+        "PY",
+        "RJ",
+        "SK",
+        "TG",
+        "TN",
+        "TR",
+        "UP",
+        "UT",
+        "WB",
+    }
 )
 
-VALID_INDIAN_STATES = frozenset({
-    "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DL", "DN", "GA",
-    "GJ", "HR", "HP", "JH", "JK", "KA", "KL", "LA", "LD", "MH",
-    "ML", "MN", "MP", "MZ", "NL", "OD", "OR", "PB", "PY", "RJ",
-    "SK", "TG", "TN", "TR", "UP", "UT", "WB",
-})
-
-VALID_CIN_OWNERSHIPS = frozenset({
-    "PTC", "PLC", "GOI", "NPL", "ULL", "SGC", "FTC", "GAP", "OPC",
-})
+VALID_CIN_OWNERSHIPS = frozenset(
+    {
+        "PTC",
+        "PLC",
+        "GOI",
+        "NPL",
+        "ULL",
+        "SGC",
+        "FTC",
+        "GAP",
+        "OPC",
+    }
+)
 
 # Base 36 characters for GSTIN Luhn Mod-36
 _CHARS_36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"

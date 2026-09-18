@@ -136,7 +136,7 @@ def read_xlsx(
                     s_tree = ET.fromstring(sheet_bytes)
                     af_elem = next((e for e in s_tree.iter() if e.tag.endswith("autoFilter")), None)
                     af_ref = af_elem.attrib.get("ref", "none") if af_elem is not None else "none"
-                    title = sheet_titles[idx] if idx < len(sheet_titles) else f"Sheet{idx+1}"
+                    title = sheet_titles[idx] if idx < len(sheet_titles) else f"Sheet{idx + 1}"
                     filter_details.append(f"{title}(auto_filter={af_ref}, hidden_rows={has_hidden})")
                     warnings.append(
                         WarningRecord(

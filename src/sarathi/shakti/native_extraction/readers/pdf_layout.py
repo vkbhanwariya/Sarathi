@@ -23,11 +23,7 @@ from sarathi.shakti.native_extraction.readers.common import (
 )
 from sarathi.shakti.text.typography import normalize_text_spacing, reconstruct_line_from_spans
 
-_PDF_TEXT_FLAGS = (
-    pymupdf.TEXT_DEHYPHENATE
-    | pymupdf.TEXT_PRESERVE_WHITESPACE
-    | pymupdf.TEXT_PRESERVE_LIGATURES
-)
+_PDF_TEXT_FLAGS = pymupdf.TEXT_DEHYPHENATE | pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_PRESERVE_LIGATURES
 
 # Semantic heading classes identified by BoxRFDGNN
 _HEADING_CLASSES = frozenset({"title", "section-header"})
@@ -107,13 +103,15 @@ def _process_single_page(
                         line_str = reconstruct_line_from_spans(line_spans_data)
                         lcx = (l_bbox[0] + l_bbox[2]) / 2.0
                         lcy = (l_bbox[1] + l_bbox[3]) / 2.0
-                        raw_lines.append({
-                            "bbox": l_bbox,
-                            "cx": lcx,
-                            "cy": lcy,
-                            "line_text": line_str,
-                            "spans": spans_objs,
-                        })
+                        raw_lines.append(
+                            {
+                                "bbox": l_bbox,
+                                "cx": lcx,
+                                "cy": lcy,
+                                "line_text": line_str,
+                                "spans": spans_objs,
+                            }
+                        )
     except Exception:
         warnings.append(
             WarningRecord(
@@ -303,6 +301,7 @@ def _process_page_chunk(
 ) -> list[tuple[int, PageData, ProvenanceRecord, list[WarningRecord], list[TableData], str]]:
     """Worker task processing a sequence of pages with its own independent Document instance."""
     import pymupdf.layout as _pymupdf_layout  # noqa: F401
+
     doc = pymupdf.open(stream=data, filetype="pdf")
     results = []
     try:

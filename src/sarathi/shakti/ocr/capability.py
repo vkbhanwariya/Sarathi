@@ -100,37 +100,41 @@ def _format_page_text_with_tables(page: PageData) -> str:
     return "\n\n".join(parts)
 
 
-_FLOAT_CUSTOM_OPTIONS: frozenset[str] = frozenset({
-    "fallback_threshold",
-    "retry_threshold",
-    "review_threshold",
-})
-_SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset({
-    "engine",
-    "lang",
-    "preprocess",
-    "deskew",
-    "clahe",
-    "lightweight",
-    "binarize",
-    "english_numbers_only",
-    "remove_stamps",
-    "inpaint_stamps",
-    "retry_enabled",
-    "retry_threshold",
-    "fallback_enabled",
-    "fallback_threshold",
-    "review_threshold",
-    "use_angle_cls",
-    "use_cls",
-    "preserve_layout",
-    "validation_enabled",
-    "progress_callback",
-    "skip_header_footer",
-    "dpi",
-    "force_ocr",
-    "export_json",
-})
+_FLOAT_CUSTOM_OPTIONS: frozenset[str] = frozenset(
+    {
+        "fallback_threshold",
+        "retry_threshold",
+        "review_threshold",
+    }
+)
+_SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
+    {
+        "engine",
+        "lang",
+        "preprocess",
+        "deskew",
+        "clahe",
+        "lightweight",
+        "binarize",
+        "english_numbers_only",
+        "remove_stamps",
+        "inpaint_stamps",
+        "retry_enabled",
+        "retry_threshold",
+        "fallback_enabled",
+        "fallback_threshold",
+        "review_threshold",
+        "use_angle_cls",
+        "use_cls",
+        "preserve_layout",
+        "validation_enabled",
+        "progress_callback",
+        "skip_header_footer",
+        "dpi",
+        "force_ocr",
+        "export_json",
+    }
+)
 _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "engine",
     "lang",
@@ -307,9 +311,13 @@ class OCRCapability:
                 context.cancellation_token.check_cancelled()
 
             force_ocr = bool(request.custom_options and request.custom_options.get("force_ocr"))
-            if not force_ocr and inp.input_id not in prior_docs and (
-                inp.media_type == "application/pdf"
-                or (inp.source_path and str(inp.source_path).lower().endswith(".pdf"))
+            if (
+                not force_ocr
+                and inp.input_id not in prior_docs
+                and (
+                    inp.media_type == "application/pdf"
+                    or (inp.source_path and str(inp.source_path).lower().endswith(".pdf"))
+                )
             ):
                 try:
                     from sarathi.shakti.native_extraction.readers.pdf import read_pdf
@@ -334,9 +342,7 @@ class OCRCapability:
                             else pdf_warns
                         )
                     if pdf_prov and native_pages:
-                        all_provenance.extend(
-                            [pr for pr in pdf_prov if pr.page_number in native_pages]
-                        )
+                        all_provenance.extend([pr for pr in pdf_prov if pr.page_number in native_pages])
                 except Exception:
                     pass
 
@@ -367,10 +373,7 @@ class OCRCapability:
                     message="Unsupported content format for OCR.",
                 )
 
-            needed_page_indices = [
-                idx for idx in range(1, total_pages + 1)
-                if idx not in skip_pages
-            ]
+            needed_page_indices = [idx for idx in range(1, total_pages + 1) if idx not in skip_pages]
             ocr_inputs.append((inp, data, total_pages, needed_page_indices, skip_pages))
 
         # Check for progress callback
@@ -381,9 +384,7 @@ class OCRCapability:
         # 2. Perform OCR: decompose page work; Yantra owns device and concurrency policy.
         total_pages_needing_ocr = sum(len(needed) for _, _, _, needed, _ in ocr_inputs)
         is_parallelizable = self.declaration.device_requirement.parallelizable
-        approved_concurrency = (
-            context.execution_binding.approved_concurrency if context.execution_binding else None
-        )
+        approved_concurrency = context.execution_binding.approved_concurrency if context.execution_binding else None
         can_parallelize = (
             total_pages_needing_ocr > 1
             and self._yantra is not None
@@ -399,11 +400,7 @@ class OCRCapability:
             for p_num, p_data in sorted(native_p.items(), key=lambda x: x[0]):
                 doc_page_results[inp.input_id].append((p_num, p_data, None, []))
                 if progress_cb is not None:
-                    dev_str = (
-                        context.execution_binding.device_type.value
-                        if context.execution_binding
-                        else "CPU"
-                    )
+                    dev_str = context.execution_binding.device_type.value if context.execution_binding else "CPU"
                     progress_cb(
                         file_display_name=inp.display_name,
                         page_number=p_num,
@@ -455,9 +452,7 @@ class OCRCapability:
                     w_id = str(threading.get_ident() % 1000)
                     if progress_cb is not None:
                         dev_str = (
-                            context.execution_binding.device_type.value.upper()
-                            if context.execution_binding
-                            else "CPU"
+                            context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
                         )
                         progress_cb(
                             file_display_name=inp_ref.display_name,
@@ -528,11 +523,7 @@ class OCRCapability:
                         context.cancellation_token.check_cancelled()
 
                     if progress_cb is not None:
-                        dev_str = (
-                            context.execution_binding.device_type.value
-                            if context.execution_binding
-                            else "CPU"
-                        )
+                        dev_str = context.execution_binding.device_type.value if context.execution_binding else "CPU"
                         progress_cb(
                             file_display_name=inp.display_name,
                             page_number=page_idx,
@@ -695,9 +686,7 @@ class OCRCapability:
                 ocr_pages.extend(doc.pages)
 
         scores: list[float] = [
-            float(p.metadata["confidence"])
-            for p in ocr_pages
-            if isinstance(p.metadata.get("confidence"), (int, float))
+            float(p.metadata["confidence"]) for p in ocr_pages if isinstance(p.metadata.get("confidence"), (int, float))
         ]
 
         page_models = {
@@ -743,9 +732,7 @@ class OCRCapability:
             docx_name = format_artifact_filename(inp, "ocr", "docx", all_inputs=request.inputs, index=idx)
 
             # 1. Plain text extracted output (clean plain text without markdown heading hashes)
-            clean_txt = "\n".join(
-                re.sub(r"^(?:#{1,6}\s+)", "", line) for line in (doc.text or "").splitlines()
-            )
+            clean_txt = "\n".join(re.sub(r"^(?:#{1,6}\s+)", "", line) for line in (doc.text or "").splitlines())
             payloads.append(
                 ArtifactPayload(
                     intent=ArtifactIntent(

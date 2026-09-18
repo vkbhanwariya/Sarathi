@@ -26,24 +26,26 @@ _DEFAULT_HALF_PT = 24  # 12 pt baseline
 
 _DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-_NON_DELETABLE_RUN_CHILDREN = frozenset({
-    "tab",
-    "br",
-    "cr",
-    "sym",
-    "drawing",
-    "fldChar",
-    "instrText",
-    "noBreakHyphen",
-    "softHyphen",
-    "commentReference",
-    "annotationRef",
-    "footnoteReference",
-    "endnoteReference",
-    "lastRenderedPageBreak",
-    "ptab",
-    "ruby",
-})
+_NON_DELETABLE_RUN_CHILDREN = frozenset(
+    {
+        "tab",
+        "br",
+        "cr",
+        "sym",
+        "drawing",
+        "fldChar",
+        "instrText",
+        "noBreakHyphen",
+        "softHyphen",
+        "commentReference",
+        "annotationRef",
+        "footnoteReference",
+        "endnoteReference",
+        "lastRenderedPageBreak",
+        "ptab",
+        "ruby",
+    }
+)
 
 __all__ = [
     "_DEFAULT_HALF_PT",

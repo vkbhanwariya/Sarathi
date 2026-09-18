@@ -260,13 +260,11 @@ class TestCloudPluginAuthorization:
     @staticmethod
     def _cloud_security_declarations() -> tuple[SecurityDeclaration, ...]:
         from sarathi.shakti.azure.plugin import PLUGIN_INFO as azure
-        from sarathi.shakti.bhashini.plugin import PLUGIN_INFO as bhashini
         from sarathi.shakti.gemini.plugin import PLUGIN_INFO as gemini
         from sarathi.shakti.mistral.plugin import PLUGIN_INFO as mistral
 
         return (
             azure.security,
-            bhashini.security,
             gemini.security,
             mistral.security,
         )

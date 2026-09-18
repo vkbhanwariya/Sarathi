@@ -89,7 +89,9 @@ class HeaderMapper:
             {
                 data["profile_id"]: data
                 for f in self._banks_dir.glob("*.yaml")
-                if f.name != "common.yaml" and isinstance((data := load_bank_profile_yaml(f)), dict) and "profile_id" in data
+                if f.name != "common.yaml"
+                and isinstance((data := load_bank_profile_yaml(f)), dict)
+                and "profile_id" in data
             }
             if self._banks_dir.exists()
             else {}
@@ -146,7 +148,9 @@ class HeaderMapper:
                 (
                     max(
                         SequenceMatcher(None, cleaned, str(a).strip().lower()).ratio(),
-                        SequenceMatcher(None, norm_cleaned, _normalize_header_token(str(a))).ratio() if norm_cleaned else 0.0,
+                        SequenceMatcher(None, norm_cleaned, _normalize_header_token(str(a))).ratio()
+                        if norm_cleaned
+                        else 0.0,
                     ),
                     field,
                 )

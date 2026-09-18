@@ -87,7 +87,9 @@ def test_adaptive_dpi_resolution_in_capability(tmp_path: Path) -> None:
     mock_engine = MagicMock(spec=RapidOCREngine)
     mock_engine.ocr_page.return_value = (
         PageData(page_number=1, text="Sample"),
-        ProvenanceRecord(source_input_id="in-1", stage="ocr", plugin_id="shakti.ocr", capability_id="ocr", page_number=1, evidence={}),
+        ProvenanceRecord(
+            source_input_id="in-1", stage="ocr", plugin_id="shakti.ocr", capability_id="ocr", page_number=1, evidence={}
+        ),
         None,
         [],
     )

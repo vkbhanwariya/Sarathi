@@ -25,11 +25,7 @@ from sarathi.shakti.text.typography import (
     normalize_text_spacing,
 )
 
-_PDF_TEXT_FLAGS = (
-    pymupdf.TEXT_DEHYPHENATE
-    | pymupdf.TEXT_PRESERVE_WHITESPACE
-    | pymupdf.TEXT_PRESERVE_LIGATURES
-)
+_PDF_TEXT_FLAGS = pymupdf.TEXT_DEHYPHENATE | pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_PRESERVE_LIGATURES
 
 
 def read_pdf(
@@ -91,9 +87,7 @@ def read_pdf(
             all_page_blocks.append(p_blocks)
 
         header_templates, footer_templates = (
-            detect_running_headers_footers(all_page_blocks, page_heights)
-            if total_pages >= 2
-            else (set(), set())
+            detect_running_headers_footers(all_page_blocks, page_heights) if total_pages >= 2 else (set(), set())
         )
 
         for page_idx in range(total_pages):

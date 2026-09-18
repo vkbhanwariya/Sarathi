@@ -127,7 +127,9 @@ class TestAzureClient:
             assert exc_info.value.code == FailureCode.RESOURCE_UNAVAILABLE
 
     def test_translate_text_empty_translations_raises_execution_failed(self) -> None:
-        client = AzureClient(api_key="valid_key", translator_key="trans_key", endpoint="https://myaccount.cognitiveservices.azure.com")
+        client = AzureClient(
+            api_key="valid_key", translator_key="trans_key", endpoint="https://myaccount.cognitiveservices.azure.com"
+        )
 
         class MockResponse:
             status_code = 200
@@ -278,7 +280,7 @@ class TestAzureTranslationCapability:
         assert isinstance(result.data, CanonicalDocument)
         doc: CanonicalDocument = result.data
         assert doc.text == "The bank issued the notification."
-        assert doc.metadata["direction"] == "hi->en"
+        assert doc.metadata["direction"] == "Hindi->English"
         assert doc.metadata["existing"] == "kept"
         assert doc.source_input_id == "inp-1"
         assert doc.detected_type == "ocr_document"

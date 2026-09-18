@@ -25,7 +25,6 @@ CAPABILITY_DECLARATION = CapabilityDeclaration(
     version="1.0.0",
     display_name="Native Document Extraction",
     supported_profiles=(
-
         ExecutionProfile.INSTANT,
         ExecutionProfile.ACCURATE,
         ExecutionProfile.LAYOUT_PRESERVING,

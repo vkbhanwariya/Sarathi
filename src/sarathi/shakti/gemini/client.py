@@ -150,20 +150,26 @@ class GeminiClient:
         source_lang: str,
         target_lang: str,
         model: str = _DEFAULT_MODEL,
+        system_prompt: str | None = None,
+        **kwargs: Any,
     ) -> str:
-        """Translate text from source_lang to target_lang using Gemini."""
+        """Translate text from source_lang to target_lang using Gemini with legal context awareness."""
         if not text.strip():
             return ""
 
-        prompt = (
-            f"You are a professional legal and technical document translator.\n"
-            f"Translate the following text faithfully from {source_lang} into {target_lang}.\n"
-            f"Preserve all Markdown formatting, structure, numbers, and proper nouns accurately.\n"
-            f"Output ONLY the translated text without commentary or preamble.\n\n"
-            f"{text}"
-        )
+        sys_inst = system_prompt or kwargs.get("system_instruction")
+        if sys_inst:
+            prompt = f"{sys_inst}\n\n### Document Content to Translate:\n{text}"
+        else:
+            prompt = (
+                f"You are a professional legal and technical document translator.\n"
+                f"Translate the following text faithfully from {source_lang} into {target_lang}.\n"
+                f"Preserve all Markdown formatting, structure, numbers, and proper nouns accurately.\n"
+                f"Output ONLY the translated text without commentary or preamble.\n\n"
+                f"{text}"
+            )
 
-        payload = {
+        payload: dict[str, Any] = {
             "contents": [
                 {
                     "parts": [{"text": prompt}],
@@ -173,6 +179,8 @@ class GeminiClient:
                 "temperature": 0.1,
             },
         }
+        if sys_inst:
+            payload["system_instruction"] = {"parts": [{"text": sys_inst}]}
 
         data = self._post(model=model, payload=payload)
         candidates = data.get("candidates", [])

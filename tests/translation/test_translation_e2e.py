@@ -32,7 +32,9 @@ def hindi_sample_file(tmp_path: Path) -> Path:
     return p
 
 
-def test_translation_pipeline_with_deterministic_backend(tmp_path: Path, hindi_sample_file: Path, test_backend: Any) -> None:
+def test_translation_pipeline_with_deterministic_backend(
+    tmp_path: Path, hindi_sample_file: Path, test_backend: Any
+) -> None:
     runtime_dir = tmp_path / "Runtime"
     output_dir = tmp_path / "Output"
     darpana = Darpana(capacity=200)
@@ -214,7 +216,9 @@ def test_translation_opus_mt_engine_forwarding_and_dependency_check(tmp_path: Pa
     received_engine: list[str] = []
 
     class MockCustomBackend(TranslatorBackend):
-        def translate_sentences(self, sentences: list[str], direction, execution_binding=None, engine: str = "indictrans2", **kwargs) -> tuple[list[str], str]:
+        def translate_sentences(
+            self, sentences: list[str], direction, execution_binding=None, engine: str = "indictrans2", **kwargs
+        ) -> tuple[list[str], str]:
             received_engine.append(engine)
             return [f"OPUS:{s}" for s in sentences], "opus_model"
 

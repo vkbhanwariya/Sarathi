@@ -57,8 +57,12 @@ class TestOCREngineDeviceBinding:
     def test_engine_cache_strictly_isolated_between_cpu_and_gpu(self) -> None:
         mock_gpu = MagicMock()
         mock_cpu = MagicMock()
-        mock_gpu.return_value = MagicMock(txts=["GPU Text"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.99])
-        mock_cpu.return_value = MagicMock(txts=["CPU Text"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.95])
+        mock_gpu.return_value = MagicMock(
+            txts=["GPU Text"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.99]
+        )
+        mock_cpu.return_value = MagicMock(
+            txts=["CPU Text"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.95]
+        )
 
         engine = RapidOCREngine()
         engine._engines["v6_en:GPU"] = mock_gpu
@@ -80,20 +84,29 @@ class TestOCREngineDeviceBinding:
             backend_device_id="GPU",
         )
 
-        p_cpu, prov_cpu, _, _ = engine.ocr_page(img, 1, "in-1", custom_options={"lang": "en"}, execution_binding=binding_cpu)
+        p_cpu, prov_cpu, _, _ = engine.ocr_page(
+            img, 1, "in-1", custom_options={"lang": "en"}, execution_binding=binding_cpu
+        )
         assert p_cpu.text == "CPU Text"
         assert prov_cpu.evidence["device"] == "CPU"
 
-        p_gpu, prov_gpu, _, _ = engine.ocr_page(img, 1, "in-1", custom_options={"lang": "en"}, execution_binding=binding_gpu)
+        p_gpu, prov_gpu, _, _ = engine.ocr_page(
+            img, 1, "in-1", custom_options={"lang": "en"}, execution_binding=binding_gpu
+        )
         assert p_gpu.text == "GPU Text"
         assert prov_gpu.evidence["device"] == "GPU"
 
     def test_gpu_dual_stream_pool_concurrency(self) -> None:
         import queue
+
         mock_slot0 = MagicMock()
         mock_slot1 = MagicMock()
-        mock_slot0.return_value = MagicMock(txts=["Slot 0 Output"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.99])
-        mock_slot1.return_value = MagicMock(txts=["Slot 1 Output"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.98])
+        mock_slot0.return_value = MagicMock(
+            txts=["Slot 0 Output"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.99]
+        )
+        mock_slot1.return_value = MagicMock(
+            txts=["Slot 1 Output"], boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]]], scores=[0.98]
+        )
 
         engine = RapidOCREngine()
         cache_key = "v6_en:GPU"
@@ -157,7 +170,14 @@ class TestOCRCapabilityYantraIntegration:
         def mock_ocr(img, page_num, input_id, **kwargs):
             return (
                 PageData(page_number=page_num, text=f"Page {page_num} Text"),
-                ProvenanceRecord(source_input_id=input_id, stage="ocr", plugin_id="shakti.ocr", capability_id="ocr", page_number=page_num, evidence={}),
+                ProvenanceRecord(
+                    source_input_id=input_id,
+                    stage="ocr",
+                    plugin_id="shakti.ocr",
+                    capability_id="ocr",
+                    page_number=page_num,
+                    evidence={},
+                ),
                 None,
                 (),
             )
@@ -181,7 +201,15 @@ class TestOCRCapabilityYantraIntegration:
             req = Request(
                 request_id="req-multi",
                 requirement="ocr",
-                inputs=(InputRef(input_id="in-pdf", source_path=pdf_path, display_name="doc.pdf", size_bytes=100, media_type="application/pdf"),),
+                inputs=(
+                    InputRef(
+                        input_id="in-pdf",
+                        source_path=pdf_path,
+                        display_name="doc.pdf",
+                        size_bytes=100,
+                        media_type="application/pdf",
+                    ),
+                ),
             )
             ctx = ExecutionContext(run_id="r1", request_id="req-multi", trace_id="t1", span_id="s1")
 

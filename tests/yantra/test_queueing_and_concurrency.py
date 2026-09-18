@@ -66,6 +66,7 @@ class TestQueueingAndWaiting:
         alloc1 = yantra.allocate(req)
 
         waiters = []
+
         def wait_worker() -> None:
             try:
                 alloc = yantra.allocate(req, timeout=0.5)
@@ -94,8 +95,12 @@ class TestQueueingAndWaiting:
     def test_priority_queueing_dispatches_higher_priority_first(self) -> None:
         inventory = DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=1)])
         yantra = Yantra(inventory)
-        req_low = DeviceRequirement(preferred_devices=(DeviceType.CPU,), supported_devices=(DeviceType.CPU,), priority=0)
-        req_high = DeviceRequirement(preferred_devices=(DeviceType.CPU,), supported_devices=(DeviceType.CPU,), priority=10)
+        req_low = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,), supported_devices=(DeviceType.CPU,), priority=0
+        )
+        req_high = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,), supported_devices=(DeviceType.CPU,), priority=10
+        )
 
         alloc_initial = yantra.allocate(req_low)
 
@@ -216,7 +221,9 @@ class TestYantraExecuteSubtasks:
 
         cancel_token = CancellationToken()
         cancel_token.cancel()
-        ctx = ExecutionContext(run_id="r1", request_id="req1", trace_id="t1", span_id="s1", cancellation_token=cancel_token)
+        ctx = ExecutionContext(
+            run_id="r1", request_id="req1", trace_id="t1", span_id="s1", cancellation_token=cancel_token
+        )
 
         with pytest.raises(DoshError) as exc_info:
             yantra.execute_subtasks([lambda: 1, lambda: 2], context=ctx)
@@ -228,7 +235,9 @@ class TestYantraExecuteSubtasks:
         yantra = Yantra(inventory)
 
         cancel_token = CancellationToken()
-        ctx = ExecutionContext(run_id="r1", request_id="req1", trace_id="t1", span_id="s1", cancellation_token=cancel_token)
+        ctx = ExecutionContext(
+            run_id="r1", request_id="req1", trace_id="t1", span_id="s1", cancellation_token=cancel_token
+        )
 
         started = threading.Event()
         finished = threading.Event()

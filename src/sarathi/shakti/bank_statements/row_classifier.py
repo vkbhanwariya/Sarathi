@@ -27,7 +27,9 @@ _OPENING_KEYWORDS = frozenset({"opening balance", "b/f", "brought forward", "bal
 _CLOSING_KEYWORDS = frozenset({"closing balance", "c/f", "carried forward", "balance c/f", "closing bal"})
 _EOD_KEYWORDS = frozenset({"eod balance", "end of day balance", "daily balance", "eod bal", "daily bal"})
 _SUMMARY_KEYWORDS = frozenset({"total", "grand total", "total transactions", "summary"})
-_DATE_RE = re.compile(r"\d{4}[/\-]\d{1,2}[/\-]\d{1,2}|\d{1,2}[/\-\s]\d{1,2}[/\-\s]\d{2,4}|\d{1,2}[/\-\s]+[a-zA-Z]{3,9}[/\-\s]+\d{2,4}")
+_DATE_RE = re.compile(
+    r"\d{4}[/\-]\d{1,2}[/\-]\d{1,2}|\d{1,2}[/\-\s]\d{1,2}[/\-\s]\d{2,4}|\d{1,2}[/\-\s]+[a-zA-Z]{3,9}[/\-\s]+\d{2,4}"
+)
 _NULL_WORDS = frozenset(("", "-", "--", "na", "n/a", "nil", "null"))
 _AMOUNT_CELL_RE = re.compile(
     r"^\(?-?(?:[₹$€£]|rs\.?|inr)?\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,4})?\)?(?:\s*(?:dr\.?|cr\.?))?$|^-?\d+\.\d{2}$|^-?\d+$",

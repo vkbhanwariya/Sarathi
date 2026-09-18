@@ -78,7 +78,6 @@ __all__ = [
     "Request",
     "Result",
     "SecurityDeclaration",
-
     "TableData",
     "TextSpan",
     "WarningRecord",

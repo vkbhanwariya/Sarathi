@@ -253,8 +253,8 @@ def test_canonical_and_docx_conversion_parity() -> None:
     r = ET.fromstring(
         '<w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
         '<w:rPr><w:rFonts w:ascii="Kruti Dev 010" w:hAnsi="Kruti Dev 010" w:cs="Mangal"/></w:rPr>'
-        '<w:t>LFkkÃ irk</w:t>'
-        '</w:r>'
+        "<w:t>LFkkÃ irk</w:t>"
+        "</w:r>"
     )
     resolver = DocxStyleResolver()
     effective_font = resolver.resolve_run_font(r, text=test_text)
@@ -487,7 +487,6 @@ def test_item_scoped_batch_escalation_partial_empty() -> None:
     assert any(w.code == "EMPTY_DOCUMENT_SKIPPED" for w in res.warnings)
 
 
-
 def test_font_mode_validation_rejects_unknown() -> None:
     from sarathi.shakti.font_conversion.capability import FontConversionCapability
 
@@ -496,7 +495,15 @@ def test_font_mode_validation_rejects_unknown() -> None:
     req = Request(
         request_id="req1",
         requirement="convert_font",
-        inputs=(InputRef(input_id="in1", source_path=Path("in1.txt"), display_name="in1.txt", size_bytes=10, media_type="text/plain"),),
+        inputs=(
+            InputRef(
+                input_id="in1",
+                source_path=Path("in1.txt"),
+                display_name="in1.txt",
+                size_bytes=10,
+                media_type="text/plain",
+            ),
+        ),
         custom_options={"font_mode": "to_krutidevv"},
     )
     prior = Result(

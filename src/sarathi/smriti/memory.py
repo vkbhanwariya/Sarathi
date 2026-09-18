@@ -28,11 +28,7 @@ def _defensive_copy(value: Any) -> Any:
     if isinstance(value, frozenset):
         return frozenset(_defensive_copy(item) for item in value)
     if is_dataclass(value) and not isinstance(value, type):
-        updates = {
-            field.name: _defensive_copy(getattr(value, field.name))
-            for field in fields(value)
-            if field.init
-        }
+        updates = {field.name: _defensive_copy(getattr(value, field.name)) for field in fields(value) if field.init}
         return replace(value, **updates)
     return value
 

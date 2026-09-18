@@ -38,7 +38,11 @@ class ExecutionBinding:
             raise TypeError(f"device_type must be a DeviceType, got {type(self.device_type).__name__}.")
         if not self.backend or not isinstance(self.backend, str) or not self.backend.strip():
             raise ValueError("backend must be a non-empty string.")
-        if not self.backend_device_id or not isinstance(self.backend_device_id, str) or not self.backend_device_id.strip():
+        if (
+            not self.backend_device_id
+            or not isinstance(self.backend_device_id, str)
+            or not self.backend_device_id.strip()
+        ):
             raise ValueError("backend_device_id must be a non-empty string.")
         if not isinstance(self.is_spillover, bool):
             raise TypeError(f"is_spillover must be a bool, got {type(self.is_spillover).__name__}.")

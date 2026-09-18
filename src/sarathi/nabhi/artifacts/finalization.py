@@ -74,9 +74,7 @@ def finalize_run_workspace(
     if not isinstance(success, bool):
         raise TypeError(f"success must be a bool, got {type(success).__name__}.")
 
-    effective_status = (
-        status if isinstance(status, str) and status.strip() else ("completed" if success else "failed")
-    )
+    effective_status = status if isinstance(status, str) and status.strip() else ("completed" if success else "failed")
 
     if metadata is not None and not isinstance(metadata, Mapping):
         raise TypeError(f"metadata must be a Mapping or None, got {type(metadata).__name__}.")

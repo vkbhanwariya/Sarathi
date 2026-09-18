@@ -13,7 +13,7 @@ Tests:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -361,6 +361,7 @@ class TestMistralTranslationCapability:
             source_lang="Hindi",
             target_lang="English",
             model="mistral-large-latest",
+            system_prompt=ANY,
         )
 
         # Artifacts verification

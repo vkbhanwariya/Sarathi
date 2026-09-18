@@ -44,10 +44,13 @@ def read_pdf(
 
 def _get_reader(
     fmt: DetectedFormat,
-) -> tuple[
-    Callable[[bytes, str], tuple[CanonicalDocument, list[ProvenanceRecord], list[WarningRecord]]],
-    tuple[type[BaseException], ...],
-] | None:
+) -> (
+    tuple[
+        Callable[[bytes, str], tuple[CanonicalDocument, list[ProvenanceRecord], list[WarningRecord]]],
+        tuple[type[BaseException], ...],
+    ]
+    | None
+):
     """Return the concrete reader and its expected parse errors for one detected format."""
     match fmt:
         case DetectedFormat.PDF:
@@ -165,7 +168,7 @@ class NativeExtractionCapability:
         if not is_usable:
             return
 
-        for p in (doc.pages or ()):
+        for p in doc.pages or ():
             self._darpana.record_pramana(
                 PramanaRecord(
                     run_id=context.run_id,
@@ -426,7 +429,9 @@ class NativeExtractionCapability:
         payloads: list[ArtifactPayload] = []
         if not needs_ocr:
             for idx, (inp, doc) in enumerate(zip(request.inputs, extracted_docs)):
-                has_content = bool(doc.text.strip()) or bool(doc.tables) or any(p.text.strip() or p.tables for p in doc.pages)
+                has_content = (
+                    bool(doc.text.strip()) or bool(doc.tables) or any(p.text.strip() or p.tables for p in doc.pages)
+                )
                 if has_content:
                     txt_name = format_artifact_filename(inp, "extracted", "txt", all_inputs=request.inputs, index=idx)
                     docx_name = format_artifact_filename(inp, "extracted", "docx", all_inputs=request.inputs, index=idx)

@@ -20,9 +20,7 @@ from sarathi.shakti.ocr.engine.parser import sort_reading_order_xycut
 from sarathi.shakti.ocr.typography import infer_line_font_size
 from sarathi.shakti.text.typography import normalize_text_spacing, reconstruct_line_from_spans
 
-_LIST_BULLET_RE = re.compile(
-    r"^(\s*([•\-\*–—]|(\d+|[a-zA-Z]|[ivxIVX]+|[०-९]+|[क-ह])[\.\)\/\-]))\s+"
-)
+_LIST_BULLET_RE = re.compile(r"^(\s*([•\-\*–—]|(\d+|[a-zA-Z]|[ivxIVX]+|[०-९]+|[क-ह])[\.\)\/\-]))\s+")
 
 
 @dataclass
@@ -79,7 +77,7 @@ def _cluster_spans_into_grid(
         return (), ()
 
     # 1. Sort spans top-to-bottom
-    sorted_by_y = sorted(spans, key=lambda s: (s.bounding_box[1] if s.bounding_box else 0.0))
+    sorted_by_y = sorted(spans, key=lambda s: s.bounding_box[1] if s.bounding_box else 0.0)
 
     # 2. Cluster into rows based on vertical overlap
     rows: list[list[TextSpan]] = []
@@ -175,9 +173,7 @@ def detect_ruled_tables(
             return (), set()
 
         gray = cv2.cvtColor(image_arr, cv2.COLOR_RGB2GRAY) if len(image_arr.shape) == 3 else image_arr.copy()
-        thresh = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 2
-        )
+        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 2)
 
         # Resolution-adaptive kernel sizing relative to image dimensions
         w_kernel_len = max(15, min(w // 30, 50))
@@ -228,7 +224,10 @@ def detect_ruled_tables(
                 t_by1 = float(grp[-1][1] + grp[-1][3])
                 if (t_by1 - t_by0) >= 30 and (t_bx1 - t_bx0) >= 60 and (t_by1 - t_by0) <= 0.70 * h:
                     overlap = any(
-                        (max(0.0, min(cb[2], t_bx1) - max(cb[0], t_bx0)) * max(0.0, min(cb[3], t_by1) - max(cb[1], t_by0)))
+                        (
+                            max(0.0, min(cb[2], t_bx1) - max(cb[0], t_bx0))
+                            * max(0.0, min(cb[3], t_by1) - max(cb[1], t_by0))
+                        )
                         > 0.5 * (t_bx1 - t_bx0) * (t_by1 - t_by0)
                         for cb in candidate_boxes
                     )
@@ -362,17 +361,11 @@ def detect_borderless_tables(
 
                 # Require at least 2 distinct columns populated in data rows
                 cols_populated = sum(
-                    1 for c_idx in range(len(headers))
-                    if sum(1 for r in data_rows if r[c_idx].strip()) >= 1
+                    1 for c_idx in range(len(headers)) if sum(1 for r in data_rows if r[c_idx].strip()) >= 1
                 )
 
                 # Invariants: genuine data table (high occupancy, concise cell data, non-prose)
-                is_real_table = (
-                    occupancy >= 0.40
-                    and avg_len <= 80.0
-                    and max_len <= 200
-                    and cols_populated >= 2
-                )
+                is_real_table = occupancy >= 0.40 and avg_len <= 80.0 and max_len <= 200 and cols_populated >= 2
 
                 if is_real_table:
                     bx0 = min(s.bounding_box[0] for s in t_spans)
@@ -440,10 +433,7 @@ def reconstruct_layout(
         consumed_indices.update(borderless_consumed)
 
     # Filter out spans consumed by detected tables so they are not jumbled in body paragraphs
-    body_spans = [
-        s for idx, s in enumerate(spans)
-        if idx not in consumed_indices and s.text and s.text.strip()
-    ]
+    body_spans = [s for idx, s in enumerate(spans) if idx not in consumed_indices and s.text and s.text.strip()]
     if not body_spans and not detected_tables:
         body_spans = list(spans)
 
@@ -563,8 +553,6 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
                         ln.text = f"# {ln.text}"
                     else:
                         ln.text = f"## {ln.text}"
-
-
 
     # 2. Join lines into paragraphs based on geometry
     para_blocks: list[str] = []

@@ -554,6 +554,7 @@ class TestAgniBootstrap:
             out_p = Path(result.metadata["output_dir"])
             if out_p.exists():
                 import shutil
+
                 shutil.rmtree(out_p, ignore_errors=True)
             if out_p.parent.exists() and not any(out_p.parent.iterdir()):
                 out_p.parent.rmdir()
@@ -584,6 +585,7 @@ class TestAgniBootstrap:
 
     def test_agni_rejects_custom_capability_without_registered_plugin(self) -> None:
         """Verify Agni does not invent synthetic PluginInfo and rejects unowned capabilities with VALIDATION_FAILED."""
+
         class FakeCustomCapability:
             @property
             def declaration(self) -> CapabilityDeclaration:
@@ -594,7 +596,9 @@ class TestAgniBootstrap:
                     supported_profiles=(ExecutionProfile.INSTANT,),
                 )
 
-            def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            def execute(
+                self, request: Request, context: ExecutionContext, prior_result: Result | None = None
+            ) -> Result:
                 return Result(data="fake")
 
         fake_cap = FakeCustomCapability()
@@ -621,6 +625,7 @@ class TestAgniBootstrap:
 
     def test_agni_singular_lifecycle_ownership(self, tmp_path: Path) -> None:
         """Agni directly owns runtime component startup and shutdown."""
+
         class TrackingDarpana(Darpana):
             def __init__(self) -> None:
                 super().__init__()

@@ -7,7 +7,7 @@ from typing import Mapping, Sequence
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.kavacha import Kavacha
+from sarathi.kavacha import Kavacha, SecurityPolicy
 from sarathi.nabhi import Kosh
 from sarathi.sankalpa import Capability, ExecutionContext, PluginProvider
 from sarathi.shakti.providers import BUILTIN_PLUGIN_PROVIDERS
@@ -53,6 +53,7 @@ def resolve_storage_roots(
     settings: Settings,
 ) -> tuple[Path, Path, Path]:
     """Validate and resolve runtime, output, and input storage roots."""
+
     def _resolve_root(arg_val: Path | str | None, setting_val: Path, param_name: str) -> Path:
         if arg_val is not None:
             if not isinstance(arg_val, (Path, str)):
@@ -102,9 +103,7 @@ def resolve_darpana(
                 )
             hist_path = resolved_hist
         else:
-            hist_path = hist_dir / (
-                "history.db" if settings.telemetry_history_format == "sqlite" else "history.jsonl"
-            )
+            hist_path = hist_dir / ("history.db" if settings.telemetry_history_format == "sqlite" else "history.jsonl")
     else:
         hist_path = None
 
@@ -129,7 +128,19 @@ def resolve_kavacha(
             raise TypeError(f"kavacha must be a Kavacha instance or None, got {type(kavacha).__name__}.")
         active_kavacha = kavacha
     else:
-        active_kavacha = Kavacha(settings.security_policy())
+        try:
+            policy = SecurityPolicy(
+                allow_pii_access=settings.allow_pii_access,
+                allow_network_access=settings.allow_network_access,
+                allow_external_processing=settings.allow_external_processing,
+                allowed_secrets=settings.allowed_secrets,
+            )
+        except (ValueError, TypeError) as err:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message="Invalid security policy configuration.",
+            ) from err
+        active_kavacha = Kavacha(policy)
 
     active_kavacha.validate_source_destination_overlap(
         [input_root],
@@ -150,9 +161,7 @@ def resolve_yantra_and_inventory(
     """Validate or detect DeviceInventory, then instantiate Yantra compute resource manager."""
     if inventory is not None:
         if not isinstance(inventory, DeviceInventory):
-            raise TypeError(
-                f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}."
-            )
+            raise TypeError(f"inventory must be a DeviceInventory instance or None, got {type(inventory).__name__}.")
         active_inventory = inventory
     else:
         active_inventory = Yantra.default_inventory(

@@ -57,14 +57,16 @@ class UserCapabilityWithNoneYantra:
 
 class TestBootstrapDependencyInjection:
     def test_default_capabilities_receive_injected_dependencies(self, tmp_path: Path) -> None:
-        settings = Settings({
-            "storage": {
-                "input_root": str(tmp_path / "inputs"),
-                "output_root": str(tmp_path / "outputs"),
-                "runtime_root": str(tmp_path / "runtime"),
-            },
-            "telemetry": {"live_buffer_capacity": 512},
-        })
+        settings = Settings(
+            {
+                "storage": {
+                    "input_root": str(tmp_path / "inputs"),
+                    "output_root": str(tmp_path / "outputs"),
+                    "runtime_root": str(tmp_path / "runtime"),
+                },
+                "telemetry": {"live_buffer_capacity": 512},
+            }
+        )
 
         agni = Agni(settings=settings)
         try:
@@ -82,13 +84,15 @@ class TestBootstrapDependencyInjection:
             agni.close()
 
     def test_user_supplied_capabilities_are_not_mutated(self, tmp_path: Path) -> None:
-        settings = Settings({
-            "storage": {
-                "input_root": str(tmp_path / "inputs"),
-                "output_root": str(tmp_path / "outputs"),
-                "runtime_root": str(tmp_path / "runtime"),
-            },
-        })
+        settings = Settings(
+            {
+                "storage": {
+                    "input_root": str(tmp_path / "inputs"),
+                    "output_root": str(tmp_path / "outputs"),
+                    "runtime_root": str(tmp_path / "runtime"),
+                },
+            }
+        )
         cap1 = CustomImmutableCapability()
         cap2 = UserCapabilityWithNoneYantra()
         plugin = PluginInfo(
@@ -112,14 +116,16 @@ class TestBootstrapDependencyInjection:
     def test_smriti_cache_auto_managed_by_agni(self, tmp_path: Path) -> None:
         from sarathi.smriti import SmritiCache
 
-        settings = Settings({
-            "storage": {
-                "input_root": str(tmp_path / "in"),
-                "output_root": str(tmp_path / "out"),
-                "runtime_root": str(tmp_path / "rt"),
-            },
-            "cache": {"enabled": True},
-        })
+        settings = Settings(
+            {
+                "storage": {
+                    "input_root": str(tmp_path / "in"),
+                    "output_root": str(tmp_path / "out"),
+                    "runtime_root": str(tmp_path / "rt"),
+                },
+                "cache": {"enabled": True},
+            }
+        )
         agni = Agni(settings=settings)
         try:
             assert agni.smriti is not None

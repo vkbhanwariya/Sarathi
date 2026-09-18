@@ -128,10 +128,14 @@ class TranslationCapability:
         self._yantra = yantra
         self._detector = LanguageDetector()
         self._protector = TranslationProtector()
-        self._engine = engine if engine is not None else CTranslate2TranslationEngine(
-            data_root=data_root,
-            backend=backend,
-            protector=self._protector,
+        self._engine = (
+            engine
+            if engine is not None
+            else CTranslate2TranslationEngine(
+                data_root=data_root,
+                backend=backend,
+                protector=self._protector,
+            )
         )
 
     @property
@@ -250,10 +254,7 @@ class TranslationCapability:
 
         # If any document text, pages, and tables are completely empty, request OCR continuation through Pravaha
         if any(
-            not d.text.strip()
-            and not d.tables
-            and not any(p.text.strip() or p.tables for p in d.pages)
-            for d in docs
+            not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs
         ):
             return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
 
@@ -288,7 +289,9 @@ class TranslationCapability:
         translated_docs: list[CanonicalDocument] = []
         payloads: list[ArtifactPayload] = []
         provs: list[ProvenanceRecord] = list(prior_result.provenance)
-        all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
+        all_warnings: list[WarningRecord] = (
+            list(prior_result.warnings) if prior_result and prior_result.warnings else []
+        )
 
         progress_cb = None
         if request.custom_options and callable(request.custom_options.get("progress_callback")):
@@ -524,8 +527,13 @@ class TranslationCapability:
                 raw_size = doc.metadata.get("font_size_pt") if doc.metadata else None
                 doc_size = normalize_size(raw_size)
                 docx_payload = None
-                if matching_inp and matching_inp.source_path and str(matching_inp.source_path).lower().endswith(".docx"):
+                if (
+                    matching_inp
+                    and matching_inp.source_path
+                    and str(matching_inp.source_path).lower().endswith(".docx")
+                ):
                     try:
+
                         def _batch_trans(batch: list[str]) -> list[str]:
                             missing = [
                                 t
@@ -588,6 +596,7 @@ class TranslationCapability:
 
         is_parallelizable = self.declaration.device_requirement.parallelizable
         if len(docs) > 1 and self._yantra is not None and is_parallelizable:
+
             def _make_task(
                 i: int, d: CanonicalDocument
             ) -> Callable[[], tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload]]]:

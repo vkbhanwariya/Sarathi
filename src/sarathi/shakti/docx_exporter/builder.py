@@ -51,10 +51,7 @@ def _format_run_xml(
         props.append("<w:shadow/>")
 
     escaped_text = escape(text)
-    return (
-        f'<w:r><w:rPr>{"".join(props)}</w:rPr>'
-        f'<w:t xml:space="preserve">{escaped_text}</w:t></w:r>'
-    )
+    return f'<w:r><w:rPr>{"".join(props)}</w:rPr><w:t xml:space="preserve">{escaped_text}</w:t></w:r>'
 
 
 def _format_paragraph_xml(
@@ -130,7 +127,7 @@ def _format_paragraph_xml(
             )
         ]
 
-    return f'<w:p>{p_pr}{"".join(runs)}</w:p>'
+    return f"<w:p>{p_pr}{''.join(runs)}</w:p>"
 
 
 _TABLE_ANCHOR_RE = re.compile(
@@ -229,26 +226,26 @@ def _format_table_xml(
     grid_cols = "".join(f'<w:gridCol w:w="{w}"/>' for w in col_widths)
 
     parts = [
-        '<w:tbl>',
-        '<w:tblPr>',
+        "<w:tbl>",
+        "<w:tblPr>",
         f'<w:tblW w:w="{total_width_dxa}" w:type="dxa"/>',
         '<w:jc w:val="center"/>',
-        '<w:tblBorders>',
+        "<w:tblBorders>",
         '<w:top w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
         '<w:left w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
         '<w:bottom w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
         '<w:right w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
         '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>',
         '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>',
-        '</w:tblBorders>',
-        '<w:tblCellMar>',
+        "</w:tblBorders>",
+        "<w:tblCellMar>",
         '<w:top w:w="120" w:type="dxa"/>',
         '<w:left w:w="160" w:type="dxa"/>',
         '<w:bottom w:w="120" w:type="dxa"/>',
         '<w:right w:w="160" w:type="dxa"/>',
-        '</w:tblCellMar>',
-        '</w:tblPr>',
-        f'<w:tblGrid>{grid_cols}</w:tblGrid>',
+        "</w:tblCellMar>",
+        "</w:tblPr>",
+        f"<w:tblGrid>{grid_cols}</w:tblGrid>",
     ]
 
     # Standard table typography: 11.0 pt standard, 10.0 pt for dense tables (>= 6 columns)
@@ -257,7 +254,7 @@ def _format_table_xml(
 
     # Header Row
     if table.headers:
-        parts.append('<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>')
+        parts.append("<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>")
         for c_idx in range(num_cols):
             h_text = str(table.headers[c_idx]) if c_idx < len(table.headers) else ""
             c_w = col_widths[c_idx]
@@ -270,17 +267,17 @@ def _format_table_xml(
                 legacy_target_font=legacy_target_font,
             )
             parts.append(
-                f'<w:tc><w:tcPr>'
+                f"<w:tc><w:tcPr>"
                 f'<w:tcW w:w="{c_w}" w:type="dxa"/>'
                 f'<w:shd w:val="clear" w:color="auto" w:fill="F2F4F7"/>'
                 f'<w:vAlign w:val="center"/>'
-                f'</w:tcPr>{p_xml}</w:tc>'
+                f"</w:tcPr>{p_xml}</w:tc>"
             )
-        parts.append('</w:tr>')
+        parts.append("</w:tr>")
 
     # Data Rows
     for row in table.rows:
-        parts.append('<w:tr><w:trPr><w:cantSplit/></w:trPr>')
+        parts.append("<w:tr><w:trPr><w:cantSplit/></w:trPr>")
         for c_idx in range(num_cols):
             cell_val = str(row[c_idx]) if c_idx < len(row) else ""
             c_w = col_widths[c_idx]
@@ -292,14 +289,11 @@ def _format_table_xml(
                 legacy_target_font=legacy_target_font,
             )
             parts.append(
-                f'<w:tc><w:tcPr>'
-                f'<w:tcW w:w="{c_w}" w:type="dxa"/>'
-                f'<w:vAlign w:val="top"/>'
-                f'</w:tcPr>{p_xml}</w:tc>'
+                f'<w:tc><w:tcPr><w:tcW w:w="{c_w}" w:type="dxa"/><w:vAlign w:val="top"/></w:tcPr>{p_xml}</w:tc>'
             )
-        parts.append('</w:tr>')
+        parts.append("</w:tr>")
 
-    parts.append('</w:tbl>')
+    parts.append("</w:tbl>")
     return "".join(parts)
 
 
@@ -324,9 +318,7 @@ def build_docx_payload(
 
     # Optional Title / Header
     eff_header = header_text or (
-        str(doc.metadata.get("header") or doc.metadata.get("title") or "")
-        if doc.metadata
-        else ""
+        str(doc.metadata.get("header") or doc.metadata.get("title") or "") if doc.metadata else ""
     )
     if eff_header.strip():
         body_parts.append(
@@ -592,11 +584,7 @@ def build_docx_payload(
         for tbl in doc.tables:
             norm_name = tbl.name.strip().lower() if tbl.name else ""
             if id(tbl) not in rendered_table_ids and (not norm_name or norm_name not in rendered_table_names):
-                if any(
-                    tbl.headers == pt.headers and tbl.rows == pt.rows
-                    for p in (doc.pages or ())
-                    for pt in p.tables
-                ):
+                if any(tbl.headers == pt.headers and tbl.rows == pt.rows for p in (doc.pages or ()) for pt in p.tables):
                     continue
                 rendered_table_ids.add(id(tbl))
                 if norm_name:
@@ -628,8 +616,7 @@ def build_docx_payload(
     col_count = 1
     if doc.pages:
         multi_pages = sum(
-            1 for p in doc.pages
-            if isinstance(p.metadata.get("column_count"), int) and p.metadata["column_count"] >= 2
+            1 for p in doc.pages if isinstance(p.metadata.get("column_count"), int) and p.metadata["column_count"] >= 2
         )
         if len(doc.pages) == 1:
             col_count = doc.pages[0].metadata.get("column_count", 1)
@@ -646,19 +633,19 @@ def build_docx_payload(
 
     # Section properties
     body_parts.append(
-        '<w:sectPr>'
+        "<w:sectPr>"
         '<w:pgSz w:w="12240" w:h="15840"/>'
         '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
-        f'{cols_xml}'
-        '</w:sectPr>'
+        f"{cols_xml}"
+        "</w:sectPr>"
     )
 
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
-        f'<w:body>{"".join(body_parts)}</w:body>\n'
-        '</w:document>'
+        f"<w:body>{''.join(body_parts)}</w:body>\n"
+        "</w:document>"
     )
 
     content_types_xml = (
@@ -668,33 +655,33 @@ def build_docx_payload(
         '  <Default Extension="xml" ContentType="application/xml"/>\n'
         '  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>\n'
         '  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>\n'
-        '</Types>'
+        "</Types>"
     )
 
     rels_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
         '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>\n'
-        '</Relationships>'
+        "</Relationships>"
     )
 
     doc_rels_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
         '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n'
-        '</Relationships>'
+        "</Relationships>"
     )
 
     styles_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:docDefaults>\n'
-        '    <w:rPrDefault>\n'
+        "  <w:docDefaults>\n"
+        "    <w:rPrDefault>\n"
         f'      <w:rPr><w:rFonts w:ascii="{_ENGLISH_FONT}" w:hAnsi="{_ENGLISH_FONT}" w:cs="{_HINDI_FONT}"/>'
         f'<w:sz w:val="{_DEFAULT_HALF_PT}"/><w:szCs w:val="{_DEFAULT_HALF_PT}"/></w:rPr>\n'
-        '    </w:rPrDefault>\n'
-        '  </w:docDefaults>\n'
-        '</w:styles>'
+        "    </w:rPrDefault>\n"
+        "  </w:docDefaults>\n"
+        "</w:styles>"
     )
 
     buf = io.BytesIO()

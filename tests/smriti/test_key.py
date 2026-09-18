@@ -316,8 +316,12 @@ def test_smriti_digest_differentiates_span_and_table_metadata() -> None:
     span1 = TextSpan(text="hello", confidence=0.9, metadata={"author": "alice"})
     span2 = TextSpan(text="hello", confidence=0.9, metadata={"author": "bob"})
 
-    doc1 = CanonicalDocument(document_id="doc-1", text="hello", pages=(PageData(page_number=1, text="hello", spans=(span1,)),))
-    doc2 = CanonicalDocument(document_id="doc-1", text="hello", pages=(PageData(page_number=1, text="hello", spans=(span2,)),))
+    doc1 = CanonicalDocument(
+        document_id="doc-1", text="hello", pages=(PageData(page_number=1, text="hello", spans=(span1,)),)
+    )
+    doc2 = CanonicalDocument(
+        document_id="doc-1", text="hello", pages=(PageData(page_number=1, text="hello", spans=(span2,)),)
+    )
 
     digest1 = compute_prior_result_digest(Result(data=doc1))
     digest2 = compute_prior_result_digest(Result(data=doc2))
@@ -336,6 +340,7 @@ def test_smriti_digest_differentiates_span_and_table_metadata() -> None:
 
 def test_smriti_digest_handles_mapping_proxy_without_type_name_fallback() -> None:
     """Verify dataclasses with MappingProxyType and nested types do not collapse to type-name fallback."""
+
     @dataclass(frozen=True)
     class SampleReport:
         name: str
@@ -377,6 +382,7 @@ def test_cache_key_includes_bounding_box() -> None:
 
 def test_cache_key_prior_result_digest_dataclass() -> None:
     """Non-CanonicalDocument dataclass prior results must hash structured attributes, not type name."""
+
     @dataclass
     class CustomFinancialSummary:
         total_amount: Decimal
@@ -392,8 +398,12 @@ def test_cache_key_prior_result_digest_dataclass() -> None:
 
 
 def test_single_and_multidoc_digest_determinism() -> None:
-    doc1 = CanonicalDocument(document_id="doc-1", source_input_id="inp-1", detected_type="application/pdf", text="Hello world")
-    doc2 = CanonicalDocument(document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Second document")
+    doc1 = CanonicalDocument(
+        document_id="doc-1", source_input_id="inp-1", detected_type="application/pdf", text="Hello world"
+    )
+    doc2 = CanonicalDocument(
+        document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Second document"
+    )
 
     res_single = Result(data=doc1)
     res_tuple = Result(data=(doc1, doc2))
@@ -416,9 +426,15 @@ def test_single_and_multidoc_digest_determinism() -> None:
 
 
 def test_multidoc_digest_content_sensitivity() -> None:
-    doc1 = CanonicalDocument(document_id="doc-1", source_input_id="inp-1", detected_type="application/pdf", text="Hello world")
-    doc2_a = CanonicalDocument(document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Alpha text")
-    doc2_b = CanonicalDocument(document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Beta text")
+    doc1 = CanonicalDocument(
+        document_id="doc-1", source_input_id="inp-1", detected_type="application/pdf", text="Hello world"
+    )
+    doc2_a = CanonicalDocument(
+        document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Alpha text"
+    )
+    doc2_b = CanonicalDocument(
+        document_id="doc-2", source_input_id="inp-2", detected_type="application/pdf", text="Beta text"
+    )
 
     res_a = Result(data=(doc1, doc2_a))
     res_b = Result(data=(doc1, doc2_b))

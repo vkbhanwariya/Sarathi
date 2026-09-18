@@ -191,6 +191,7 @@ def test_batch_font_conversion_item_scoped_fault_tolerance_on_dosh_error(monkeyp
 
     call_count = 0
     orig_conv = cap._converter.convert
+
     def mock_convert(text: str, profile_id: str | None = None):
         nonlocal call_count
         call_count += 1

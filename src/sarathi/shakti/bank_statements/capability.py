@@ -91,11 +91,15 @@ class BankStatementCapability:
             )
 
         # If any document has no text and no tables, handoff to OCR
-        if any(not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs):
+        if any(
+            not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs
+        ):
             return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
 
         statements: list[BankStatement] = []
-        all_warnings: list[WarningRecord] = list(prior_result.warnings) if prior_result and prior_result.warnings else []
+        all_warnings: list[WarningRecord] = (
+            list(prior_result.warnings) if prior_result and prior_result.warnings else []
+        )
         all_provs: list[ProvenanceRecord] = list(prior_result.provenance)
 
         progress_cb = None
@@ -331,9 +335,9 @@ class BankStatementCapability:
                     case RowType.TRANSACTION:
                         raw_date_val = _get_raw_cell(row, d_col)
                         tx_date = parse_date(raw_date_val)
-                        is_blank_date = (
-                            raw_date_val is None
-                            or (isinstance(raw_date_val, str) and (not raw_date_val.strip() or raw_date_val.strip().lower() in _BLANK_DATE_MARKERS))
+                        is_blank_date = raw_date_val is None or (
+                            isinstance(raw_date_val, str)
+                            and (not raw_date_val.strip() or raw_date_val.strip().lower() in _BLANK_DATE_MARKERS)
                         )
                         # Inherit date from previous transaction ONLY if date cell is blank/continuation and within the same table
                         if tx_date is None and is_blank_date and table_txns:
