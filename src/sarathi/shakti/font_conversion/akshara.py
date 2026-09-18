@@ -17,6 +17,7 @@ except ImportError:
     import re  # type: ignore[no-redef]
     _HAS_REGEX = False
 
+import functools
 import unicodedata
 
 # Unicode Devanagari Character Ranges and Sets
@@ -35,6 +36,22 @@ DEVA_MATRAS = "[\u093a\u093b\u093e-\u094c\u094e\u094f\u0955-\u0957\u0962\u0963]"
 
 # Modifiers: Anusvara (0902), Visarga (0903), Chandrabindu (0901)
 DEVA_MODIFIERS = "[\u0901-\u0903]"
+
+# Precompiled canonical Akshara synthesis regexes
+_RE_VIRAMA_DEP_MATRA = re.compile(r"\u094d([\u0941-\u0944\u0947-\u094c])")
+_RE_MODIFIERS_MATRAS = re.compile(rf"({DEVA_MODIFIERS})({DEVA_MATRAS})")
+_RE_DOUBLE_VIRAMA = re.compile(rf"{DEVA_VIRAMA}+")
+_RE_DOUBLE_VISARGA = re.compile(r"\u0903{2,}")
+_RE_DOUBLE_DANDA = re.compile(r"\u0964{2,}")
+_RE_STRAY_ZWNJ_BEFORE_MATRA = re.compile(rf"{DEVA_VIRAMA}[\u200c\u200d]+({DEVA_MATRAS})")
+_RE_NUKTA_REORDER = re.compile(rf"({DEVA_CONSONANTS})({DEVA_MATRAS}|{DEVA_VIRAMA})({DEVA_NUKTA})")
+_RE_DOUBLE_NUKTA = re.compile(rf"{DEVA_NUKTA}+")
+_RE_DOUBLE_E_AI = re.compile(r"[\u0947\u0948]{2,}")
+_RE_REMD_HUNG = re.compile(r"[\u0945\u0942]{2,}")
+_RE_REMD_HUNG_PAIR = re.compile(r"\u0945\u0942|\u0942\u0945")
+_RE_ORPHAN_CHHOTI_I = re.compile(rf"({DEVA_MATRAS})\u093f")
+_RE_SPACED_MATRA = re.compile(rf"({DEVA_CONSONANTS}{DEVA_NUKTA}?)\s+({DEVA_MATRAS}|{DEVA_VIRAMA})")
+_RE_SPACED_VIRAMA = re.compile(rf"({DEVA_CONSONANTS}{DEVA_NUKTA}?{DEVA_VIRAMA})\s+({DEVA_CONSONANTS})")
 
 
 def reorder_pre_base_matra_legacy(
@@ -61,6 +78,18 @@ def reorder_pre_base_matra_legacy(
     return pattern.sub(r"\1" + prefix_char, text)
 
 
+@functools.lru_cache(maxsize=8)
+def _get_reph_patterns(reph_marker: str, reph_unicode: str) -> tuple[re.Pattern[str], re.Pattern[str], str]:
+    marker_escaped = re.escape(reph_marker)
+    akshara_core = (
+        rf"(?:(?:{DEVA_CONSONANTS}{DEVA_NUKTA}?{DEVA_VIRAMA})*{DEVA_CONSONANTS}{DEVA_NUKTA}?|{DEVA_INDEPENDENT_VOWELS})"
+    )
+    p1 = re.compile(rf"({akshara_core})({DEVA_MATRAS}*)({DEVA_MODIFIERS}+){marker_escaped}")
+    p2 = re.compile(rf"({akshara_core})({DEVA_MATRAS}*){marker_escaped}({DEVA_MODIFIERS}*)")
+    repl = rf"{reph_unicode}\1\2\3"
+    return p1, p2, repl
+
+
 def reorder_reph_unicode(text: str, reph_marker: str, reph_unicode: str = DEVA_REPH) -> str:
     """Reorder a postfix reph marker to the logical start of its Devanagari Akshara.
 
@@ -72,22 +101,11 @@ def reorder_reph_unicode(text: str, reph_marker: str, reph_unicode: str = DEVA_R
     if not reph_marker or reph_marker not in text:
         return text
 
-    marker_escaped = re.escape(reph_marker)
+    p1, p2, repl = _get_reph_patterns(reph_marker, reph_unicode)
+    text = p1.sub(repl, text)
+    text = p2.sub(repl, text)
 
-    # Akshara pattern: consonant cluster OR independent vowel
-    akshara_core = (
-        rf"(?:(?:{DEVA_CONSONANTS}{DEVA_NUKTA}?{DEVA_VIRAMA})*{DEVA_CONSONANTS}{DEVA_NUKTA}?|{DEVA_INDEPENDENT_VOWELS})"
-    )
-
-    # 1. Match core + matras + modifiers + reph_marker
-    p1 = re.compile(rf"({akshara_core})({DEVA_MATRAS}*)({DEVA_MODIFIERS}+){marker_escaped}")
-    text = p1.sub(rf"{reph_unicode}\1\2\3", text)
-
-    # 2. Match core + matras + reph_marker + modifiers
-    p2 = re.compile(rf"({akshara_core})({DEVA_MATRAS}*){marker_escaped}({DEVA_MODIFIERS}*)")
-    text = p2.sub(rf"{reph_unicode}\1\2\3", text)
-
-    # 3. Any remaining stray reph marker replaced with reph_unicode
+    # Any remaining stray reph marker replaced with reph_unicode
     if reph_marker in text:
         text = text.replace(reph_marker, reph_unicode)
 
@@ -108,15 +126,11 @@ def synthesize_akshara_unicode(text: str) -> str:
     text = text.replace("\u093f\u094d", "\u094d\u093f")
     # Resolve invalid virama immediately followed by a dependent vowel matra:
     # On typewriters, typists often typed the half-consonant key followed by a matra (e.g. ख् + े -> खे, ख् + ु -> खु).
-    text = re.sub(r"\u094d([\u0941-\u0944\u0947-\u094c])", r"\1", text)
+    text = _RE_VIRAMA_DEP_MATRA.sub(r"\1", text)
     # Fix misplaced modifiers: e.g. Anusvara before Matra (ंी -> ीं, ंा -> ां, ें -> ें)
-    text = re.sub(
-        rf"({DEVA_MODIFIERS})({DEVA_MATRAS})",
-        r"\2\1",
-        text,
-    )
+    text = _RE_MODIFIERS_MATRAS.sub(r"\2\1", text)
     # Fix doubled virama
-    text = re.sub(rf"{DEVA_VIRAMA}+", DEVA_VIRAMA, text)
+    text = _RE_DOUBLE_VIRAMA.sub(DEVA_VIRAMA, text)
 
     # Compose Devanagari 2-part vowel matras (both forward and reverse typing orders):
     # aa matra (\u093e) + e matra (\u0947) -> o matra (\u094b)
@@ -145,23 +159,30 @@ def synthesize_akshara_unicode(text: str) -> str:
     text = text.replace("\u090f\u0947", "\u0910")
 
     # Reorder misplaced Nukta typed after dependent matra or virama to immediately follow consonant
-    text = re.sub(rf"({DEVA_CONSONANTS})({DEVA_MATRAS}|{DEVA_VIRAMA})({DEVA_NUKTA})", r"\1\3\2", text)
-    text = re.sub(rf"{DEVA_NUKTA}+", DEVA_NUKTA, text)
+    text = _RE_NUKTA_REORDER.sub(r"\1\3\2", text)
+    text = _RE_DOUBLE_NUKTA.sub(DEVA_NUKTA, text)
 
     # Resolve conflicting consecutive e/ai matras (e.g. \u0947\u0948 -> \u0948)
-    text = re.sub(r"[\u0947\u0948]{2,}", "\u0948", text)
+    text = _RE_DOUBLE_E_AI.sub("\u0948", text)
 
     # Normalize Remington typewriter artifacts for 'हूँ' (candra-e \u0945 + badi-oo \u0942 combinations)
-    text = re.sub(r"[\u0945\u0942]{2,}", "\u0942\u0901", text)
-    text = re.sub(r"\u0945\u0942|\u0942\u0945", "\u0942\u0901", text)
+    text = _RE_REMD_HUNG.sub("\u0942\u0901", text)
+    text = _RE_REMD_HUNG_PAIR.sub("\u0942\u0901", text)
 
     # Clean up orphan chhoti-i matra preceded by another dependent vowel matra
-    text = re.sub(rf"({DEVA_MATRAS})\u093f", r"\1", text)
+    text = _RE_ORPHAN_CHHOTI_I.sub(r"\1", text)
 
-    # Repair inadvertent typist spacing between consonant/cluster and dependent vowel matra or virama (e.g. 'क  ा' -> 'का', 'क  ्' -> 'क्')
-    text = re.sub(rf"({DEVA_CONSONANTS}{DEVA_NUKTA}?)\s+({DEVA_MATRAS}|{DEVA_VIRAMA})", r"\1\2", text)
-    # Repair spacing after virama before next consonant in split conjuncts (e.g. 'क् पनी' -> 'क्पनी')
-    text = re.sub(rf"({DEVA_CONSONANTS}{DEVA_NUKTA}?{DEVA_VIRAMA})\s+({DEVA_CONSONANTS})", r"\1\2", text)
+    # Normalize typewriter keyboard slips: doubled Visarga and doubled Danda
+    text = _RE_DOUBLE_VISARGA.sub("\u0903", text)
+    text = _RE_DOUBLE_DANDA.sub("\u0965", text)
+
+    # Normalize stray ZWNJ before dependent vowel matras
+    text = _RE_STRAY_ZWNJ_BEFORE_MATRA.sub(r"\1", text)
+
+    # Repair inadvertent typist spacing between consonant/cluster and dependent vowel matra or virama
+    text = _RE_SPACED_MATRA.sub(r"\1\2", text)
+    # Repair spacing after virama before next consonant in split conjuncts
+    text = _RE_SPACED_VIRAMA.sub(r"\1\2", text)
 
     # Standard NFC normalization
     return unicodedata.normalize("NFC", text)

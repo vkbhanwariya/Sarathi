@@ -305,3 +305,22 @@ def test_rapidfuzz_noisy_font_name_resolution() -> None:
     pid_mod, fam_mod = resolve_profile_from_font_name("Calibri (TrueType)")
     assert pid_mod is None
     assert fam_mod == "modern"
+
+
+def test_keyboard_slip_and_halant_nukta_corrections() -> None:
+    """Verify halant+nukta reordering, typist double-tap deduplication, and stray ZWNJ removal."""
+    # Halant + Nukta inversion: क + ् + ़ -> क + ़ + ् (क़्)
+    assert synthesize_akshara_unicode("क\u094d\u093c") in ("क़्", "क\u093c\u094d")
+
+    # Doubled Nukta deduplication: ़़ -> ़
+    assert synthesize_akshara_unicode("क\u093c\u093c") in ("क़", "क\u093c")
+
+    # Doubled Visarga deduplication: ःः -> ः
+    assert synthesize_akshara_unicode("पुनःः") == "पुनः"
+
+    # Doubled Purna Viram normalization: ।। -> ॥
+    assert synthesize_akshara_unicode("।।") == "॥"
+    assert synthesize_akshara_unicode("श्री।।") == "श्री॥"
+
+    # Stray ZWNJ before dependent vowel matra
+    assert synthesize_akshara_unicode("क\u094d\u200cा") == "का"

@@ -520,23 +520,44 @@ def _merge_adjacent_compatible_runs(container: ET.Element) -> None:
         i += 1
 
 
+_DEFAULT_PROFILE_RESOLVER: Callable[..., tuple[str | None, str | None]] | None = None
+
+
+def register_default_profile_resolver(resolver: Callable[..., tuple[str | None, str | None]]) -> None:
+    """Register a provider for default profile resolution via Dependency Injection."""
+    global _DEFAULT_PROFILE_RESOLVER
+    _DEFAULT_PROFILE_RESOLVER = resolver
+
+
 def _classify_run_font(
     font_name: str | None,
     profiles: Mapping[str, Any] | None = None,
     profile_resolver: Callable[..., tuple[str | None, str | None]] | None = None,
 ) -> tuple[str | None, str | None]:
     """Classify run font as modern, legacy profile, or unknown."""
-    if profile_resolver is not None:
-        return profile_resolver(font_name, profiles)
+    resolver = profile_resolver or _DEFAULT_PROFILE_RESOLVER
+    if resolver is not None:
+        return resolver(font_name, profiles)
+
     if not font_name or not font_name.strip():
         return None, None
+
     cleaned = "".join(c for c in font_name.lower() if c.isalnum())
     if not cleaned:
         return None, None
-    if cleaned in _KNOWN_MODERN_FONTS:
+
+    cleaned_base = re.sub(r"(normal|regular|bold|italic|oblique|medium|truetype|opentype|type1|tt)$", "", cleaned)
+    if cleaned in _KNOWN_MODERN_FONTS or (cleaned_base and cleaned_base in _KNOWN_MODERN_FONTS):
         return None, "modern"
+
+    try:
+        from sarathi.shakti.font_conversion.detector import resolve_profile_from_font_name
+
+        return resolve_profile_from_font_name(font_name, profiles)  # type: ignore[arg-type]
+    except Exception:
+        pass
+
     if profiles:
-        cleaned_base = re.sub(r"(normal|regular|bold|italic|oblique|medium)$", "", cleaned)
         for prof in profiles.values():
             aliases = getattr(prof, "aliases", ())
             name = getattr(prof, "name", "")
@@ -545,7 +566,7 @@ def _classify_run_font(
             cand_keys = [pid, name] + list(aliases)
             for cand in cand_keys:
                 cand_cleaned = "".join(c for c in cand.lower() if c.isalnum())
-                if cleaned == cand_cleaned or cleaned_base == cand_cleaned:
+                if cleaned == cand_cleaned or (cleaned_base and cleaned_base == cand_cleaned):
                     return pid, fam
     return None, "unknown"
 

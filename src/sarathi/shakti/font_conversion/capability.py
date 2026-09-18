@@ -625,6 +625,7 @@ class FontConversionCapability:
                             preserve_typography=True,
                             legacy_target_font=legacy_target_font,
                             profiles=self._profiles,
+                            profile_resolver=resolve_profile_from_font_name,
                         )
                     else:
                         docx_payload = build_docx_payload(

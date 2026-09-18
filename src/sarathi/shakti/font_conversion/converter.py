@@ -119,11 +119,13 @@ class FontConverter:
         # 1. Apply verified pre-conversion Anubhava corrections: generic first, profile-specific second
         generic_corrections = self._anubhava_corrections.pre_corrections.get("generic", {})
         for src, tgt in generic_corrections.items():
-            text = text.replace(src, tgt)
+            if src in text:
+                text = text.replace(src, tgt)
 
         profile_corrections = self._anubhava_corrections.pre_corrections.get(profile_id, {})
         for src, tgt in profile_corrections.items():
-            text = text.replace(src, tgt)
+            if src in text:
+                text = text.replace(src, tgt)
 
         # 2. Profile-specific pre-base matra reordering (e.g. 'f' in KrutiDev/DevLys)
         # ONLY execute if the active profile defines this prefix!
@@ -149,7 +151,8 @@ class FontConverter:
 
         # 3. Apply Multi-char and Single-char mappings using precompiled forward transducer
         if profile.compiled_forward_regex is not None:
-            text = profile.compiled_forward_regex.sub(lambda m: profile.mappings.get(m.group(0), m.group(0)), text)
+            mapping = profile.mappings
+            text = profile.compiled_forward_regex.sub(lambda m: mapping[m.group(0)], text)
 
         # 4. Handle Postfix Reph at logical Akshara level
         reph_char = profile.postfix_reph
@@ -159,20 +162,24 @@ class FontConverter:
 
         # 5. Post-corrections declared in profile
         for src, tgt in profile.post_corrections:
-            text = text.replace(src, tgt)
+            if src in text:
+                text = text.replace(src, tgt)
 
         # 5b. Family corrections (e.g. typewriter artifact corrections declared in profile)
         for src, tgt in profile.family_corrections:
-            text = text.replace(src, tgt)
+            if src in text:
+                text = text.replace(src, tgt)
 
         # 5c. Post-conversion Anubhava approved corrections (generic and profile-specific)
         generic_post = self._anubhava_corrections.post_corrections.get("generic", {})
         for src, tgt in generic_post.items():
-            text = text.replace(src, tgt)
+            if src in text:
+                text = text.replace(src, tgt)
 
         profile_post = self._anubhava_corrections.post_corrections.get(profile_id, {})
         for src, tgt in profile_post.items():
-            text = text.replace(src, tgt)
+            if src in text:
+                text = text.replace(src, tgt)
 
         for pat, repl in self._anubhava_corrections.regex_corrections:
             text = pat.sub(repl, text)
@@ -201,6 +208,6 @@ class FontConverter:
         # 3. Apply precompiled reverse mapping (Unicode -> Legacy)
         if profile.compiled_reverse_regex is not None:
             rev_map = profile.compiled_reverse_map
-            norm_text = profile.compiled_reverse_regex.sub(lambda m: rev_map.get(m.group(0), m.group(0)), norm_text)
+            norm_text = profile.compiled_reverse_regex.sub(lambda m: rev_map[m.group(0)], norm_text)
 
         return norm_text
