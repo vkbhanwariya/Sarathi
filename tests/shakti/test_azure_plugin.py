@@ -301,3 +301,22 @@ class TestAzureTranslationCapability:
         art_names = {p.intent.name for p in result.artifact_payloads}
         assert any(n.endswith("_azure_translated.txt") for n in art_names)
         assert any(n.endswith("_azure_translated.docx") for n in art_names)
+
+    def test_translate_batch_multi_item(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AZURE_API_KEY", "dummy_key")
+        monkeypatch.setenv("AZURE_ENDPOINT", "https://dummy.cognitiveservices.azure.com")
+        client = AzureClient()
+
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = [
+            {"translations": [{"text": "Hello"}]},
+            {"translations": [{"text": "World"}]},
+        ]
+
+        mock_client_inst = MagicMock()
+        mock_client_inst.post.return_value = mock_resp
+
+        with patch("httpx.Client") as mock_httpx:
+            mock_httpx.return_value.__enter__.return_value = mock_client_inst
+            res = client.translate_batch(["नमस्ते", "दुनिया"], "Hindi", "English")
+            assert res == ["Hello", "World"]

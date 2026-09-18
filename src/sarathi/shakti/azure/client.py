@@ -213,3 +213,89 @@ class AzureClient:
                 code=FailureCode.RESOURCE_UNAVAILABLE,
                 message=f"Azure Translator request failed: {sanitized}",
             ) from exc
+
+    def translate_batch(
+        self,
+        texts: list[str],
+        source_lang: str,
+        target_lang: str,
+        batch_size: int = 32,
+    ) -> list[str]:
+        """Translate multiple texts in batches using Azure AI Translator REST API v3.0."""
+        if not texts:
+            return []
+        if len(texts) == 1:
+            return [self.translate_text(texts[0], source_lang, target_lang)]
+
+        key, endpoint, region = self._get_translator_credentials()
+        s_code = "hi" if "hindi" in source_lang.lower() else ("en" if "english" in source_lang.lower() else source_lang)
+        t_code = "en" if "english" in target_lang.lower() else ("hi" if "hindi" in target_lang.lower() else target_lang)
+
+        url = f"{endpoint}/translate?api-version=3.0&to={t_code}&from={s_code}"
+        headers = {
+            "Ocp-Apim-Subscription-Key": key,
+            "Content-Type": "application/json",
+            "User-Agent": "Sarathi/2.0",
+        }
+        if region:
+            headers["Ocp-Apim-Subscription-Region"] = region
+
+        results: list[str] = [""] * len(texts)
+        for batch_start in range(0, len(texts), batch_size):
+            batch_indices = list(range(batch_start, min(batch_start + batch_size, len(texts))))
+            batch_items = [(idx, texts[idx]) for idx in batch_indices]
+
+            non_empty = [(idx, text) for idx, text in batch_items if text and text.strip()]
+            if not non_empty:
+                for idx, text in batch_items:
+                    results[idx] = text
+                continue
+
+            body_payload = [{"Text": text} for _, text in non_empty]
+            body_bytes = json.dumps(body_payload).encode("utf-8")
+
+            try:
+                import httpx
+
+                with httpx.Client(timeout=self._timeout_seconds) as client:
+                    resp = client.post(url, headers=headers, content=body_bytes)
+                    if resp.status_code in (401, 403):
+                        raise DoshError(
+                            code=FailureCode.SECURITY_DENIED,
+                            message="Azure Translator authentication failed. Verify AZURE_TRANSLATOR_KEY.",
+                        )
+                    if resp.status_code == 429:
+                        raise DoshError(
+                            code=FailureCode.RESOURCE_UNAVAILABLE,
+                            message="Azure Translator rate limit exceeded.",
+                        )
+                    if resp.status_code >= 400:
+                        raise DoshError(
+                            code=FailureCode.EXECUTION_FAILED,
+                            message=f"Azure Translator returned error status {resp.status_code}.",
+                        )
+
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) == len(non_empty):
+                        for i, (orig_idx, _) in enumerate(non_empty):
+                            translations = data[i].get("translations", [])
+                            if translations:
+                                results[orig_idx] = translations[0].get("text", "").strip()
+                    else:
+                        for orig_idx, text in non_empty:
+                            results[orig_idx] = self.translate_text(text, source_lang, target_lang)
+
+                for idx, text in batch_items:
+                    if not text or not text.strip():
+                        results[idx] = text
+
+            except DoshError:
+                raise
+            except Exception:
+                for orig_idx, text in non_empty:
+                    results[orig_idx] = self.translate_text(text, source_lang, target_lang)
+                for idx, text in batch_items:
+                    if not text or not text.strip():
+                        results[idx] = text
+
+        return results

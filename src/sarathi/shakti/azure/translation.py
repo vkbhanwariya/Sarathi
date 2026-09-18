@@ -46,4 +46,13 @@ class AzureTranslationCapability:
             capability_id="azure_translation",
             default_model=self.default_model,
             declaration=self.declaration,
+            batch_translate_fn=(
+                (lambda texts, source_lang, target_lang, model, **kwargs: self._client.translate_batch(
+                    texts=texts,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                ))
+                if hasattr(self._client, "translate_batch")
+                else None
+            ),
         )

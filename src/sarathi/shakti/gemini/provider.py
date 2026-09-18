@@ -27,13 +27,20 @@ def _build_client(services: PluginServices | None) -> GeminiClient:
     api_key = None
     base_url = "https://generativelanguage.googleapis.com/v1beta"
     timeout_sec = 60.0
+    rate_limit_delay_sec = 1.0
     if services is not None and getattr(services, "settings", None) is not None:
         sec = services.settings.get_section("gemini")
         if sec:
             api_key = sec.get("api_key")
             base_url = sec.get("base_url", base_url)
             timeout_sec = float(sec.get("timeout_seconds", timeout_sec))
-    return GeminiClient(api_key=api_key, base_url=base_url, timeout_seconds=timeout_sec)
+            rate_limit_delay_sec = float(sec.get("rate_limit_delay_seconds", rate_limit_delay_sec))
+    return GeminiClient(
+        api_key=api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_sec,
+        rate_limit_delay_seconds=rate_limit_delay_sec,
+    )
 
 
 class GeminiProvider(PluginProvider):
@@ -49,8 +56,8 @@ class GeminiProvider(PluginProvider):
 
     def create_capabilities(self, services: PluginServices) -> Mapping[str, Capability]:
         client = _build_client(services)
-        model_ocr = "gemini-2.5-flash"
-        model_trans = "gemini-2.5-flash"
+        model_ocr = "gemini-3.6-flash"
+        model_trans = "gemini-3.6-flash"
         if services is not None and getattr(services, "settings", None) is not None:
             sec = services.settings.get_section("gemini")
             if sec:

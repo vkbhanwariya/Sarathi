@@ -32,7 +32,8 @@ def _compile_term_pattern(term: str) -> re.Pattern[str]:
     esc = re.escape(term)
     prefix = r"(?<!\w)" if term and term[0].isalnum() else ""
     suffix = r"(?!\w)" if term and term[-1].isalnum() else ""
-    return re.compile(f"{prefix}{esc}{suffix}")
+    flags = re.IGNORECASE if any(ord(c) < 128 and c.isalpha() for c in term) else 0
+    return re.compile(f"{prefix}{esc}{suffix}", flags)
 
 
 class TranslationProtector(BaseSpanProtector):

@@ -117,8 +117,9 @@ The following sections configure external cloud adapters. These settings are con
 | `api_key` | `str \| None` | `None` | Mistral API key (overrides `MISTRAL_API_KEY` env var). |
 | `base_url` | `str` | `"https://api.mistral.ai/v1"` | Base endpoint URL for Mistral API. |
 | `model_ocr` | `str` | `"mistral-ocr-latest"` | Model identifier for Mistral OCR. |
-| `model_translation` | `str` | `"mistral-large-latest"` | Model identifier for Mistral translation. |
+| `model_translation` | `str` | `"mistral-medium-latest"` | Model identifier for Mistral translation. |
 | `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |
+| `rate_limit_delay_seconds` | `float` | `0.5` | Minimum seconds between consecutive requests for RPM/RPS pacing. |
 
 ### `[gemini]`
 
@@ -126,9 +127,10 @@ The following sections configure external cloud adapters. These settings are con
 | --- | --- | --- | --- |
 | `api_key` | `str \| None` | `None` | Gemini API key (overrides `GEMINI_API_KEY` env var). |
 | `base_url` | `str` | `"https://generativelanguage.googleapis.com/v1beta"` | Base endpoint URL for Gemini API. |
-| `model_ocr` | `str` | `"gemini-2.5-flash"` | Model identifier for Gemini OCR. |
-| `model_translation` | `str` | `"gemini-2.5-flash"` | Model identifier for Gemini translation. |
+| `model_ocr` | `str` | `"gemini-3.6-flash"` | Model identifier for Gemini OCR. |
+| `model_translation` | `str` | `"gemini-3.6-flash"` | Model identifier for Gemini translation. |
 | `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |
+| `rate_limit_delay_seconds` | `float` | `1.0` | Minimum seconds between consecutive requests for free-tier RPM pacing. |
 
 ### `[azure]`
 

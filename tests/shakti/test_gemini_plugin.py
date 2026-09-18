@@ -260,3 +260,64 @@ class TestGeminiTranslationCapability:
         art_names = {p.intent.name for p in result.artifact_payloads}
         assert any(n.endswith("_gemini_translated.txt") for n in art_names)
         assert any(n.endswith("_gemini_translated.docx") for n in art_names)
+
+
+class TestGeminiBatchAndRateLimiting:
+    """Verify Gemini batch translation segmenting, rate pacing, and 429 backoff retry."""
+
+    def test_batch_translate_multi_segment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GEMINI_API_KEY", "dummy_key")
+        client = GeminiClient(rate_limit_delay_seconds=0.0)
+
+        mock_response = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": (
+                                    '<segment id="0">The first sentence.</segment>\n'
+                                    '<segment id="1">The second sentence.</segment>'
+                                )
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        with patch.object(client, "_post", return_value=mock_response) as mock_post:
+            res = client.batch_translate(
+                texts=["पहला वाक्य।", "दूसरा वाक्य।"],
+                source_lang="Hindi",
+                target_lang="English",
+            )
+            assert res == ["The first sentence.", "The second sentence."]
+            mock_post.assert_called_once()
+
+    def test_batch_translate_handles_blanks(self) -> None:
+        client = GeminiClient(rate_limit_delay_seconds=0.0)
+        res = client.batch_translate([], "Hindi", "English")
+        assert res == []
+
+        res2 = client.batch_translate(["", "   "], "Hindi", "English")
+        assert res2 == ["", "   "]
+
+    def test_retry_on_429_exponential_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GEMINI_API_KEY", "dummy_key")
+        client = GeminiClient(rate_limit_delay_seconds=0.0)
+
+        mock_resp_429 = MagicMock(status_code=429, text='{"error": {"message": "Resource exhausted"}}')
+        mock_resp_200 = MagicMock(
+            status_code=200,
+            text='{"candidates": [{"content": {"parts": [{"text": "Success"}]}}]}',
+            json=lambda: {"candidates": [{"content": {"parts": [{"text": "Success"}]}}]},
+        )
+
+        mock_client_inst = MagicMock()
+        mock_client_inst.post.side_effect = [mock_resp_429, mock_resp_200]
+
+        with patch("httpx.Client") as mock_httpx, patch("time.sleep") as mock_sleep:
+            mock_httpx.return_value.__enter__.return_value = mock_client_inst
+            res = client.chat_translate("Hello", "English", "Hindi")
+            assert res == "Success"
+            assert mock_sleep.called

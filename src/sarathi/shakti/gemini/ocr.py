@@ -41,7 +41,7 @@ class GeminiOCRCapability:
         client: GeminiClient | None = None,
         declaration: CapabilityDeclaration = GEMINI_OCR_DECLARATION,
         darpana: Any | None = None,
-        default_model: str = "gemini-2.5-flash",
+        default_model: str = "gemini-3.6-flash",
     ) -> None:
         self.declaration = declaration
         self._client = client or GeminiClient()

@@ -32,13 +32,15 @@ cpu_capacity = 6
 
 [mistral]
 model_ocr = "mistral-ocr-latest"
-model_translation = "mistral-large-latest"
+model_translation = "mistral-medium-latest"
 timeout_seconds = 60
+rate_limit_delay_seconds = 0.5
 
 [gemini]
-model_ocr = "gemini-2.5-flash"
-model_translation = "gemini-2.5-flash"
+model_ocr = "gemini-3.6-flash"
+model_translation = "gemini-3.6-flash"
 timeout_seconds = 60
+rate_limit_delay_seconds = 1.0
 
 [azure]
 api_version = "2024-11-30"

@@ -14,13 +14,13 @@ from sarathi.shakti.translation.cloud_orchestration import execute_cloud_transla
 
 
 class MistralTranslationCapability:
-    """Capability implementing Mistral Cloud Translation (mistral-large-latest)."""
+    """Capability implementing Mistral Cloud Translation (mistral-medium-latest)."""
 
     def __init__(
         self,
         client: MistralClient | None = None,
         declaration: CapabilityDeclaration = MISTRAL_TRANSLATION_DECLARATION,
-        default_model: str = "mistral-large-latest",
+        default_model: str = "mistral-medium-latest",
     ) -> None:
         self.declaration = declaration
         self._client = client or MistralClient()
@@ -42,4 +42,5 @@ class MistralTranslationCapability:
             capability_id="mistral_translation",
             default_model=self.default_model,
             declaration=self.declaration,
+            batch_translate_fn=getattr(self._client, "batch_translate", None),
         )

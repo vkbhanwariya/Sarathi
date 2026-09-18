@@ -154,7 +154,7 @@ class TestCloudLegalTranslationCapabilities:
             text=ANY,
             source_lang="English",
             target_lang="Hindi",
-            model="mistral-large-latest",
+            model="mistral-medium-latest",
             system_prompt=ANY,
         )
 

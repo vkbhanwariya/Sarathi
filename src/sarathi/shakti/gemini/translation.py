@@ -20,7 +20,7 @@ class GeminiTranslationCapability:
         self,
         client: GeminiClient | None = None,
         declaration: CapabilityDeclaration = GEMINI_TRANSLATION_DECLARATION,
-        default_model: str = "gemini-2.5-flash",
+        default_model: str = "gemini-3.6-flash",
     ) -> None:
         self.declaration = declaration
         self._client = client or GeminiClient()
@@ -42,4 +42,5 @@ class GeminiTranslationCapability:
             capability_id="gemini_translation",
             default_model=self.default_model,
             declaration=self.declaration,
+            batch_translate_fn=getattr(self._client, "batch_translate", None),
         )

@@ -1,6 +1,6 @@
 """Shakti Mistral AI Plugin Package.
 
-Provides cloud-based OCR (mistral-ocr-latest) and Translation (mistral-large-latest)
+Provides cloud-based OCR (mistral-ocr-latest) and Translation (mistral-medium-latest)
 capabilities with Kavacha security gating and zero token leaks.
 """
 

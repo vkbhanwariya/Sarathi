@@ -374,7 +374,7 @@ class TestMistralTranslationCapability:
             text="भारतीय रिजर्व बैंक ने नया आदेश जारी किया।",
             source_lang="Hindi",
             target_lang="English",
-            model="mistral-large-latest",
+            model="mistral-medium-latest",
             system_prompt=ANY,
         )
 
@@ -464,3 +464,52 @@ class TestMistralTranslationCapability:
 
         artifact_names = {payload.intent.name for payload in result.artifact_payloads}
         assert any(name.startswith("second_") for name in artifact_names)
+
+
+class TestMistralBatchAndRateLimiting:
+    """Verify Mistral batch translation segmenting, rate pacing, and 429 backoff retry."""
+
+    def test_batch_translate_multi_segment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MISTRAL_API_KEY", "dummy_key")
+        client = MistralClient(rate_limit_delay_seconds=0.0)
+
+        mock_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '<segment id="0">Paragraph one translated.</segment>\n'
+                            '<segment id="1">Paragraph two translated.</segment>'
+                        )
+                    }
+                }
+            ]
+        }
+        with patch.object(client, "_post", return_value=mock_response) as mock_post:
+            res = client.batch_translate(
+                texts=["पहला अनुच्छेद।", "दूसरा अनुच्छेद।"],
+                source_lang="Hindi",
+                target_lang="English",
+            )
+            assert res == ["Paragraph one translated.", "Paragraph two translated."]
+            mock_post.assert_called_once()
+
+    def test_retry_on_429_exponential_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MISTRAL_API_KEY", "dummy_key")
+        client = MistralClient(rate_limit_delay_seconds=0.0)
+
+        mock_resp_429 = MagicMock(status_code=429, text='{"message": "Rate limit reached"}')
+        mock_resp_200 = MagicMock(
+            status_code=200,
+            text='{"choices": [{"message": {"content": "Translated OK"}}]}',
+            json=lambda: {"choices": [{"message": {"content": "Translated OK"}}]},
+        )
+
+        mock_client_inst = MagicMock()
+        mock_client_inst.post.side_effect = [mock_resp_429, mock_resp_200]
+
+        with patch("httpx.Client") as mock_httpx, patch("time.sleep") as mock_sleep:
+            mock_httpx.return_value.__enter__.return_value = mock_client_inst
+            res = client.chat_translate("Input text", "English", "Hindi")
+            assert res == "Translated OK"
+            assert mock_sleep.called

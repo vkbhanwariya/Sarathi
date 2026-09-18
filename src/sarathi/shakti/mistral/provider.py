@@ -27,13 +27,20 @@ def _build_client(services: PluginServices | None) -> MistralClient:
     api_key = None
     base_url = "https://api.mistral.ai/v1"
     timeout_sec = 60.0
+    rate_limit_delay_sec = 0.5
     if services is not None and getattr(services, "settings", None) is not None:
         sec = services.settings.get_section("mistral")
         if sec:
             api_key = sec.get("api_key")
             base_url = sec.get("base_url", base_url)
             timeout_sec = float(sec.get("timeout_seconds", timeout_sec))
-    return MistralClient(api_key=api_key, base_url=base_url, timeout_seconds=timeout_sec)
+            rate_limit_delay_sec = float(sec.get("rate_limit_delay_seconds", rate_limit_delay_sec))
+    return MistralClient(
+        api_key=api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_sec,
+        rate_limit_delay_seconds=rate_limit_delay_sec,
+    )
 
 
 class MistralProvider(PluginProvider):
@@ -50,7 +57,7 @@ class MistralProvider(PluginProvider):
     def create_capabilities(self, services: PluginServices) -> Mapping[str, Capability]:
         client = _build_client(services)
         model_ocr = "mistral-ocr-latest"
-        model_trans = "mistral-large-latest"
+        model_trans = "mistral-medium-latest"
         if services is not None and getattr(services, "settings", None) is not None:
             sec = services.settings.get_section("mistral")
             if sec:

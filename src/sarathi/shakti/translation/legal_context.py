@@ -312,9 +312,20 @@ class LegalContextBuilder:
         if not available_terms or not text.strip():
             return {}
 
-        # Search for domain terms present in text
-        # Filter terms to meaningful words (length >= 2)
-        candidates = [t for t in available_terms.keys() if len(t) >= 2 and t in text]
+        # Search for domain terms present in text (length >= 2)
+        if direction == TranslationDirection.EN_TO_HI:
+            lower_doc = text.lower()
+            candidates = []
+            for t in available_terms.keys():
+                if len(t) < 2 or t.lower() not in lower_doc:
+                    continue
+                prefix = r"(?<!\w)" if t[0].isalnum() else ""
+                suffix = r"(?!\w)" if t[-1].isalnum() else ""
+                if re.search(f"{prefix}{re.escape(t)}{suffix}", text, re.IGNORECASE):
+                    candidates.append(t)
+        else:
+            candidates = [t for t in available_terms.keys() if len(t) >= 2 and t in text]
+
         if not candidates:
             return {}
 
@@ -419,8 +430,9 @@ class LegalContextBuilder:
         source_lang: str,
         target_lang: str,
         custom_guidelines: Sequence[str] = (),
+        max_glossary_terms: int = 5,
     ) -> str:
-        """Synthesize authoritative judicial system instruction for cloud LLMs."""
+        """Synthesize authoritative judicial system instruction for cloud LLMs with lean glossary seeding."""
         lines: list[str] = [
             "You are an authoritative Senior Bilingual Judicial and Legal Translator specializing in "
             "the Supreme Court of India, High Courts, and Central Tribunals.",
@@ -443,11 +455,11 @@ class LegalContextBuilder:
         if context.statutory_references:
             lines.append(f"- Key Statutory Enactments & Sections: {', '.join(context.statutory_references[:6])}")
 
-        # Mandatory Domain Terminology Directives
+        # Mandatory Domain Terminology Directives (Lean Seeding)
         if context.matched_glossary_terms:
             lines.append("\n### Mandatory Judicial Terminology Directives:")
             lines.append("Strictly translate the following legal terms according to authoritative statutory standards:")
-            for src_t, tgt_t in list(context.matched_glossary_terms.items())[:35]:
+            for src_t, tgt_t in list(context.matched_glossary_terms.items())[:max_glossary_terms]:
                 lines.append(f'- "{src_t}" -> "{tgt_t}"')
 
         # Mandatory Preservation & Drafting Invariants
