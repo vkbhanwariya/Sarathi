@@ -24,7 +24,7 @@ class GeminiClient:
         api_key: str | None = None,
         base_url: str = _DEFAULT_BASE_URL,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
-        rate_limit_delay_seconds: float = 1.0,
+        rate_limit_delay_seconds: float = 2.0,
     ) -> None:
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self._base_url = base_url.rstrip("/")
@@ -67,7 +67,8 @@ class GeminiClient:
 
         status_code = 0
         resp_text = ""
-        max_attempts = 4
+        resp_headers: Any = {}
+        max_attempts = 5
         for attempt in range(max_attempts):
             try:
                 import httpx
@@ -76,6 +77,7 @@ class GeminiClient:
                     resp = client.post(url, headers=headers, content=body_bytes)
                     status_code = resp.status_code
                     resp_text = resp.text
+                    resp_headers = getattr(resp, "headers", {})
             except ImportError as imp_err:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
@@ -84,6 +86,7 @@ class GeminiClient:
             except httpx.TimeoutException as exc:
                 if attempt < max_attempts - 1:
                     time.sleep(1.0)
+                    self._last_request_time = time.monotonic()
                     continue
                 raise DoshError(
                     code=FailureCode.EXECUTION_FAILED,
@@ -92,6 +95,7 @@ class GeminiClient:
             except Exception as exc:
                 if attempt < max_attempts - 1:
                     time.sleep(1.0)
+                    self._last_request_time = time.monotonic()
                     continue
                 sanitized_err = str(exc).replace(api_key, "[REDACTED_API_KEY]") if api_key else "Network error"
                 raise DoshError(
@@ -99,15 +103,30 @@ class GeminiClient:
                     message=f"Gemini API request failed: {sanitized_err}",
                 ) from exc
 
-            # Retry transient 429 Rate Limit spikes with exponential backoff
+            # Retry transient 429 Rate Limit spikes respecting Retry-After header with exponential backoff
             if status_code == 429 and attempt < max_attempts - 1:
-                backoff = 2.0 * (2 ** attempt)
-                time.sleep(backoff)
+                wait_sec = 0.0
+                if hasattr(resp_headers, "get"):
+                    raw_val = resp_headers.get("retry-after") or resp_headers.get("x-ratelimit-reset")
+                    if isinstance(raw_val, (int, float)):
+                        wait_sec = float(raw_val)
+                    elif isinstance(raw_val, str) and raw_val.strip():
+                        try:
+                            wait_sec = float(raw_val.strip())
+                        except ValueError:
+                            pass
+                if wait_sec <= 0.0:
+                    wait_sec = 2.5 * (2 ** attempt)
+                else:
+                    wait_sec += 0.5
+                time.sleep(wait_sec)
+                self._last_request_time = time.monotonic()
                 continue
 
             # Retry transient 503 High Demand spikes
             if status_code == 503 and attempt < max_attempts - 1:
                 time.sleep(1.5 * (attempt + 1))
+                self._last_request_time = time.monotonic()
                 continue
             break
 

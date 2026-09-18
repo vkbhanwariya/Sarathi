@@ -513,3 +513,23 @@ class TestMistralBatchAndRateLimiting:
             res = client.chat_translate("Input text", "English", "Hindi")
             assert res == "Translated OK"
             assert mock_sleep.called
+
+    def test_retry_on_429_respects_retry_after_header(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MISTRAL_API_KEY", "dummy_key")
+        client = MistralClient(rate_limit_delay_seconds=0.0)
+
+        mock_resp_429 = MagicMock(status_code=429, text='{"message": "Rate limit reached"}', headers={"retry-after": "7"})
+        mock_resp_200 = MagicMock(
+            status_code=200,
+            text='{"choices": [{"message": {"content": "Translated OK"}}]}',
+            json=lambda: {"choices": [{"message": {"content": "Translated OK"}}]},
+        )
+
+        mock_client_inst = MagicMock()
+        mock_client_inst.post.side_effect = [mock_resp_429, mock_resp_200]
+
+        with patch("httpx.Client") as mock_httpx, patch("time.sleep") as mock_sleep:
+            mock_httpx.return_value.__enter__.return_value = mock_client_inst
+            res = client.chat_translate("Input text", "English", "Hindi")
+            assert res == "Translated OK"
+            mock_sleep.assert_called_with(7.5)

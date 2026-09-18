@@ -246,6 +246,9 @@ def execute_cloud_translation(
                         for src, tgt in zip(texts_to_batch, batched_outputs):
                             if isinstance(tgt, str):
                                 trans_memo[src] = harmonizer.harmonize(tgt, trans_direction)
+                except DoshError as err:
+                    if err.code in (FailureCode.RESOURCE_UNAVAILABLE, FailureCode.SECURITY_DENIED):
+                        raise
                 except Exception:
                     # Graceful fallback to on-demand translate_fn if batch call fails
                     pass
