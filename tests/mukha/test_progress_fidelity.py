@@ -75,6 +75,7 @@ class TestProgressFidelity:
             assert files[2]["current_stage"] == "Pending"
 
             finish_evt.set()
+            _wait_for_idle(web_server)
 
     def test_worker_timing_split_elapsed_and_idle(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Worker elapsed_ns must preserve start time, while idle_ns tracks update time."""
@@ -132,6 +133,7 @@ class TestProgressFidelity:
             assert "idle_ns" in worker2
 
             finish_evt.set()
+            _wait_for_idle(web_server)
 
     def test_no_fake_worker_fabricated_when_no_workers_reporting(
         self, web_server: MukhaWebServer, tmp_path: Path
@@ -161,6 +163,7 @@ class TestProgressFidelity:
             assert workers == []
 
             finish_evt.set()
+            _wait_for_idle(web_server)
 
     def test_no_device_defaulting_to_cpu(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Unknown device types must not be fabricated as CPU."""
@@ -196,6 +199,7 @@ class TestProgressFidelity:
             assert worker["device_type"] != "CPU"
 
             finish_evt.set()
+            _wait_for_idle(web_server)
 
     def test_real_run_populates_confirmed_artifacts(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
         """Completing a real run must automatically register result.artifacts in _confirmed_artifacts."""

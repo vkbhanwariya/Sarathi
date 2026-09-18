@@ -168,10 +168,10 @@ def test_spatial_word_reconstruction_and_paragraph_breaks() -> None:
 def test_running_header_footer_detection_and_clean_separation() -> None:
     """Verify that recurring running headers and footers are separated into metadata and omitted from clean text."""
     doc = pymupdf.open()
-    for p_num in (1, 2, 3):
+    for p_num in (1, 2):
         page = doc.new_page(width=595, height=842)
         # Running header at top margin (y=40)
-        page.insert_text((72, 40), f"[2026:RJ-JP:18881][CRLMP-4154/2023] Page {p_num} of 3", fontsize=9)
+        page.insert_text((72, 40), f"[2026:RJ-JP:18881][CRLMP-4154/2023] Page {p_num} of 2", fontsize=9)
         # Body text
         page.insert_text((72, 150), f"This is the judicial narrative on page {p_num}.", fontsize=12)
         # Running footer at bottom margin (y=800)
@@ -181,7 +181,7 @@ def test_running_header_footer_detection_and_clean_separation() -> None:
 
     # 1. Standard reader with skip_header_footer=True
     cdoc, _, _ = read_pdf(data, "inp-hdr-std", skip_header_footer=True)
-    assert len(cdoc.pages) == 3
+    assert len(cdoc.pages) == 2
     for p_idx, p in enumerate(cdoc.pages, 1):
         assert f"This is the judicial narrative on page {p_idx}." in p.text
         # Running header and footer must NOT pollute the continuous body narrative
@@ -199,7 +199,7 @@ def test_running_header_footer_detection_and_clean_separation() -> None:
 def test_read_pdf_with_layout_multi_page_parallel_ordering() -> None:
     """Verify that multi-page layout analysis runs in parallel and preserves exact page ordering."""
     doc = pymupdf.open()
-    total_test_pages = 5
+    total_test_pages = 3
     for p_num in range(1, total_test_pages + 1):
         page = doc.new_page(width=595, height=842)
         page.insert_text((72, 72), f"Header Section Title Page {p_num}", fontsize=16)

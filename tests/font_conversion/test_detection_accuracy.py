@@ -69,32 +69,24 @@ def test_schema_validation_missing_required_fields() -> None:
     assert "missing a valid" in exc_info.value.message
 
 
-def test_resolve_profile_from_font_name() -> None:
+@pytest.mark.parametrize(
+    ("font_name", "expected_profile_id", "expected_family"),
+    [
+        ("Kruti Dev 010", "krutidev010", "krutidev"),
+        ("DevLys 010 Normal", "devlys010", "devlys"),
+        ("Mangal", None, "modern"),
+        ("Calibri", None, "modern"),
+        ("UnknownCustomFont", None, "unknown"),
+    ],
+)
+def test_resolve_profile_from_font_name(
+    font_name: str, expected_profile_id: str | None, expected_family: str
+) -> None:
     """Verify trusted font resolution independent of digraph evidence."""
     profiles = load_font_profiles()
-
-    # Exact legacy alias match
-    prof_id, fam = resolve_profile_from_font_name("Kruti Dev 010", profiles)
-    assert prof_id == "krutidev010"
-    assert fam == "krutidev"
-
-    prof_id_d, fam_d = resolve_profile_from_font_name("DevLys 010 Normal", profiles)
-    assert prof_id_d == "devlys010"
-    assert fam_d == "devlys"
-
-    # Known modern Unicode font
-    prof_m, fam_m = resolve_profile_from_font_name("Mangal", profiles)
-    assert prof_m is None
-    assert fam_m == "modern"
-
-    prof_c, fam_c = resolve_profile_from_font_name("Calibri", profiles)
-    assert prof_c is None
-    assert fam_c == "modern"
-
-    # Generic or unknown font
-    prof_u, fam_u = resolve_profile_from_font_name("UnknownCustomFont", profiles)
-    assert prof_u is None
-    assert fam_u == "unknown"
+    prof_id, fam = resolve_profile_from_font_name(font_name, profiles)
+    assert prof_id == expected_profile_id
+    assert fam == expected_family
 
 
 def test_exact_font_plus_short_text_decision() -> None:

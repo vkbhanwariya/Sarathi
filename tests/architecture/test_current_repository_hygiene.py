@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -60,22 +61,24 @@ BINARY_EXTENSIONS = {
 
 
 def _iter_text_files():
+    skip_dirs = {"node_modules", "dist", ".venv", "__pycache__", ".git"}
     for root_name in SEARCH_ROOTS:
         base = ROOT / root_name
         if not base.exists():
             continue
-        for path in base.rglob("*"):
-            if not path.is_file() or path.resolve() == SELF:
-                continue
-            if path.suffix.lower() in BINARY_EXTENSIONS:
-                continue
-            if any(part in {"node_modules", "dist", ".venv", "__pycache__"} for part in path.parts):
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
-                continue
-            yield path, text
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+            for filename in filenames:
+                path = Path(dirpath) / filename
+                if path.resolve() == SELF:
+                    continue
+                if path.suffix.lower() in BINARY_EXTENSIONS:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (UnicodeDecodeError, OSError):
+                    continue
+                yield path, text
     for name in ("README.md", "AGENTS.md"):
         path = ROOT / name
         yield path, path.read_text(encoding="utf-8")

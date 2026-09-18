@@ -2,6 +2,8 @@ import io
 import zipfile
 from xml.etree import ElementTree as ET
 
+import pytest
+
 from sarathi.shakti.docx_exporter import (
     _HINDI_FONT,
     _W_NS,
@@ -72,114 +74,39 @@ def test_docx_preserves_modern_devanagari_and_latin_runs() -> None:
     assert "सरकार" in full_text
 
 
-def test_merge_krutidev_aliases() -> None:
-    """Kruti Dev 010 + KrutiDev010 -> MERGE into single run."""
+@pytest.mark.parametrize(
+    ("font1", "props1", "font2", "props2", "should_merge", "merged_text"),
+    [
+        ("Kruti Dev 010", '<w:b/><w:sz w:val="24"/>', "KrutiDev010", '<w:b/><w:sz w:val="24"/>', True, "Hkkjr"),
+        ("KRUTI DEV 010", '<w:sz w:val="20"/>', "KrutiDev010", '<w:sz w:val="20"/>', True, "Hkkjr"),
+        ("KrutiDev010", '<w:b/><w:sz w:val="24"/>', "DevLys010", '<w:b/><w:sz w:val="24"/>', False, None),
+        ("KrutiDev010", '<w:sz w:val="24"/>', "Arial", '<w:sz w:val="24"/>', False, None),
+        ("Kruti Dev 010", '<w:b/><w:sz w:val="24"/>', "KrutiDev010", '<w:sz w:val="24"/>', False, None),
+        ("Kruti Dev 010", '<w:sz w:val="24"/>', "KrutiDev010", '<w:sz w:val="28"/>', False, None),
+    ],
+)
+def test_merge_adjacent_runs_compatibility_matrix(
+    font1: str, props1: str, font2: str, props2: str, should_merge: bool, merged_text: str | None
+) -> None:
+    """Verify _merge_adjacent_compatible_runs merges compatible aliases and preserves distinct styles/families."""
     p_xml = f"""<w:p xmlns:w="{_W_NS}">
         <w:r>
-            <w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:b/><w:sz w:val="24"/></w:rPr>
+            <w:rPr><w:rFonts w:ascii="{font1}"/>{props1}</w:rPr>
             <w:t>Hkk</w:t>
         </w:r>
         <w:r>
-            <w:rPr><w:rFonts w:ascii="KrutiDev010"/><w:b/><w:sz w:val="24"/></w:rPr>
+            <w:rPr><w:rFonts w:ascii="{font2}"/>{props2}</w:rPr>
             <w:t>jr</w:t>
         </w:r>
     </w:p>"""
     p = ET.fromstring(p_xml)
     _merge_adjacent_compatible_runs(p)
     runs = p.findall(f"{{{_W_NS}}}r")
-    assert len(runs) == 1
-    assert runs[0].find(f"{{{_W_NS}}}t").text == "Hkkjr"
-
-
-def test_merge_case_and_spacing_aliases() -> None:
-    """KRUTI DEV 010 + KrutiDev010 -> MERGE."""
-    p_xml = f"""<w:p xmlns:w="{_W_NS}">
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="KRUTI DEV 010"/><w:sz w:val="20"/></w:rPr>
-            <w:t>Hkk</w:t>
-        </w:r>
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="KrutiDev010"/><w:sz w:val="20"/></w:rPr>
-            <w:t>jr</w:t>
-        </w:r>
-    </w:p>"""
-    p = ET.fromstring(p_xml)
-    _merge_adjacent_compatible_runs(p)
-    runs = p.findall(f"{{{_W_NS}}}r")
-    assert len(runs) == 1
-    assert runs[0].find(f"{{{_W_NS}}}t").text == "Hkkjr"
-
-
-def test_no_merge_krutidev_and_devlys() -> None:
-    """KrutiDev + DevLys -> DO NOT MERGE (distinct families)."""
-    p_xml = f"""<w:p xmlns:w="{_W_NS}">
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="KrutiDev010"/><w:b/><w:sz w:val="24"/></w:rPr>
-            <w:t>Hkk</w:t>
-        </w:r>
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="DevLys010"/><w:b/><w:sz w:val="24"/></w:rPr>
-            <w:t>jr</w:t>
-        </w:r>
-    </w:p>"""
-    p = ET.fromstring(p_xml)
-    _merge_adjacent_compatible_runs(p)
-    runs = p.findall(f"{{{_W_NS}}}r")
-    assert len(runs) == 2
-
-
-def test_no_merge_krutidev_and_arial() -> None:
-    """KrutiDev + Arial -> DO NOT MERGE."""
-    p_xml = f"""<w:p xmlns:w="{_W_NS}">
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="KrutiDev010"/><w:sz w:val="24"/></w:rPr>
-            <w:t>Hkkjr</w:t>
-        </w:r>
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="Arial"/><w:sz w:val="24"/></w:rPr>
-            <w:t>India</w:t>
-        </w:r>
-    </w:p>"""
-    p = ET.fromstring(p_xml)
-    _merge_adjacent_compatible_runs(p)
-    runs = p.findall(f"{{{_W_NS}}}r")
-    assert len(runs) == 2
-
-
-def test_no_merge_differing_bold() -> None:
-    """Same normalized font family + different bold -> DO NOT MERGE."""
-    p_xml = f"""<w:p xmlns:w="{_W_NS}">
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:b/><w:sz w:val="24"/></w:rPr>
-            <w:t>Hkk</w:t>
-        </w:r>
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="KrutiDev010"/><w:sz w:val="24"/></w:rPr>
-            <w:t>jr</w:t>
-        </w:r>
-    </w:p>"""
-    p = ET.fromstring(p_xml)
-    _merge_adjacent_compatible_runs(p)
-    runs = p.findall(f"{{{_W_NS}}}r")
-    assert len(runs) == 2
-
-
-def test_no_merge_differing_size() -> None:
-    """Same normalized font family + different size -> DO NOT MERGE."""
-    p_xml = f"""<w:p xmlns:w="{_W_NS}">
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="Kruti Dev 010"/><w:sz w:val="24"/></w:rPr>
-            <w:t>Hkk</w:t>
-        </w:r>
-        <w:r>
-            <w:rPr><w:rFonts w:ascii="KrutiDev010"/><w:sz w:val="28"/></w:rPr>
-            <w:t>jr</w:t>
-        </w:r>
-    </w:p>"""
-    p = ET.fromstring(p_xml)
-    _merge_adjacent_compatible_runs(p)
-    runs = p.findall(f"{{{_W_NS}}}r")
-    assert len(runs) == 2
+    if should_merge:
+        assert len(runs) == 1
+        assert runs[0].find(f"{{{_W_NS}}}t").text == merged_text
+    else:
+        assert len(runs) == 2
 
 
 def _create_mixed_docx() -> bytes:

@@ -108,6 +108,6 @@ class DeterministicTestBackend:
         return results
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def test_backend() -> DeterministicTestBackend:
     return DeterministicTestBackend()

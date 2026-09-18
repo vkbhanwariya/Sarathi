@@ -125,7 +125,7 @@ class TestGeminiClient:
             status_code = 429
             text = '{"error": "Rate limit exceeded"}'
 
-        with patch("httpx.Client.post", return_value=MockResponse()):
+        with patch("httpx.Client.post", return_value=MockResponse()), patch("time.sleep"):
             with pytest.raises(DoshError) as exc_info:
                 client._post("gemini-2.5-flash", {"contents": []})
             assert exc_info.value.code == FailureCode.RESOURCE_UNAVAILABLE

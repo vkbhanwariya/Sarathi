@@ -338,7 +338,7 @@ class TestMukhaWebServerAPI:
                 data={"paths": [str(test_file)], "requirement": "read_native"},
             )
             assert status == 200
-            time.sleep(0.2)
+            _wait_for_idle(web_server)
 
             status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
             state = json.loads(body.decode("utf-8"))["state"]
@@ -555,6 +555,7 @@ class TestMukhaWebServerAPI:
             assert "Page 3/5" in file_view["current_stage"]
 
             finish_evt.set()
+            _wait_for_idle(web_server)
 
 
 def test_negative_content_length_rejected(web_server: MukhaWebServer) -> None:
@@ -1416,7 +1417,7 @@ def test_inspector_endpoint_returns_200_for_run(web_server: MukhaWebServer, tmp_
         )
         assert status == 200
         run_id = data["run_id"]
-        time.sleep(0.5)
+        _wait_for_idle(web_server)
 
         status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/runs/{run_id}/inspector")
         assert status == 200
