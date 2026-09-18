@@ -3,24 +3,17 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   browseFiles,
   browseFolder,
-  fetchInspector,
-  fetchRunSummary,
-  fetchState,
   intakePaths,
   previewPlan,
   startRun,
 } from "../api";
-import {
-  ActionParameter,
-  EmptyState,
-  Metric,
-  actionDefaults,
-} from "../components/Common";
+import { actionDefaults } from "../components/Common";
+import { IntakeDropzone } from "../components/IntakeDropzone";
+import { IntakeTable } from "../components/IntakeTable";
+import { TaskSelector } from "../components/TaskSelector";
 import { formatBytes } from "../formatters";
 import type {
-  ActionParameterView,
   ApplicationViewState,
-  AvailableActionView,
   InputFilter,
   InputItemView,
   InputSelectionView,
@@ -30,7 +23,7 @@ import type {
 } from "../types";
 import {
   PRIMARY_TASKS,
-  isCloudAction,
+  resolveBackendMapping,
   type PrimaryTaskId,
 } from "../workflow/taskCatalog";
 
@@ -45,7 +38,9 @@ export function Home({
   onError: (message: string | null) => void;
   onPreview: (pathOrUrl: string, displayName: string) => void;
 }) {
-  const initialRoots = state.input_selection.items.flatMap((item) => item.source_path ? [item.source_path] : []);
+  const initialRoots = state.input_selection.items.flatMap((item) =>
+    item.source_path ? [item.source_path] : []
+  );
 
   const [roots, setRoots] = useState<string[]>(initialRoots);
   const [selection, setSelection] = useState<InputSelectionView>(state.input_selection);
@@ -64,7 +59,12 @@ export function Home({
   const [primaryTask, setPrimaryTask] = useState<PrimaryTaskId | null>(null);
 
   const [subtaskByPrimary, setSubtaskByPrimary] = useState<Record<PrimaryTaskId, string>>(() => ({
-    documents_extraction: state.requirement === "ocr" ? "instant_ocr" : state.requirement.endsWith("_ocr") ? "cloud_ocr" : "native",
+    documents_extraction:
+      state.requirement === "ocr"
+        ? "instant_ocr"
+        : state.requirement.endsWith("_ocr")
+        ? "cloud_ocr"
+        : "native",
     bank_consolidation: (state as any).profile === "accurate" ? "accurate" : "instant",
     font_conversion: "legacy_to_unicode",
     translation: state.requirement.endsWith("_translation")
@@ -121,9 +121,11 @@ export function Home({
 
   const visibleItems = useMemo(
     () => selection.items.filter((item) => !item.source_path || !excluded.has(item.source_path)),
-    [selection.items, excluded],
+    [selection.items, excluded]
   );
-  const eligiblePaths = visibleItems.flatMap((item) => item.is_eligible && item.source_path ? [item.source_path] : []);
+  const eligiblePaths = visibleItems.flatMap((item) =>
+    item.is_eligible && item.source_path ? [item.source_path] : []
+  );
   const issueCount = visibleItems.filter((item) => !item.is_eligible).length;
   const eligibleCount = visibleItems.length - issueCount;
   const totalSize = visibleItems.reduce((sum, item) => sum + item.size_bytes, 0);
@@ -158,36 +160,13 @@ export function Home({
 
   const currentSubtask = primaryTask ? subtaskByPrimary[primaryTask] : undefined;
 
-  const currentBackendMapping = useMemo<{
-    requirement: string;
-    profile: string;
-  } | null>(() => {
-    if (!primaryTask || !currentSubtask) return null;
-    if (primaryTask === "documents_extraction") {
-      if (currentSubtask === "native") return { requirement: "read_native", profile: layoutAnalysis ? "layout_preserving" : "instant" };
-      if (currentSubtask === "instant_ocr") return { requirement: "ocr", profile: "instant" };
-      if (currentSubtask === "accurate_ocr") return { requirement: "ocr", profile: preserveLayout ? "layout_preserving" : "accurate" };
-      if (currentSubtask === "cloud_ocr") return { requirement: cloudOcrProvider, profile: "instant" };
-      if (currentSubtask === "custom_ocr") {
-        const p = String(ocrCustomParams.profile || "custom");
-        return { requirement: "ocr", profile: p };
-      }
-      return { requirement: "read_native", profile: "instant" };
-    }
-    if (primaryTask === "bank_consolidation") {
-      return { requirement: "bank_statements", profile: currentSubtask === "accurate" ? "accurate" : "instant" };
-    }
-    if (primaryTask === "font_conversion") {
-      return { requirement: "font_conversion", profile: "instant" };
-    }
-    if (primaryTask === "translation") {
-      if (currentSubtask === "opus_mt") return { requirement: "translation", profile: "instant" };
-      if (currentSubtask === "gemini") return { requirement: "gemini_translation", profile: "instant" };
-      if (currentSubtask === "mistral") return { requirement: "mistral_translation", profile: "instant" };
-      if (currentSubtask === "azure") return { requirement: "azure_translation", profile: "instant" };
-      return { requirement: "translation", profile: "instant" };
-    }
-    return { requirement: "read_native", profile: "instant" };
+  const currentBackendMapping = useMemo(() => {
+    return resolveBackendMapping(primaryTask, currentSubtask, {
+      layoutAnalysis,
+      preserveLayout,
+      cloudOcrProvider,
+      ocrProfile: String(ocrCustomParams.profile || "custom"),
+    });
   }, [primaryTask, currentSubtask, layoutAnalysis, preserveLayout, cloudOcrProvider, ocrCustomParams.profile]);
 
   const activeAction = currentBackendMapping
@@ -310,7 +289,7 @@ export function Home({
     if (typeof window !== "undefined") {
       (window as any).__sarathi_set_intake = (
         testItems: InputItemView[],
-        testPreflight?: PreflightView,
+        testPreflight?: PreflightView
       ) => {
         setSelection({
           total_files: testItems.length,
@@ -373,7 +352,10 @@ export function Home({
     }
     const timer = window.setTimeout(() => {
       void previewPlan(buildRequest())
-        .then((next) => { setPlan(next); setPlanError(null); })
+        .then((next) => {
+          setPlan(next);
+          setPlanError(null);
+        })
         .catch((reason) => {
           setPlan(null);
           setPlanError(reason instanceof Error ? reason.message : "Unable to preview plan.");
@@ -439,10 +421,22 @@ export function Home({
             <h2 class="panel-heading">Document Intake</h2>
           </div>
           <div class="panel-header-meta">
-            <span class="count-badge">{visibleItems.length} selected ({formatBytes(totalSize)})</span>
-            <button class="icon-toggle-btn" onClick={() => setIntakeExpanded(!intakeExpanded)} type="button" aria-label="Toggle Intake Section">
+            <span class="count-badge">
+              {visibleItems.length} selected ({formatBytes(totalSize)})
+            </span>
+            <button
+              class="icon-toggle-btn"
+              onClick={() => setIntakeExpanded(!intakeExpanded)}
+              type="button"
+              aria-label="Toggle Intake Section"
+            >
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={intakeExpanded ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d={intakeExpanded ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"}
+                />
               </svg>
             </button>
           </div>
@@ -450,240 +444,81 @@ export function Home({
 
         {intakeExpanded ? (
           <div class="panel-body intake-panel-body">
-            {/* Quick Action Bar */}
-            <div class="intake-actions-toolbar">
-              <div class="intake-btn-group">
-                <button id="btn-browse-files" class="btn-action" disabled={working} onClick={() => void handleBrowse(false)} type="button">
-                  + Add files
-                </button>
-                <button id="btn-browse-folder" class="btn-action" disabled={working} onClick={() => void handleBrowse(true)} type="button">
-                  + Add folder
-                </button>
-                <button class="btn-clear" disabled={working || visibleItems.length === 0} onClick={() => { setExcluded(new Set()); void refreshIntake([]); }} type="button">
-                  Clear
-                </button>
-              </div>
-              <label class="recursive-label">
-                <input
-                  type="checkbox"
-                  checked={recursive}
-                  onChange={(event) => {
-                    const checked = event.currentTarget.checked;
-                    setRecursive(checked);
-                    if (roots.length) void refreshIntake(roots, checked);
-                  }}
-                />
-                <span>Recursive folders</span>
-              </label>
-            </div>
+            <IntakeDropzone
+              working={working}
+              hasItems={visibleItems.length > 0}
+              recursive={recursive}
+              manualPath={manualPath}
+              onBrowseFiles={() => void handleBrowse(false)}
+              onBrowseFolder={() => void handleBrowse(true)}
+              onClear={() => {
+                setExcluded(new Set());
+                void refreshIntake([]);
+              }}
+              onToggleRecursive={(checked) => {
+                setRecursive(checked);
+                if (roots.length) void refreshIntake(roots, checked);
+              }}
+              onManualPathChange={(val) => setManualPath(val)}
+              onAddManualPath={() => {
+                if (manualPath.trim()) {
+                  void addRoots([manualPath.trim()]);
+                  setManualPath("");
+                }
+              }}
+            />
 
-            {/* Path Input Bar */}
-            <div class="path-input-bar">
-              <input
-                class="path-input"
-                placeholder="Paste a file or folder path and press Enter"
-                value={manualPath}
-                onInput={(event) => setManualPath(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && manualPath.trim()) {
-                    void addRoots([manualPath.trim()]);
-                    setManualPath("");
+            <IntakeTable
+              visibleItems={visibleItems}
+              filteredItems={filteredItems}
+              pagedItems={pagedItems}
+              checkedPaths={checkedPaths}
+              totalSize={totalSize}
+              eligibleCount={eligibleCount}
+              issueCount={issueCount}
+              query={query}
+              filter={filter}
+              page={page}
+              pageCount={pageCount}
+              showAllInputsTable={showAllInputsTable}
+              showGroupedSummary={showGroupedSummary}
+              selectAllRef={selectAllRef}
+              isAllPagedChecked={isAllPagedChecked}
+              onQueryChange={(q) => setQuery(q)}
+              onFilterChange={(f) => setFilter(f)}
+              onSetShowAll={(show) => setShowAllInputsTable(show)}
+              onSetPage={(p) => setPage(p)}
+              onToggleSelectAllPaged={(checked) => {
+                setCheckedPaths((prev) => {
+                  const next = new Set(prev);
+                  for (const item of pagedItems) {
+                    const key = item.source_path || item.display_name;
+                    if (checked) next.add(key);
+                    else next.delete(key);
                   }
-                }}
-              />
-              <button
-                class="btn-add-path"
-                disabled={working || !manualPath.trim()}
-                onClick={() => { void addRoots([manualPath.trim()]); setManualPath(""); }}
-                type="button"
-              >
-                Add
-              </button>
-            </div>
-
-            {/* Search & Filter Badges */}
-            <div class="intake-search-filter-row">
-              <div class="search-input-wrap">
-                <svg class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input
-                  id="input-files-filter"
-                  class="filter-search-input"
-                  placeholder="Search selected documents..."
-                  value={query}
-                  onInput={(event) => setQuery(event.currentTarget.value)}
-                />
-              </div>
-              <div class="filter-segmented-group">
-                <button
-                  id="btn-filter-all"
-                  class={filter === "all" ? "filter-seg-btn active" : "filter-seg-btn"}
-                  onClick={() => setFilter("all")}
-                  type="button"
-                >
-                  All <span id="filter-all-count">{visibleItems.length}</span>
-                </button>
-                <button
-                  id="btn-filter-eligible"
-                  class={filter === "eligible" ? "filter-seg-btn active" : "filter-seg-btn"}
-                  onClick={() => setFilter("eligible")}
-                  type="button"
-                >
-                  Eligible <span id="filter-eligible-count">{eligibleCount}</span>
-                </button>
-                <button
-                  id="btn-filter-issues"
-                  class={filter === "issues" ? "filter-seg-btn active" : "filter-seg-btn"}
-                  onClick={() => setFilter("issues")}
-                  type="button"
-                >
-                  Issues <span id="filter-issues-count">{issueCount}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Intake Queue Summary */}
-            <div id="input-grouped-summary" class={`grouped-summary-card ${showGroupedSummary ? "" : "hidden"}`}>
-              <span class="grouped-summary-text">
-                <strong>{visibleItems.length} documents selected</strong>
-                <span class="quiet"> · {formatBytes(totalSize)}</span>
-              </span>
-              <button id="btn-view-all-inputs" class="btn-view-all" onClick={() => setShowAllInputsTable(true)} type="button">
-                View All ({visibleItems.length} files)
-              </button>
-            </div>
-
-            {/* Intake Table */}
-            <div class={`table-container input-table-container ${showGroupedSummary ? "hidden" : ""}`}>
-              {visibleItems.length > 10 && showAllInputsTable ? (
-                <div class="collapse-summary-wrap">
-                  <button id="btn-collapse-inputs" class="btn-collapse-summary" onClick={() => setShowAllInputsTable(false)} type="button">
-                    Collapse to summary
-                  </button>
-                </div>
-              ) : null}
-
-              {checkedPaths.size > 0 ? (
-                <div id="selection-scope-banner" class="selection-scope-banner">
-                  <span id="selection-scope-text">
-                    {checkedPaths.size === filteredItems.length && filteredItems.length > pagedItems.length
-                      ? `All ${filteredItems.length} matching documents selected`
-                      : `All ${pagedItems.filter((i) => checkedPaths.has(i.source_path || i.display_name)).length} documents on this page selected`}
-                  </span>
-                  <div class="button-row">
-                    {checkedPaths.size < filteredItems.length ? (
-                      <button id="btn-select-all-matching" class="button ghost small" onClick={() => setCheckedPaths(new Set(filteredItems.map((i) => i.source_path || i.display_name)))} type="button">
-                        Select all {filteredItems.length} matching
-                      </button>
-                    ) : null}
-                    <button id="btn-clear-selection-scope" class="button ghost small" onClick={() => setCheckedPaths(new Set())} type="button">
-                      Clear
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              <table class="data-table compact-table">
-                <thead>
-                  <tr>
-                    <th style="width: 36px; text-align: center;">
-                      <input
-                        id="chk-select-all-inputs"
-                        ref={selectAllRef}
-                        type="checkbox"
-                        checked={isAllPagedChecked}
-                        onChange={(e) => {
-                          const checked = e.currentTarget.checked;
-                          setCheckedPaths((prev) => {
-                            const next = new Set(prev);
-                            for (const item of pagedItems) {
-                              const key = item.source_path || item.display_name;
-                              if (checked) next.add(key);
-                              else next.delete(key);
-                            }
-                            return next;
-                          });
-                        }}
-                      />
-                    </th>
-                    <th>Document</th>
-                    <th>Status</th>
-                    <th style="text-align: right;">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="selected-inputs-tbody">
-                  {visibleItems.length === 0 ? (
-                    <tr class="empty-row"><td colSpan={4} class="empty-cell">No documents selected. Click Add files or paste a path above.</td></tr>
-                  ) : filteredItems.length === 0 ? (
-                    <tr class="empty-row"><td colSpan={4} class="empty-cell">No documents match the filter query</td></tr>
-                  ) : (
-                    pagedItems.map((item) => {
-                      const itemKey = item.source_path || item.display_name;
-                      const isChecked = checkedPaths.has(itemKey);
-                      return (
-                        <tr key={item.input_id} data-path={itemKey}>
-                          <td style="text-align: center;">
-                            <input
-                              type="checkbox"
-                              class="input-row-chk"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                const checked = e.currentTarget.checked;
-                                const next = new Set(checkedPathsRef.current);
-                                if (checked) next.add(itemKey);
-                                else next.delete(itemKey);
-                                checkedPathsRef.current = next;
-                                setCheckedPaths(next);
-                                if (selectAllRef.current) {
-                                  const pCount = pagedItems.filter((i) => next.has(i.source_path || i.display_name)).length;
-                                  selectAllRef.current.indeterminate = pCount > 0 && pCount < pagedItems.length;
-                                }
-                              }}
-                            />
-                          </td>
-                          <td>
-                            <div class="doc-item-cell">
-                              <strong class="doc-name">{item.display_name}</strong>
-                              <span class="doc-size">{item.source_path ? `${item.source_path} · ` : ""}{formatBytes(item.size_bytes)}</span>
-                            </div>
-                          </td>
-                          <td>
-                            {item.is_eligible ? (
-                              <span class="badge badge-emerald">Eligible</span>
-                            ) : (
-                              <button
-                                class="btn-issue-info badge badge-crimson"
-                                tabIndex={0}
-                                aria-label={`Issue: ${item.issue_reason || "Ineligible document"}`}
-                                type="button"
-                              >
-                                {item.issue_reason || "Issue"}
-                              </button>
-                            )}
-                          </td>
-                          <td style="text-align: right;">
-                            <div class="button-row compact" style="justify-content: flex-end;">
-                              <button class="button ghost mini" onClick={() => onPreview(`/api/inputs/${encodeURIComponent(item.input_id)}/preview`, item.display_name)} type="button">Preview</button>
-                              <a class="button ghost mini" href={`/api/inputs/${encodeURIComponent(item.input_id)}/raw`} target="_blank">Open</a>
-                              <button class="button ghost mini text-danger" onClick={() => void removeItem(item)} type="button">Remove</button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-
-              {filteredItems.length > pageSize ? (
-                <div class="pagination" style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; padding: 4px 8px;">
-                  <button id="btn-input-prev" class="button ghost small" disabled={currentPage <= 1} onClick={() => setPage((v) => Math.max(1, v - 1))} type="button">Previous</button>
-                  <span id="input-page-indicator" style="font-size: 11px;">Page {currentPage} of {pageCount} ({filteredItems.length} total)</span>
-                  <button id="btn-input-next" class="button ghost small" disabled={currentPage >= pageCount} onClick={() => setPage((v) => Math.min(pageCount, v + 1))} type="button">Next</button>
-                </div>
-              ) : null}
-            </div>
+                  return next;
+                });
+              }}
+              onToggleItemChecked={(itemKey, checked) => {
+                const next = new Set(checkedPathsRef.current);
+                if (checked) next.add(itemKey);
+                else next.delete(itemKey);
+                checkedPathsRef.current = next;
+                setCheckedPaths(next);
+                if (selectAllRef.current) {
+                  const pCount = pagedItems.filter((i) =>
+                    next.has(i.source_path || i.display_name)
+                  ).length;
+                  selectAllRef.current.indeterminate = pCount > 0 && pCount < pagedItems.length;
+                }
+              }}
+              onSelectAllMatching={() =>
+                setCheckedPaths(new Set(filteredItems.map((i) => i.source_path || i.display_name)))
+              }
+              onClearChecked={() => setCheckedPaths(new Set())}
+              onPreview={onPreview}
+              onRemoveItem={(item) => void removeItem(item)}
+            />
           </div>
         ) : null}
       </section>
@@ -721,641 +556,36 @@ export function Home({
             )}
           </div>
 
-          {/* Level 1: Primary Task Hierarchy Accordion (Collapsible Level 1 & Level 2) */}
-          <div class="tasks-accordion" role="tablist" aria-label="Primary Tasks">
-            {PRIMARY_TASKS.map((task) => {
-              const isSelected = primaryTask === task.id;
-              return (
-                <div
-                  key={task.id}
-                  class={`accordion-item ${isSelected ? "expanded" : "collapsed"}`}
-                  data-task={task.id}
-                >
-                  <button
-                    id={`btn-task-${task.id.replace(/_/g, "-")}`}
-                    data-task={task.id}
-                    class={`primary-task-tab-btn accordion-header-btn ${isSelected ? "active" : ""}`}
-                    role="tab"
-                    aria-selected={isSelected}
-                    aria-expanded={isSelected}
-                    type="button"
-                    onClick={() => setPrimaryTask(isSelected ? null : task.id)}
-                  >
-                    <div class="accordion-header-left">
-                      <span class="primary-task-icon">{task.icon}</span>
-                      <div class="primary-task-info">
-                        <span class="primary-task-label">{task.label}</span>
-                        <span class="primary-task-desc">{task.description}</span>
-                      </div>
-                    </div>
-                    <div class="accordion-header-right">
-                      {isSelected ? (
-                        <span class="accordion-badge accordion-badge--active">Active</span>
-                      ) : (
-                        <span class="accordion-badge accordion-badge--hint">Click to expand</span>
-                      )}
-                      <span class={`accordion-chevron ${isSelected ? "open" : ""}`} aria-hidden="true">
-                        ▾
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Level 2: Second-Level Progressive Choices Collapsing under this Level 1 Task */}
-                  {isSelected && (
-                    <div class="accordion-body">
-                      {task.id === "documents_extraction" && (
-                        <div class="subtasks-container">
-                          <div class="subtasks-grid">
-                            {/* 1.1 Native Extraction */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "read_native");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "native";
-                              return (
-                                <div
-                                  key="native"
-                                  id="subtask-native"
-                                  data-subtask="native"
-                                  data-req="read_native"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }))}
-                                  title={isEnabled ? "Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Native Extraction</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>DIGITAL</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV. Automatically invokes statutory/legal extraction.
-                                  </p>
-                                  <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                    <label class="toggle-row mini">
-                                      <input
-                                        id="param-convert-legacy-fonts"
-                                        type="checkbox"
-                                        checked={convertLegacyFonts}
-                                        onChange={(e) => {
-                                          setConvertLegacyFonts(e.currentTarget.checked);
-                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }));
-                                        }}
-                                      />
-                                      <span>
-                                        <strong>Convert Legacy Fonts to Unicode</strong>
-                                      </span>
-                                    </label>
-                                    <label class="toggle-row mini" title="Use Graph Neural Networks for multi-column flow, table grids, and semantic headers">
-                                      <input
-                                        id="param-layout-analysis"
-                                        type="checkbox"
-                                        checked={layoutAnalysis}
-                                        onChange={(e) => {
-                                          setLayoutAnalysis(e.currentTarget.checked);
-                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }));
-                                        }}
-                                      />
-                                      <span>
-                                        <strong>Deep Layout Analysis (GNN)</strong>
-                                      </span>
-                                    </label>
-                                    <label class="toggle-row mini">
-                                      <input
-                                        id="param-statutory"
-                                        type="checkbox"
-                                        checked={statutoryEnabled}
-                                        onChange={(e) => {
-                                          setStatutoryEnabled(e.currentTarget.checked);
-                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }));
-                                        }}
-                                      />
-                                      <span>
-                                        <strong>Statutory Extraction</strong>
-                                      </span>
-                                    </label>
-                                    <label class="toggle-row mini" title="Detect and separate running page headers and footers from continuous narrative text">
-                                      <input
-                                        id="param-skip-header-footer"
-                                        type="checkbox"
-                                        checked={skipHeaderFooter}
-                                        onChange={(e) => {
-                                          setSkipHeaderFooter(e.currentTarget.checked);
-                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "native" }));
-                                        }}
-                                      />
-                                      <span>
-                                        <strong>Clean Output: Separate Running Headers/Footers</strong>
-                                      </span>
-                                    </label>
-                                  </div>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">read_native</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 1.2 Instant OCR */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "ocr");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "instant_ocr";
-                              return (
-                                <div
-                                  key="instant_ocr"
-                                  id="subtask-instant-ocr"
-                                  data-subtask="instant_ocr"
-                                  data-req="ocr"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "instant_ocr" }))}
-                                  title={isEnabled ? "RapidOCR inference with OpenVINO acceleration." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Instant OCR</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>RAPIDOCR</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    RapidOCR inference with OpenVINO acceleration. Single pass, bypasses heavy preprocessing.
-                                  </p>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">ocr:instant</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 1.3 Accurate OCR */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "ocr");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "accurate_ocr";
-                              return (
-                                <div
-                                  key="accurate_ocr"
-                                  id="subtask-accurate-ocr"
-                                  data-subtask="accurate_ocr"
-                                  data-req="ocr"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "accurate_ocr" }))}
-                                  title={isEnabled ? "Quality-optimized OCR with full preprocessing." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Accurate OCR</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>ACCURATE</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Quality-optimized OCR with CLAHE, deskew, binarization, and selective NE-OCR fallback.
-                                  </p>
-                                  <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                    <label class="toggle-row mini">
-                                      <input
-                                        id="param-preserve-layout"
-                                        type="checkbox"
-                                        checked={preserveLayout}
-                                        onChange={(e) => {
-                                          setPreserveLayout(e.currentTarget.checked);
-                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "accurate_ocr" }));
-                                        }}
-                                      />
-                                      <span>
-                                        <strong>Preserve Layout</strong>
-                                      </span>
-                                    </label>
-                                    <label class="toggle-row mini" title="Detect and separate running page headers and footers from continuous narrative text">
-                                      <input
-                                        id="param-ocr-skip-header-footer"
-                                        type="checkbox"
-                                        checked={skipHeaderFooter}
-                                        onChange={(e) => {
-                                          setSkipHeaderFooter(e.currentTarget.checked);
-                                          setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "accurate_ocr" }));
-                                        }}
-                                      />
-                                      <span>
-                                        <strong>Clean Output: Separate Running Headers/Footers</strong>
-                                      </span>
-                                    </label>
-                                  </div>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">ocr:accurate</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 1.4 Cloud OCR */}
-                            {(() => {
-                              const cloudActs = [
-                                { id: "gemini_ocr", label: "Gemini" },
-                                { id: "mistral_ocr", label: "Mistral" },
-                                { id: "azure_ocr", label: "Azure" },
-                              ];
-                              const curCloudAct = state.available_actions.find((a) => a.action_id === cloudOcrProvider);
-                              const isEnabled = curCloudAct ? curCloudAct.is_enabled : false;
-                              const isSel = currentSubtask === "cloud_ocr";
-                              return (
-                                <div
-                                  key="cloud_ocr"
-                                  id="subtask-cloud-ocr"
-                                  data-subtask="cloud_ocr"
-                                  data-req="cloud_ocr"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "cloud_ocr" }))}
-                                  title={isEnabled ? "External cloud multimodal document recognition." : (curCloudAct?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Cloud Document AI</h4>
-                                    <span class={`action-tag action-tag--cloud ${isSel ? "active" : ""}`}>CLOUD</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    External cloud multimodal document recognition with fail-closed Kavacha authorization.
-                                  </p>
-                                  <div class="cloud-provider-chips" onClick={(e) => e.stopPropagation()}>
-                                    {cloudActs.map((cp) => {
-                                      const act = state.available_actions.find((a) => a.action_id === cp.id);
-                                      const isChipAvail = act ? act.is_enabled : false;
-                                      const isChipActive = cloudOcrProvider === cp.id;
-                                      return (
-                                        <button
-                                          key={cp.id}
-                                          id={`chip-${cp.id.replace(/_/g, "-")}`}
-                                          class={`cloud-chip ${isChipActive ? "active" : ""} ${!isChipAvail ? "disabled" : ""}`}
-                                          disabled={!isChipAvail}
-                                          title={isChipAvail ? cp.label : (act?.disabled_reason || "Unavailable")}
-                                          type="button"
-                                          onClick={() => {
-                                            setCloudOcrProvider(cp.id);
-                                            setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "cloud_ocr" }));
-                                          }}
-                                        >
-                                          {cp.label}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">{cloudOcrProvider}</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 1.5 Custom OCR */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "ocr");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "custom_ocr";
-                              return (
-                                <div
-                                  key="custom_ocr"
-                                  id="subtask-custom-ocr"
-                                  data-subtask="custom_ocr"
-                                  data-req="ocr"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, documents_extraction: "custom_ocr" }))}
-                                  title={isEnabled ? "Fine-grained control over OCR parameters." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Custom OCR</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>CUSTOM</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Fine-grained parameter control over OCR engine, language, and preprocessing toggles.
-                                  </p>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">ocr:custom</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </div>
-
-                          {/* Custom OCR Parameter Panel */}
-                          {currentSubtask === "custom_ocr" && ocrAction?.parameters.length ? (
-                            <div class="parameter-section">
-                              <div class="parameter-header">
-                                <span class="eyebrow">Parameters</span>
-                                <h4>Custom OCR Options</h4>
-                              </div>
-                              <div class="parameter-list">
-                                {ocrAction.parameters.map((parameter) => (
-                                  <ActionParameter
-                                    key={parameter.parameter_id}
-                                    parameter={parameter}
-                                    value={ocrCustomParams[parameter.parameter_id] ?? parameter.default_value}
-                                    onChange={(value) => {
-                                      setOcrCustomParams((prev) => ({ ...prev, [parameter.parameter_id]: value }));
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      )}
-
-                      {task.id === "bank_consolidation" && (
-                        <div class="subtasks-container">
-                          <div class="subtasks-grid">
-                            {/* 2.1 Instant Consolidation */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "bank_statements");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "instant";
-                              return (
-                                <div
-                                  key="instant"
-                                  id="subtask-instant-consolidation"
-                                  data-subtask="instant"
-                                  data-req="bank_statements"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, bank_consolidation: "instant" }))}
-                                  title={isEnabled ? "Throughput-optimized financial statement parsing." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Instant Consolidation</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>FAST</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Throughput-optimized parsing and standard reconciliation heuristics across financial statements.
-                                  </p>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">bank_statements:instant</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 2.2 Accurate Consolidation */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "bank_statements");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "accurate";
-                              return (
-                                <div
-                                  key="accurate"
-                                  id="subtask-accurate-consolidation"
-                                  data-subtask="accurate"
-                                  data-req="bank_statements"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, bank_consolidation: "accurate" }))}
-                                  title={isEnabled ? "Strict running balance verification and deduplication." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Accurate Consolidation</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>ACCURATE</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Strict running balance verification, debit/credit inversion detection, and multi-page pagination deduplication.
-                                  </p>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">bank_statements:accurate</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      )}
-
-                      {task.id === "font_conversion" && (
-                        <div class="subtasks-container">
-                          <div class="subtasks-grid">
-                            {/* 3.1 Legacy to Unicode */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "font_conversion");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "legacy_to_unicode";
-                              return (
-                                <div
-                                  key="legacy_to_unicode"
-                                  id="subtask-legacy-to-unicode"
-                                  data-subtask="legacy_to_unicode"
-                                  data-req="font_conversion"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, font_conversion: "legacy_to_unicode" }))}
-                                  title={isEnabled ? "Auto-detects legacy Hindi font encodings and converts to Unicode." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Legacy to Unicode</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>UNICODE</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Auto-detects non-Unicode Indian font encodings (KrutiDev, DevLys, Chanakya, Shusha, Shivaji) and converts to standardized Unicode Devanagari.
-                                  </p>
-                                  <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                    <label class="field mini" style={{ margin: 0 }}>
-                                      <span style={{ fontSize: "11px" }}>Source Font Hint</span>
-                                      <select
-                                        id="param-source-font"
-                                        value={sourceFont}
-                                        onChange={(e) => setSourceFont(e.currentTarget.value)}
-                                        style={{ padding: "3px 6px", fontSize: "11px" }}
-                                      >
-                                        <option value="">Auto-Detect Source Font</option>
-                                        <option value="krutidev010">KrutiDev 010 / DevLys</option>
-                                        <option value="chanakya010">Chanakya</option>
-                                        <option value="shusha010">Shusha</option>
-                                        <option value="shivaji010">Shivaji</option>
-                                      </select>
-                                    </label>
-                                  </div>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">font_conversion:auto_unicode</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 3.2 Unicode to KrutiDev */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "font_conversion");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "unicode_to_krutidev";
-                              return (
-                                <div
-                                  key="unicode_to_krutidev"
-                                  id="subtask-unicode-to-krutidev"
-                                  data-subtask="unicode_to_krutidev"
-                                  data-req="font_conversion"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, font_conversion: "unicode_to_krutidev" }))}
-                                  title={isEnabled ? "Reverses Unicode Devanagari text into legacy KrutiDev 010." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Unicode to KrutiDev</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>KRUTIDEV</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Reverses Unicode Devanagari text into legacy KrutiDev 010 typewriter encoding using precompiled reverse transducers.
-                                  </p>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">font_conversion:to_krutidev</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 3.3 Unicode to DevLys */}
-                            {(() => {
-                              const act = state.available_actions.find((a) => a.action_id === "font_conversion");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "unicode_to_devlys";
-                              return (
-                                <div
-                                  key="unicode_to_devlys"
-                                  id="subtask-unicode-to-devlys"
-                                  data-subtask="unicode_to_devlys"
-                                  data-req="font_conversion"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => setSubtaskByPrimary((prev) => ({ ...prev, font_conversion: "unicode_to_devlys" }))}
-                                  title={isEnabled ? "Reverses Unicode Devanagari text into legacy DevLys 010." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">Unicode to DevLys</h4>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>DEVLYS</span>
-                                  </div>
-                                  <p class="action-card-desc">
-                                    Reverses Unicode Devanagari text into legacy DevLys 010 typewriter encoding using precompiled reverse transducers.
-                                  </p>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">font_conversion:to_devlys</code>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      )}
-
-                      {task.id === "translation" && (
-                        <div class="subtasks-container">
-                          {/* Direction selector first */}
-                          <div class="translation-direction-toolbar" role="group" aria-label="Translation Direction">
-                            <button
-                              id="btn-direction-auto"
-                              data-dir=""
-                              class={`direction-seg-btn ${transDirection === "" ? "active" : ""}`}
-                              type="button"
-                              onClick={() => setTransDirection("")}
-                            >
-                              ⚡ Auto-Detect Language Direction
-                            </button>
-                            <button
-                              id="btn-direction-hi-en"
-                              data-dir="hi_en"
-                              class={`direction-seg-btn ${transDirection === "hi_en" ? "active" : ""}`}
-                              type="button"
-                              onClick={() => setTransDirection("hi_en")}
-                            >
-                              Hindi → English
-                            </button>
-                            <button
-                              id="btn-direction-en-hi"
-                              data-dir="en_hi"
-                              class={`direction-seg-btn ${transDirection === "en_hi" ? "active" : ""}`}
-                              type="button"
-                              onClick={() => setTransDirection("en_hi")}
-                            >
-                              English → Hindi
-                            </button>
-                          </div>
-
-                          {/* 6 Engine Choices */}
-                          <div class="subtasks-grid">
-                            {[
-                              {
-                                id: "indictrans2",
-                                actionId: "translation",
-                                label: "IndicTrans2 (Local)",
-                                tag: "INDICTRANS2",
-                                isCloud: false,
-                                desc: "AI4Bharat IndicTrans2 local Transformer. Optimized for high-fidelity 22 Indian languages.",
-                                code: "translation:indictrans2",
-                              },
-                              {
-                                id: "opus_mt",
-                                actionId: "translation",
-                                label: "Helsinki OPUS-MT (Local)",
-                                tag: "OPUS-MT",
-                                isCloud: false,
-                                desc: "Fast Marian-based neural translation engine running fully offline and local.",
-                                code: "translation:opus_mt",
-                              },
-                              {
-                                id: "gemini",
-                                actionId: "gemini_translation",
-                                label: "Google Gemini (Cloud)",
-                                tag: "GEMINI",
-                                isCloud: true,
-                                desc: "Google Gemini multimodal translation adapter. High context multilingual reasoning.",
-                                code: "gemini_translation",
-                              },
-                              {
-                                id: "mistral",
-                                actionId: "mistral_translation",
-                                label: "Mistral (Cloud)",
-                                tag: "MISTRAL",
-                                isCloud: true,
-                                desc: "Mistral AI European cloud translation adapter. Authorized by Kavacha.",
-                                code: "mistral_translation",
-                              },
-                              {
-                                id: "azure",
-                                actionId: "azure_translation",
-                                label: "Azure AI (Cloud)",
-                                tag: "AZURE",
-                                isCloud: true,
-                                desc: "Microsoft Azure AI Translator cloud service. Enterprise translation backbone.",
-                                code: "azure_translation",
-                              },
-                            ].map((eng) => {
-                              const act = state.available_actions.find((a) => a.action_id === eng.actionId);
-                              const isEnabled = act ? act.is_enabled : false;
-                              const isSel = currentSubtask === eng.id;
-                              return (
-                                <div
-                                  key={eng.id}
-                                  id={`subtask-engine-${eng.id.replace(/_/g, "-")}`}
-                                  data-subtask={eng.id}
-                                  data-req={eng.actionId}
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => {
-                                    setSubtaskByPrimary((prev) => ({ ...prev, translation: eng.id }));
-                                  }}
-                                  title={isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <div class="action-card-header">
-                                    <h4 class="action-card-name">{eng.label}</h4>
-                                    <span class={`action-tag ${eng.isCloud ? "action-tag--cloud" : ""} ${isSel ? "active" : ""}`}>
-                                      {eng.tag}
-                                    </span>
-                                  </div>
-                                  <p class="action-card-desc">{isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}</p>
-                                  <div class="action-card-footer">
-                                    <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                    <code class="action-code">{eng.code}</code>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <TaskSelector
+            primaryTask={primaryTask}
+            currentSubtask={currentSubtask}
+            subtaskByPrimary={subtaskByPrimary}
+            availableActions={state.available_actions}
+            cloudOcrProvider={cloudOcrProvider}
+            transDirection={transDirection}
+            statutoryEnabled={statutoryEnabled}
+            convertLegacyFonts={convertLegacyFonts}
+            layoutAnalysis={layoutAnalysis}
+            preserveLayout={preserveLayout}
+            sourceFont={sourceFont}
+            skipHeaderFooter={skipHeaderFooter}
+            ocrCustomParams={ocrCustomParams}
+            onSelectPrimaryTask={(task) => setPrimaryTask(task)}
+            onSelectSubtask={(primary, subtask) =>
+              setSubtaskByPrimary((prev) => ({ ...prev, [primary]: subtask }))
+            }
+            onSetCloudOcrProvider={(provider) => setCloudOcrProvider(provider)}
+            onSetTransDirection={(dir) => setTransDirection(dir)}
+            onSetStatutoryEnabled={(enabled) => setStatutoryEnabled(enabled)}
+            onSetConvertLegacyFonts={(enabled) => setConvertLegacyFonts(enabled)}
+            onSetLayoutAnalysis={(enabled) => setLayoutAnalysis(enabled)}
+            onSetPreserveLayout={(enabled) => setPreserveLayout(enabled)}
+            onSetSourceFont={(font) => setSourceFont(font)}
+            onSetSkipHeaderFooter={(enabled) => setSkipHeaderFooter(enabled)}
+            onSetOcrCustomParam={(key, val) =>
+              setOcrCustomParams((prev) => ({ ...prev, [key]: val }))
+            }
+          />
 
           {/* If no Level 1 task is selected, show instructional prompt */}
           {!primaryTask && (
@@ -1363,7 +593,10 @@ export function Home({
               <span class="level1-prompt-icon">👆</span>
               <div class="level1-prompt-text">
                 <strong>Select a Primary Task Above</strong>
-                <p>Choose one of the four primary tasks above to view its specific methods, engines, and configuration options.</p>
+                <p>
+                  Choose one of the four primary tasks above to view its specific methods, engines,
+                  and configuration options.
+                </p>
               </div>
             </div>
           )}
@@ -1377,7 +610,11 @@ export function Home({
               <h3 class="execution-plan-title">Execution Plan</h3>
             </div>
             <span class="preflight-status-text">
-              {!primaryTask ? "Select a task above" : preflight ? `${eligibleCount} eligible · ${issueCount} issues` : "Select inputs to validate"}
+              {!primaryTask
+                ? "Select a task above"
+                : preflight
+                ? `${eligibleCount} eligible · ${issueCount} issues`
+                : "Select inputs to validate"}
             </span>
           </div>
 
@@ -1391,7 +628,9 @@ export function Home({
           ) : plan ? (
             <div class="plan-details-box">
               <div class="plan-header-row">
-                <strong>{plan.document_count} document{plan.document_count === 1 ? "" : "s"}</strong>
+                <strong>
+                  {plan.document_count} document{plan.document_count === 1 ? "" : "s"}
+                </strong>
                 <span class="badge badge-emerald">Plan ready</span>
               </div>
               <div class="plan-stages-row">
@@ -1404,7 +643,12 @@ export function Home({
               </div>
               {plan.devices.length ? (
                 <small class="plan-devices">
-                  {plan.devices.map((device) => `${device.device_type}${device.is_available ? "" : " unavailable"}`).join(" · ")}
+                  {plan.devices
+                    .map(
+                      (device) =>
+                        `${device.device_type}${device.is_available ? "" : " unavailable"}`
+                    )
+                    .join(" · ")}
                 </small>
               ) : null}
             </div>
@@ -1415,11 +659,23 @@ export function Home({
           <button
             id="btn-start-run"
             class="button primary btn-primary btn-start-run"
-            disabled={working || !primaryTask || !eligiblePaths.length || !activeAction?.is_enabled || Boolean(planError)}
+            disabled={
+              working ||
+              !primaryTask ||
+              !eligiblePaths.length ||
+              !activeAction?.is_enabled ||
+              Boolean(planError)
+            }
             onClick={() => void handleStart()}
             type="button"
           >
-            <span>{working ? "Working…" : !primaryTask ? "Select a Task to Start" : "Start document processing"}</span>
+            <span>
+              {working
+                ? "Working…"
+                : !primaryTask
+                ? "Select a Task to Start"
+                : "Start document processing"}
+            </span>
             <span class="btn-bolt">⚡</span>
           </button>
         </section>
