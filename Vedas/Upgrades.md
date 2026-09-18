@@ -8,7 +8,7 @@ This document serves as the authoritative technical specification and design ref
 
 | # | Capability | Canonical Owner | Primary Target | Expected ROI |
 | :- | :--- | :--- | :--- | :--- |
-| **1** | **FontTools Integration & Font Inspector** | `shakti.font_conversion` | PDF embedded fonts & build-time profiles | 100% binary-level font identity, eliminates manual SFNT parser, modern font protection. |
+| **1** | **Legacy Font Identification & Staged Transduction (FontTools + SIL NRSI Oracle)** | `shakti.font_conversion` | PDF embedded fonts & legacy Devanagari text | 100% binary font identity + staged decoding fixing KrutiDev digits, dead Shusha reph, and variant deltas. |
 | **2** | **In-Place Multi-Part DOCX Transcoder** | `shakti.docx_exporter` | `.docx` documents with legacy fonts | Transcodes headers, footers, footnotes, and tables in-place with zero formatting loss. |
 | **3** | **Vector Drawing PDF Table Extractor** | `shakti.native_extraction` | Native vector-ruled PDFs (statements, gazettes) | Sub-millisecond table boundary reconstruction directly from vector strokes without neural models. |
 | **4** | **Banking Integrity & UTR/IFSC Auto-Repair** | `shakti.bank_statements` | Scanned & native financial statements | Mathematical double-entry balance verification and deterministic OCR confusion repair (`0`↔`O`, `1`↔`I`). |
@@ -17,18 +17,29 @@ This document serves as the authoritative technical specification and design ref
 
 ---
 
-## 1. FontTools Integration & Font Inspector
+## 1. Legacy Font Identification & Staged Transduction (FontTools & SIL NRSI Oracle)
 
 ### Objective
-Elevate legacy Indian font conversion from heuristic symptom recognition (name string normalization and text regex matching) to **authoritative binary font identification** whenever embedded font streams exist in document containers (such as PDFs).
+Pair **authoritative binary font identification** (inspecting embedded TrueType/OpenType font structures with FontTools) with **staged Devanagari decoding** derived from SIL NRSI's legacy conversion mapping tables (`silnrsi/wsresources/scripts/Deva/legacy`), replacing flat dictionary replacements with a staged pure-Python transduction pipeline and fixing critical profile bugs in KrutiDev and Shusha.
 
 ### Canonical Ownership
 - **Owner**: `sarathi.shakti.font_conversion`
-- **New Module**: `src/sarathi/shakti/font_conversion/font_inspector.py`
-- **Developer Tool**: `tools/audit_legacy_font.py`
-- **Consumer**: `sarathi.shakti.native_extraction.readers.pdf` (`_resolve_pdf_font_names`)
+- **Modules**:
+  - `src/sarathi/shakti/font_conversion/font_inspector.py` (Binary font identification & GSUB guard)
+  - `src/sarathi/shakti/font_conversion/converter.py` (Staged `AksharaConverter` execution pipeline)
+  - `src/sarathi/shakti/font_conversion/profiles.py` (Extended `LegacyFontProfile` schema & inheritance)
+- **Developer Tools**:
+  - `tools/audit_legacy_font.py` (TTF validation & cmap signature generator)
+  - `tools/audit_sil_legacy_maps.py` (Build-time SIL `.map` differential fixture generator)
+- **Profiles & Data**:
+  - `data/fonts/krutidev_base.json` (Shared KrutiDev rules)
+  - `data/fonts/krutidev010.json`, `krutidev011.json`, `krutidev290.json` (Variant overlay deltas)
+  - `data/fonts/shusha010.json` (Reconstructed authentic Shusha profile)
 
-### Technical Specification
+---
+
+### Part A: Binary Font Identification (FontTools)
+
 1. **Standards-Aware Name Table Parsing**:
    - Replaces the 47-line manual SFNT binary unpacker in `detector.py:40-87`.
    - Uses `fontTools.ttLib.TTFont(BytesIO(font_bytes), lazy=True)`.
@@ -48,6 +59,55 @@ Elevate legacy Indian font conversion from heuristic symptom recognition (name s
 5. **Build-Time Profile Auditor (`tools/audit_legacy_font.py`)**:
    - CLI utility validating `data/fonts/*.json` mapping profiles against canonical reference TTFs (`KrutiDev010.ttf`, `DevLys010.ttf`, `Chanakya.ttf`, `Shusha.ttf`, `Shivaji.ttf`).
    - Generates coverage reports: mapped character count, unmapped glyphs present in font, dead character mappings, and precomputed `cmap_signature`.
+
+---
+
+### Part B: Staged Transduction & Profile Audits (SIL NRSI Oracle)
+
+1. **Critical Profile Audits & Corrections**:
+   - **KrutiDev010 ASCII Digits Fix (P0)**:
+     - *Issue*: `data/fonts/krutidev010.json` erroneously mapped `"0": "०"` .. `"9": "९"`, corrupting dates (`19/09/2026`), bank account numbers, monetary amounts, and legal sections (`Section 138`) into Devanagari numerals.
+     - *Correction*: Align with SIL `KrutiDev010.map` (`ByteClass[OneToOneDigit]`): keep ASCII `48..57` (`0..9`) strictly as Latin digits, and map Alt-code bytes `131..140` to Devanagari numerals `१..९, ०`.
+     - *Heuristic Guard*: Provide `preserve_ascii_digits: bool = True` in `AksharaConverter` with profile/document override for non-standard hacked fonts.
+   - **Shusha Profile Reconstruction (P0)**:
+     - *Issue*: `data/fonts/shusha010.json` contained a fatal reph deadlock (`"postfix_reph": "R"` vs `"R": "उ"` being consumed in Step 3 before Step 4) and an artificial alphabetical placeholder (`a: क, b: ख... 1: र, 2: ल...`).
+     - *Correction*: Rebuild from SIL `Shusha.map`: consonant stem `a` (`VERTBAR`), ikar `i` (`105`), reph `-` (`45`), halant `\` (`92`), and nukta `,` (`44`), with authentic half-consonant and conjunct inventories.
+   - **KrutiDev 010 vs 011 vs 290 Variant Separation (P1)**:
+     - `krutidev010`: `SH_1/SH_2 = 147/148` (`श्`), `SHR_1/SHR_2 = 145/146` (`श्र्`).
+     - `krutidev011`: Swaps `145/146` (`श्`) and `147/148` (`श्र्`). Decoding 011 with 010 mappings inverts these characters.
+     - `krutidev290`: Nukta is byte `164` (not `43`), with distinct conjunct forms and half-letters.
+     - Implemented as variant deltas inheriting from a common `krutidev_base.json`.
+
+2. **7-Pass Pure-Python Staged Transduction Model**:
+   ```
+   Raw Legacy Text
+         ↓
+   Pass 1: Canonicalize Duplicate Presentation Glyphs (22 duplicate Kruti byte forms → canonical tokens)
+         ↓
+   Pass 2: Input Repair & Typist Artifacts (collapse duplicate nasals, typist reordering errors)
+         ↓
+   Pass 3: Context-Sensitive Rewrites (e.g. '%' after digit → ':', otherwise visarga 'ः')
+         ↓
+   Pass 4: Pre-Base Matra Reordering (reorder 'f' / 'i' across consonant clusters)
+         ↓
+   Pass 5: Longest-Match Forward Mapping (compiled regex transducer across multi/single-char mappings)
+         ↓
+   Pass 6: Postfix Reph Reordering (transpose 'Z' / '-' to syllable-initial Unicode 'र्')
+         ↓
+   Pass 7: Unicode NFC Normalization & Presentation Joiner Stripping
+         ↓
+   Canonical Clean Semantic Unicode Text
+   ```
+
+3. **Joiner Policy (Semantic Unicode vs Visual Round-Trip)**:
+   - SIL maps generate `् + ZWJ` (U+200D) and `् + ZWNJ` (U+200C) to support visual half-forms for round-trip legacy conversion.
+   - For Sarathi's search, extraction, and Indic translation pipeline, excess joiners fracture subword tokenization and NER.
+   - **Sarathi Invariant**: Strip unsemantic presentation joiners in Pass 7, emitting clean Unicode NFC, while preserving ZWJ only where orthographically mandatory (e.g. eyelash Ra `र्‍`).
+
+4. **Build-Time Differential Oracle (`tools/audit_sil_legacy_maps.py`)**:
+   - **Zero Native Dependency**: Does **not** introduce the TECkit C/C++ runtime into Sarathi. Keeps Sarathi 100% pure Python.
+   - **Offline Fixture Generation**: Parses human-readable SIL `.map` files into deterministic JSON test vectors under `tests/font_conversion/fixtures/sil/`.
+   - **Permanent Regression Guard**: Automatically validates Sarathi's `AksharaConverter` against SIL's canonical input/output pairs.
 
 ### Fallback Policy
 - `fonttools` is declared in `pyproject.toml` under optional dependencies `[font_conversion]` and `[dependency-groups] dev`.
@@ -205,6 +265,7 @@ uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --
 | Capability | Scoped Test Command | Success Invariants |
 | :--- | :--- | :--- |
 | **FontTools & Inspector** | `uv run --group dev pytest tests/font_conversion/test_font_inspector.py -q` | Correct family extraction from TTF bytes; GSUB modern font classification; symbol cmap detection. |
+| **SIL Differential Oracle** | `uv run --group dev pytest tests/font_conversion/test_sil_differential.py -q` | 100% agreement on KrutiDev 010/011/290 and Shusha test vectors; correct Latin digit preservation. |
 | **DOCX Transcoding** | `uv run --group dev pytest tests/font_conversion/test_docx_multipart.py -q` | Headers, footers, footnotes, and body converted to Unicode; all OpenXML styles and namespaces preserved. |
 | **Vector PDF Tables** | `uv run --group dev pytest tests/native_extraction/test_pdf_vector_tables.py -q` | Extract ruled tables with exact bounding boxes and cell contents without OCR. |
 | **Banking Integrity** | `uv run --group dev pytest tests/bank_statements/test_utr_repair.py -q` | Detect and repair corrupted UTR/IFSC codes; flag debit/credit balance mismatches with exact row references. |
