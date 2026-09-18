@@ -20,9 +20,11 @@ class GeminiTranslationCapability:
         self,
         client: GeminiClient | None = None,
         declaration: CapabilityDeclaration = GEMINI_TRANSLATION_DECLARATION,
+        default_model: str = "gemini-2.5-flash",
     ) -> None:
         self.declaration = declaration
         self._client = client or GeminiClient()
+        self.default_model = default_model
 
     def execute(
         self,
@@ -38,6 +40,6 @@ class GeminiTranslationCapability:
             translate_fn=self._client.chat_translate,
             provider_id="google_gemini",
             capability_id="gemini_translation",
-            default_model="gemini-2.5-flash",
+            default_model=self.default_model,
             declaration=self.declaration,
         )

@@ -15,7 +15,7 @@ All changes are validated directly on `main` against the 5 permanent CI gates.
 - **Bank Statement Processing**: Tabular statement parsing, header mapping, transaction normalization, and running balance reconciliation for HDFC, ICICI, SBI, and standard financial formats.
 - **Statutory & Legal Extraction**: Algorithmic extraction and mathematical checksum validation for PAN, TAN, GSTIN, CIN, CNR (eCourts), DIN, and IRN.
 - **OpenXML Output Generation**: Standardized DOCX generation and transformation with script-aware bilingual typography.
-- **Optional Cloud Providers**: Cloud adapters for Mistral AI, Google Gemini, Microsoft Azure, and Bhashini.
+- **Optional Cloud Providers**: Cloud adapters for Mistral AI, Google Gemini, and Microsoft Azure.
 
 ---
 

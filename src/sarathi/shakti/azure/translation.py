@@ -20,9 +20,11 @@ class AzureTranslationCapability:
         self,
         client: AzureClient | None = None,
         declaration: CapabilityDeclaration = AZURE_TRANSLATION_DECLARATION,
+        default_model: str = "azure-translator-v3",
     ) -> None:
         self.declaration = declaration
         self._client = client or AzureClient()
+        self.default_model = default_model
 
     def execute(
         self,
@@ -42,6 +44,6 @@ class AzureTranslationCapability:
             ),
             provider_id="azure",
             capability_id="azure_translation",
-            default_model="azure-translator-v3",
+            default_model=self.default_model,
             declaration=self.declaration,
         )

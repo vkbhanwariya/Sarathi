@@ -224,3 +224,63 @@ class TestCloudLegalTranslationCapabilities:
         with pytest.raises(DoshError) as exc_info:
             cap.execute(req, ctx)
         assert exc_info.value.code == FailureCode.OPERATION_CANCELLED
+
+    def test_batch_legal_context_isolation_across_documents(self) -> None:
+        doc_a = CanonicalDocument(
+            document_id="case-bombay",
+            source_input_id="inp-a",
+            text="IN THE HIGH COURT OF BOMBAY\nCNR No. MHBO010000012024\nPetitioner: State Bank\nSection 138 NI Act",
+        )
+        doc_b = CanonicalDocument(
+            document_id="case-delhi",
+            source_input_id="inp-b",
+            text="IN THE HIGH COURT OF DELHI AT NEW DELHI\nCNR No. DLHC010000022024\nPetitioner: Union of India\nSection 482 CrPC",
+        )
+
+        recorded_prompts: list[str | None] = []
+
+        def mock_translate(text: str, source_lang: str, target_lang: str, model: str, system_prompt: str | None = None) -> str:
+            recorded_prompts.append(system_prompt)
+            return f"[TR: {text}]"
+
+        mock_client = MagicMock(spec=GeminiClient)
+        mock_client.chat_translate.side_effect = mock_translate
+
+        cap = GeminiTranslationCapability(client=mock_client)
+        req = Request(
+            request_id="req-batch-isolation",
+            requirement="gemini_translation",
+            inputs=(
+                InputRef("inp-a", Path("case_a.txt"), "case_a.txt", 100),
+                InputRef("inp-b", Path("case_b.txt"), "case_b.txt", 100),
+            ),
+            metadata={"direction": "en-hi"},
+        )
+        ctx = ExecutionContext("run-1", "req-batch-isolation", "tr-1", "sp-1")
+
+        result = cap.execute(
+            req,
+            ctx,
+            prior_result=Result(data=(doc_a, doc_b)),
+        )
+
+        assert isinstance(result.data, tuple)
+        assert len(result.data) == 2
+        res_a, res_b = result.data
+
+        # Verify Doc A context has Bombay and NOT Delhi
+        ctx_a = res_a.metadata["legal_context"]
+        assert ctx_a["court_name"] == "High Court of Bombay"
+        assert ctx_a["cnr_number"] == "MHBO010000012024"
+        assert "Delhi" not in str(ctx_a)
+
+        # Verify Doc B context has Delhi and NOT Bombay
+        ctx_b = res_b.metadata["legal_context"]
+        assert ctx_b["court_name"] == "High Court of Delhi"
+        assert ctx_b["cnr_number"] == "DLHC010000022024"
+        assert "Bombay" not in str(ctx_b)
+
+        # Verify provenance isolation
+        assert len(result.provenance) == 2
+        assert result.provenance[0].evidence["legal_context"]["court_name"] == "High Court of Bombay"
+        assert result.provenance[1].evidence["legal_context"]["court_name"] == "High Court of Delhi"

@@ -142,94 +142,87 @@ def execute_cloud_translation(
             message="No document content available for translation.",
         )
 
-    # Extract legal context across inputs
-    combined_sample_text: list[str] = []
-    for _, d_or_s in docs_to_translate:
-        if isinstance(d_or_s, CanonicalDocument):
-            if d_or_s.text:
-                combined_sample_text.append(d_or_s.text)
-            elif d_or_s.pages:
-                combined_sample_text.extend(p.text for p in d_or_s.pages if p.text)
-        else:
-            combined_sample_text.append(str(d_or_s))
-
-    full_sample = "\n\n".join(combined_sample_text)
     builder = legal_builder or LegalContextBuilder()
     trans_direction = (
         TranslationDirection.EN_TO_HI if norm_dir.direction_key == "en-hi" else TranslationDirection.HI_TO_EN
     )
-    legal_context = builder.extract_context(
-        text=full_sample,
-        direction=trans_direction,
-        custom_options=request.custom_options,
-    )
-
-    system_prompt: str | None = None
-    if legal_context.is_legal_document:
-        system_prompt = builder.format_system_prompt(
-            context=legal_context,
-            source_lang=source_lang,
-            target_lang=target_lang,
-        )
 
     translated_docs: list[CanonicalDocument] = []
     all_payloads: list[ArtifactPayload] = []
-    trans_memo: dict[str, str] = {}
-
-    def _call_translate(text: str) -> str:
-        if not text or not text.strip():
-            return text
-        if is_structural_placeholder(text):
-            return text
-
-        if "{{" in text and ("{{TABLE:" in text or "{{PAGE:" in text):
-            chunks = _STRUCTURAL_SPLIT_RE.split(text)
-            translated_chunks: list[str] = []
-            for c in chunks:
-                if is_structural_placeholder(c):
-                    translated_chunks.append(c)
-                elif c.strip():
-                    translated_chunks.append(_call_translate(c))
-                else:
-                    translated_chunks.append(c)
-            return "".join(translated_chunks)
-
-        if text not in trans_memo:
-            # Invoke provider-specific translate callback
-            if system_prompt:
-                try:
-                    trans_memo[text] = translate_fn(
-                        text=text,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        model=model,
-                        system_prompt=system_prompt,
-                    )
-                except TypeError:
-                    trans_memo[text] = translate_fn(
-                        text=text,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        model=model,
-                    )
-            else:
-                trans_memo[text] = translate_fn(
-                    text=text,
-                    source_lang=source_lang,
-                    target_lang=target_lang,
-                    model=model,
-                )
-        return trans_memo[text]
+    all_provenance: list[ProvenanceRecord] = []
 
     for doc_id, doc_or_str in docs_to_translate:
         if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
             context.cancellation_token.check_cancelled()
 
+        # 1. Extract document-scoped text for isolated legal context extraction
+        doc_sample_parts: list[str] = []
+        if isinstance(doc_or_str, CanonicalDocument):
+            if doc_or_str.text:
+                doc_sample_parts.append(doc_or_str.text)
+            for t in doc_or_str.tables:
+                if t.headers:
+                    doc_sample_parts.append(" ".join(str(c) for c in t.headers))
+                for r in t.rows:
+                    doc_sample_parts.append(" ".join(str(c) for c in r))
+            if doc_or_str.pages:
+                doc_sample_parts.extend(p.text for p in doc_or_str.pages if p.text)
+        else:
+            doc_sample_parts.append(str(doc_or_str))
+
+        doc_sample = "\n\n".join(doc_sample_parts)
+
+        # 2. Compute document-isolated legal context and system prompt
+        doc_legal_context = builder.extract_context(
+            text=doc_sample,
+            direction=trans_direction,
+            custom_options=request.custom_options,
+        )
+        doc_system_prompt: str | None = None
+        if doc_legal_context.is_legal_document:
+            doc_system_prompt = builder.format_system_prompt(
+                context=doc_legal_context,
+                source_lang=source_lang,
+                target_lang=target_lang,
+            )
+
+        # 3. Document-scoped translation memo
+        trans_memo: dict[str, str] = {}
+
+        def _call_translate(text: str) -> str:
+            if not text or not text.strip():
+                return text
+            if is_structural_placeholder(text):
+                return text
+
+            if "{{" in text and ("{{TABLE:" in text or "{{PAGE:" in text):
+                chunks = _STRUCTURAL_SPLIT_RE.split(text)
+                translated_chunks: list[str] = []
+                for c in chunks:
+                    if is_structural_placeholder(c):
+                        translated_chunks.append(c)
+                    elif c.strip():
+                        translated_chunks.append(_call_translate(c))
+                    else:
+                        translated_chunks.append(c)
+                return "".join(translated_chunks)
+
+            if text not in trans_memo:
+                # Canonical callback contract: invoke translate_fn with document system prompt
+                trans_memo[text] = translate_fn(
+                    text=text,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    model=model,
+                    system_prompt=doc_system_prompt,
+                )
+            return trans_memo[text]
+
         metadata_updates: dict[str, Any] = {
             "model": model,
             "direction": f"{source_lang}->{target_lang}",
             "provider": provider_id,
-            "legal_context": legal_context.to_dict(),
+            "legal_context": doc_legal_context.to_dict(),
         }
 
         if isinstance(doc_or_str, CanonicalDocument):
@@ -296,22 +289,23 @@ def execute_cloud_translation(
             )
         all_payloads.append(docx_payload)
 
-    output_data = translated_docs[0] if len(translated_docs) == 1 else tuple(translated_docs)
+        all_provenance.append(
+            ProvenanceRecord(
+                source_input_id=doc_or_str.source_input_id if isinstance(doc_or_str, CanonicalDocument) else None,
+                capability_id=capability_id,
+                evidence={
+                    "model": model,
+                    "direction": f"{source_lang}->{target_lang}",
+                    "provider": provider_id,
+                    "legal_context": doc_legal_context.to_dict(),
+                },
+            )
+        )
 
-    provenance = (
-        ProvenanceRecord(
-            capability_id=capability_id,
-            evidence={
-                "model": model,
-                "direction": f"{source_lang}->{target_lang}",
-                "provider": provider_id,
-                "legal_context": legal_context.to_dict(),
-            },
-        ),
-    )
+    output_data = translated_docs[0] if len(docs_to_translate) == 1 else tuple(translated_docs)
 
     return Result(
         data=output_data,
         artifact_payloads=tuple(all_payloads),
-        provenance=provenance,
+        provenance=tuple(all_provenance),
     )

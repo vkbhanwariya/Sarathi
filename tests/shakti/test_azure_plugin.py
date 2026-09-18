@@ -89,6 +89,18 @@ class TestAzureProvider:
         assert isinstance(caps["azure_ocr"], AzureOCRCapability)
         assert isinstance(caps["azure_translation"], AzureTranslationCapability)
 
+    def test_provider_create_capabilities_with_custom_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AZURE_API_KEY", "test_key")
+        monkeypatch.setenv("AZURE_ENDPOINT", "https://test.cognitiveservices.azure.com")
+        provider = AzureProvider()
+        settings_mock = MagicMock()
+        settings_mock.get_section.return_value = {
+            "model_translation": "azure-custom-trans",
+        }
+        services = PluginServices(darpana=MagicMock(), settings=settings_mock)
+        caps = provider.create_capabilities(services)
+        assert caps["azure_translation"].default_model == "azure-custom-trans"
+
 
 class TestAzureClient:
     """Verify Azure REST client transport, headers, and error mappings."""

@@ -81,6 +81,19 @@ class TestGeminiProvider:
         assert isinstance(caps["gemini_ocr"], GeminiOCRCapability)
         assert isinstance(caps["gemini_translation"], GeminiTranslationCapability)
 
+    def test_provider_create_capabilities_with_custom_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GEMINI_API_KEY", "test_gemini_key_123")
+        provider = GeminiProvider()
+        settings_mock = MagicMock()
+        settings_mock.get_section.return_value = {
+            "model_ocr": "gemini-custom-ocr",
+            "model_translation": "gemini-custom-trans",
+        }
+        services = PluginServices(darpana=MagicMock(), settings=settings_mock)
+        caps = provider.create_capabilities(services)
+        assert caps["gemini_ocr"].default_model == "gemini-custom-ocr"
+        assert caps["gemini_translation"].default_model == "gemini-custom-trans"
+
 
 class TestGeminiClient:
     """Verify Gemini REST client transport, authentication headers, and zero-leak boundaries."""

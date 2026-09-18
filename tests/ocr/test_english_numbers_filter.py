@@ -77,7 +77,7 @@ def test_ocr_engine_routes_to_ppocrv6(tmp_path: Path) -> None:
 
     assert prov.evidence["model"] == "PP-OCRv6"
     assert prov.evidence["scope"] == "english_and_numbers"
-    assert "v6_en" in engine._engines
+    assert any(k.startswith("v6_en") for k in engine._engines)
 
 
 @pytest.mark.real_model

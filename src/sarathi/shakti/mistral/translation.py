@@ -20,9 +20,11 @@ class MistralTranslationCapability:
         self,
         client: MistralClient | None = None,
         declaration: CapabilityDeclaration = MISTRAL_TRANSLATION_DECLARATION,
+        default_model: str = "mistral-large-latest",
     ) -> None:
         self.declaration = declaration
         self._client = client or MistralClient()
+        self.default_model = default_model
 
     def execute(
         self,
@@ -38,6 +40,6 @@ class MistralTranslationCapability:
             translate_fn=self._client.chat_translate,
             provider_id="mistral",
             capability_id="mistral_translation",
-            default_model="mistral-large-latest",
+            default_model=self.default_model,
             declaration=self.declaration,
         )

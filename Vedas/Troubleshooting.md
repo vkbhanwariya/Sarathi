@@ -126,9 +126,6 @@ Concise fixes for common operational and runtime issues in Sarathi.
   allowed_secrets = [
       "AZURE_API_KEY",
       "AZURE_ENDPOINT",
-      "BHASHINI_API_KEY",
-      "BHASHINI_INFERENCE_KEY",
-      "BHASHINI_USER_ID",
       "GEMINI_API_KEY",
       "MISTRAL_API_KEY",
   ]

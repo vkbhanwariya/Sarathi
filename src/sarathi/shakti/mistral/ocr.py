@@ -40,10 +40,12 @@ class MistralOCRCapability:
         client: MistralClient | None = None,
         declaration: CapabilityDeclaration = MISTRAL_OCR_DECLARATION,
         darpana: Any | None = None,
+        default_model: str = "mistral-ocr-latest",
     ) -> None:
         self.declaration = declaration
         self._client = client or MistralClient()
         self._darpana = darpana
+        self.default_model = default_model
 
     def execute(
         self,
@@ -61,9 +63,9 @@ class MistralOCRCapability:
             context.cancellation_token.check_cancelled()
 
         model = (
-            request.custom_options.get("model", "mistral-ocr-latest")
+            request.custom_options.get("model", self.default_model)
             if request.custom_options
-            else "mistral-ocr-latest"
+            else self.default_model
         )
 
         all_docs: list[CanonicalDocument] = []

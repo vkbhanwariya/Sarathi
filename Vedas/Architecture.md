@@ -317,13 +317,6 @@ sarathi/
 │       │   │   ├── plugin.py          # Plugin declaration and requirements
 │       │   │   ├── provider.py        # Provider factory for Azure adapter registration
 │       │   │   └── translation.py     # Azure Translator capability implementation
-│       │   └── bhashini/              # Bhashini Indian Government AI cloud adapter
-│       │       ├── __init__.py        # Bhashini module namespace
-│       │       ├── client.py          # HTTP client communicating with Bhashini Dhruva inference pipelines
-│       │       ├── ocr.py             # Bhashini Chitrakshar OCR capability implementation
-│       │       ├── plugin.py          # Plugin declaration and requirements
-│       │       ├── provider.py        # Provider factory for Bhashini adapter registration
-│       │       └── translation.py     # Bhashini NMT translation capability implementation
 │       └── mukha/                     # Presentation, local web transport & UI subsystem
 │           ├── __init__.py            # Mukha module namespace
 │           ├── intake.py              # Ingests uploaded files and maps HTTP requests into pipeline inputs
@@ -590,7 +583,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`span_protection.py`](file:///e:/Sarathi/src/sarathi/shakti/text/span_protection.py): Common text span mask and restoration utilities.
   - [`transliteration.py`](file:///e:/Sarathi/src/sarathi/shakti/text/transliteration.py): Phonetic Romanized Indic (Hinglish) to Devanagari rule-based transducer.
   - [`typography.py`](file:///e:/Sarathi/src/sarathi/shakti/text/typography.py): Neutral typography helpers (Nirmala UI / Times New Roman).
-- **Cloud Adapters** (`azure/`, `gemini/`, `mistral/`, `bhashini/`):
+- **Cloud Adapters** (`azure/`, `gemini/`, `mistral/`):
   - Each contains `client.py` (REST client), `ocr.py` (OCR capability), `translation.py` (Translation capability), `plugin.py` (declaration), and `provider.py` (provider registration).
 
 ### 12. Mukha — Presentation & Local Web Transport (`src/sarathi/mukha/`)

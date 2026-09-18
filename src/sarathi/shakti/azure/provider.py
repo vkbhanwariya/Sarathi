@@ -64,9 +64,14 @@ class AzureProvider(PluginProvider):
 
     def create_capabilities(self, services: PluginServices) -> Mapping[str, Capability]:
         client = _build_client(services)
+        model_trans = "azure-translator-v3"
+        if services is not None and getattr(services, "settings", None) is not None:
+            sec = services.settings.get_section("azure")
+            if sec:
+                model_trans = str(sec.get("model_translation", model_trans))
         return {
             "azure_ocr": AzureOCRCapability(client=client, darpana=services.darpana),
-            "azure_translation": AzureTranslationCapability(client=client),
+            "azure_translation": AzureTranslationCapability(client=client, default_model=model_trans),
         }
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:

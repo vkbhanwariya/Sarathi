@@ -24,7 +24,7 @@ The Home screen user-facing processing choices will be limited to the following 
 - Optimize only the processing tasks presented to the user.
 - Do not redesign Document Intake, Execution Plan, navigation, monitoring, review, summary, or inspector screens as part of this decision.
 - Do not expose OCR, statutory/legal extraction, or provider-specific cloud actions as separate top-level Home tasks for now.
-- Do not expose Mistral, Gemini, Azure, Bhashini, or other provider-specific implementations as equal top-level tasks.
+- Do not expose Mistral, Gemini, Azure, or other provider-specific implementations as equal top-level tasks.
 - Preserve the underlying capabilities unless a later implementation decision explicitly removes or changes them; this decision concerns what the user sees on Home.
 
 ### Approved user-facing tasks
@@ -61,7 +61,7 @@ The Home screen user-facing processing choices will be limited to the following 
 4. **Cloud OCR**
    - Selecting this expands the available cloud OCR providers/options.
    - Cloud providers remain subordinate choices under this task rather than separate Home tasks.
-   - Supported cloud providers: Gemini (`gemini_ocr`), Mistral (`mistral_ocr`), Azure (`azure_ocr`), Bhashini (`bhashini_ocr`).
+   - Supported cloud providers: Gemini (`gemini_ocr`), Mistral (`mistral_ocr`), Azure (`azure_ocr`).
 
 5. **Custom OCR**
    - Exposes the full OCR configuration surface.
@@ -111,23 +111,19 @@ The Home screen user-facing processing choices will be limited to the following 
    - On-device/local translation engine.
    - Backend mapping: `requirement="translation"`, `custom_options={"engine": "opus_mt"}`.
 
-3. **Bhashini**
-   - Bhashini translation service/engine.
-   - Backend mapping: `requirement="bhashini_translation"`.
-
-4. **Mistral**
+3. **Mistral**
    - Mistral cloud translation engine.
    - Backend mapping: `requirement="mistral_translation"`.
 
-5. **Gemini**
+4. **Gemini**
    - Google Gemini cloud translation engine.
    - Backend mapping: `requirement="gemini_translation"`.
 
-6. **Azure Translator**
+5. **Azure Translator**
    - Microsoft Azure cloud translation engine.
    - Backend mapping: `requirement="azure_translation"`.
 
-- These six are the approved Translation choices for now.
+- These five are the approved Translation choices for now.
 - Sarvam AI Translation is not part of the approved Translation list for now.
 - Provider-specific translation engines remain under Translation rather than appearing as separate top-level Home tasks.
 
@@ -140,7 +136,6 @@ The following are not to be presented as separate top-level Home tasks for now:
 - Mistral Cloud OCR
 - Google Gemini Cloud OCR
 - Azure Document Intelligence OCR
-- Bhashini Chitrakshar OCR
 
 ---
 

@@ -16,9 +16,6 @@ allow_external_processing = true
 allowed_secrets = [
     "AZURE_API_KEY",
     "AZURE_ENDPOINT",
-    "BHASHINI_API_KEY",
-    "BHASHINI_INFERENCE_KEY",
-    "BHASHINI_USER_ID",
     "GEMINI_API_KEY",
     "MISTRAL_API_KEY",
 ]
@@ -45,7 +42,5 @@ timeout_seconds = 60
 
 [azure]
 api_version = "2024-11-30"
-timeout_seconds = 60
-
-[bhashini]
+model_translation = "azure-translator-v3"
 timeout_seconds = 60

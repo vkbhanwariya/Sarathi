@@ -49,9 +49,23 @@ class MistralProvider(PluginProvider):
 
     def create_capabilities(self, services: PluginServices) -> Mapping[str, Capability]:
         client = _build_client(services)
+        model_ocr = "mistral-ocr-latest"
+        model_trans = "mistral-large-latest"
+        if services is not None and getattr(services, "settings", None) is not None:
+            sec = services.settings.get_section("mistral")
+            if sec:
+                model_ocr = str(sec.get("model_ocr", model_ocr))
+                model_trans = str(sec.get("model_translation", model_trans))
         return {
-            "mistral_ocr": MistralOCRCapability(client=client, darpana=services.darpana),
-            "mistral_translation": MistralTranslationCapability(client=client),
+            "mistral_ocr": MistralOCRCapability(
+                client=client,
+                darpana=services.darpana,
+                default_model=model_ocr,
+            ),
+            "mistral_translation": MistralTranslationCapability(
+                client=client,
+                default_model=model_trans,
+            ),
         }
 
     def readiness(self, services: PluginServices | None = None) -> Mapping[str, CapabilityReadiness]:

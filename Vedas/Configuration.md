@@ -47,9 +47,6 @@ Default `allowed_secrets` in `config/settings.toml`:
 allowed_secrets = [
     "AZURE_API_KEY",
     "AZURE_ENDPOINT",
-    "BHASHINI_API_KEY",
-    "BHASHINI_INFERENCE_KEY",
-    "BHASHINI_USER_ID",
     "GEMINI_API_KEY",
     "MISTRAL_API_KEY",
 ]
@@ -143,14 +140,5 @@ The following sections configure external cloud adapters. These settings are con
 | `translator_region` | `str \| None` | `None` | Azure Translator region (overrides `AZURE_TRANSLATOR_REGION`). |
 | `translator_endpoint` | `str` | `"https://api.cognitive.microsofttranslator.com"` | Endpoint URL for Azure Translator. |
 | `api_version` | `str` | `"2024-11-30"` | Azure Document Intelligence API version. |
-| `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |
-
-### `[bhashini]`
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `user_id` | `str \| None` | `None` | Bhashini user ID (overrides `BHASHINI_USER_ID`). |
-| `api_key` | `str \| None` | `None` | Bhashini API key (overrides `BHASHINI_API_KEY`). |
-| `inference_key` | `str \| None` | `None` | Bhashini inference key (overrides `BHASHINI_INFERENCE_KEY`). |
-| `pipeline_url` | `str` | `"https://dhruva-api.bhashini.gov.in/services/inference/pipeline"` | Inference pipeline endpoint URL. |
+| `model_translation` | `str` | `"azure-translator-v3"` | Model name for Azure translation. |
 | `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |

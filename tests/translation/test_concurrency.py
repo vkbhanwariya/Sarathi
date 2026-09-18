@@ -293,7 +293,12 @@ def test_ctranslate2_concurrency_cache_key_differentiates_profiles() -> None:
     from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 
     engine = CTranslate2TranslationEngine()
-    backend = engine._ensure_backend()
+    try:
+        backend = engine._ensure_backend()
+    except DoshError as exc:
+        if exc.code == FailureCode.DEPENDENCY_UNAVAILABLE:
+            pytest.skip("CTranslate2 neural model weights not provisioned.")
+        raise
 
     b1 = ExecutionBinding(
         device_id="cpu-0",
@@ -330,7 +335,12 @@ def test_ctranslate2_does_not_mutate_global_openmp_env(monkeypatch: pytest.Monke
     monkeypatch.delenv("MKL_NUM_THREADS", raising=False)
 
     engine = CTranslate2TranslationEngine()
-    backend = engine._ensure_backend()
+    try:
+        backend = engine._ensure_backend()
+    except DoshError as exc:
+        if exc.code == FailureCode.DEPENDENCY_UNAVAILABLE:
+            pytest.skip("CTranslate2 neural model weights not provisioned.")
+        raise
     backend.translate_sentences(["Testing thread isolation"], TranslationDirection.EN_TO_HI)
 
     import os

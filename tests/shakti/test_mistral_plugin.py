@@ -29,6 +29,7 @@ from sarathi.sankalpa import (
     InputRef,
     PageData,
     PluginProvider,
+    PluginServices,
     ReadinessStatus,
     Request,
     Result,
@@ -89,6 +90,19 @@ class TestMistralDeclarationsAndProvider:
         assert readiness["mistral_ocr"].ready is True
         assert readiness["mistral_ocr"].status == ReadinessStatus.READY
         assert readiness["mistral_translation"].ready is True
+
+    def test_provider_create_capabilities_with_custom_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MISTRAL_API_KEY", "test_key_12345")
+        provider = MistralProvider()
+        settings_mock = MagicMock()
+        settings_mock.get_section.return_value = {
+            "model_ocr": "mistral-custom-ocr",
+            "model_translation": "mistral-custom-trans",
+        }
+        services = PluginServices(darpana=MagicMock(), settings=settings_mock)
+        caps = provider.create_capabilities(services)
+        assert caps["mistral_ocr"].default_model == "mistral-custom-ocr"
+        assert caps["mistral_translation"].default_model == "mistral-custom-trans"
 
 
 class TestKavachaSecurityGating:

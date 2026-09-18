@@ -159,7 +159,7 @@ class GeminiClient:
 
         sys_inst = system_prompt or kwargs.get("system_instruction")
         if sys_inst:
-            prompt = f"{sys_inst}\n\n### Document Content to Translate:\n{text}"
+            prompt = f"### Document Content to Translate:\n{text}"
         else:
             prompt = (
                 f"You are a professional legal and technical document translator.\n"

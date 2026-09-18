@@ -41,10 +41,12 @@ class GeminiOCRCapability:
         client: GeminiClient | None = None,
         declaration: CapabilityDeclaration = GEMINI_OCR_DECLARATION,
         darpana: Any | None = None,
+        default_model: str = "gemini-2.5-flash",
     ) -> None:
         self.declaration = declaration
         self._client = client or GeminiClient()
         self._darpana = darpana
+        self.default_model = default_model
 
     def execute(
         self,
@@ -62,7 +64,7 @@ class GeminiOCRCapability:
             context.cancellation_token.check_cancelled()
 
         model = (
-            request.custom_options.get("model", "gemini-2.5-flash") if request.custom_options else "gemini-2.5-flash"
+            request.custom_options.get("model", self.default_model) if request.custom_options else self.default_model
         )
 
         all_docs: list[CanonicalDocument] = []

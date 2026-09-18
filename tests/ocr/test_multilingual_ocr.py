@@ -55,7 +55,7 @@ def test_multilingual_default_engine_routing(tmp_path: Path) -> None:
     )
 
     assert prov.evidence.get("model") == "PP-OCRv5-Devanagari"
-    assert "devanagari" in engine._engines
+    assert any(k.startswith("devanagari") for k in engine._engines)
 
 
 @pytest.mark.real_model
@@ -75,7 +75,7 @@ def test_multilingual_devanagari_engine_routing(tmp_path: Path) -> None:
     )
 
     assert prov.evidence.get("model") == "PP-OCRv5-Devanagari"
-    assert "devanagari" in engine._engines
+    assert any(k.startswith("devanagari") for k in engine._engines)
 
 
 @pytest.mark.real_model
@@ -95,7 +95,7 @@ def test_multilingual_v6_english_engine_routing(tmp_path: Path) -> None:
     )
 
     assert prov.evidence.get("model") == "PP-OCRv6"
-    assert "v6_en" in engine._engines
+    assert any(k.startswith("v6_en") for k in engine._engines)
 
 
 def test_capability_validates_unsupported_language(tmp_path: Path) -> None:

@@ -104,7 +104,7 @@ Assembles standardized OpenXML `.docx` documents and transforms existing DOCX pa
 
 ---
 
-## 8. Optional Cloud Providers (`mistral`, `gemini`, `azure`, `bhashini`)
+## 8. Optional Cloud Providers (`mistral`, `gemini`, `azure`)
 
 Integrates optional external cloud services for OCR and translation when local execution is not requested or requires cloud assistance.
 
@@ -113,7 +113,7 @@ Integrates optional external cloud services for OCR and translation when local e
 - **Main Fallback Behavior**: Cloud providers run only when authorized by Kavacha. If network access or credentials are not configured, readiness checks report the provider as unavailable and Manthan rejects the plan rather than silently falling back to unrequested services.
 - **Relevant Configuration**:
   - `[security]`: `allow_network_access = true`, `allow_external_processing = true`, and secret names listed in `allowed_secrets`.
-  - Sections: `[mistral]`, `[gemini]`, `[azure]`, `[bhashini]`.
+  - Sections: `[mistral]`, `[gemini]`, `[azure]`.
 - **Known Limitations**: Requires active internet connectivity and valid API credentials. Subject to external network latency, provider rate limits, and egress policy.
 
 ---

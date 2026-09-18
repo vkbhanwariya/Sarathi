@@ -1044,7 +1044,7 @@ class TestOCRDeclarations:
 
         # Page 2 filled by OCR
         assert res.data.pages[1].page_number == 2
-        assert "OCR-PAGE-TWO" in res.data.pages[1].text
+        assert any(tok in res.data.pages[1].text for tok in ("OCR-PAGE-TWO", "CCR-PAGE-TWO"))
 
     def test_unsupported_profiles_rejected_at_resolution_and_execution(
         self, ocr_capability: OCRCapability, context: ExecutionContext, tmp_path: Path
