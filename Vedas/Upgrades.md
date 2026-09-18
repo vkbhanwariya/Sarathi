@@ -164,7 +164,13 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
 6. **Mapping Candidate Miner from Aligned Pairs (`tools/mine_mapping_candidates.py`)**:
    - Mines new or missing legacy glyph mappings from dual-stream born-digital PDFs (raw legacy byte stream paired with verified Unicode OCR/reference text).
    - Uses weighted sequence alignment across Unicode akshara boundaries to extract `MappingCandidate(legacy, unicode, support, confidence)`.
-   - Discovered candidates (such as the 109 KrutiDev candidates identified in AksharEngine) are audited against SIL and FontTools consensus before being committed to canonical profiles via `anubhava.toml`.
+   - Staged into `anubhava.toml` for human verification before promotion into canonical profiles.
+
+7. **Multi-Source Consensus Triangulation & Candidate Auditing**:
+   - Evaluates mined mapping candidates and external datasets across independent reference sources:
+     $$\text{Consensus Target} = \text{Mode}(\text{SIL TECkit}, \text{Sarathi}, \text{AksharEngine}, \text{KrutiExtract}, \text{FontTools TTF Outlines})$$
+   - Audits the 109 KrutiDev mapping candidates absent from Sarathi and resolves the 24 conflicting definitions (e.g. `ñ`, `…`, `‰`, `—`, `é`, `«`, `|`, `æ`, `ô`, `T`, `÷`, `ê`, `ë`, `è`, `Í`, `‚`, `·`, `\`, `+`, `&`) using vector glyph outline matching before promotion.
+   - Safely incorporates missing conjuncts (`ट्ट`, `ट्ठ`, `ड्ड`, `ड्ढ`, `छ्य`, `ट्य`, `ठ्य`, `ड्य`, `ढ्य`, `ट्र`, `ड्र`) and nukta consonants (`क़`, `ख़`, `ग़`, `ज़`, `ड़`, `ढ़`, `फ़`, `ऩ`, `ऱ`).
 
 ---
 
@@ -199,8 +205,8 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
 
 6. **Phased Implementation Roadmap**:
    - **Phase 1 (Ingestion & Arbitration)**: Stream-order PDF extraction in `pdf.py`, font-run arbitration (`TextSpan.font_name`), and MacRoman byte normalizer.
-   - **Phase 2 (Staged Decoder & Profile Audits)**: P0 ASCII digits fix in `krutidev010.json`, authentic Shusha reconstruction, and 7-pass transduction in `converter.py`.
-   - **Phase 3 (Variant Deltas & FontTools Guard)**: Profile inheritance (`krutidev_base.json` + `011`/`290` deltas) and `font_inspector.py`.
+   - **Phase 2 (Declarative Decoder & Profile Audits)**: P0 ASCII digits fix in `krutidev010.json`, authentic Shusha reconstruction, declarative 7-pass transduction in `converter.py`, and unmapped symbol histogram telemetry.
+   - **Phase 3 (Variant Deltas & Reverse Fidelity)**: Profile inheritance (`krutidev_base.json` + `011`/`290` deltas), explicit `reverse_preferred` schema enforcement, and `font_inspector.py`.
    - **Phase 4 (Verification & Benchmarking Tools)**: SIL differential oracle fixtures, `tools/audit_font_profile.py`, `tools/mine_mapping_candidates.py`, `tools/glyph_sheet.py`, and `tools/benchmark_ocr_legacy_gold.py`.
 
 ### Fallback Policy
