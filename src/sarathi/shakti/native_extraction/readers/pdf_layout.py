@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pymupdf
@@ -47,6 +49,271 @@ def _point_in_bbox(px: float, py: float, bbox: tuple[float, float, float, float]
     return (x0 - margin) <= px <= (x1 + margin) and (y0 - margin) <= py <= (y1 + margin)
 
 
+def _process_single_page(
+    page: Any,
+    page_idx: int,
+    total_pages: int,
+    input_id: str,
+    skip_header_footer: bool,
+) -> tuple[int, PageData, ProvenanceRecord, list[WarningRecord], list[TableData], str]:
+    """Process layout analysis and text/table extraction for a single PDF page."""
+    page_num = page_idx + 1
+    warnings: list[WarningRecord] = []
+
+    # Execute GNN layout analysis on page
+    layout_items: list[list[Any]] = []
+    try:
+        page.get_layout()
+        layout_items = page.layout_information or []
+    except Exception as layout_exc:
+        warnings.append(
+            WarningRecord(
+                code="LAYOUT_ANALYSIS_DEGRADED",
+                message=f"GNN layout analysis degraded on page {page_num}: {layout_exc}",
+                stage=CAPABILITY_ID,
+            )
+        )
+
+    # Extract raw rich lines and spans from page with font-metric whitespace preservation
+    raw_lines: list[dict[str, Any]] = []
+    try:
+        page_dict = page.get_text("dict", flags=_PDF_TEXT_FLAGS)
+        for block in page_dict.get("blocks", []):
+            if "lines" in block:
+                for line in block["lines"]:
+                    line_spans_data: list[tuple[str, tuple[float, float, float, float], float]] = []
+                    spans_objs: list[TextSpan] = []
+                    l_bbox = tuple(float(v) for v in line.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                    for s in line.get("spans", []):
+                        s_text = s.get("text", "")
+                        if isinstance(s_text, str) and s_text:
+                            s_bbox = tuple(float(v) for v in s.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                            s_size = float(s.get("size", 12.0))
+                            s_font = str(s.get("font", ""))
+                            line_spans_data.append((s_text, s_bbox, s_size))
+                            if s_text.strip():
+                                spans_objs.append(
+                                    TextSpan(
+                                        text=s_text.strip(),
+                                        bounding_box=s_bbox,
+                                        metadata={
+                                            "font_name": s_font,
+                                            "font_size_pt": round(s_size, 1),
+                                            "is_heading": s_size >= 14.0,
+                                        },
+                                    )
+                                )
+                    if line_spans_data:
+                        line_str = reconstruct_line_from_spans(line_spans_data)
+                        lcx = (l_bbox[0] + l_bbox[2]) / 2.0
+                        lcy = (l_bbox[1] + l_bbox[3]) / 2.0
+                        raw_lines.append({
+                            "bbox": l_bbox,
+                            "cx": lcx,
+                            "cy": lcy,
+                            "line_text": line_str,
+                            "spans": spans_objs,
+                        })
+    except Exception:
+        warnings.append(
+            WarningRecord(
+                code="PDF_RICH_SPAN_EXTRACTION_DEGRADED",
+                message=f"Rich span extraction degraded on page {page_num}.",
+                stage=CAPABILITY_ID,
+            )
+        )
+
+    # Map lines and spans to GNN layout items and assign semantic labels
+    ordered_spans: list[TextSpan] = []
+    classes_detected: set[str] = set()
+    assigned_line_indices: set[int] = set()
+    item_blocks: list[tuple[str, list[str]]] = []
+
+    if layout_items:
+        for item_idx, item in enumerate(layout_items):
+            x0, y0, x1, y1, cls_name = float(item[0]), float(item[1]), float(item[2]), float(item[3]), str(item[4])
+            classes_detected.add(cls_name)
+            item_bbox = (x0, y0, x1, y1)
+
+            is_hdr_ftr = cls_name in _HEADER_FOOTER_CLASSES
+            is_hdg = cls_name in _HEADING_CLASSES
+            hdg_lvl = 1 if cls_name == "title" else (2 if cls_name == "section-header" else None)
+
+            item_lines: list[str] = []
+            for l_idx, line_info in enumerate(raw_lines):
+                if l_idx not in assigned_line_indices and _point_in_bbox(line_info["cx"], line_info["cy"], item_bbox):
+                    assigned_line_indices.add(l_idx)
+                    item_lines.append(line_info["line_text"])
+                    for span in line_info["spans"]:
+                        meta = dict(span.metadata)
+                        meta["layout_class"] = cls_name
+                        meta["layout_order"] = item_idx
+                        if is_hdg:
+                            meta["is_heading"] = True
+                            meta["heading_level"] = hdg_lvl
+                        if is_hdr_ftr:
+                            meta["is_header_footer"] = True
+
+                        ordered_spans.append(
+                            TextSpan(
+                                text=span.text,
+                                bounding_box=span.bounding_box,
+                                confidence=span.confidence,
+                                language=span.language,
+                                script=span.script,
+                                metadata=meta,
+                            )
+                        )
+            if item_lines:
+                if cls_name == "table":
+                    t_num = sum(1 for c, _ in item_blocks if c == "table") + 1
+                    item_blocks.append((cls_name, [f"{{{{TABLE:Page_{page_num}_Table_{t_num}}}}}"]))
+                else:
+                    item_blocks.append((cls_name, item_lines))
+
+    # Append any unassigned lines in their natural spatial order
+    unassigned_lines: list[str] = []
+    for l_idx, line_info in enumerate(raw_lines):
+        if l_idx not in assigned_line_indices:
+            unassigned_lines.append(line_info["line_text"])
+            ordered_spans.extend(line_info["spans"])
+
+    if unassigned_lines:
+        item_blocks.append(("unassigned", unassigned_lines))
+
+    # Extract tables with GNN neural table region guidance
+    page_tables: list[TableData] = []
+    table_layout_items = [item for item in layout_items if len(item) >= 5 and item[4] == "table"]
+
+    if table_layout_items:
+        for t_idx, t_item in enumerate(table_layout_items, 1):
+            clip_rect = pymupdf.Rect(float(t_item[0]), float(t_item[1]), float(t_item[2]), float(t_item[3]))
+            try:
+                tabs = page.find_tables(clip=clip_rect)
+                if tabs and tabs.tables:
+                    for tab in tabs.tables:
+                        extracted_rows = tab.extract()
+                        if extracted_rows:
+                            headers = tuple(str(h or "") for h in extracted_rows[0])
+                            data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
+                            t_obj = TableData(
+                                name=f"Page_{page_num}_Table_{t_idx}",
+                                headers=headers,
+                                rows=data_rows,
+                                metadata={
+                                    "bounding_box": (
+                                        float(t_item[0]),
+                                        float(t_item[1]),
+                                        float(t_item[2]),
+                                        float(t_item[3]),
+                                    )
+                                },
+                            )
+                            page_tables.append(t_obj)
+            except Exception:
+                pass
+
+    # Fallback table extraction if GNN didn't find any or find_tables in clip yielded none
+    if not page_tables:
+        try:
+            tabs = page.find_tables()
+            if tabs and tabs.tables:
+                for t_idx, tab in enumerate(tabs.tables, 1):
+                    extracted_rows = tab.extract()
+                    if extracted_rows:
+                        headers = tuple(str(h or "") for h in extracted_rows[0])
+                        data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
+                        t_meta = {}
+                        if getattr(tab, "bbox", None) is not None:
+                            t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
+                        t_obj = TableData(
+                            name=f"Page_{page_num}_Table_{t_idx}",
+                            headers=headers,
+                            rows=data_rows,
+                            metadata=t_meta,
+                        )
+                        page_tables.append(t_obj)
+        except Exception:
+            pass
+
+    # Synthesize ordered page text with proper line and paragraph spacing
+    block_strings: list[str] = []
+    page_headers: list[str] = []
+    page_footers: list[str] = []
+    for cls_name, lines in item_blocks:
+        block_content = "\n".join(lines).strip()
+        if not block_content:
+            continue
+        if cls_name == "page-header":
+            page_headers.append(block_content)
+            if skip_header_footer:
+                continue
+        elif cls_name == "page-footer":
+            page_footers.append(block_content)
+            if skip_header_footer:
+                continue
+        block_strings.append(block_content)
+
+    if block_strings:
+        page_text = "\n\n".join(block_strings)
+    else:
+        raw_fallback = page.get_text("text", flags=_PDF_TEXT_FLAGS).strip()
+        page_text = normalize_text_spacing(raw_fallback)
+
+    page_meta: dict[str, Any] = {"layout_classes": tuple(sorted(classes_detected))}
+    if page_headers:
+        page_meta["header"] = "\n\n".join(page_headers)
+    if page_footers:
+        page_meta["footer"] = "\n\n".join(page_footers)
+
+    page_data = PageData(
+        page_number=page_num,
+        text=page_text,
+        spans=tuple(ordered_spans),
+        tables=tuple(page_tables),
+        metadata=page_meta,
+    )
+
+    provenance = ProvenanceRecord(
+        source_input_id=input_id,
+        stage=STAGE_NAME,
+        plugin_id=PLUGIN_ID,
+        capability_id=CAPABILITY_ID,
+        page_number=page_num,
+        evidence={
+            "reader": "pymupdf_layout",
+            "model": "BoxRFDGNN",
+            "page_count": total_pages,
+            "layout_elements_count": len(layout_items),
+            "classes_detected": sorted(classes_detected),
+            "has_native_text": bool(page_text),
+            "table_count": len(page_tables),
+        },
+    )
+
+    return page_idx, page_data, provenance, warnings, page_tables, page_text
+
+
+def _process_page_chunk(
+    data: bytes,
+    page_indices: list[int],
+    total_pages: int,
+    input_id: str,
+    skip_header_footer: bool,
+) -> list[tuple[int, PageData, ProvenanceRecord, list[WarningRecord], list[TableData], str]]:
+    """Worker task processing a sequence of pages with its own independent Document instance."""
+    import pymupdf.layout as _pymupdf_layout  # noqa: F401
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    results = []
+    try:
+        for p_idx in page_indices:
+            page = doc[p_idx]
+            results.append(_process_single_page(page, p_idx, total_pages, input_id, skip_header_footer))
+        return results
+    finally:
+        doc.close()
+
+
 def read_pdf_with_layout(
     data: bytes,
     input_id: str,
@@ -57,264 +324,75 @@ def read_pdf_with_layout(
     Uses Graph Neural Networks (BoxRFDGNN) trained on PDF vector topologies to
     extract semantic entities (title, section-header, list-item, table, page-header, page-footer),
     resolve multi-column topological reading order, and isolate table grids.
+    Multi-page documents are processed concurrently across CPU worker threads.
     """
     import pymupdf.layout as _pymupdf_layout  # noqa: F401 # Ensures activation of pymupdf._get_layout
 
     doc = pymupdf.open(stream=data, filetype="pdf")
+    try:
+        total_pages = len(doc)
+    finally:
+        doc.close()
+
+    if total_pages == 0:
+        return (
+            CanonicalDocument(
+                document_id=f"doc-{input_id}",
+                source_input_id=input_id,
+                pages=(),
+                tables=(),
+                text="",
+                detected_type="pdf",
+            ),
+            (),
+            (),
+        )
+
+    if total_pages == 1:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        try:
+            raw_results = [_process_single_page(doc[0], 0, 1, input_id, skip_header_footer)]
+        finally:
+            doc.close()
+    else:
+        max_workers = min(total_pages, min(os.cpu_count() or 4, 6))
+        chunks: list[list[int]] = [[] for _ in range(max_workers)]
+        for idx in range(total_pages):
+            chunks[idx % max_workers].append(idx)
+        active_chunks = [c for c in chunks if c]
+
+        with ThreadPoolExecutor(max_workers=len(active_chunks), thread_name_prefix="sarathi-layout") as executor:
+            futures = [
+                executor.submit(
+                    _process_page_chunk,
+                    data,
+                    chunk,
+                    total_pages,
+                    input_id,
+                    skip_header_footer,
+                )
+                for chunk in active_chunks
+            ]
+            raw_results = []
+            for future in futures:
+                raw_results.extend(future.result())
+
+    # Sort results strictly by page_idx to maintain exact canonical document order
+    raw_results.sort(key=lambda r: r[0])
+
     pages: list[PageData] = []
     provenances: list[ProvenanceRecord] = []
     warnings: list[WarningRecord] = []
     full_text_parts: list[str] = []
     all_doc_tables: list[TableData] = []
 
-    try:
-        total_pages = len(doc)
-        for page_idx in range(total_pages):
-            page_num = page_idx + 1
-            page = doc[page_idx]
-
-            # Execute GNN layout analysis on page
-            layout_items: list[list[Any]] = []
-            try:
-                page.get_layout()
-                layout_items = page.layout_information or []
-            except Exception as layout_exc:
-                warnings.append(
-                    WarningRecord(
-                        code="LAYOUT_ANALYSIS_DEGRADED",
-                        message=f"GNN layout analysis degraded on page {page_num}: {layout_exc}",
-                        stage=CAPABILITY_ID,
-                    )
-                )
-
-            # Extract raw rich lines and spans from page with font-metric whitespace preservation
-            raw_lines: list[dict[str, Any]] = []
-            try:
-                page_dict = page.get_text("dict", flags=_PDF_TEXT_FLAGS)
-                for block in page_dict.get("blocks", []):
-                    if "lines" in block:
-                        for line in block["lines"]:
-                            line_spans_data: list[tuple[str, tuple[float, float, float, float], float]] = []
-                            spans_objs: list[TextSpan] = []
-                            l_bbox = tuple(float(v) for v in line.get("bbox", (0.0, 0.0, 0.0, 0.0)))
-                            for s in line.get("spans", []):
-                                s_text = s.get("text", "")
-                                if isinstance(s_text, str) and s_text:
-                                    s_bbox = tuple(float(v) for v in s.get("bbox", (0.0, 0.0, 0.0, 0.0)))
-                                    s_size = float(s.get("size", 12.0))
-                                    s_font = str(s.get("font", ""))
-                                    line_spans_data.append((s_text, s_bbox, s_size))
-                                    if s_text.strip():
-                                        spans_objs.append(
-                                            TextSpan(
-                                                text=s_text.strip(),
-                                                bounding_box=s_bbox,
-                                                metadata={
-                                                    "font_name": s_font,
-                                                    "font_size_pt": round(s_size, 1),
-                                                    "is_heading": s_size >= 14.0,
-                                                },
-                                            )
-                                        )
-                            if line_spans_data:
-                                line_str = reconstruct_line_from_spans(line_spans_data)
-                                lcx = (l_bbox[0] + l_bbox[2]) / 2.0
-                                lcy = (l_bbox[1] + l_bbox[3]) / 2.0
-                                raw_lines.append({
-                                    "bbox": l_bbox,
-                                    "cx": lcx,
-                                    "cy": lcy,
-                                    "line_text": line_str,
-                                    "spans": spans_objs,
-                                })
-            except Exception:
-                warnings.append(
-                    WarningRecord(
-                        code="PDF_RICH_SPAN_EXTRACTION_DEGRADED",
-                        message=f"Rich span extraction degraded on page {page_num}.",
-                        stage=CAPABILITY_ID,
-                    )
-                )
-
-            # Map lines and spans to GNN layout items and assign semantic labels
-            ordered_spans: list[TextSpan] = []
-            classes_detected: set[str] = set()
-            assigned_line_indices: set[int] = set()
-            item_blocks: list[tuple[str, list[str]]] = []
-
-            if layout_items:
-                for item_idx, item in enumerate(layout_items):
-                    x0, y0, x1, y1, cls_name = float(item[0]), float(item[1]), float(item[2]), float(item[3]), str(item[4])
-                    classes_detected.add(cls_name)
-                    item_bbox = (x0, y0, x1, y1)
-
-                    is_hdr_ftr = cls_name in _HEADER_FOOTER_CLASSES
-                    is_hdg = cls_name in _HEADING_CLASSES
-                    hdg_lvl = 1 if cls_name == "title" else (2 if cls_name == "section-header" else None)
-
-                    item_lines: list[str] = []
-                    for l_idx, line_info in enumerate(raw_lines):
-                        if l_idx not in assigned_line_indices and _point_in_bbox(line_info["cx"], line_info["cy"], item_bbox):
-                            assigned_line_indices.add(l_idx)
-                            item_lines.append(line_info["line_text"])
-                            for span in line_info["spans"]:
-                                meta = dict(span.metadata)
-                                meta["layout_class"] = cls_name
-                                meta["layout_order"] = item_idx
-                                if is_hdg:
-                                    meta["is_heading"] = True
-                                    meta["heading_level"] = hdg_lvl
-                                if is_hdr_ftr:
-                                    meta["is_header_footer"] = True
-
-                                ordered_spans.append(
-                                    TextSpan(
-                                        text=span.text,
-                                        bounding_box=span.bounding_box,
-                                        confidence=span.confidence,
-                                        language=span.language,
-                                        script=span.script,
-                                        metadata=meta,
-                                    )
-                                )
-                    if item_lines:
-                        if cls_name == "table":
-                            t_num = sum(1 for c, _ in item_blocks if c == "table") + 1
-                            item_blocks.append((cls_name, [f"{{{{TABLE:Page_{page_num}_Table_{t_num}}}}}"]))
-                        else:
-                            item_blocks.append((cls_name, item_lines))
-
-            # Append any unassigned lines in their natural spatial order
-            unassigned_lines: list[str] = []
-            for l_idx, line_info in enumerate(raw_lines):
-                if l_idx not in assigned_line_indices:
-                    unassigned_lines.append(line_info["line_text"])
-                    ordered_spans.extend(line_info["spans"])
-
-            if unassigned_lines:
-                item_blocks.append(("unassigned", unassigned_lines))
-
-            # Extract tables with GNN neural table region guidance
-            page_tables: list[TableData] = []
-            table_layout_items = [item for item in layout_items if len(item) >= 5 and item[4] == "table"]
-
-            if table_layout_items:
-                for t_idx, t_item in enumerate(table_layout_items, 1):
-                    clip_rect = pymupdf.Rect(float(t_item[0]), float(t_item[1]), float(t_item[2]), float(t_item[3]))
-                    try:
-                        tabs = page.find_tables(clip=clip_rect)
-                        if tabs and tabs.tables:
-                            for tab in tabs.tables:
-                                extracted_rows = tab.extract()
-                                if extracted_rows:
-                                    headers = tuple(str(h or "") for h in extracted_rows[0])
-                                    data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
-                                    t_obj = TableData(
-                                        name=f"Page_{page_num}_Table_{t_idx}",
-                                        headers=headers,
-                                        rows=data_rows,
-                                        metadata={
-                                            "bounding_box": (
-                                                float(t_item[0]),
-                                                float(t_item[1]),
-                                                float(t_item[2]),
-                                                float(t_item[3]),
-                                            )
-                                        },
-                                    )
-                                    page_tables.append(t_obj)
-                                    all_doc_tables.append(t_obj)
-                    except Exception:
-                        pass
-
-            # Fallback table extraction if GNN didn't find any or find_tables in clip yielded none
-            if not page_tables:
-                try:
-                    tabs = page.find_tables()
-                    if tabs and tabs.tables:
-                        for t_idx, tab in enumerate(tabs.tables, 1):
-                            extracted_rows = tab.extract()
-                            if extracted_rows:
-                                headers = tuple(str(h or "") for h in extracted_rows[0])
-                                data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
-                                t_meta = {}
-                                if getattr(tab, "bbox", None) is not None:
-                                    t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
-                                t_obj = TableData(
-                                    name=f"Page_{page_num}_Table_{t_idx}",
-                                    headers=headers,
-                                    rows=data_rows,
-                                    metadata=t_meta,
-                                )
-                                page_tables.append(t_obj)
-                                all_doc_tables.append(t_obj)
-                except Exception:
-                    pass
-
-            # Synthesize ordered page text with proper line and paragraph spacing
-            block_strings: list[str] = []
-            page_headers: list[str] = []
-            page_footers: list[str] = []
-            for cls_name, lines in item_blocks:
-                block_content = "\n".join(lines).strip()
-                if not block_content:
-                    continue
-                if cls_name == "page-header":
-                    page_headers.append(block_content)
-                    if skip_header_footer:
-                        continue
-                elif cls_name == "page-footer":
-                    page_footers.append(block_content)
-                    if skip_header_footer:
-                        continue
-                block_strings.append(block_content)
-
-            if block_strings:
-                page_text = "\n\n".join(block_strings)
-            else:
-                raw_fallback = page.get_text("text", flags=_PDF_TEXT_FLAGS).strip()
-                page_text = normalize_text_spacing(raw_fallback)
-
-            if page_text:
-                full_text_parts.append(page_text)
-
-            page_meta: dict[str, Any] = {"layout_classes": tuple(sorted(classes_detected))}
-            if page_headers:
-                page_meta["header"] = "\n\n".join(page_headers)
-            if page_footers:
-                page_meta["footer"] = "\n\n".join(page_footers)
-
-            pages.append(
-                PageData(
-                    page_number=page_num,
-                    text=page_text,
-                    spans=tuple(ordered_spans),
-                    tables=tuple(page_tables),
-                    metadata=page_meta,
-                )
-            )
-
-            provenances.append(
-                ProvenanceRecord(
-                    source_input_id=input_id,
-                    stage=STAGE_NAME,
-                    plugin_id=PLUGIN_ID,
-                    capability_id=CAPABILITY_ID,
-                    page_number=page_num,
-                    evidence={
-                        "reader": "pymupdf_layout",
-                        "model": "BoxRFDGNN",
-                        "page_count": total_pages,
-                        "layout_elements_count": len(layout_items),
-                        "classes_detected": sorted(classes_detected),
-                        "has_native_text": bool(page_text),
-                        "table_count": len(page_tables),
-                    },
-                )
-            )
-
-    finally:
-        doc.close()
+    for _p_idx, page_data, prov, p_warns, p_tables, p_text in raw_results:
+        pages.append(page_data)
+        provenances.append(prov)
+        warnings.extend(p_warns)
+        all_doc_tables.extend(p_tables)
+        if p_text:
+            full_text_parts.append(p_text)
 
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",

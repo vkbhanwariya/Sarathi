@@ -196,3 +196,32 @@ def test_running_header_footer_detection_and_clean_separation() -> None:
     # 2. Standard reader with skip_header_footer=False retains headers in body text
     cdoc_raw, _, _ = read_pdf(data, "inp-hdr-raw", skip_header_footer=False)
     assert any("[2026:RJ-JP:18881]" in p.text for p in cdoc_raw.pages)
+
+
+def test_read_pdf_with_layout_multi_page_parallel_ordering() -> None:
+    """Verify that multi-page layout analysis runs in parallel and preserves exact page ordering."""
+    doc = pymupdf.open()
+    total_test_pages = 5
+    for p_num in range(1, total_test_pages + 1):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 72), f"Header Section Title Page {p_num}", fontsize=16)
+        page.insert_text((72, 120), f"Body paragraph content for page number {p_num}.", fontsize=11)
+    data = doc.tobytes()
+    doc.close()
+
+    cdoc, provs, warns = read_pdf_with_layout(data, "inp-multi-layout")
+    assert isinstance(cdoc, CanonicalDocument)
+    assert len(cdoc.pages) == total_test_pages
+    assert len(provs) == total_test_pages
+
+    # Strictly verify 1..N order of pages and content
+    for idx, page in enumerate(cdoc.pages):
+        expected_page_num = idx + 1
+        assert page.page_number == expected_page_num
+        assert f"Header Section Title Page {expected_page_num}" in page.text
+        assert f"Body paragraph content for page number {expected_page_num}." in page.text
+
+    # Verify provenance ordering
+    for idx, prov in enumerate(provs):
+        assert prov.page_number == idx + 1
+        assert prov.evidence["page_count"] == total_test_pages
