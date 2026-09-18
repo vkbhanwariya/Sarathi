@@ -27,13 +27,15 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
 - **Owner**: `sarathi.shakti.font_conversion` & `sarathi.shakti.native_extraction`
 - **Modules**:
   - `src/sarathi/shakti/font_conversion/font_inspector.py` (Binary font identification & GSUB guard)
-  - `src/sarathi/shakti/font_conversion/converter.py` (Staged `AksharaConverter` execution pipeline)
+  - `src/sarathi/shakti/font_conversion/converter.py` (Declarative 7-pass `AksharaConverter` execution pipeline)
   - `src/sarathi/shakti/font_conversion/profiles.py` (Extended `LegacyFontProfile` schema & inheritance)
   - `src/sarathi/shakti/font_conversion/byte_normalizer.py` (MacRoman ➔ Windows-1252 byte stream repair)
   - `src/sarathi/shakti/native_extraction/readers/pdf.py` (Stream-order legacy conversion before layout reconstruction)
 - **Developer Tools**:
   - `tools/audit_legacy_font.py` (TTF validation & cmap signature generator)
+  - `tools/audit_font_profile.py` (Profile fidelity & round-trip ambiguity auditor)
   - `tools/audit_sil_legacy_maps.py` (Build-time SIL `.map` differential fixture generator)
+  - `tools/mine_mapping_candidates.py` (Mapping candidate miner from aligned legacy/Unicode pairs)
   - `tools/glyph_sheet.py` (Visual glyph crop audit sheet generator)
 - **Profiles & Data**:
   - `data/fonts/krutidev_base.json` (Shared KrutiDev rules)
@@ -113,6 +115,15 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
    - **Offline Fixture Generation**: Parses human-readable SIL `.map` files into deterministic JSON test vectors under `tests/font_conversion/fixtures/sil/`.
    - **Permanent Regression Guard**: Automatically validates Sarathi's `AksharaConverter` against SIL's canonical input/output pairs.
 
+5. **Declarative Pipeline Execution (Zero Family Branching)**:
+   - Eliminates hardcoded family branches (`if profile.family in ("krutidev", "devlys"): ... elif profile.family == "chanakya": ...`) inside `converter.py`.
+   - The 7 passes execute generically based on declarative profile fields (`prefixes`, `postfix_reph`, `context_rules`, `canonicalization_rules`, `post_corrections`), ensuring new font variants require zero converter code modifications.
+
+6. **Conversion Telemetry & Unmapped Symbol Histogram**:
+   - `FontConversionResult` and `ProvenanceRecord` capture runtime diagnostic metrics:
+     - `mapped_chars_count`, `replacement_operations`, `reorder_operations`.
+     - `unmapped_symbols_histogram`: Frequency dictionary of unmapped legacy characters (e.g. `{"å": 742, "™": 381}`). Immediately surfaces high-frequency missing glyphs from real production documents.
+
 ---
 
 ### Part C: Stream-Order Ingestion & Font-Run Arbitration (KrutiExtract Invariants)
@@ -141,6 +152,19 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
 4. **Glyph-Sheet Visual Audit Utility (`tools/glyph_sheet.py`)**:
    - Renders each source byte/codepoint alongside its rendered vector glyph crop from the actual PDF/font.
    - Enables human visual verification when auditing new or ambiguous legacy font encodings.
+
+5. **Profile Fidelity & Round-Trip Auditor (`tools/audit_font_profile.py`)**:
+   - Executes round-trip audits (`Legacy ➔ Unicode ➔ Legacy`) across all registered profiles.
+   - Categorizes each mapping into:
+     - `canonical` (exact 1:1 round-trip).
+     - `intentional_alias` (many-to-one legacy glyph aliases mapping to the same Unicode sequence, backed by an explicit `reverse_preferred` target).
+     - `unexpected_loss` (ambiguous or missing reverse target).
+   - Enforces the invariant: every many-to-one mapping must define an explicit `reverse_preferred` target, preventing reverse export from silently mutating KrutiDev text.
+
+6. **Mapping Candidate Miner from Aligned Pairs (`tools/mine_mapping_candidates.py`)**:
+   - Mines new or missing legacy glyph mappings from dual-stream born-digital PDFs (raw legacy byte stream paired with verified Unicode OCR/reference text).
+   - Uses weighted sequence alignment across Unicode akshara boundaries to extract `MappingCandidate(legacy, unicode, support, confidence)`.
+   - Discovered candidates (such as the 109 KrutiDev candidates identified in AksharEngine) are audited against SIL and FontTools consensus before being committed to canonical profiles via `anubhava.toml`.
 
 ---
 
@@ -177,7 +201,7 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
    - **Phase 1 (Ingestion & Arbitration)**: Stream-order PDF extraction in `pdf.py`, font-run arbitration (`TextSpan.font_name`), and MacRoman byte normalizer.
    - **Phase 2 (Staged Decoder & Profile Audits)**: P0 ASCII digits fix in `krutidev010.json`, authentic Shusha reconstruction, and 7-pass transduction in `converter.py`.
    - **Phase 3 (Variant Deltas & FontTools Guard)**: Profile inheritance (`krutidev_base.json` + `011`/`290` deltas) and `font_inspector.py`.
-   - **Phase 4 (Verification & Benchmarking Tools)**: SIL differential oracle fixtures, `tools/glyph_sheet.py`, and `tools/benchmark_ocr_legacy_gold.py`.
+   - **Phase 4 (Verification & Benchmarking Tools)**: SIL differential oracle fixtures, `tools/audit_font_profile.py`, `tools/mine_mapping_candidates.py`, `tools/glyph_sheet.py`, and `tools/benchmark_ocr_legacy_gold.py`.
 
 ### Fallback Policy
 - `fonttools` is declared in `pyproject.toml` under optional dependencies `[font_conversion]` and `[dependency-groups] dev`.
@@ -365,6 +389,7 @@ uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --
 | :--- | :--- | :--- |
 | **FontTools & Inspector** | `uv run --group dev pytest tests/font_conversion/test_font_inspector.py -q` | Correct family extraction from TTF bytes; GSUB modern font classification; symbol cmap detection. |
 | **SIL Differential Oracle** | `uv run --group dev pytest tests/font_conversion/test_sil_differential.py -q` | 100% agreement on KrutiDev 010/011/290 and Shusha test vectors; correct Latin digit preservation. |
+| **Profile Fidelity & Audit** | `uv run python tools/audit_font_profile.py --all-profiles` | Verify 100% round-trip fidelity, detect ambiguous reverse targets, ensure explicit reverse_preferred. |
 | **Legacy Stream Extraction** | `uv run --group dev pytest tests/native_extraction/test_pdf_legacy_stream.py -q` | Stream-order conversion preserves keystroke sequence; zero geometric matra jumbling. |
 | **DOCX Transcoding** | `uv run --group dev pytest tests/font_conversion/test_docx_multipart.py -q` | Headers, footers, footnotes, and body converted to Unicode; all OpenXML styles and namespaces preserved. |
 | **Vector PDF Tables** | `uv run --group dev pytest tests/native_extraction/test_pdf_vector_tables.py -q` | Extract ruled tables with exact bounding boxes and cell contents without OCR. |
