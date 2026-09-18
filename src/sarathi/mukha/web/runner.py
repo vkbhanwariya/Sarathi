@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
@@ -93,6 +93,7 @@ class RunCoordinator:
         self._file_progress: dict[str, dict[str, Any]] = {}
         self._review_intents: dict[str, ReviewIntent] = {}
         self._state_revision: int = 1
+        self._listeners: set[Callable[[], None]] = set()
         self._intake_selection: InputSelectionView | None = None
         self._intake_preflight: PreflightView | None = None
         self._input_path_registry: dict[str, Path] = {}
@@ -139,7 +140,7 @@ class RunCoordinator:
             self._live_workers.clear()
             self._file_progress.clear()
             self._review_intents.clear()
-            self._state_revision += 1
+            self._bump_revision()
             self._intake_selection = None
             self._intake_preflight = None
             self._input_path_registry.clear()
@@ -151,6 +152,27 @@ class RunCoordinator:
         """Monotonically increasing state revision counter."""
         with self._lock:
             return self._state_revision
+
+    def _bump_revision(self) -> None:
+        """Increment state revision and notify registered listeners."""
+        self._state_revision += 1
+        listeners = list(self._listeners)
+        for listener in listeners:
+            try:
+                listener()
+            except Exception:
+                pass
+
+    def add_listener(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback invoked when state or revision changes. Returns an unregister function."""
+        with self._lock:
+            self._listeners.add(callback)
+
+        def _unregister() -> None:
+            with self._lock:
+                self._listeners.discard(callback)
+
+        return _unregister
 
     def is_busy(self) -> bool:
         """Return True if an interactive processing run is currently active on background worker thread."""
@@ -175,7 +197,7 @@ class RunCoordinator:
                 for item in input_selection.items:
                     if item.source_path:
                         self._input_path_registry[item.input_id] = Path(item.source_path).resolve()
-            self._state_revision += 1
+            self._bump_revision()
 
     def get_intake_selection(self) -> InputSelectionView | None:
         """Return cached intake selection view."""
@@ -274,7 +296,7 @@ class RunCoordinator:
                 return False
 
             self._review_intents[intent.item_id] = intent
-            self._state_revision += 1
+            self._bump_revision()
             return True
 
     def get_review_intents(self) -> dict[str, ReviewIntent]:
@@ -294,7 +316,7 @@ class RunCoordinator:
                 self._terminal_status = None
                 self._last_result = None
                 self._last_result_run_id = None
-            self._state_revision += 1
+            self._bump_revision()
 
 
 
@@ -540,7 +562,7 @@ class RunCoordinator:
                     self._file_progress[key] = info
                     if input_id and file_display_name:
                         self._file_progress[file_display_name] = info
-                    self._state_revision += 1
+                    self._bump_revision()
 
             effective_custom_options = dict(custom_options or {})
             effective_custom_options["progress_callback"] = _on_progress
@@ -568,7 +590,7 @@ class RunCoordinator:
             self._last_result = None
             self._terminal_summary = None
             self._terminal_status = None
-            self._state_revision += 1
+            self._bump_revision()
 
             def _worker() -> None:
                 nonlocal run_id, request
@@ -837,7 +859,7 @@ class RunCoordinator:
                             self._run_summaries[run_id] = self._terminal_summary
                         self._live_workers.clear()
                         self._active_thread = None
-                        self._state_revision += 1
+                        self._bump_revision()
 
             self._active_thread = threading.Thread(
                 target=_worker,
@@ -857,7 +879,7 @@ class RunCoordinator:
                 and self._active_thread.is_alive()
             ):
                 self._active_token.cancel()
-                self._state_revision += 1
+                self._bump_revision()
                 return True
             return False
 

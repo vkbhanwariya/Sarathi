@@ -294,6 +294,17 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             last_revision = -1
             last_serialized: str | None = None
             last_ping = time.monotonic()
+
+            loop = asyncio.get_running_loop()
+            change_event = asyncio.Event()
+
+            def on_change() -> None:
+                loop.call_soon_threadsafe(change_event.set)
+
+            unregister = None
+            if hasattr(mukha.runner, "add_listener"):
+                unregister = mukha.runner.add_listener(on_change)
+
             try:
                 while True:
                     if await request.is_disconnected():
@@ -320,9 +331,18 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                     if now - last_ping >= 15.0:
                         last_ping = now
                         yield b"event: ping\ndata: {}\n\n"
-                    await asyncio.sleep(0.5 if is_running else 1.5)
+
+                    wait_timeout = 0.5 if is_running else 15.0
+                    try:
+                        await asyncio.wait_for(change_event.wait(), timeout=wait_timeout)
+                        change_event.clear()
+                    except asyncio.TimeoutError:
+                        pass
             except asyncio.CancelledError:
                 return
+            finally:
+                if unregister is not None:
+                    unregister()
 
         return StreamingResponse(
             events(),

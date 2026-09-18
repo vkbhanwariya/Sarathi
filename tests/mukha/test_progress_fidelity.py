@@ -425,3 +425,21 @@ class TestProgressFidelity:
             assert len(files) == 1
             assert files[0]["status"] == "WARNING"
             assert files[0]["warning_count"] == 1
+
+    def test_run_coordinator_listeners_and_reactive_push(self, web_server: MukhaWebServer) -> None:
+        """RunCoordinator notifies listeners reactively on progress and state changes."""
+        notifications = []
+        unregister = web_server.runner.add_listener(lambda: notifications.append(1))
+
+        # Initial bump via clear_history
+        web_server.runner.clear_history()
+        assert len(notifications) == 1
+
+        # Another bump via clear_history
+        web_server.runner.clear_history()
+        assert len(notifications) == 2
+
+        # Unregister stops notifications
+        unregister()
+        web_server.runner.clear_history()
+        assert len(notifications) == 2
