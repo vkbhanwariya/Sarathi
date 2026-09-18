@@ -144,44 +144,36 @@ Pair **authoritative binary font identification** (FontTools) with **stream-orde
 
 ---
 
-### Part D: Anti-Overengineering Guardrails & Lean Implementation Scope
+### Part D: Implementation Invariants & Phased Roadmap
 
-In accordance with `AGENTS.md` (**Modularity, Directness, One owner/one path, Zero fake abstractions**), the implementation strictly prunes speculative framework complexity:
-
-1. **Zero Subsystem Sprawl (Reject Proposed 25-File Framework)**:
-   - **Rejected**: Creating a parallel `sarathi/legacy/` sub-framework spanning 7 subpackages (`decoder/`, `detection/`, `fonts/`, `profiles/`, `validation/`, `pdf/`, `tools/`) and 25 micro-files.
-   - **Enforced**: Canonical ownership stays strictly inside existing modules:
-     - Conversion pipeline: [`converter.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/converter.py) (`AksharaConverter`).
-     - Binary inspection: [`font_inspector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/font_inspector.py).
+1. **Lightweight Modular Architecture**:
+   - All legacy font conversion and stream ingestion logic lives strictly within existing canonical owners:
+     - Transduction pipeline: [`converter.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/converter.py) (`AksharaConverter`).
+     - Binary font inspection: [`font_inspector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/font_inspector.py).
      - Byte stream normalization: [`byte_normalizer.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/byte_normalizer.py).
-     - Ingestion hook: [`readers/pdf.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/pdf.py).
-     - Total new codebase footprint: $<600$ lines of clean, modular Python.
+     - Stream-order ingestion: [`readers/pdf.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/pdf.py).
+   - Total new codebase footprint is bounded to $<600$ lines of clean, maintainable Python without unnecessary wrappers or duplicate paths.
 
-2. **File-Based JSON Profiles (Reject SQLite Font Registry DB)**:
-   - **Rejected**: Building an internal 10-table relational database (`legacy_font_registry.db`) to track fonts, files, profiles, link tables, and candidates.
-   - **Enforced**: Clean, human-auditable, git-versioned JSON profiles in `data/fonts/` with lightweight inheritance (`"extends": "krutidev_base"`). Sub-millisecond load time, zero database overhead, and trivial caching.
+2. **File-Based Profile Inheritance**:
+   - Profiles are defined as human-auditable, git-versioned JSON files under `data/fonts/`.
+   - Supports lightweight inheritance via `"extends": "krutidev_base"`, enabling variant profiles (`krutidev011.json`, `krutidev290.json`) to declare only their specific delta overrides.
+   - Loads in $<1\text{ ms}$ with zero database dependencies.
 
-3. **Deterministic 4-Tier Precedence (Reject Continuous Bayesian Scoring)**:
-   - **Rejected**: A 7-signal continuous weighted probability classifier (`TTF 0-1, Name 0-1, Signature 0-1, Language 0-1...`) that introduces non-linear tuning fragility and span-level latency.
-   - **Enforced**: Strict 4-tier deterministic precedence:
-     1. *Binary Font Inspection*: If embedded font has `GSUB` Devanagari ➔ Modern Unicode (Preserve). If Symbol cmap ➔ Legacy Font.
+3. **Deterministic 4-Tier Arbitration Precedence**:
+   - Resolves font conversion per span using a deterministic hierarchy:
+     1. *Binary Font Inspection*: If embedded font contains `GSUB` Devanagari ➔ Modern Unicode (Preserve). If Symbol cmap ➔ Legacy Font.
      2. *Font Name Match*: Exact family match in `LegacyFontProfile` registry.
      3. *Unsupported Legacy Check*: Known legacy family with no mapping ➔ Preserve + emit `UNSUPPORTED_LEGACY_FONT` warning (**wrong conversion < no conversion**).
      4. *Fallback*: Only when font is unlabelled/obfuscated ➔ evaluate `TextProtector` and regex detection signatures.
 
-4. **Zero Generative LLM Repair Layers**:
-   - **Rejected**: Using language models to guess or "repair" low-confidence legacy text.
-   - **Enforced**: Document conversion for legal, banking, and government records must remain 100% deterministic, reproducible, and verifiable.
+4. **Devanagari Structural Invariant Validator**:
+   - A fast regex invariant checker detecting illegal orphan combining marks (leading `ि` without consonant, duplicate virama) as a regression guard before final output.
 
-5. **Minimal Structural Devanagari Validation**:
-   - **Rejected**: Full linguistic grammar parsers and heavy NLP dictionary lookups.
-   - **Enforced**: A lightweight regex invariant checker detecting illegal orphan combining marks (leading `ि` without consonant, duplicate virama) as a regression guard.
-
-6. **Difficult-Character Golden Regression Corpus**:
+5. **Difficult-Character Golden Regression Corpus**:
    - Permanent test suite in `tests/font_conversion/fixtures/` validating rare and complex ligatures:
      `कि`, `क्ति`, `क्र`, `त्र`, `प्र`, `श्र`, `क्ष`, `ज्ञ`, `द्ध`, `द्व`, `र्‍`, `र्कीं`, `ड़क`, `ढ़`, `फ़`, `क़`, `ज़`, `र्क`, `र्क्ष`.
 
-7. **Phased Implementation Roadmap**:
+6. **Phased Implementation Roadmap**:
    - **Phase 1 (Ingestion & Arbitration)**: Stream-order PDF extraction in `pdf.py`, font-run arbitration (`TextSpan.font_name`), and MacRoman byte normalizer.
    - **Phase 2 (Staged Decoder & Profile Audits)**: P0 ASCII digits fix in `krutidev010.json`, authentic Shusha reconstruction, and 7-pass transduction in `converter.py`.
    - **Phase 3 (Variant Deltas & FontTools Guard)**: Profile inheritance (`krutidev_base.json` + `011`/`290` deltas) and `font_inspector.py`.
