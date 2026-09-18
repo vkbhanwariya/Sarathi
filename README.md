@@ -8,14 +8,14 @@ All changes are validated directly on `main` against the 5 permanent CI gates.
 
 ## Supported Capabilities
 
-- **Native Document Extraction**: Text, table, and structure extraction from PDF, DOCX, XLSX, legacy XLS (BIFF8 via Calamine/xlrd), HTML tables, XML Spreadsheet 2003, and delimited text (CSV, TSV, semicolon, pipe).
-- **Local Optical Character Recognition (OCR)**: RapidOCR with OpenVINO acceleration and selective same-engine weak-crop retry with CLAHE enhancement.
-- **Neural Translation**: Bidirectional Hindi <-> English translation via local CTranslate2 and SentencePiece models.
-- **Legacy Hindi Font Conversion**: Automatic detection and conversion of legacy non-Unicode font encodings (Kruti Dev, Devlys, Chanakya, Shusha, Shivaji) to standard Unicode Devanagari.
+- **Native Document Extraction**: High-performance text, table, and structure extraction from PDF via PyMuPDF (`pymupdf`), DOCX, XLSX, legacy XLS (BIFF8 via Calamine/xlrd), HTML tables, XML Spreadsheet 2003, and delimited text (CSV, TSV, semicolon, pipe).
+- **Local Optical Character Recognition (OCR)**: RapidOCR with OpenVINO acceleration (Intel Arc iGPU and CPU) and selective same-engine weak-crop retry with CLAHE enhancement.
+- **Neural Translation**: Bidirectional Hindi <-> English translation via local CTranslate2 and SentencePiece models (IndicTrans2 and OPUS-MT). Features domain legal context, dynamic statutory glossary matching (PMLA, Banking), statutory identifier harmonization, and rate-paced cloud seeding.
+- **Legacy Hindi Font Conversion**: Automatic detection and conversion of legacy non-Unicode font encodings (Kruti Dev, Devlys, Chanakya, Shusha, Shivaji) to standard Unicode Devanagari. Features embedded TrueType SFNT inspection via PyMuPDF, 14 precompiled Akshara synthesis regexes with AVX2 SIMD acceleration (`rapidfuzz`, `regex`), typewriter mechanical error correction, and statutory acronym protection.
 - **Bank Statement Processing**: Tabular statement parsing, header mapping, transaction normalization, and running balance reconciliation for HDFC, ICICI, SBI, and standard financial formats.
 - **Statutory & Legal Extraction**: Algorithmic extraction and mathematical checksum validation for PAN, TAN, GSTIN, CIN, CNR (eCourts), DIN, and IRN.
 - **OpenXML Output Generation**: Standardized DOCX generation and transformation with script-aware bilingual typography.
-- **Optional Cloud Providers**: Cloud adapters for Mistral AI, Google Gemini, and Microsoft Azure.
+- **Optional Cloud Providers**: Cloud adapters for Mistral AI, Google Gemini, and Microsoft Azure with proactive 2.0s rate pacing, Retry-After header parsing, exponential backoff, and per-document legal isolation.
 
 ---
 
@@ -27,6 +27,7 @@ All changes are validated directly on `main` against the 5 permanent CI gates.
 - **Optional Capabilities**:
   - `ocr`: `rapidocr`, `openvino`, `opencv-python-headless`, `pillow`
   - `translation`: `ctranslate2`, `sentencepiece`
+  - `font_conversion`: `rapidfuzz`, `regex`
   - `layout`: `pymupdf-layout`
   - `cloud`: `httpx`
 
@@ -80,6 +81,22 @@ uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --prof
 ## Engineering Rules & ROI Discipline
 
 Sarathi enforces strict modularity and zero-overengineering rules declared in [`AGENTS.md`](AGENTS.md). Any proposal introducing new dependencies or major structural changes requires an explicit **Overengineering & ROI Assessment** demonstrating measurable gains and evaluating simpler built-in alternatives before implementation.
+
+---
+
+## Fast Validation & Developer Gates
+
+Before every commit, execute the single-turn compound pre-commit gate:
+
+```powershell
+uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check
+```
+
+The optimized test suite runs deterministically in **~25 seconds** (>75% wall-clock reduction):
+
+```powershell
+uv run --all-extras --group dev pytest -q -m "not browser and not performance and not real_model and not architecture"
+```
 
 ---
 

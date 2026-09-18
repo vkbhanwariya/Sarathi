@@ -11,6 +11,7 @@ Directly extracts text, tables, and document hierarchy from native digital forma
 - **Input**: File bytes matching PDF, DOCX, XLSX, legacy XLS (BIFF8 via Calamine/xlrd), HTML tables, XML Spreadsheet 2003 (SpreadsheetML), and delimited text (CSV, TSV, semicolon, pipe).
 - **Output**: `CanonicalDocument` containing `PageData`, `TextSpan` bounding boxes, `TableData`, and metadata; generates plain text and DOCX preview artifacts.
 - **Main Fallback Behavior**: For PDF documents with missing, empty, or unparseable text, sets `needs_ocr=True` to trigger an automatic OCR escalation hand-off via Manthan. For non-PDF formats, emits an empty-content warning without escalating.
+- **Engine & Architecture**: Powered by high-performance PyMuPDF (`pymupdf`) for native vector PDF text, span bounding boxes, and embedded TrueType font program extraction (`doc.extract_font(xref)`). Deep layout analysis with reading order recovery is supported via `pymupdf-layout` under the `layout_preserving` profile.
 - **Relevant Configuration**: `[storage]` (`input_root`, `output_root`, `runtime_root`).
 - **Known Limitations**: Does not process raw raster images directly. Encrypted or password-protected files must be decrypted prior to ingestion.
 
@@ -26,7 +27,6 @@ Performs local optical character recognition on document images and rasterized P
 - **Relevant Configuration**: `[hardware]` (`detect_accelerators`, `gpu_capacity_per_device`, `npu_capacity_per_device`). Local model assets configured in `data/ocr/manifest.json`.
 - **Known Limitations**: Requires local ONNX model assets in `data/ocr/models/` (`det`, `cls`, `rec_devanagari`, `rec_v6_en`).
 
-
 ---
 
 ## 3. Translation (`translation`)
@@ -35,7 +35,9 @@ Provides neural machine translation for document text while preserving formattin
 
 - **Input**: `CanonicalDocument` or plain text with source and target language pairs.
 - **Output**: Translated `CanonicalDocument` preserving text spans and table structures, with bilingual plain text and DOCX artifacts.
-- **Main Fallback Behavior**: Executes via local CTranslate2 engine supporting AI4Bharat **IndicTrans2** (primary default) and **OPUS-MT** under the canonical `translation` capability. Features dual SentencePiece tokenizers (`model.SRC` and `model.TGT` or `spm.model`), shared vocabularies, and a high-throughput multi-core CPU batch decoder (`translate_batch`). Document translation pre-collects all unique strings across pages, tables, and spans to execute in a single batched pass across all 4 P-cores (`intra_threads=4`, `OMP_NUM_THREADS=4`), turning document reconstruction into instant O(1) in-memory lookups. Protected entities (numbers, dates, statutory IDs, URLs, and configured glossary terms) are preserved without translation. Language detection automatically discriminates Devanagari regional sub-languages (Hindi `hi`, Marathi `mr`, Nepali `ne`, Sanskrit `sa`) via diagnostic character signatures (e.g. `ळ`) and lexical markers, guarding against accidental translation of non-Hindi texts using the Hindi model unless explicitly overridden. Administrative Romanized Indic (Hinglish) text is detected and phonetically transliterated into Unicode Devanagari via a deterministic rule transducer. Fails explicitly with `DEPENDENCY_UNAVAILABLE` if the requested language direction or model weights are missing.
+- **Main Fallback Behavior**: Executes via local CTranslate2 engine supporting AI4Bharat **IndicTrans2** (primary default) and **OPUS-MT** under the canonical `translation` capability. Features dual SentencePiece tokenizers (`model.SRC` and `model.TGT` or `spm.model`), shared vocabularies, and a high-throughput multi-core CPU batch decoder (`translate_batch`). Document translation pre-collects all unique strings across pages, tables, and spans to execute in a single batched pass across all 4 P-cores (`intra_threads=4`, `OMP_NUM_THREADS=4`), turning document reconstruction into instant O(1) in-memory lookups.
+- **Domain Legal Context & Glossaries**: Integrates dynamic domain context matching and statutory legal glossaries (`pmla.json`, `banking_financial.json`). Features on-device `GlossaryHarmonizer` for post-translation statutory normalization with Unicode-aware Devanagari boundary matching, ensuring statutory terms and identifiers (PAN, TAN, GSTIN, CIN, CNR, DIN, IRN) are harmonized across languages without semantic drift.
+- **Entity Protection & Transliteration**: Protected entities (numbers, dates, statutory IDs, URLs, and configured glossary terms) are preserved without translation. Language detection automatically discriminates Devanagari regional sub-languages (Hindi `hi`, Marathi `mr`, Nepali `ne`, Sanskrit `sa`) via diagnostic character signatures (e.g. `ळ`) and lexical markers, guarding against accidental translation of non-Hindi texts using the Hindi model unless explicitly overridden. Administrative Romanized Indic (Hinglish) text is detected and phonetically transliterated into Unicode Devanagari via a deterministic rule transducer. Fails explicitly with `DEPENDENCY_UNAVAILABLE` if the requested language direction or model weights are missing.
 - **Relevant Configuration**: Model directory in `data/translation/models/indictrans2/` and `data/translation/models/opus_mt/`; `[cache]` (`enabled`, `ttl_seconds`) for caching repeated translation segments. Automated provisioning via `tools/scripts/Setup-TranslationModels.ps1`.
 - **Known Limitations**: Local neural models support Hindi <-> English (`hi` <-> `en`). Other language pairs require configured cloud provider adapters.
 
@@ -47,7 +49,11 @@ Converts legacy non-Unicode Indian font encodings to standardized Unicode Devana
 
 - **Input**: Plain text, PDF text spans, or DOCX runs containing legacy 8-bit Devanagari font glyphs.
 - **Output**: Unicode-compliant Devanagari text and transformed DOCX artifacts preserving font styles and document layout.
-- **Main Fallback Behavior**: Detects legacy encodings using statistical character signatures (`_KRUTI_SIGNATURES`, `_CHANAKYA_SIGNATURES`, `_SHUSHA_SIGNATURES`) and TrueType font table metadata. Text lacking sufficient signature evidence (<2 signatures) or matching modern Unicode font lists is preserved unchanged without modification.
+- **Main Fallback Behavior**:
+  - **Multi-Modal Detection**: Detects legacy encodings via statistical character signatures (`_KRUTI_SIGNATURES`, `_CHANAKYA_SIGNATURES`, `_SHUSHA_SIGNATURES`) with token sampling (4.2x preflight acceleration) and TrueType SFNT metadata extraction in DOCX runs and PyMuPDF vector PDF streams (`doc.extract_font(xref)`), successfully mapping embedded obfuscated subset fonts (`ABCDEF+KrutiDev010`). Text lacking sufficient signature evidence (<2 signatures) or matching modern Unicode font lists is preserved unchanged without modification.
+  - **Akshara Synthesis & Transducers**: Powered by 14 precompiled Akshara synthesis regular expressions with LRU-cached reph patterns and direct-indexing forward/reverse transducers accelerated by AVX2 SIMD libraries (`rapidfuzz` and `regex`).
+  - **Linguistic Normalization & Repair**: Preserves chhoti-i following Nukta (`DEVA_MATRAS`), synthesizes decomposed independent vowels (`अा` -> `आ`, `अो` -> `ओ`, `अौ` -> `औ`, `अॅ` -> `ऑ`, `एे` -> `ऐ`), reorders post-matra Nukta, normalizes typewriter half-consonant + Nukta sequences (`क़्` -> `क़्`), and deduplicates typewriter keyboard slips (`।।` -> `॥`, `़़` -> `़`, `ःः` -> `ः`) and stray ZWNJ.
+  - **Statutory Acronym Protection**: Protects critical statutory and legal acronyms (FIR, PMLA, CrPC, BNS, BNSS, BSA, IPC, etc.) from accidental corruption during legacy glyph transcoding.
 - **Relevant Configuration**: Font mapping definitions in `data/fonts/` (`krutidev010.json`, `devlys010.json`, `chanakya010.json`, `shusha010.json`, `shivaji010.json`).
 - **Known Limitations**: Requires at least 2 distinct character signatures for automatic text-signature detection. Short strings (<10 characters) without font metadata may not trigger auto-detection.
 
@@ -111,6 +117,11 @@ Integrates optional external cloud services for OCR and translation when local e
 - **Input**: Document images or text payloads sent via provider-specific REST APIs.
 - **Output**: `CanonicalDocument` structures and output artifacts identical to local capabilities.
 - **Main Fallback Behavior**: Cloud providers run only when authorized by Kavacha. If network access or credentials are not configured, readiness checks report the provider as unavailable and Manthan rejects the plan rather than silently falling back to unrequested services.
+- **Resilience & Rate Pacing**:
+  - **Inter-Request Pacing**: Enforces minimum spacing (`rate_limit_delay_seconds = 2.0`) between consecutive API dispatches, strictly honoring Mistral free-tier (1 RPS / 30 RPM) and Gemini limits.
+  - **Dynamic Backoff**: Parses server `Retry-After` and `x-ratelimit-reset` response headers, executing progressive exponential backoff across up to 5 retry attempts.
+  - **Multi-Segment Batching & Prompt Seeding**: Dispatches text segments in batched payloads, with prompt glossary seeding capped to top 5 statutory directives to avoid TPM limits.
+  - **Fail-Fast Boundary**: Fails fast on `RESOURCE_UNAVAILABLE` or `SECURITY_DENIED` rather than cascading into silent unauthenticated loops.
 - **Relevant Configuration**:
   - `[security]`: `allow_network_access = true`, `allow_external_processing = true`, and secret names listed in `allowed_secrets`.
   - Sections: `[mistral]`, `[gemini]`, `[azure]`.

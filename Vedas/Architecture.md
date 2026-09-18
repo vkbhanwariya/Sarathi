@@ -246,22 +246,25 @@ sarathi/
 │       │   ├── translation/           # Neural machine translation capability
 │       │   │   ├── __init__.py        # Translation module namespace
 │       │   │   ├── capability.py      # Neural translation capability coordinator preserving formatting
+│       │   │   ├── cloud_orchestration.py # Rate-paced multi-segment cloud batching and prompt memoization
 │       │   │   ├── detector.py        # Source language and regional Indic script detection
 │       │   │   ├── engine.py          # CTranslate2 neural translation inference engine wrapper
 │       │   │   ├── glossary.py        # Custom glossary enforcement and terminology substitution
+│       │   │   ├── harmonizer.py      # On-device post-translation statutory entity and glossary harmonizer
+│       │   │   ├── legal_context.py   # Domain legal context extraction and dynamic glossary matching
 │       │   │   ├── models.py          # Translation request models and language pair definitions
 │       │   │   ├── plugin.py          # Plugin declaration and capability requirements
 │       │   │   ├── protector.py       # Masks non-translatable entities (dates, numbers, URLs, statutory IDs)
 │       │   │   └── provider.py        # Provider factory for neural translation registration
 │       │   ├── font_conversion/       # Legacy Indian font conversion capability
 │       │   │   ├── __init__.py        # Font conversion module namespace
-│       │   │   ├── akshara.py         # Devanagari ligature, half-letter, and matra reordering rules
+│       │   │   ├── akshara.py         # 14 precompiled Akshara synthesis regexes, vowel synthesis, and typewriter repair
 │       │   │   ├── capability.py      # Legacy font conversion capability coordinator
-│       │   │   ├── converter.py       # Bidirectional glyph mapping engine (legacy 8-bit <-> Unicode Devanagari)
-│       │   │   ├── detector.py        # Identifies legacy fonts via TrueType SFNT tables or text signatures
+│       │   │   ├── converter.py       # Direct-indexing bidirectional glyph mapping engine
+│       │   │   ├── detector.py        # Multi-modal font detector via TrueType SFNT metadata (PyMuPDF/DOCX) or text signatures
 │       │   │   ├── models.py          # Font conversion candidate representations and conversion metrics
 │       │   │   ├── plugin.py          # Plugin declaration and capability requirements
-│       │   │   ├── protector.py       # Protects Latin, numeric, and valid Unicode spans from modification
+│       │   │   ├── protector.py       # Protects Latin, numeric, valid Unicode spans, and statutory acronyms
 │       │   │   ├── provider.py        # Provider factory for font conversion registration
 │       │   │   ├── telemetry.py       # Emits Pramana quality telemetry for converted font spans
 │       │   │   └── validator.py       # Syntactic validation ensuring output conforms to valid Devanagari rules
@@ -534,20 +537,23 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
     - [`readiness.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/readiness.py): Preflight validation of ONNX model checksums and dependencies.
 - **`translation/`** (Neural Machine Translation):
   - [`capability.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/capability.py): Translation capability coordinator with upfront whole-document string pre-collection and batch translation.
+  - [`cloud_orchestration.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/cloud_orchestration.py): Rate-paced multi-segment batching, prompt memoization, and fail-fast cloud orchestration.
   - [`detector.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/detector.py): Dominant script and language detection.
   - [`engine.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/engine.py): CTranslate2 neural translation inference engine wrapper with dual SentencePiece tokenizers, IndicTrans2 + OPUS-MT support, and `translate_batch()` multi-core CPU decoder.
   - [`glossary.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/glossary.py): Enforces custom glossary mappings and term substitutions.
+  - [`harmonizer.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/harmonizer.py): On-device post-translation statutory entity and glossary harmonizer (`GlossaryHarmonizer`).
+  - [`legal_context.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/legal_context.py): Domain legal context injection and dynamic statutory glossary matching (PMLA, Banking).
   - [`models.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/models.py): Translation data structures.
   - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/provider.py): Plugin declaration and provider factory with multi-model readiness audit.
   - [`protector.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/protector.py): Masks non-translatable entities (numbers, dates, URLs, statutory IDs).
 - **`font_conversion/`** (Legacy Indian Font Conversion):
-  - [`akshara.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/akshara.py): Devanagari ligatures, half-letters, and matra placement logic.
+  - [`akshara.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/akshara.py): 14 precompiled Akshara synthesis regexes, decomposed vowel synthesis, and typewriter slip deduplication.
   - [`capability.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/capability.py): Font conversion capability coordinator.
-  - [`converter.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/converter.py): Legacy 8-bit glyph to Unicode conversion mapper.
-  - [`detector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/detector.py): Parses TrueType SFNT binary `name` tables to extract font families.
+  - [`converter.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/converter.py): Direct-indexing bidirectional glyph mapping engine.
+  - [`detector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/detector.py): Multi-modal font detector via TrueType SFNT metadata (PyMuPDF/DOCX) or text signatures with token sampling.
   - [`models.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/models.py): Font conversion candidates and decision models.
   - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/provider.py): Plugin declaration and provider factory.
-  - [`protector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/protector.py): Protects Latin, numeric, and already-Unicode text segments.
+  - [`protector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/protector.py): Protects Latin, numeric, valid Unicode, and statutory/legal acronyms (FIR, PMLA, CrPC, etc.).
   - [`telemetry.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/telemetry.py): Quality telemetry for converted font spans.
   - [`validator.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/validator.py): Validates Devanagari syntactic coherence in converted output.
 - **`bank_statements/`** (Financial Document Processing):

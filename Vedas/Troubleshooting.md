@@ -178,3 +178,27 @@ Concise fixes for common operational and runtime issues in Sarathi.
   $env:OMP_NUM_THREADS = "8"
   ```
 - **Batch Processing**: When invoking translation via code or pipeline configs, supply lists of sentences to `translate_batch()` rather than looping over single sentences, allowing OpenMP vectorized operations to saturate available CPU cores efficiently.
+
+---
+
+## 11. Cloud Provider Rate Limits & HTTP 429 Errors
+
+### Symptoms
+- Cloud requests fail with `RESOURCE_UNAVAILABLE: Rate limit exceeded (HTTP 429)`.
+- Rapid succession of requests to Mistral or Gemini fails during large document runs.
+
+### Fix
+- **Pacing Configuration**: By default, Sarathi enforces `rate_limit_delay_seconds = 2.0` in `config/settings.toml` under `[mistral]` and `[gemini]`. Ensure this value is not set to `0` when using free tiers with strict 1 RPS / 30 RPM constraints.
+- **Retry-After Header Compliance**: The cloud client automatically respects server `Retry-After` headers and executes up to 5 progressive exponential backoff attempts with jitter. If failures persist, check your API quota in the provider's developer console.
+- **Fail-Fast Boundary**: If rate limits are exhausted, Sarathi fails fast and preserves partial progress rather than silently discarding output.
+
+---
+
+## 12. Obfuscated Subset Fonts in Vector PDFs
+
+### Symptoms
+- Vector PDF extraction contains unreadable legacy text (e.g. `ABCDEF+KrutiDev010`) that is not identified by visual font names.
+
+### Fix
+- **TrueType SFNT Binary Inspection**: Sarathi automatically invokes PyMuPDF (`doc.extract_font(xref)`) to parse the embedded TrueType SFNT metadata and strip standard 6-character subset tags (`ABCDEF+`), matching the core font family against legacy profiles.
+- **Fallback to Visual OCR**: If a vector PDF uses entirely custom font encoding without standard TrueType tables or signature bigrams, pass `profile="accurate"` or `requirement="ocr"` to force raster optical recognition.

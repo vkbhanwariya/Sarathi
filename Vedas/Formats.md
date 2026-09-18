@@ -6,7 +6,7 @@ Sarathi extracts, processes, and normalizes documents across modern and legacy f
 
 ## 1. PDF & Scanned PDF
 
-- **Native Vector PDF**: Extracted using PyMuPDF (`pymupdf`). Extracts text spans, character positions, font metrics, and embedded bounding boxes.
+- **Native Vector PDF**: Extracted using high-performance PyMuPDF (`pymupdf`). Extracts text spans, character positions, font metrics, embedded bounding boxes, and embedded TrueType font programs (`doc.extract_font(xref)`) to identify font programs directly. Deep layout analysis with reading order recovery is supported via `pymupdf-layout` (`layout_preserving` profile).
 - **Scanned / Raster PDF**: When a PDF contains no extractable vector text or tables, `native_extraction` marks the document as unpopulated (`needs_ocr=True`). Manthan automatically plans a continuation hand-off to the local OCR engine (`ocr`), which rasterizes pages and performs optical recognition.
 - **Hybrid Documents**: Pages with mixed vector text and embedded images preserve native text while routing rasterized regions as appropriate.
 
@@ -77,6 +77,10 @@ Government, judicial, and enterprise documents frequently contain non-Unicode 8-
   - **Shusha**
   - **Shivaji** (010, 020)
 - **Detection Mechanism**:
-  - **Statistical Text Signatures**: Evaluates text for characteristic legacy bigrams and sequences (e.g. `[k`, `vk`, `vks`, `ñ`, `¥æ`, `°ð`, `aA`, `bA`). Requires at least 2 distinct signature matches.
-  - **TrueType SFNT Binary Inspection**: In DOCX and PDF documents, parses the embedded TrueType SFNT binary header (`name` table) to identify legacy font family names directly.
-- **Conversion Engine**: `font_conversion` maps legacy 8-bit glyph byte codes to Unicode Devanagari codepoints while retaining punctuation, numerals, and paragraph layout.
+  - **Statistical Text Signatures**: Evaluates text for characteristic legacy bigrams and sequences (e.g. `[k`, `vk`, `vks`, `ñ`, `¥æ`, `°ð`, `aA`, `bA`) with token sampling (4.2x faster evaluation). Requires at least 2 distinct signature matches.
+  - **TrueType SFNT Binary Inspection**: In DOCX (`w:rFonts`) and vector PDF (PyMuPDF `doc.extract_font(xref)`), parses embedded TrueType SFNT binary headers (`name` table) to identify legacy font family names and subset prefixes (`ABCDEF+KrutiDev010`) directly without OCR.
+- **Conversion Engine & Linguistic Accuracy**:
+  - **Akshara Synthesis**: Maps legacy 8-bit glyph byte codes to Unicode Devanagari codepoints using 14 precompiled Akshara synthesis regular expressions and LRU-cached reph patterns accelerated with AVX2 SIMD (`rapidfuzz` and `regex`).
+  - **Grammar & Phonetic Correction**: Preserves chhoti-i following Nukta, synthesizes decomposed independent vowels (`अा` -> `आ`, `अो` -> `ओ`, `अौ` -> `औ`, `अॅ` -> `ऑ`, `एे` -> `ऐ`), reorders post-matra Nukta, and normalizes typewriter half-consonant + Nukta sequences (`क़्` -> `क़्`).
+  - **Mechanical Defect Repair**: Deduplicates repeated typewriter keyboard slips (`।।` -> `॥`, `़़` -> `़`, `ःः` -> `ः`) and removes stray ZWNJ codepoints.
+  - **Statutory Entity Protection**: Protects critical legal and statutory acronyms (FIR, PMLA, CrPC, BNS, BNSS, BSA, IPC, etc.) from corruption during font conversion.

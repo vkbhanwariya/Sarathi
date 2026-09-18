@@ -149,11 +149,29 @@ cd ..
 
 ## 6. Unit & Integration Tests (CI Gate 4)
 
-Run the deterministic test suite excluding browser, performance, real model, and architecture tests:
+Sarathi features an optimized deterministic test suite that executes across all subsystems in **~25 seconds** (slashed from ~108 seconds, >75% wall-clock reduction).
 
+### Deterministic CI Gate Execution
 ```powershell
 uv run --all-extras --group dev pytest -q -m "not browser and not performance and not real_model and not architecture"
 ```
+
+### Test Execution Ladder ("Test Impact, Not Anxiety")
+Run scoped tests during development; full suite only at milestones:
+
+| Scope of Change | Command | Target Duration |
+| :--- | :--- | :--- |
+| **Focused fix / unit** | `uv run --group dev pytest <path> -x -q` (fail fast on first error) | < 1s |
+| **Subsystem / Capability** | `uv run --group dev pytest tests/<subsystem>/ -q` | 1–3s |
+| **Architecture Gate** | `uv run --group dev pytest -q -m architecture` | ~2.3s |
+| **Milestone / Full Suite** | `uv run --all-extras --group dev pytest -q -m "not browser and not performance and not real_model"` | ~25s |
+| **Heavy Model Pipelines** | `uv run --all-extras --group dev pytest -m real_model` | On neural model changes |
+
+### Optimization & Efficiency Patterns
+- **Teardown Thread Synchronization**: Uses `_wait_for_idle(web_server)` before teardown rather than hardcoded sleeps or thread join timeouts.
+- **Instant Retry Mocks**: Mocked exponential backoff loops patch `time.sleep` to eliminate artificial 30s+ wait delays in unit tests.
+- **Session-Scoped Backend Fixtures**: Compiles translation corpora and glossaries once per test session.
+- **Parameterized Test Matrices**: Parameterizes repetitive assertions into compact `@pytest.mark.parametrize` matrices.
 
 ---
 
