@@ -234,8 +234,10 @@ sarathi/
 │       │   │   ├── typography.py      # Bounding box line-height, heading inference, and font size estimation
 │       │   │   └── engine/            # RapidOCR neural recognition engine (OpenVINO accelerated)
 │       │   │       ├── __init__.py    # OCR engine namespace
+│       │   │       ├── checkpoint.py  # Content-addressed per-page OCR checkpoint cache for atomic recovery
 │       │   │       ├── common.py      # Shared OCR engine data structures and bounding box primitives
 │       │   │       ├── coordinator.py # Multi-page document OCR orchestration and page worker dispatch
+│       │   │       ├── critical.py    # Consequence-driven critical span detector for elevated retry & warning
 │       │   │       ├── factory.py     # Instantiates RapidOCR inference sessions bound to target devices
 │       │   │       ├── layout.py      # Spatial reading order reconstruction and Recursive XY-Cut partitioning
 │       │   │       ├── openvino.py    # OpenVINO device patching, model compilation cache, and telemetry opt-out
@@ -527,7 +529,9 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`telemetry.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/telemetry.py): Emits Pramana quality and Maruti timing telemetry for OCR runs.
   - [`typography.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/typography.py): Line-height, heading inference, and point size estimation.
   - **`engine/`**:
-    - [`coordinator.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/coordinator.py): Multi-page OCR orchestration.
+    - [`checkpoint.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/checkpoint.py): Content-addressed per-page OCR checkpoint cache (`Runtime/Cache/ocr_checkpoints/`) for zero-recomputation and crash recovery.
+    - [`coordinator.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/coordinator.py): Multi-page OCR orchestration with elevated retry & review thresholds for critical spans.
+    - [`critical.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/critical.py): Consequence-driven critical span detector (currency, statutory IDs, dates, legal sections, account references).
     - [`factory.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/factory.py): Instantiates RapidOCR sessions with target devices.
     - [`layout.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/layout.py): Spatial reading order reconstruction and Recursive XY-Cut partitioning.
     - [`openvino.py`](file:///e:/Sarathi/src/sarathi/shakti/ocr/engine/openvino.py): OpenVINO device patching, model compilation caching, and telemetry opt-out.

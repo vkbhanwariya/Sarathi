@@ -33,6 +33,11 @@ from sarathi.shakti.ocr.engine.common import (
     STAGE_NAME,
     V6_LANGS,
 )
+from sarathi.shakti.ocr.engine.critical import (
+    DEFAULT_CRITICAL_RETRY_THRESHOLD,
+    DEFAULT_CRITICAL_REVIEW_THRESHOLD,
+    classify_span,
+)
 from sarathi.shakti.ocr.engine.factory import build_rapidocr_instance, resolve_engine_keys
 from sarathi.shakti.ocr.engine.layout import detect_column_count, reconstruct_layout
 from sarathi.shakti.ocr.engine.openvino import resolve_target_device
@@ -352,6 +357,11 @@ class RapidOCREngine:
                 if (custom_options and ("retry_threshold" in custom_options or "fallback_threshold" in custom_options))
                 else 0.65
             )
+            critical_retry_threshold = (
+                float(custom_options.get("critical_retry_threshold", DEFAULT_CRITICAL_RETRY_THRESHOLD))
+                if (custom_options and "critical_retry_threshold" in custom_options)
+                else DEFAULT_CRITICAL_RETRY_THRESHOLD
+            )
 
             retry_applied = False
             retry_count = 0
@@ -364,25 +374,28 @@ class RapidOCREngine:
 
                 candidates: list[tuple[int, TextSpan, Any]] = []
                 for idx, span in enumerate(spans):
-                    if span.confidence is not None and span.confidence < retry_threshold and span.bounding_box:
-                        min_x, min_y, max_x, max_y = span.bounding_box
-                        # Zero-copy crop slicing with 3px boundary padding
-                        cy0 = max(0, int(min_y) - 3)
-                        cy1 = min(h_img, int(max_y) + 3)
-                        cx0 = max(0, int(min_x) - 3)
-                        cx1 = min(w_img, int(max_x) + 3)
+                    if span.confidence is not None and span.bounding_box:
+                        is_crit, _ = classify_span(span.text)
+                        effective_retry_thresh = critical_retry_threshold if is_crit else retry_threshold
+                        if span.confidence < effective_retry_thresh:
+                            min_x, min_y, max_x, max_y = span.bounding_box
+                            # Zero-copy crop slicing with 3px boundary padding
+                            cy0 = max(0, int(min_y) - 3)
+                            cy1 = min(h_img, int(max_y) + 3)
+                            cx0 = max(0, int(min_x) - 3)
+                            cx1 = min(w_img, int(max_x) + 3)
 
-                        if cy1 <= cy0 or cx1 <= cx0:
-                            continue
+                            if cy1 <= cy0 or cx1 <= cx0:
+                                continue
 
-                        retry_count += 1
-                        crop = img_arr[cy0:cy1, cx0:cx1]
+                            retry_count += 1
+                            crop = img_arr[cy0:cy1, cx0:cx1]
 
-                        # Adaptive enhancement on crop: contrast boost / CLAHE if low contrast
-                        if is_low_contrast_image(crop, std_threshold=45.0):
-                            crop = apply_clahe(crop, clip_limit=2.5)
+                            # Adaptive enhancement on crop: contrast boost / CLAHE if low contrast
+                            if is_low_contrast_image(crop, std_threshold=45.0):
+                                crop = apply_clahe(crop, clip_limit=2.5)
 
-                        candidates.append((idx, span, crop))
+                            candidates.append((idx, span, crop))
 
                 if candidates:
                     recognized_results: list[tuple[str, float] | None] = []
@@ -507,33 +520,45 @@ class RapidOCREngine:
                 )
             )
 
-        # Emit actionable human review items for text spans remaining below review threshold (< 0.80)
+        # Emit actionable human review items for text spans remaining below review threshold (< 0.80 standard, < 0.90 critical)
         review_threshold = (
             float(custom_options.get("review_threshold", 0.80))
             if custom_options and "review_threshold" in custom_options
             else 0.80
         )
+        critical_review_threshold = (
+            float(custom_options.get("critical_review_threshold", DEFAULT_CRITICAL_REVIEW_THRESHOLD))
+            if custom_options and "critical_review_threshold" in custom_options
+            else DEFAULT_CRITICAL_REVIEW_THRESHOLD
+        )
         if spans:
             for s_idx, span in enumerate(spans, start=1):
-                if span.confidence is not None and span.confidence < review_threshold and span.text.strip():
-                    warnings.append(
-                        WarningRecord(
-                            code="OCR_LOW_CONFIDENCE",
-                            message=f"Low confidence text span ({span.confidence:.1%}): '{span.text}'",
-                            stage=STAGE_NAME,
-                            context={
-                                "source": span.text,
-                                "source_text": span.text,
-                                "output": span.text,
-                                "output_text": span.text,
-                                "confidence": span.confidence,
-                                "span_id": span.metadata.get("span_id", f"span-p{page_number}-{s_idx}"),
-                                "attempt_id": span.metadata.get("attempt_id", f"span-p{page_number}-{s_idx}"),
-                                "page_number": page_number,
-                                "is_review_item": True,
-                            },
+                if span.confidence is not None and span.text.strip():
+                    is_crit, crit_type = classify_span(span.text)
+                    eff_threshold = critical_review_threshold if is_crit else review_threshold
+                    if span.confidence < eff_threshold:
+                        code = "OCR_CRITICAL_SPAN_LOW_CONFIDENCE" if is_crit else "OCR_LOW_CONFIDENCE"
+                        crit_label = f" [{crit_type.value}]" if is_crit and crit_type else ""
+                        warnings.append(
+                            WarningRecord(
+                                code=code,
+                                message=f"Low confidence{crit_label} text span ({span.confidence:.1%}): '{span.text}'",
+                                stage=STAGE_NAME,
+                                context={
+                                    "source": span.text,
+                                    "source_text": span.text,
+                                    "output": span.text,
+                                    "output_text": span.text,
+                                    "confidence": span.confidence,
+                                    "span_id": span.metadata.get("span_id", f"span-p{page_number}-{s_idx}"),
+                                    "attempt_id": span.metadata.get("attempt_id", f"span-p{page_number}-{s_idx}"),
+                                    "page_number": page_number,
+                                    "is_review_item": True,
+                                    "is_critical": is_crit,
+                                    "criticality_type": crit_type.value if crit_type else None,
+                                },
+                            )
                         )
-                    )
 
         cache_key = f"{target_lang}:{target_device}"
         if target_lang in DEV_LANGS:

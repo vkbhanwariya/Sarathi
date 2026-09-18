@@ -29,6 +29,12 @@ from sarathi.sankalpa import (
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine
+from sarathi.shakti.ocr.engine.checkpoint import (
+    compute_doc_hash,
+    compute_params_hash,
+    load_page_checkpoint,
+    save_page_checkpoint,
+)
 from sarathi.shakti.ocr.engine.layout import group_paragraphs
 from sarathi.shakti.ocr.engine.rasterize import (
     BoundedPageRasterizer,
@@ -104,7 +110,9 @@ _FLOAT_CUSTOM_OPTIONS: frozenset[str] = frozenset(
     {
         "fallback_threshold",
         "retry_threshold",
+        "critical_retry_threshold",
         "review_threshold",
+        "critical_review_threshold",
     }
 )
 _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
@@ -121,9 +129,11 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
         "inpaint_stamps",
         "retry_enabled",
         "retry_threshold",
+        "critical_retry_threshold",
         "fallback_enabled",
         "fallback_threshold",
         "review_threshold",
+        "critical_review_threshold",
         "use_angle_cls",
         "use_cls",
         "preserve_layout",
@@ -133,6 +143,7 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
         "dpi",
         "force_ocr",
         "export_json",
+        "checkpoint_cache_enabled",
     }
 )
 _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
@@ -141,7 +152,9 @@ _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "progress_callback",
     "fallback_threshold",
     "retry_threshold",
+    "critical_retry_threshold",
     "review_threshold",
+    "critical_review_threshold",
     "dpi",
 }
 
@@ -381,21 +394,42 @@ class OCRCapability:
         if request.custom_options and callable(request.custom_options.get("progress_callback")):
             progress_cb = request.custom_options["progress_callback"]
 
-        # 2. Perform OCR: decompose page work; Yantra owns device and concurrency policy.
-        total_pages_needing_ocr = sum(len(needed) for _, _, _, needed, _ in ocr_inputs)
-        is_parallelizable = self.declaration.device_requirement.parallelizable
-        approved_concurrency = context.execution_binding.approved_concurrency if context.execution_binding else None
-        can_parallelize = (
-            total_pages_needing_ocr > 1
-            and self._yantra is not None
-            and is_parallelizable
-            and (approved_concurrency is None or approved_concurrency > 1)
+        # Locked standard 200 DPI resolution for OCR across all profiles
+        dpi = 200
+        if request.custom_options and "dpi" in request.custom_options:
+            try:
+                dpi = int(request.custom_options["dpi"])
+            except (ValueError, TypeError):
+                dpi = 200
+
+        # Checkpoint cache configuration
+        checkpoint_cache_enabled = (
+            bool(request.custom_options.get("checkpoint_cache_enabled", True))
+            if request.custom_options and "checkpoint_cache_enabled" in request.custom_options
+            else True
+        )
+        force_ocr = (
+            bool(request.custom_options.get("force_ocr", False))
+            if request.custom_options and "force_ocr" in request.custom_options
+            else False
+        )
+        use_checkpoints = checkpoint_cache_enabled and not force_ocr
+
+        target_lang = (
+            str(request.custom_options.get("lang", self._engine.default_lang if self._engine else "hi"))
+            if request.custom_options and "lang" in request.custom_options
+            else (self._engine.default_lang if self._engine else "hi")
         )
 
         doc_page_results: dict[str, list[tuple[int, PageData, ProvenanceRecord | None, list[WarningRecord]]]] = {
             inp.input_id: [] for inp, _, _, _, _ in ocr_inputs
         }
-        for inp, _, tot_pages, _, _ in ocr_inputs:
+        doc_hashes: dict[str, str] = {}
+        for inp, data, tot_pages, needed_indices, skip_pages in ocr_inputs:
+            d_hash = compute_doc_hash(data)
+            doc_hashes[inp.input_id] = d_hash
+
+            # Populate pre-extracted native pages
             native_p = existing_native_pages_by_input.get(inp.input_id, {})
             for p_num, p_data in sorted(native_p.items(), key=lambda x: x[0]):
                 doc_page_results[inp.input_id].append((p_num, p_data, None, []))
@@ -411,18 +445,57 @@ class OCRCapability:
                         input_id=inp.input_id,
                     )
 
-        # Locked standard 200 DPI resolution for OCR across all profiles
-        dpi = 200
-        if request.custom_options and "dpi" in request.custom_options:
-            try:
-                dpi = int(request.custom_options["dpi"])
-            except (ValueError, TypeError):
-                dpi = 200
+            # Check and restore existing page checkpoints
+            if use_checkpoints:
+                still_needed: list[int] = []
+                for p_idx in needed_indices:
+                    p_hash = compute_params_hash(
+                        page_number=p_idx,
+                        profile=request.profile,
+                        dpi=dpi,
+                        lang=target_lang,
+                        custom_options=request.custom_options,
+                    )
+                    cached = load_page_checkpoint(d_hash, p_idx, p_hash)
+                    if cached is not None:
+                        c_pdata, c_prov, c_warns = cached
+                        doc_page_results[inp.input_id].append((p_idx, c_pdata, c_prov, c_warns))
+                        skip_pages.add(p_idx)
+                        if progress_cb is not None:
+                            dev_str = (
+                                context.execution_binding.device_type.value if context.execution_binding else "CPU"
+                            )
+                            progress_cb(
+                                file_display_name=inp.display_name,
+                                page_number=p_idx,
+                                total_pages=tot_pages,
+                                worker_id="checkpoint",
+                                stage="Optical Character Recognition (OCR)",
+                                device_type=dev_str,
+                                input_id=inp.input_id,
+                            )
+                    else:
+                        still_needed.append(p_idx)
+                needed_indices.clear()
+                needed_indices.extend(still_needed)
+
+        # 2. Perform OCR: decompose page work; Yantra owns device and concurrency policy.
+        total_pages_needing_ocr = sum(len(needed) for _, _, _, needed, _ in ocr_inputs)
+        is_parallelizable = self.declaration.device_requirement.parallelizable
+        approved_concurrency = context.execution_binding.approved_concurrency if context.execution_binding else None
+        can_parallelize = (
+            total_pages_needing_ocr > 1
+            and self._yantra is not None
+            and is_parallelizable
+            and (approved_concurrency is None or approved_concurrency > 1)
+        )
 
         if can_parallelize:
             all_items: list[tuple[InputRef, int, int]] = []
             rasterizers: dict[str, BoundedPageRasterizer] = {}
             for inp, file_bytes, tot_pages, needed_indices, _ in ocr_inputs:
+                if not needed_indices:
+                    continue
                 rasterizers[inp.input_id] = BoundedPageRasterizer(
                     file_bytes,
                     pages=needed_indices,
@@ -493,6 +566,22 @@ class OCRCapability:
                         binding=context.execution_binding,
                         worker_id=w_id,
                     )
+                    if use_checkpoints:
+                        p_hash = compute_params_hash(
+                            page_number=p_idx,
+                            profile=request.profile,
+                            dpi=dpi,
+                            lang=target_lang,
+                            custom_options=request.custom_options,
+                        )
+                        save_page_checkpoint(
+                            doc_hash=doc_hashes[inp_ref.input_id],
+                            page_number=p_idx,
+                            params_hash=p_hash,
+                            page_data=p_data,
+                            provenance=p_prov,
+                            warnings=p_warns,
+                        )
                     return p_data, p_prov, p_warns
 
                 return _task
@@ -562,6 +651,22 @@ class OCRCapability:
                         binding=context.execution_binding,
                         worker_id="1",
                     )
+                    if use_checkpoints:
+                        p_hash = compute_params_hash(
+                            page_number=page_idx,
+                            profile=request.profile,
+                            dpi=dpi,
+                            lang=target_lang,
+                            custom_options=request.custom_options,
+                        )
+                        save_page_checkpoint(
+                            doc_hash=doc_hashes[inp.input_id],
+                            page_number=page_idx,
+                            params_hash=p_hash,
+                            page_data=page_data,
+                            provenance=prov,
+                            warnings=page_warnings,
+                        )
                     doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
 
         # 3. Assemble CanonicalDocuments preserving exact request input order
