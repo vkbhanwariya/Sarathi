@@ -8,6 +8,7 @@ with a standardized confidence matrix.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -31,6 +32,28 @@ from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.gemini.client import GeminiClient
 from sarathi.shakti.gemini.plugin import GEMINI_OCR_DECLARATION
 from sarathi.shakti.text.markdown import extract_markdown_tables
+
+
+def _clean_ocr_text(text: str) -> str:
+    """Clean extracted OCR text by stripping outer code fences and conversational preambles."""
+    clean = text.strip()
+    if not clean:
+        return ""
+
+    # Strip outer markdown code block fences if the model wrapped the entire response
+    if clean.startswith("```") and clean.endswith("```"):
+        first_newline = clean.find("\n")
+        if first_newline != -1:
+            clean = clean[first_newline + 1 : -3].strip()
+
+    # Strip common LLM conversational preambles
+    clean = re.sub(
+        r"^(?:here\s+is\s+(?:the\s+)?(?:extracted\s+)?(?:text|content|markdown)|extracted\s+text)[\s:]*\n*",
+        "",
+        clean,
+        flags=re.IGNORECASE,
+    ).strip()
+    return clean
 
 
 class GeminiOCRCapability:
@@ -84,11 +107,15 @@ class GeminiOCRCapability:
                 ) from exc
 
             media_type = inp.media_type or _infer_media_type(inp.source_path)
+            prompt_override = (
+                request.custom_options.get("prompt") if request.custom_options else None
+            )
 
             response_json = self._client.process_ocr(
                 content_bytes=content_bytes,
                 media_type=media_type,
                 model=model,
+                prompt_text=prompt_override,
             )
 
             candidates = response_json.get("candidates", [])
@@ -108,7 +135,8 @@ class GeminiOCRCapability:
                     )
                 content = cand.get("content", {})
                 parts = content.get("parts", [])
-                extracted_text = "".join(p.get("text", "") for p in parts).strip()
+                raw_extracted = "".join(p.get("text", "") for p in parts)
+                extracted_text = _clean_ocr_text(raw_extracted)
 
                 # Derive confidence if avgLogprobs is available from Gemini
                 avg_logprob = cand.get("avgLogprobs")

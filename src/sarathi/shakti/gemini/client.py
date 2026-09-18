@@ -16,6 +16,20 @@ _DEFAULT_TIMEOUT_SECONDS = 60.0
 _DEFAULT_MODEL = "gemini-3.6-flash"
 
 
+DEFAULT_OCR_PROMPT = (
+    "Extract all text from this document accurately in proper Unicode script (Devanagari/Latin).\n\n"
+    "CRITICAL EXTRACTION RULES:\n"
+    "1. Output ONLY the extracted document text. Do not add introductions, explanations, summaries, or metadata.\n"
+    "2. Preserve structural and Devanagari punctuation faithfully: single daṇḍa (।), double daṇḍa (॥), "
+    "hyphens, colons, and quotation marks.\n"
+    "3. Preserve all diacritics and grammatical markers: anusvāra (ं), visarga (ः), "
+    "chandrabindu (ँ), nukta (़), and halant/virama (्).\n"
+    "4. Preserve exact outline and numbering formatting (e.g. ॥१॥, (1), (क), section and chapter headings).\n"
+    "5. Preserve all tabular structures formatted as standard clean Markdown tables with column alignment.\n"
+    "6. Maintain original line breaks, verse structures, and paragraph divisions without reflowing."
+)
+
+
 class GeminiClient:
     """Direct REST transport for Google Gemini API without vendor SDK overhead."""
 
@@ -38,13 +52,15 @@ class GeminiClient:
         return bool(self._api_key and self._api_key.strip())
 
     def _get_api_key(self) -> str:
-        """Resolve and validate API key, raising DoshError if missing."""
-        if not self._api_key or not self._api_key.strip():
-            raise DoshError(
-                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                message="Google Gemini API key is not configured. Set the GEMINI_API_KEY environment variable.",
-            )
-        return self._api_key.strip()
+        if self._api_key and self._api_key.strip():
+            return self._api_key.strip()
+        env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        if env_key:
+            return env_key
+        raise DoshError(
+            code=FailureCode.DEPENDENCY_UNAVAILABLE,
+            message="Google Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+        )
 
     def _post(self, model: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Perform sanitized HTTP POST to Gemini generateContent endpoint."""
@@ -99,27 +115,20 @@ class GeminiClient:
                     continue
                 sanitized_err = str(exc).replace(api_key, "[REDACTED_API_KEY]") if api_key else "Network error"
                 raise DoshError(
-                    code=FailureCode.RESOURCE_UNAVAILABLE,
-                    message=f"Gemini API request failed: {sanitized_err}",
+                    code=FailureCode.EXECUTION_FAILED,
+                    message=f"Error connecting to Google Gemini API: {sanitized_err}",
                 ) from exc
 
-            # Retry transient 429 Rate Limit spikes respecting Retry-After header with exponential backoff
+            # Parse Retry-After and rate limit headers on 429
             if status_code == 429 and attempt < max_attempts - 1:
-                wait_sec = 0.0
-                if hasattr(resp_headers, "get"):
-                    raw_val = resp_headers.get("retry-after") or resp_headers.get("x-ratelimit-reset")
-                    if isinstance(raw_val, (int, float)):
-                        wait_sec = float(raw_val)
-                    elif isinstance(raw_val, str) and raw_val.strip():
-                        try:
-                            wait_sec = float(raw_val.strip())
-                        except ValueError:
-                            pass
-                if wait_sec <= 0.0:
-                    wait_sec = 2.5 * (2 ** attempt)
-                else:
-                    wait_sec += 0.5
-                time.sleep(wait_sec)
+                retry_after_str = resp_headers.get("retry-after") or resp_headers.get("x-ratelimit-reset")
+                delay = 2.0 * (2**attempt)
+                if retry_after_str:
+                    try:
+                        delay = max(float(retry_after_str), delay)
+                    except ValueError:
+                        pass
+                time.sleep(delay)
                 self._last_request_time = time.monotonic()
                 continue
 
@@ -192,6 +201,7 @@ class GeminiClient:
         content_bytes: bytes,
         media_type: str = "image/jpeg",
         model: str = _DEFAULT_MODEL,
+        prompt_text: str | None = None,
     ) -> dict[str, Any]:
         """Extract text and layout from image/PDF bytes using Gemini multimodal API."""
         if not content_bytes:
@@ -201,10 +211,7 @@ class GeminiClient:
             )
 
         b64_data = base64.b64encode(content_bytes).decode("ascii")
-        prompt_text = (
-            "Extract all text from this document accurately. Preserve headings, paragraphs, "
-            "and all tabular data as standard Markdown tables. Maintain document flow and script fidelity."
-        )
+        effective_prompt = prompt_text or DEFAULT_OCR_PROMPT
 
         payload = {
             "contents": [
@@ -216,7 +223,7 @@ class GeminiClient:
                                 "data": b64_data,
                             }
                         },
-                        {"text": prompt_text},
+                        {"text": effective_prompt},
                     ]
                 }
             ],

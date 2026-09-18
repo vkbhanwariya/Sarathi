@@ -20,8 +20,8 @@ from sarathi.sankalpa import (
     Request,
     Result,
 )
-from sarathi.shakti.gemini.client import GeminiClient
-from sarathi.shakti.gemini.ocr import GeminiOCRCapability
+from sarathi.shakti.gemini.client import DEFAULT_OCR_PROMPT, GeminiClient
+from sarathi.shakti.gemini.ocr import GeminiOCRCapability, _clean_ocr_text
 from sarathi.shakti.gemini.plugin import (
     GEMINI_OCR_DECLARATION,
     GEMINI_SECURITY,
@@ -321,3 +321,39 @@ class TestGeminiBatchAndRateLimiting:
             res = client.chat_translate("Hello", "English", "Hindi")
             assert res == "Success"
             assert mock_sleep.called
+
+    def test_default_ocr_prompt_invariants(self) -> None:
+        """Verify DEFAULT_OCR_PROMPT mandates Devanagari structural and punctuation fidelity."""
+        assert "Devanagari" in DEFAULT_OCR_PROMPT
+        assert "single daṇḍa (।)" in DEFAULT_OCR_PROMPT
+        assert "double daṇḍa (॥)" in DEFAULT_OCR_PROMPT
+        assert "anusvāra" in DEFAULT_OCR_PROMPT
+        assert "visarga" in DEFAULT_OCR_PROMPT
+        assert "chandrabindu" in DEFAULT_OCR_PROMPT
+        assert "॥१॥" in DEFAULT_OCR_PROMPT
+
+    def test_process_ocr_payload_and_prompt_customization(self) -> None:
+        client = GeminiClient(api_key="test_key", rate_limit_delay_seconds=0.0)
+        with patch.object(client, "_post", return_value={"candidates": []}) as mock_post:
+            client.process_ocr(b"sample_content", media_type="image/png")
+            mock_post.assert_called_once()
+            call_args = mock_post.call_args
+            payload = call_args.kwargs.get("payload") or call_args.args[1]
+            parts = payload["contents"][0]["parts"]
+            assert parts[1]["text"] == DEFAULT_OCR_PROMPT
+
+        with patch.object(client, "_post", return_value={"candidates": []}) as mock_post_custom:
+            client.process_ocr(b"sample_content", media_type="image/png", prompt_text="Custom OCR prompt.")
+            call_args = mock_post_custom.call_args
+            payload = call_args.kwargs.get("payload") or call_args.args[1]
+            parts = payload["contents"][0]["parts"]
+            assert parts[1]["text"] == "Custom OCR prompt."
+
+    def test_clean_ocr_text_removes_preambles_and_fences(self) -> None:
+        raw_with_preamble = "Here is the extracted text:\n\nपहला श्लोक ॥१॥\nदूसरा श्लोक ॥२॥"
+        assert _clean_ocr_text(raw_with_preamble) == "पहला श्लोक ॥१॥\nदूसरा श्लोक ॥२॥"
+
+        raw_with_fences = "```markdown\n# Header\n\nContent paragraph.\n```"
+        assert _clean_ocr_text(raw_with_fences) == "# Header\n\nContent paragraph."
+
+        assert _clean_ocr_text("") == ""
