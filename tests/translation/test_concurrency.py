@@ -349,3 +349,49 @@ def test_ctranslate2_does_not_mutate_global_openmp_env(monkeypatch: pytest.Monke
 
     assert "OMP_NUM_THREADS" not in os.environ, "Translation must not pollute global OMP_NUM_THREADS"
     assert "MKL_NUM_THREADS" not in os.environ, "Translation must not pollute global MKL_NUM_THREADS"
+
+
+def test_translate_batch_deduplicates_identical_sentences() -> None:
+    """Verify translate_batch deduplicates identical sentences across multiple input texts before calling backend."""
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+
+    captured_batches: list[list[str]] = []
+
+    class MockBackend:
+        def translate_sentences(self, sentences, direction, execution_binding=None, engine="indictrans2", **kwargs):
+            captured_batches.append(list(sentences))
+            # Echo translation uppercase for deterministic testing
+            return [s.upper() for s in sentences]
+
+    engine = CTranslate2TranslationEngine(backend=MockBackend())
+
+    # 3 distinct input texts that share identical sentences
+    texts = [
+        "Notice is issued to the respondents. The interim protection granted earlier shall continue.",
+        "List on 24.05.2024. The interim protection granted earlier shall continue.",
+        "Notice is issued to the respondents. List on 24.05.2024.",
+    ]
+
+    results = engine.translate_batch(texts, direction=TranslationDirection.EN_TO_HI)
+
+    assert len(results) == 3
+    # Verify that backend was invoked with deduplicated sentences
+    assert len(captured_batches) == 1
+    backend_sent_list = captured_batches[0]
+
+    # Total sentences across all 3 texts is 2 + 2 + 2 = 6 sentences.
+    # 'Notice is issued...' and 'The interim protection...' are deduplicated, reducing 6 to 4!
+    assert len(backend_sent_list) == 4
+
+
+    # All 3 texts must receive their full, correctly translated bodies in original order
+    assert "THE INTERIM PROTECTION GRANTED EARLIER SHALL CONTINUE" in results[0].translated_text
+    assert "IS ISSUED TO THE RESPONDENTS" in results[0].translated_text
+    assert "सूचना" in results[0].translated_text
+
+    assert "THE INTERIM PROTECTION GRANTED EARLIER SHALL CONTINUE" in results[1].translated_text
+    assert "24.05.2024" in results[1].translated_text  # protected date restored
+
+    assert "IS ISSUED TO THE RESPONDENTS" in results[2].translated_text
+    assert "सूचना" in results[2].translated_text
+    assert "24.05.2024" in results[2].translated_text

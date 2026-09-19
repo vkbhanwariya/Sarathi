@@ -124,17 +124,23 @@ def test_calculate_adaptive_dpi_normalization() -> None:
 
 
 def test_compute_cer_and_wer_metrics() -> None:
-    """Verify Character Error Rate and Word Error Rate calculations."""
+    """Verify Character Error Rate and Word Error Rate calculations via RapidFuzz Levenshtein."""
     gold = "भारत सरकार"
     assert compute_cer(gold, gold) == 0.0
     assert compute_wer(gold, gold) == 0.0
 
     # 1 character changed in 10 characters
     hyp_1_err = "भारत सरकोर"
-    assert compute_cer(gold, hyp_1_err) > 0.0
-    assert compute_cer(gold, hyp_1_err) <= 0.20
+    assert compute_cer(gold, hyp_1_err) == 0.10
     # 1 word out of 2 words corrupted
     assert compute_wer(gold, hyp_1_err) == 0.50
+
+    # Unclamped error rate on excessive insertions (standard Levenshtein metric verification)
+    assert compute_cer("a", "aaaa") == 3.0
+    assert compute_wer("single", "single word added here") == 3.0
+    assert compute_cer("", "") == 0.0
+    assert compute_wer("", "") == 0.0
+
 
 
 def test_benchmark_ocr_dry_run_sweep() -> None:

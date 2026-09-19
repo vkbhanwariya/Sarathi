@@ -664,24 +664,45 @@ class CTranslate2TranslationEngine:
 
         factual_device = target_device
         all_translated_sentences: list[str] = []
+        truncation_flags: list[bool] = []
         if all_prepared_sentences:
+            # Batch-local sentence deduplication
+            unique_sentences: list[str] = []
+            sent_to_unique_idx: dict[str, int] = {}
+            sentence_map: list[int] = []
+
+            for sent in all_prepared_sentences:
+                u_idx = sent_to_unique_idx.get(sent)
+                if u_idx is None:
+                    u_idx = len(unique_sentences)
+                    sent_to_unique_idx[sent] = u_idx
+                    unique_sentences.append(sent)
+                sentence_map.append(u_idx)
+
             backend = self._ensure_backend()
             backend_res = backend.translate_sentences(
-                all_prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
+                unique_sentences, direction, execution_binding=execution_binding, engine=norm_engine
             )
 
-            truncation_flags: list[bool] = []
+            unique_translated: Sequence[str] = []
+            unique_truncations: Sequence[bool] = []
             if isinstance(backend_res, BackendTranslationResult):
-                all_translated_sentences = backend_res.sentences
+                unique_translated = backend_res.sentences
                 factual_device = backend_res.device
-                truncation_flags = list(backend_res.truncation_flags)
+                unique_truncations = backend_res.truncation_flags
             elif isinstance(backend_res, tuple) and len(backend_res) >= 2:
-                all_translated_sentences = backend_res[0]
+                unique_translated = backend_res[0]
                 factual_device = backend_res[1]
                 if len(backend_res) > 2:
-                    truncation_flags = list(backend_res[2])
+                    unique_truncations = backend_res[2]
             else:
-                all_translated_sentences = backend_res
+                unique_translated = backend_res
+
+            # Broadcast model outputs back to full sentence positions
+            all_translated_sentences = [unique_translated[i] for i in sentence_map]
+            if unique_truncations:
+                truncation_flags = [unique_truncations[i] for i in sentence_map]
+
 
         results: list[TranslationResult] = []
         for idx, sent_count, spans, start_idx, separators in text_slices:

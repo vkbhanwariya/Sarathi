@@ -9,13 +9,14 @@ content-adaptive target DPI based on median glyph line-height.
 from __future__ import annotations
 
 import argparse
-import difflib
 import json
 import sys
 import time
 import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from rapidfuzz.distance import Levenshtein
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -46,37 +47,36 @@ class BenchmarkReport:
 
 
 def compute_cer(reference: str, hypothesis: str) -> float:
-    """Compute Character Error Rate (CER) via Levenshtein edit distance."""
-    ref_chars = list(unicodedata.normalize("NFC", reference))
-    hyp_chars = list(unicodedata.normalize("NFC", hypothesis))
+    """Compute Character Error Rate (CER) via standard Levenshtein edit distance.
 
-    if not ref_chars:
-        return 0.0 if not hyp_chars else 1.0
+    Formula: CER = (Substitutions + Deletions + Insertions) / len(reference)
+    Standard CER is unclamped and can exceed 1.0 when insertions exceed reference length.
+    """
+    ref_norm = unicodedata.normalize("NFC", reference)
+    hyp_norm = unicodedata.normalize("NFC", hypothesis)
 
-    matcher = difflib.SequenceMatcher(None, ref_chars, hyp_chars)
-    errors = 0
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag in ("replace", "delete", "insert"):
-            errors += max(i2 - i1, j2 - j1)
+    if not ref_norm:
+        return 0.0 if not hyp_norm else 1.0
 
-    return round(min(1.0, errors / len(ref_chars)), 4)
+    dist = Levenshtein.distance(ref_norm, hyp_norm)
+    return round(dist / len(ref_norm), 4)
 
 
 def compute_wer(reference: str, hypothesis: str) -> float:
-    """Compute Word Error Rate (WER) via word-level edit distance."""
+    """Compute Word Error Rate (WER) via word-sequence Levenshtein edit distance.
+
+    Formula: WER = (Substitutions + Deletions + Insertions) / len(reference_words)
+    Standard WER is unclamped and can exceed 1.0 when insertions exceed reference length.
+    """
     ref_words = unicodedata.normalize("NFC", reference).split()
     hyp_words = unicodedata.normalize("NFC", hypothesis).split()
 
     if not ref_words:
         return 0.0 if not hyp_words else 1.0
 
-    matcher = difflib.SequenceMatcher(None, ref_words, hyp_words)
-    errors = 0
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag in ("replace", "delete", "insert"):
-            errors += max(i2 - i1, j2 - j1)
+    dist = Levenshtein.distance(ref_words, hyp_words)
+    return round(dist / len(ref_words), 4)
 
-    return round(min(1.0, errors / len(ref_words)), 4)
 
 
 def calculate_adaptive_dpi(h_median: float, base_dpi: int = 200, target_height_px: float = 32.0) -> int:

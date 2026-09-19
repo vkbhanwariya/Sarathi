@@ -9,7 +9,6 @@ Measures:
 
 from __future__ import annotations
 
-import re
 import sys
 import time
 import tracemalloc
@@ -20,37 +19,13 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-
-def levenshtein_distance(s1: str, s2: str) -> int:
-    """Compute standard Levenshtein edit distance."""
-    if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
-    if len(s2) == 0:
-        return len(s1)
-    prev = range(len(s2) + 1)
-    for i, c1 in enumerate(s1):
-        curr = [i + 1]
-        for j, c2 in enumerate(s2):
-            insertions = prev[j + 1] + 1
-            deletions = curr[j] + 1
-            substitutions = prev[j] + (c1 != c2)
-            curr.append(min(insertions, deletions, substitutions))
-        prev = curr
-    return prev[-1]
-
-
-def compute_cer(reference: str, hypothesis: str) -> float:
-    """Character Error Rate (CER) normalized by reference length."""
-    ref_clean = re.sub(r"\s+", " ", reference).strip()
-    hyp_clean = re.sub(r"\s+", " ", hypothesis).strip()
-    if not ref_clean:
-        return 0.0 if not hyp_clean else 1.0
-    dist = levenshtein_distance(ref_clean, hyp_clean)
-    return round(dist / len(ref_clean), 4)
+from tools.benchmark_ocr_legacy_gold import compute_cer  # noqa: E402
 
 
 def create_synthetic_ground_truth_page() -> tuple[Any, str, dict[str, str]]:
