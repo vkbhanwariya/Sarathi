@@ -14,8 +14,8 @@ from sarathi.sankalpa import (
     InputRef,
     Request,
     Result,
-    check_cancelled,
 )
+from sarathi.sankalpa.cancellation import check_cancelled
 
 
 @pytest.mark.unit

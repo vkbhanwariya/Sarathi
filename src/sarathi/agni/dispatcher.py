@@ -15,7 +15,8 @@ from sarathi.darpana import Darpana, record_maruti
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha
 from sarathi.nabhi import ArtifactBoundary, Manthan, Pravaha
-from sarathi.sankalpa import ExecutionContext, Request, Result, check_cancelled
+from sarathi.sankalpa import ExecutionContext, Request, Result
+from sarathi.sankalpa.cancellation import check_cancelled
 from sarathi.shakti.darshana import identify_request
 from sarathi.sutra import Settings
 
