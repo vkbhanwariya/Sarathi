@@ -443,3 +443,48 @@ class TestStatutoryCapability:
         raw_ids = meta.get("raw_identifiers", {})
         assert "27ABCPE1234F1ZB" in raw_ids.get("gstins", ())
         assert "ABCPE1234F" in raw_ids.get("pans", ())
+
+
+def test_bug_S4_statutory_ocr_repair_warning() -> None:
+    """S4: An ID accepted only after repair_gstin_candidate produces a WarningRecord with code
+
+    STATUTORY_ID_OCR_REPAIRED and original/repaired values in its context.
+    An unrepaired valid ID produces none.
+    """
+    prefix = "27ABCPE1234F1Z"
+    check_digit = calculate_gstin_check_digit(prefix)
+    assert check_digit is not None
+    valid_gstin = prefix + check_digit
+
+    # 1. Unrepaired valid ID produces no warning
+    valid_text = f"TAX INVOICE with GSTIN: {valid_gstin}"
+    entities_valid = extract_statutory_entities(valid_text)
+    assert entities_valid.gst is not None
+    assert entities_valid.gst.supplier_gstin == valid_gstin
+    repair_warnings = [w for w in getattr(entities_valid, "warnings", ()) if w.code == "STATUTORY_ID_OCR_REPAIRED"]
+    assert len(repair_warnings) == 0
+
+    # 2. Corrupted GSTIN accepted only after repair
+    prefix_07 = "07ABCPE1234F1Z"
+    check_07 = calculate_gstin_check_digit(prefix_07)
+    assert check_07 is not None
+    corrupt_gstin = "O7ABCPE1234F12" + check_07
+    repaired_expected, changed = repair_gstin_candidate(corrupt_gstin)
+    assert changed
+    assert verify_gstin(repaired_expected)
+
+    corrupt_text = f"TAX INVOICE with GSTIN: {corrupt_gstin}"
+    entities_repaired = extract_statutory_entities(corrupt_text)
+    assert entities_repaired.gst is not None
+    assert entities_repaired.gst.supplier_gstin == repaired_expected
+
+    repair_warnings_rep = [
+        w for w in getattr(entities_repaired, "warnings", ()) if w.code == "STATUTORY_ID_OCR_REPAIRED"
+    ]
+    assert len(repair_warnings_rep) == 1, (
+        f"Expected exactly 1 STATUTORY_ID_OCR_REPAIRED warning, got {repair_warnings_rep}"
+    )
+    w = repair_warnings_rep[0]
+    assert w.code == "STATUTORY_ID_OCR_REPAIRED"
+    assert w.context.get("original") == corrupt_gstin
+    assert w.context.get("repaired") == repaired_expected

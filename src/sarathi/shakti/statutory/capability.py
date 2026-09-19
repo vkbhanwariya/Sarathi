@@ -153,14 +153,17 @@ class StatutoryCapability:
                 )
             extracted_docs.append(canonical_doc)
 
-            for correction in entities.ocr_corrections:
-                all_warnings.append(
-                    WarningRecord(
-                        code="OCR_CORRECTION_APPLIED",
-                        message=correction,
-                        stage="statutory",
+            if entities.warnings:
+                all_warnings.extend(entities.warnings)
+            else:
+                for correction in entities.ocr_corrections:
+                    all_warnings.append(
+                        WarningRecord(
+                            code="STATUTORY_ID_OCR_REPAIRED",
+                            message=correction,
+                            stage="statutory",
+                        )
                     )
-                )
 
         duration_ns = int((time.monotonic() - start_time) * 1_000_000_000)
         prov = ProvenanceRecord(

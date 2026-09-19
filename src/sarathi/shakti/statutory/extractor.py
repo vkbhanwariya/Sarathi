@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from sarathi.sankalpa import WarningRecord
 from sarathi.shakti.statutory.checksums import (
     IRN_PATTERN,
     verify_cin,
@@ -106,6 +107,7 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
         "irns": [],
     }
     ocr_corrections: list[str] = []
+    repair_warnings: list[WarningRecord] = []
 
     words = re.findall(r"\b[A-Za-z0-9\-]{8,64}\b", text)
 
@@ -143,6 +145,14 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
                 if repaired not in raw_identifiers["gstins"]:
                     raw_identifiers["gstins"].append(repaired)
                     ocr_corrections.append(f"GSTIN '{clean}' corrected to '{repaired}'")
+                    repair_warnings.append(
+                        WarningRecord(
+                            code="STATUTORY_ID_OCR_REPAIRED",
+                            message=f"GSTIN '{clean}' was repaired to '{repaired}' via OCR confusion correction.",
+                            stage="statutory",
+                            context={"original": clean, "repaired": repaired, "entity_type": "GSTIN"},
+                        )
+                    )
                 continue
 
         # PAN Check (10 chars)
@@ -161,6 +171,14 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
                 if repaired not in raw_identifiers["pans"]:
                     raw_identifiers["pans"].append(repaired)
                     ocr_corrections.append(f"PAN '{clean}' corrected to '{repaired}'")
+                    repair_warnings.append(
+                        WarningRecord(
+                            code="STATUTORY_ID_OCR_REPAIRED",
+                            message=f"PAN '{clean}' was repaired to '{repaired}' via OCR confusion correction.",
+                            stage="statutory",
+                            context={"original": clean, "repaired": repaired, "entity_type": "PAN"},
+                        )
+                    )
                 continue
 
         # DIN Check (8 digits)
@@ -348,4 +366,5 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
         ecourts=court_meta,
         raw_identifiers={k: tuple(v) for k, v in raw_identifiers.items()},
         ocr_corrections=tuple(ocr_corrections),
+        warnings=tuple(repair_warnings),
     )

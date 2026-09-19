@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
+from sarathi.sankalpa import WarningRecord
+
 
 class StatutoryDocumentType(str, Enum):
     """Classified statutory or legal document type."""
@@ -102,6 +104,7 @@ class StatutoryEntities:
     ecourts: ECourtsMetadata | None = None
     raw_identifiers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     ocr_corrections: tuple[str, ...] = ()
+    warnings: tuple[WarningRecord, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize entities to public dictionary without raw internal memory."""
