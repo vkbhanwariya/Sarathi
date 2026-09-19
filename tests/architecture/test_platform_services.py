@@ -23,6 +23,7 @@ class TestPlatformServicesArchitecture:
             "kavacha",
             "settings",
             "data_root",
+            "runtime_root",
         }
         actual_fields = {field.name for field in dataclasses.fields(PluginServices)}
 

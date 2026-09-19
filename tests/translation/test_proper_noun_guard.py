@@ -49,3 +49,38 @@ def test_proper_noun_protection_and_restoration_lifecycle() -> None:
     # Invariant: Semantic hallucination (e.g. 'Happy God' for सुखदेव) must never appear
     assert "Happy God" not in restored_text
     assert "Sun Light" not in restored_text
+
+
+def test_translation_engine_proper_noun_guard_integration() -> None:
+    """Verify CTranslate2TranslationEngine integrates ProperNounGuard for HI_TO_EN translation."""
+    from typing import Any, Sequence
+
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    class MockNmtBackend:
+        def translate_sentences(
+            self,
+            sentences: Sequence[str],
+            direction: TranslationDirection,
+            **kwargs: Any,
+        ) -> list[str]:
+            out = []
+            for s in sentences:
+                translated = (
+                    s.replace("अभियुक्त श्री", "The accused Mr.")
+                    .replace("पुत्र", "s/o")
+                    .replace("निवासी ग्राम", "resident of village")
+                )
+                out.append(translated)
+            return out
+
+    engine = CTranslate2TranslationEngine(backend=MockNmtBackend())
+    source_hindi = "अभियुक्त श्री रामप्रसाद पुत्र सुखदेव निवासी ग्राम रामपुर"
+    res = engine.translate(source_hindi, direction=TranslationDirection.HI_TO_EN)
+
+    assert "Ramprasad" in res.translated_text
+    assert "Sukhadev" in res.translated_text
+    assert "Rampur" in res.translated_text
+    assert "__NAME_" not in res.translated_text
+    assert "999" not in res.translated_text

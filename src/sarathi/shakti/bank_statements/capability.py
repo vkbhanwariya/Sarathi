@@ -43,6 +43,7 @@ from sarathi.shakti.bank_statements.table_locator import (
     classify_table,
     get_table_header_and_data_rows,
 )
+from sarathi.shakti.bank_statements.utr_repair import repair_utr
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
 from sarathi.sutra import get_canonical_data_root
 
@@ -413,13 +414,19 @@ class BankStatementCapability:
                             evidence={"row_index": row_idx},
                         )
                         current_sequence_id += 1
+                        ref_val = _get_cell(row_cells, ref_col)
+                        if ref_val:
+                            repaired_utr, det_type, was_repaired = repair_utr(ref_val)
+                            if was_repaired or det_type:
+                                ref_val = repaired_utr
+
                         new_tx = Transaction(
                             transaction_date=tx_date,
                             transaction_time=tx_time,
                             value_date=tx_val_date,
                             description=_get_cell(row_cells, desc_col) or "",
                             bank_name=bank_name,
-                            reference_number=_get_cell(row_cells, ref_col),
+                            reference_number=ref_val,
                             cheque_number=_get_cell(row_cells, chq_col),
                             debit=tx_debit,
                             credit=tx_credit,

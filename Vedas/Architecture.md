@@ -499,7 +499,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`common.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/common.py): Shared execution types and state tracking.
   - [`engine.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/engine.py): Step-level execution dispatcher.
   - [`lifecycle.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/lifecycle.py): Step execution lifecycle, telemetry timing, and failure management.
-  - [`pipeline.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/pipeline.py): End-to-end plan coordinator managing sequential execution, retries, handoffs, and high-throughput concurrent stage pipeline overlap (`execute_pipelined_stage_handoff`).
+  - [`pipeline.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/pipeline.py): End-to-end plan coordinator managing topological sequential stage execution, retries, checkpoint cache coordination, and continuation handoffs (`execute_pipeline`).
 
 ### 11. Shakti — Document Intelligence Capabilities (`src/sarathi/shakti/`)
 - [`artifact_naming.py`](file:///e:/Sarathi/src/sarathi/shakti/artifact_naming.py): Canonical filename formatting for exported artifacts.

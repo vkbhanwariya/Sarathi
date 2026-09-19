@@ -20,6 +20,7 @@ from sarathi.shakti.translation.models import (
     TranslationDirection,
     TranslationResult,
 )
+from sarathi.shakti.translation.proper_noun_guard import ProperNounGuard
 from sarathi.shakti.translation.protector import TranslationProtector
 from sarathi.sutra import get_canonical_data_root
 
@@ -515,6 +516,7 @@ class CTranslate2TranslationEngine:
         backend: TranslatorBackend | None = None,
         glossary: GlossaryStore | None = None,
         protector: TranslationProtector | None = None,
+        proper_noun_guard: ProperNounGuard | None = None,
     ) -> None:
         self._data_root = (data_root or _CANONICAL_TRANSLATION_DATA_DIR).resolve()
         self._backend = backend
@@ -524,6 +526,7 @@ class CTranslate2TranslationEngine:
             for src in dir_corrections:
                 _compile_anubhava_pattern(src)
         self._protector = protector or TranslationProtector()
+        self._proper_noun_guard = proper_noun_guard or ProperNounGuard()
         self._initialized_backend: TranslatorBackend | None = None
         self._backend_lock: threading.Lock = threading.Lock()
         self._asset_version: str = self._compute_asset_version()
@@ -683,17 +686,25 @@ class CTranslate2TranslationEngine:
         active_glossary = glossary_terms if glossary_terms is not None else self._glossary.get_terms(direction)
         dir_key = direction.value
 
-        text_slices: list[tuple[int, int, list[tuple[str, str]], int, list[str]]] = []
+        text_slices: list[tuple[int, int, list[tuple[str, str]], int, list[str], list[tuple[str, str]]]] = []
         all_prepared_sentences: list[str] = []
 
         for idx, text in enumerate(texts):
             if not text or not text.strip():
-                text_slices.append((idx, 0, [], 0, []))
+                text_slices.append((idx, 0, [], 0, [], []))
                 continue
 
+            guarded_text = text
+            name_placeholders: list[tuple[str, str]] = []
+            effective_custom_terms = list(custom_terms) if custom_terms else []
+            if direction == TranslationDirection.HI_TO_EN and self._proper_noun_guard is not None:
+                guarded_text, name_placeholders = self._proper_noun_guard.protect(text)
+                if name_placeholders:
+                    effective_custom_terms.extend(ph for ph, _ in name_placeholders)
+
             protected_text, spans = self._protector.protect(
-                text,
-                custom_terms=custom_terms,
+                guarded_text,
+                custom_terms=tuple(effective_custom_terms),
                 glossary_mappings=active_glossary,
             )
             split_units = split_sentences(protected_text)
@@ -707,7 +718,7 @@ class CTranslate2TranslationEngine:
             for sent in raw_sentences:
                 all_prepared_sentences.append(self._apply_anubhava(sent, dir_key))
 
-            text_slices.append((idx, len(raw_sentences), spans, start_idx, separators))
+            text_slices.append((idx, len(raw_sentences), spans, start_idx, separators, name_placeholders))
 
         factual_device = target_device
         all_translated_sentences: list[str] = []
@@ -764,7 +775,7 @@ class CTranslate2TranslationEngine:
 
 
         results: list[TranslationResult] = []
-        for idx, sent_count, spans, start_idx, separators in text_slices:
+        for idx, sent_count, spans, start_idx, separators, name_placeholders in text_slices:
             orig_text = texts[idx]
             if sent_count == 0 or not orig_text or not orig_text.strip():
                 results.append(
@@ -786,6 +797,8 @@ class CTranslate2TranslationEngine:
             input_truncation_suspected = any(item_input_truncations)
             translated_body = "".join(ts + sep for ts, sep in zip(sents, separators))
             final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
+            if name_placeholders and self._proper_noun_guard is not None:
+                final_text = self._proper_noun_guard.restore(final_text, name_placeholders)
 
             metadata: dict[str, Any] = {
                 "sentences_count": sent_count,

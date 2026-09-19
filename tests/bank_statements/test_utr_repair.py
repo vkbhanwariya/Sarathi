@@ -109,3 +109,54 @@ def test_mathematical_double_entry_balance_verification() -> None:
     assert d.expected_balance == Decimal("1250.00")
     assert d.actual_balance == Decimal("1200.00")
     assert d.variance == Decimal("-50.00")
+
+
+def test_bank_statement_extraction_auto_repairs_utr() -> None:
+    """Verify that BankStatementCapability auto-repairs OCR-corrupted UTR in reference column."""
+    from pathlib import Path
+
+    from sarathi.sankalpa import (
+        CanonicalDocument,
+        ExecutionContext,
+        InputRef,
+        PageData,
+        Request,
+        Result,
+        TableData,
+    )
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    headers = ["Txn Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
+    # Provide corrupted NEFT reference with OCR 'O' instead of '0'
+    corrupted_ref = "SBIN123456789O12"
+    data_rows = [
+        ["01/01/2024", "TRANSFER FROM RAM", corrupted_ref, "", "5000.00", "15000.00"],
+    ]
+
+    cdoc = CanonicalDocument(
+        document_id="doc-utr-1",
+        pages=(
+            PageData(
+                page_number=1,
+                tables=(
+                    TableData(
+                        headers=tuple(headers),
+                        rows=tuple([tuple(headers)] + [tuple(r) for r in data_rows]),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-utr-repair",
+        requirement="bank_statements",
+        inputs=(InputRef("in-1", Path("dummy.csv"), "dummy.csv", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-utr-repair", "t1", "s1")
+    prior = Result(data=cdoc)
+    res = cap.execute(req, ctx, prior_result=prior)
+    assert res.data is not None
+    assert len(res.data.transactions) == 1
+    assert res.data.transactions[0].reference_number == "SBIN123456789012"

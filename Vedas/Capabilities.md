@@ -177,10 +177,10 @@ When a request specifies an execution profile, Manthan recursively validates tha
 
 ---
 
-## 10. High-Throughput Stage Pipeline Overlap (`pipeline`)
+## 10. Canonical Plan Pipeline Execution (`pipeline`)
 
-Provides asynchronous producer-consumer stage execution via `sarathi.nabhi.pravaha.pipeline.execute_pipelined_stage_handoff`.
+Provides topological sequential plan execution and continuation handoff via `sarathi.nabhi.pravaha.pipeline.execute_pipeline` (invoked via `Pravaha.execute_plan`).
 
-- **Mechanism**: As Stage 1 (e.g. OpenVINO RapidOCR on Intel Arc iGPU) completes processing Document $i$, it pushes the intermediate result into a bounded queue (`queue.Queue(maxsize=4)`) for Stage 2 (e.g. CTranslate2 neural translation on multi-core CPU) to consume immediately on a concurrent worker thread, while Stage 1 simultaneously starts processing Document $i+1$.
-- **Throughput Gain**: Eliminates idle hardware serialization bubbles, achieving up to 2× batch throughput on primary reference hardware (Intel Core Ultra 5 125H + Arc iGPU).
-- **Fail-Safe Invariants**: Sentinels reliably propagate task boundaries and unhandled exceptions across worker threads, ensuring strict fail-closed termination, execution context isolation, and atomic telemetry recording.
+- **Mechanism**: Orchestrates the sequential execution of resolved capability plans across registered capabilities. Each stage operates with input and security authorization (`Kavacha`), hardware accelerator binding (`Yantra`), intermediate checkpoint caching (`Smriti`), bounded retry with exponential backoff, and quarantine isolation. Intermediate canonical documents produced by upstream stages (e.g., PyMuPDF native extraction or OpenVINO RapidOCR on Intel Arc iGPU) are handed off directly to downstream stages (e.g., CTranslate2 neural translation on multi-core CPU or bank statement reconciliation).
+- **Accelerator Binding & Efficiency**: Stages are bound to dedicated hardware devices managed by Yantra, preventing compute-intensive neural inference from choking on single-core serialization and eliminating contention between GPU and CPU workloads.
+- **Fail-Safe Invariants**: Strict fail-closed error propagation, provenance chain maintenance, warning aggregation across stages, and atomic lifecycle telemetry recording (`Darpana`).
