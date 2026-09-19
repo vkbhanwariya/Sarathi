@@ -45,6 +45,8 @@ class ThreadTrackingBackend:
         sentences: Sequence[str],
         direction: TranslationDirection,
         execution_binding: Any = None,
+        engine: str = "indictrans2",
+        **kwargs: Any,
     ) -> list[str]:
         with self.cond:
             self.current_active += 1

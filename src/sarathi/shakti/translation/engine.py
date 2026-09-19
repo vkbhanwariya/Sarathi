@@ -506,14 +506,9 @@ class CTranslate2TranslationEngine:
 
         # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)
         backend = self._ensure_backend()
-        try:
-            backend_res = backend.translate_sentences(
-                prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
-            )
-        except TypeError:
-            backend_res = backend.translate_sentences(
-                prepared_sentences, direction, execution_binding=execution_binding
-            )
+        backend_res = backend.translate_sentences(
+            prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
+        )
 
         if isinstance(backend_res, tuple) and len(backend_res) == 2:
             translated_sentences, factual_device = backend_res
@@ -600,14 +595,9 @@ class CTranslate2TranslationEngine:
         all_translated_sentences: list[str] = []
         if all_prepared_sentences:
             backend = self._ensure_backend()
-            try:
-                backend_res = backend.translate_sentences(
-                    all_prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
-                )
-            except TypeError:
-                backend_res = backend.translate_sentences(
-                    all_prepared_sentences, direction, execution_binding=execution_binding
-                )
+            backend_res = backend.translate_sentences(
+                all_prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
+            )
 
             if isinstance(backend_res, tuple) and len(backend_res) == 2:
                 all_translated_sentences, factual_device = backend_res

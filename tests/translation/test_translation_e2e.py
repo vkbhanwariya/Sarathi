@@ -111,6 +111,7 @@ def test_translation_artifact_matches_canonical_doc_exactly(monkeypatch: pytest.
             text: str,
             direction: TranslationDirection,
             execution_binding: Any = None,
+            **kwargs: Any,
         ) -> TranslationResult:
             self.call_count += 1
             return TranslationResult(
@@ -160,7 +161,14 @@ def test_translation_batch_documents_and_spans() -> None:
     from sarathi.shakti.translation.engine import TranslatorBackend
 
     class DummyMockTranslationBackend(TranslatorBackend):
-        def translate_sentences(self, sentences: list[str], direction, execution_binding: Any = None) -> list[str]:
+        def translate_sentences(
+            self,
+            sentences: list[str],
+            direction,
+            execution_binding: Any = None,
+            engine: str = "indictrans2",
+            **kwargs: Any,
+        ) -> list[str]:
             return [f"Translated({s})" for s in sentences]
 
     cap = TranslationCapability(backend=DummyMockTranslationBackend())

@@ -105,7 +105,7 @@ def test_instant_profile_never_invokes_fallback() -> None:
 def test_instant_page_does_not_materialize_unused_fallback_image() -> None:
     """Instant OCR must not allocate a PIL fallback crop image that cannot be used."""
     engine = RapidOCREngine()
-    engine._engine = lambda _arr: DummyOutput(
+    engine._engine = lambda _arr, **_kwargs: DummyOutput(
         txts=["FAST_PATH"],
         boxes=[[(10, 10), (80, 10), (80, 30), (10, 30)]],
         scores=[0.99],
@@ -126,7 +126,7 @@ def test_instant_page_does_not_materialize_unused_fallback_image() -> None:
 def test_instant_profile_bypasses_preprocessing_when_requested() -> None:
     """Instant profile with preprocess=False does not execute any PIL/OpenCV filtering."""
     engine = RapidOCREngine()
-    engine._engine = lambda _arr: DummyOutput(
+    engine._engine = lambda _arr, **_kwargs: DummyOutput(
         txts=["FAST_PATH"],
         boxes=[[(5, 5), (60, 5), (60, 20), (5, 20)]],
         scores=[0.90],
@@ -185,7 +185,7 @@ def test_custom_profile_rebuilds_all_evidence_on_binarize_pass() -> None:
     """When Custom binarize runs, text, spans, boxes, confidence, warnings, and evidence are rebuilt together."""
     engine = RapidOCREngine()
 
-    def fake_rapidocr(arr):
+    def fake_rapidocr(arr, **_kwargs):
         # Detect if binarized (threshold applied gives pure 0 or 255)
         unique_vals = np.unique(arr)
         if len(unique_vals) <= 2:
@@ -915,7 +915,7 @@ def test_ocr_coordinator_serializes_concurrent_inference_calls() -> None:
     max_concurrent_seen = 0
     call_lock = threading.Lock()
 
-    def mock_engine(img: Any, use_cls: bool = True) -> MagicMock:
+    def mock_engine(img: Any, use_cls: bool = True, **_kwargs: Any) -> MagicMock:
         nonlocal active_calls, max_concurrent_seen
         with call_lock:
             active_calls += 1
@@ -983,7 +983,7 @@ def test_weak_crop_retry_concurrency_guards_infer_request() -> None:
     max_concurrent_seen = 0
     call_lock = threading.Lock()
 
-    def mock_engine(img: Any, use_det: bool = True, use_cls: bool = True) -> MagicMock:
+    def mock_engine(img: Any, use_det: bool = True, use_cls: bool = True, **_kwargs: Any) -> MagicMock:
         nonlocal active_calls, max_concurrent_seen
         with call_lock:
             active_calls += 1
@@ -1032,3 +1032,32 @@ def test_weak_crop_retry_concurrency_guards_infer_request() -> None:
     assert not errors, f"Concurrent OCR with retry threw errors: {errors}"
     assert max_concurrent_seen == 1, f"Expected strictly 1 concurrent inference call, got {max_concurrent_seen}"
     assert all(r is not None for r in results)
+
+
+def test_bug_T3_type_error_cascades_ocr() -> None:
+    """T3: Fake OCR engine raising TypeError in __call__ must not be called a second time."""
+    from unittest.mock import MagicMock
+
+    import pytest
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
+
+    call_count = 0
+
+    def buggy_call(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        raise TypeError("internal engine failure")
+
+    mock_runner = MagicMock()
+    mock_runner.side_effect = buggy_call
+
+    engine = RapidOCREngine()
+    engine._get_engine = MagicMock(return_value=mock_runner)
+
+    img = Image.new("RGB", (100, 100), color="white")
+    with pytest.raises(TypeError, match="internal engine failure"):
+        engine.ocr_page(img, page_number=1, input_id="in-1")
+
+    assert call_count == 1, f"Expected active_engine to be called exactly once, but was called {call_count} times"

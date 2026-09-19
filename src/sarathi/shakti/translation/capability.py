@@ -378,55 +378,25 @@ class TranslationCapability:
             active_glossary = legal_context.matched_glossary_terms
 
             def _call_engine_translate_single(text_s: str) -> TranslationResult:
-                try:
-                    return self._engine.translate(
-                        text_s,
+                return self._engine.translate(
+                    text_s,
+                    direction=direction,
+                    execution_binding=context.execution_binding,
+                    engine=req_engine,
+                    glossary_terms=active_glossary,
+                    custom_terms=verbatim_citations,
+                )
+
+            def _call_engine_translate_batch(batch: Sequence[str]) -> list[TranslationResult]:
+                if hasattr(self._engine, "translate_batch"):
+                    return self._engine.translate_batch(
+                        batch,
                         direction=direction,
                         execution_binding=context.execution_binding,
                         engine=req_engine,
                         glossary_terms=active_glossary,
                         custom_terms=verbatim_citations,
                     )
-                except TypeError:
-                    try:
-                        return self._engine.translate(
-                            text_s,
-                            direction=direction,
-                            execution_binding=context.execution_binding,
-                            engine=req_engine,
-                        )
-                    except TypeError:
-                        return self._engine.translate(
-                            text_s,
-                            direction=direction,
-                            execution_binding=context.execution_binding,
-                        )
-
-            def _call_engine_translate_batch(batch: Sequence[str]) -> list[TranslationResult]:
-                if hasattr(self._engine, "translate_batch"):
-                    try:
-                        return self._engine.translate_batch(
-                            batch,
-                            direction=direction,
-                            execution_binding=context.execution_binding,
-                            engine=req_engine,
-                            glossary_terms=active_glossary,
-                            custom_terms=verbatim_citations,
-                        )
-                    except TypeError:
-                        try:
-                            return self._engine.translate_batch(
-                                batch,
-                                direction=direction,
-                                execution_binding=context.execution_binding,
-                                engine=req_engine,
-                            )
-                        except TypeError:
-                            return self._engine.translate_batch(
-                                batch,
-                                direction=direction,
-                                execution_binding=context.execution_binding,
-                            )
                 return [_call_engine_translate_single(s) for s in batch]
 
             scope = (

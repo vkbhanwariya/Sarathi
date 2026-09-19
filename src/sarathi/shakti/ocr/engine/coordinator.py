@@ -306,13 +306,7 @@ class RapidOCREngine:
             target_device=target_device,
             max_capacity=max_cap,
         ) as active_engine:
-            try:
-                output = active_engine(img_arr, use_det=True, use_cls=use_cls_flag)
-            except TypeError:
-                try:
-                    output = active_engine(img_arr, use_cls=use_cls_flag)
-                except TypeError:
-                    output = active_engine(img_arr)
+            output = active_engine(img_arr, use_det=True, use_cls=use_cls_flag)
 
             if cancellation_token is not None and cancellation_token.is_cancelled:
                 cancellation_token.check_cancelled()

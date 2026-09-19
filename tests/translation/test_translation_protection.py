@@ -254,3 +254,37 @@ def test_bug_T2_sentence_splitter_abbreviations() -> None:
     assert s4[0][0] == t4
 
 
+def test_bug_T3_type_error_cascades_translation() -> None:
+    """T3: Fake engine raising TypeError inside translate_batch must not trigger retry cascades."""
+    import pytest
+
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, ExecutionProfile, Request, Result
+    from sarathi.shakti.translation.capability import TranslationCapability
+
+    call_count = 0
+
+    class BuggyEngine:
+        def translate_batch(self, batch: Any, **kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            raise TypeError("boom")
+
+    cap = TranslationCapability(engine=BuggyEngine())
+    doc = CanonicalDocument(document_id="doc1", text="Hello world.")
+    from pathlib import Path
+
+    from sarathi.sankalpa import InputRef
+
+    req = Request(
+        request_id="req1",
+        requirement="translation",
+        inputs=(InputRef(input_id="in-1", display_name="doc1.txt", source_path=Path("doc1.txt"), size_bytes=10),),
+        profile=ExecutionProfile.INSTANT,
+    )
+    ctx = ExecutionContext(request_id="req1", run_id="run1", trace_id="trace1", span_id="span1")
+
+    with pytest.raises(TypeError, match="boom"):
+        cap.execute(req, context=ctx, prior_result=Result(data=doc))
+
+    assert call_count == 1, f"Expected engine to be called exactly once, but was called {call_count} times"
+
