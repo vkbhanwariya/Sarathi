@@ -223,3 +223,34 @@ def test_bug_T1_number_regex_whitespace() -> None:
     assert issues == []
     assert restored == text
 
+
+def test_bug_T2_sentence_splitter_abbreviations() -> None:
+    """T2: Sentence splitter breaks on abbreviations and drops newlines."""
+    from sarathi.shakti.translation.engine import split_sentences
+
+    # 1. "Dr. A. K. Singh appeared. He left." -> 2 segments
+    t1 = "Dr. A. K. Singh appeared. He left."
+    s1 = split_sentences(t1)
+    assert len(s1) == 2, f"Expected 2 segments, got {s1}"
+    assert s1[0][0] == "Dr. A. K. Singh appeared."
+    assert s1[1][0] == "He left."
+
+    # 2. "vide No. ECIR/HQ/12/2023." -> 1 segment
+    t2 = "vide No. ECIR/HQ/12/2023."
+    s2 = split_sentences(t2)
+    assert len(s2) == 1, f"Expected 1 segment, got {s2}"
+    assert s2[0][0] == "vide No. ECIR/HQ/12/2023."
+
+    # 3. "पहली पंक्ति।\nदूसरी पंक्ति।" -> rejoined output equals input, including \n
+    t3 = "पहली पंक्ति।\nदूसरी पंक्ति।"
+    s3 = split_sentences(t3)
+    rejoined3 = "".join(seg + sep for seg, sep in s3)
+    assert rejoined3 == t3, f"Expected exact rejoin, got {rejoined3!r}"
+
+    # 4. "Rs. 5.50 lakh approx. i.e. five lakh." -> 1 segment
+    t4 = "Rs. 5.50 lakh approx. i.e. five lakh."
+    s4 = split_sentences(t4)
+    assert len(s4) == 1, f"Expected 1 segment, got {s4}"
+    assert s4[0][0] == t4
+
+

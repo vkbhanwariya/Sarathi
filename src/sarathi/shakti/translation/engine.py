@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import threading
 import tomllib
 from pathlib import Path
@@ -22,7 +21,100 @@ from sarathi.shakti.translation.protector import TranslationProtector
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_TRANSLATION_DATA_DIR = get_canonical_data_root() / "translation"
-_SENTENCE_SPLIT_RE = re.compile(r"([^।\.\?\!\n]+[।\.\?\!]?)", re.UNICODE)
+
+_ABBREVIATIONS: frozenset[str] = frozenset({
+    "mr", "mrs", "ms", "dr", "prof", "sec", "no", "nos", "hon",
+    "rs", "vs", "etc", "ltd", "pvt", "smt", "shri", "adv", "art",
+    "cl", "ch", "vol", "ors", "anr", "i.e", "e.g", "approx", "al",
+    "para", "viz", "ex", "dept", "govt", "dist", "st", "sq", "ft",
+    "in", "yd", "corp", "inc", "co", "repr", "gen", "col", "maj",
+    "capt", "lt", "mla", "mp", "cj", "acj", "j", "jj",
+})
+
+_SPLIT_CHARS: frozenset[str] = frozenset({"।", "?", "!", "."})
+_CLOSING_CHARS: frozenset[str] = frozenset({'"', "'", "”", "’", ")", "]", "}"})
+
+
+def split_sentences(text: str) -> list[tuple[str, str]]:
+    """Split text into sentence segments and trailing separators without breaking abbreviations.
+
+    Returns a list of (segment, trailing_separator) tuples such that
+    "".join(seg + sep for seg, sep in split_sentences(text)) == text.
+    """
+    if not text:
+        return []
+
+    n = len(text)
+    splits: list[tuple[str, str]] = []
+    seg_start = 0
+    i = 0
+
+    while i < n:
+        ch = text[i]
+        if ch in _SPLIT_CHARS:
+            # Check 1: Inside decimal number? E.g. 5.50
+            if ch == "." and i > 0 and text[i - 1].isdigit() and i + 1 < n and text[i + 1].isdigit():
+                i += 1
+                continue
+
+            # Check 2: Abbreviation or single-letter initial?
+            if ch == ".":
+                w_end = i
+                w_start = w_end - 1
+                while w_start >= 0 and (text[w_start].isalpha() or text[w_start] == "."):
+                    w_start -= 1
+                word = text[w_start + 1 : w_end].lower().rstrip(".")
+                if word in _ABBREVIATIONS:
+                    i += 1
+                    continue
+                if len(word) == 1 and word.isalpha():
+                    i += 1
+                    continue
+
+            # Scan any immediately following closing quotes/brackets
+            punct_end = i + 1
+            while punct_end < n and text[punct_end] in _CLOSING_CHARS:
+                punct_end += 1
+
+            if punct_end >= n:
+                seg = text[seg_start:punct_end]
+                splits.append((seg, ""))
+                seg_start = punct_end
+                i = punct_end
+                break
+
+            ws_end = punct_end
+            while ws_end < n and text[ws_end].isspace():
+                ws_end += 1
+
+            if ws_end > punct_end:
+                if ws_end >= n:
+                    seg = text[seg_start:punct_end]
+                    sep = text[punct_end:ws_end]
+                    splits.append((seg, sep))
+                    seg_start = ws_end
+                    i = ws_end
+                    break
+
+                next_ch = text[ws_end]
+                if (
+                    next_ch.isupper()
+                    or ("\u0900" <= next_ch <= "\u097F")
+                    or next_ch.isdigit()
+                ):
+                    seg = text[seg_start:punct_end]
+                    sep = text[punct_end:ws_end]
+                    splits.append((seg, sep))
+                    seg_start = ws_end
+                    i = ws_end
+                    continue
+
+        i += 1
+
+    if seg_start < n:
+        splits.append((text[seg_start:], ""))
+
+    return splits
 
 
 def _load_translation_anubhava(data_root: Path) -> dict[str, dict[str, str]]:
@@ -396,9 +488,12 @@ class CTranslate2TranslationEngine:
         )
 
         # 3. Split into sentences
-        raw_sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.findall(protected_text) if s.strip()]
-        if not raw_sentences:
-            raw_sentences = [protected_text]
+        split_units = split_sentences(protected_text)
+        if not split_units:
+            split_units = [(protected_text, "")]
+
+        raw_sentences = [seg for seg, _ in split_units]
+        separators = [sep for _, sep in split_units]
 
         # 4. Pre-process sentences: apply approved Anubhava overrides
         prepared_sentences: list[str] = []
@@ -426,7 +521,7 @@ class CTranslate2TranslationEngine:
             translated_sentences = backend_res
             factual_device = target_device
 
-        translated_body = " ".join(translated_sentences)
+        translated_body = "".join(ts + sep for ts, sep in zip(translated_sentences, separators))
 
         # 5. Restore protected spans byte-for-byte with integrity verification
         final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
@@ -472,12 +567,12 @@ class CTranslate2TranslationEngine:
         active_glossary = glossary_terms if glossary_terms is not None else self._glossary.get_terms(direction)
         dir_key = direction.value
 
-        text_slices: list[tuple[int, int, list[tuple[str, str]], int]] = []
+        text_slices: list[tuple[int, int, list[tuple[str, str]], int, list[str]]] = []
         all_prepared_sentences: list[str] = []
 
         for idx, text in enumerate(texts):
             if not text or not text.strip():
-                text_slices.append((idx, 0, [], 0))
+                text_slices.append((idx, 0, [], 0, []))
                 continue
 
             protected_text, spans = self._protector.protect(
@@ -485,9 +580,12 @@ class CTranslate2TranslationEngine:
                 custom_terms=custom_terms,
                 glossary_mappings=active_glossary,
             )
-            raw_sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.findall(protected_text) if s.strip()]
-            if not raw_sentences:
-                raw_sentences = [protected_text]
+            split_units = split_sentences(protected_text)
+            if not split_units:
+                split_units = [(protected_text, "")]
+
+            raw_sentences = [seg for seg, _ in split_units]
+            separators = [sep for _, sep in split_units]
 
             start_idx = len(all_prepared_sentences)
             for sent in raw_sentences:
@@ -496,7 +594,7 @@ class CTranslate2TranslationEngine:
                         sent = sent.replace(src_c, tgt_c)
                 all_prepared_sentences.append(sent)
 
-            text_slices.append((idx, len(raw_sentences), spans, start_idx))
+            text_slices.append((idx, len(raw_sentences), spans, start_idx, separators))
 
         factual_device = target_device
         all_translated_sentences: list[str] = []
@@ -517,7 +615,7 @@ class CTranslate2TranslationEngine:
                 all_translated_sentences = backend_res
 
         results: list[TranslationResult] = []
-        for idx, sent_count, spans, start_idx in text_slices:
+        for idx, sent_count, spans, start_idx, separators in text_slices:
             orig_text = texts[idx]
             if sent_count == 0 or not orig_text or not orig_text.strip():
                 results.append(
@@ -533,7 +631,7 @@ class CTranslate2TranslationEngine:
                 continue
 
             sents = all_translated_sentences[start_idx : start_idx + sent_count]
-            translated_body = " ".join(sents)
+            translated_body = "".join(ts + sep for ts, sep in zip(sents, separators))
             final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
 
             metadata: dict[str, Any] = {
