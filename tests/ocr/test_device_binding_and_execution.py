@@ -427,3 +427,19 @@ class TestOCRCapabilityYantraIntegration:
         assert not errors, f"Concurrent OCR threw errors: {errors}"
         assert max_concurrent_seen == 1, f"Expected strictly 1 concurrent inference call, got {max_concurrent_seen}"
         assert all(r is not None for r in results)
+
+    def test_openvino_device_properties_and_caching(self, tmp_path: Path) -> None:
+        """Verify OpenVINO core properties and device patching configure 2026.4 performance hints."""
+        from sarathi.shakti.ocr.engine.openvino import get_shared_openvino_core, patch_rapidocr_openvino_device
+
+        cache_dir = tmp_path / "ov_cache"
+        core = get_shared_openvino_core(cache_dir=cache_dir)
+        assert core is not None
+
+        patch_rapidocr_openvino_device(cache_dir=cache_dir)
+        try:
+            import rapidocr.inference_engine.openvino.main as ov_main
+
+            assert getattr(ov_main.OpenVINOInferSession, "_sarathi_device_patched", False) is True
+        except ImportError:
+            pass

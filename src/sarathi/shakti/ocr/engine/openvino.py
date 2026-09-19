@@ -101,7 +101,10 @@ def get_shared_openvino_core(cache_dir: Path | None = None) -> Any:
             effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()
             try:
                 effective_cache_dir.mkdir(parents=True, exist_ok=True)
-                core.set_property({"CACHE_DIR": str(effective_cache_dir)})
+                core.set_property({
+                    "CACHE_DIR": str(effective_cache_dir),
+                    "CACHE_MODE": "OPTIMIZE_SPEED",
+                })
             except Exception:
                 pass
             _SHARED_OPENVINO_CORE = core
@@ -133,6 +136,13 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                     cpu_props = dict(cpu_config.get_config())
                     cpu_props["ENABLE_CPU_PINNING"] = True
                     cpu_props["CPU_DENORMALS_OPTIMIZATION"] = True
+                    cpu_props["EXECUTION_MODE_HINT"] = "PERFORMANCE"
+                    try:
+                        supported = core.get_property("CPU", "SUPPORTED_PROPERTIES")
+                        if "SCHEDULING_CORE_TYPE" in supported:
+                            cpu_props["SCHEDULING_CORE_TYPE"] = "PCORE_ONLY"
+                    except Exception:
+                        pass
                     core.set_property("CPU", cpu_props)
                 except Exception:
                     pass
@@ -141,6 +151,7 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                     gpu_props: dict[str, Any] = {
                         "INFERENCE_PRECISION_HINT": "f16",
                         "PERFORMANCE_HINT": "THROUGHPUT",
+                        "EXECUTION_MODE_HINT": "PERFORMANCE",
                         "CACHE_MODE": "OPTIMIZE_SPEED",
                     }
                     effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()
