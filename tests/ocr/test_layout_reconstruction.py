@@ -620,9 +620,58 @@ def test_is_usable_page_scanned_image_arbitration() -> None:
     dense_text_with_bg = PageData(
         page_number=1,
         text="This page has a background image but contains a complete article of native extractable text content.",
-        metadata={"image_coverage": 0.85},
+        metadata={"image_coverage": 0.85, "body_char_count": 80},
     )
     assert _is_usable_page(dense_text_with_bg) is True
+
+    # Hybrid scanned page: high image coverage with a 65-char header but zero body text -> not usable native text
+    hybrid_header_only = PageData(
+        page_number=1,
+        text="IN THE HIGH COURT OF DELHI AT NEW DELHI W.P.(C) 1234/2024 Page 1",
+        metadata={
+            "image_coverage": 0.85,
+            "header": "IN THE HIGH COURT OF DELHI AT NEW DELHI W.P.(C) 1234/2024 Page 1",
+            "body_char_count": 0,
+        },
+    )
+    assert _is_usable_page(hybrid_header_only) is False
+
+    # Hybrid scanned page: spans confined strictly to header/footer margins with high image coverage -> not usable
+    margin_only_page = PageData(
+        page_number=1,
+        text="Top Header 2024\n\nPage 1 of 10",
+        spans=(
+            TextSpan(text="Top Header 2024", bounding_box=(50.0, 20.0, 200.0, 50.0)),
+            TextSpan(text="Page 1 of 10", bounding_box=(250.0, 780.0, 350.0, 810.0)),
+        ),
+        metadata={"image_coverage": 0.85, "page_height": 842.0, "page_width": 595.0},
+    )
+    assert _is_usable_page(margin_only_page) is False
+
+    # Corrupted text layer: excessive replacement characters -> not usable native text
+    corrupted_page = PageData(
+        page_number=1,
+        text="Sample legal text \ufffd\ufffd\ufffd\ufffd with corrupt font encoding",
+        metadata={"image_coverage": 0.05},
+    )
+    assert _is_usable_page(corrupted_page) is False
+
+    # Corrupted text layer: excessive control codes -> not usable native text
+    control_char_page = PageData(
+        page_number=1,
+        text="Sample text \x01\x02\x03\x04\x05 with broken binary font stream",
+        metadata={"image_coverage": 0.05},
+    )
+    assert _is_usable_page(control_char_page) is False
+
+    # Legitimate short native page: low image coverage (< 0.50), sparse text -> usable native page
+    legitimate_short_page = PageData(
+        page_number=1,
+        text="Approved and signed by Registrar.",
+        metadata={"image_coverage": 0.05},
+    )
+    assert _is_usable_page(legitimate_short_page) is True
+
 
 
 # ==============================================================================

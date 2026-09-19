@@ -445,8 +445,9 @@ def read_pdf(
                 p_blocks, p_height, header_templates, footer_templates
             )
 
+            body_text = normalize_text_spacing("\n\n".join(body_lines))
             if skip_header_footer and (header_lines or footer_lines):
-                page_text = normalize_text_spacing("\n\n".join(body_lines))
+                page_text = body_text
             elif p_lines:
                 page_text = normalize_text_spacing("\n\n".join(p_lines))
             else:
@@ -456,14 +457,18 @@ def read_pdf(
             if page_text:
                 full_text_parts.append(page_text)
 
-            page_meta: dict[str, Any] = {}
+            page_rect = page.rect
+            page_meta: dict[str, Any] = {
+                "body_char_count": len(body_text.strip()),
+                "page_height": float(p_height),
+                "page_width": float(page_rect.width),
+            }
             if header_lines:
                 page_meta["header"] = "\n\n".join(header_lines)
             if footer_lines:
                 page_meta["footer"] = "\n\n".join(footer_lines)
 
             # Compute image area vs page area to arbitrate hybrid scanned pages
-            page_rect = page.rect
             page_area = max(1.0, float(page_rect.width * page_rect.height))
             image_area = 0.0
             try:
@@ -476,8 +481,9 @@ def read_pdf(
 
             image_coverage = min(1.0, image_area / page_area)
             page_meta["image_coverage"] = round(image_coverage, 3)
-            if image_coverage >= 0.80 and len(page_text.strip()) < 30:
+            if image_coverage >= 0.80 and (len(page_text.strip()) < 30 or len(body_text.strip()) == 0):
                 page_meta["is_scanned_image"] = True
+
 
             if not spans:
                 blocks = text_page.extractBLOCKS()
