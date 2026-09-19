@@ -1482,3 +1482,79 @@ def test_read_docx_preserves_tabs_breaks_and_sdt_clauses() -> None:
     idx_p = doc.text.find("Header\tValue")
     idx_sdt = doc.text.find("SDT Clause Text")
     assert 0 <= idx_p < idx_sdt
+
+
+def test_extract_page_fonts_handles_tuple_font_extraction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _resolve_pdf_font_names unpacks 4-tuple return value from doc.extract_font."""
+    from unittest.mock import MagicMock
+
+    from sarathi.shakti.native_extraction.readers.pdf import _resolve_pdf_font_names
+
+    mock_doc = MagicMock()
+    mock_page = MagicMock()
+    mock_page.get_fonts.return_value = [(42, "ttf", "TrueType", "EmbeddedLegacyFont", "F1", "WinAnsiEncoding")]
+    mock_doc.__len__.return_value = 1
+    mock_doc.__getitem__.return_value = mock_page
+
+    # PyMuPDF doc.extract_font returns 4-tuple: (name, ext, type, buffer)
+    mock_doc.extract_font.return_value = ("EmbeddedLegacyFont", "ttf", "TrueType", b"dummy_ttf_bytes")
+
+    monkeypatch.setattr(
+        "sarathi.shakti.font_conversion.detector.extract_ttf_font_family",
+        lambda buf: "ResolvedLegacyFamily",
+    )
+
+    font_map = _resolve_pdf_font_names(mock_doc)
+    assert font_map.get("EmbeddedLegacyFont") == "ResolvedLegacyFamily"
+    assert font_map.get("F1") == "ResolvedLegacyFamily"
+
+
+def test_font_conversion_failure_records_warning_with_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify font conversion unexpected exception records FONT_CONVERSION_FAILED warning without TypeError."""
+    from typing import Any
+
+    import sarathi.shakti.native_extraction.capability as nat_cap_mod
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request
+
+    doc_with_legacy = CanonicalDocument(
+        document_id="doc-legacy-err",
+        source_input_id="inp-legacy-err",
+        text="Sample text to trigger conversion",
+        pages=(PageData(page_number=1, text="Sample text to trigger conversion"),),
+    )
+
+    pdf_file = tmp_path / "legacy_error.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4\n%dummy\n%%EOF")
+
+    monkeypatch.setattr(
+        nat_cap_mod,
+        "_get_reader",
+        lambda fmt: (lambda data, input_id, **kwargs: (doc_with_legacy, (), ()), ()),
+    )
+
+    class FailingConverter:
+        def convert_document(self, doc: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("Corrupted font conversion engine")
+
+    inp = InputRef(
+        input_id="inp-legacy-err",
+        source_path=pdf_file,
+        display_name="legacy_error.pdf",
+        size_bytes=pdf_file.stat().st_size,
+    )
+    req = Request(
+        request_id="req-legacy-err",
+        requirement="read_native",
+        inputs=(inp,),
+    )
+    ctx = ExecutionContext("run-leg", "req-leg", "t-leg", "s-leg")
+    cap = nat_cap_mod.NativeExtractionCapability(font_converter=FailingConverter())
+
+    # Must NOT raise TypeError: WarningRecord.__init__() got unexpected keyword argument 'input_id'
+    res = cap.execute(req, ctx)
+    assert res is not None
+    warn = next((w for w in res.warnings if w.code == "FONT_CONVERSION_FAILED"), None)
+    assert warn is not None
+    assert warn.context.get("input_id") == "inp-legacy-err"

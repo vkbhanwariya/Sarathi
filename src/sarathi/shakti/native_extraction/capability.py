@@ -427,10 +427,11 @@ class NativeExtractionCapability:
                             stage="native_extraction_font_conversion",
                             message=f"Font conversion failed on document '{doc.document_id}': {exc}",
                             code="FONT_CONVERSION_FAILED",
-                            input_id=doc.source_input_id or doc.document_id,
+                            context={"input_id": doc.source_input_id or doc.document_id},
                         )
                     )
                     converted_docs.append(doc)
+
             extracted_docs = converted_docs
 
         result_data: Any = extracted_docs[0] if len(extracted_docs) == 1 else tuple(extracted_docs)

@@ -61,7 +61,11 @@ def _resolve_pdf_font_names(doc: pymupdf.Document) -> dict[str, str]:
                 seen_xrefs.add(xref)
                 try:
                     extracted = doc.extract_font(xref)
-                    buf = extracted.get("buffer") if extracted else None
+                    buf: Any = None
+                    if isinstance(extracted, tuple) and len(extracted) >= 4:
+                        buf = extracted[3]
+                    elif isinstance(extracted, dict):
+                        buf = extracted.get("buffer")
                     if buf and isinstance(buf, (bytes, bytearray)):
                         family = extract_ttf_font_family(buf)
                         if family:
@@ -71,6 +75,7 @@ def _resolve_pdf_font_names(doc: pymupdf.Document) -> dict[str, str]:
                                 font_map[clean_base] = family
                 except Exception:
                     pass
+
     return font_map
 
 
