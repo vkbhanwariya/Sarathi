@@ -25,8 +25,8 @@ from sarathi.sankalpa import (
     Request,
     Result,
     WarningRecord,
-    check_cancelled,
 )
+from sarathi.sankalpa.cancellation import check_cancelled
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.ocr.engine import RapidOCREngine

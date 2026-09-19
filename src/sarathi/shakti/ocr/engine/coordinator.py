@@ -25,8 +25,8 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     TextSpan,
     WarningRecord,
-    check_cancelled,
 )
+from sarathi.sankalpa.cancellation import check_cancelled
 from sarathi.shakti.ocr.engine.common import (
     CANONICAL_DATA_ROOT,
     DEV_LANGS,

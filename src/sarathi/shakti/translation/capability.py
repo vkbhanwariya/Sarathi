@@ -26,8 +26,8 @@ from sarathi.sankalpa import (
     Result,
     TableData,
     WarningRecord,
-    check_cancelled,
 )
+from sarathi.sankalpa.cancellation import check_cancelled
 from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
 from sarathi.shakti.docx_exporter import (
     build_docx_payload,
