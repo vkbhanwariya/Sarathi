@@ -2,6 +2,8 @@
 
 from typing import Any
 
+import pytest
+
 from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.protector import TranslationProtector
@@ -287,4 +289,116 @@ def test_bug_T3_type_error_cascades_translation() -> None:
         cap.execute(req, context=ctx, prior_result=Result(data=doc))
 
     assert call_count == 1, f"Expected engine to be called exactly once, but was called {call_count} times"
+
+
+def test_bug_T4_glossary_matching_zero_recompiles(monkeypatch: Any) -> None:
+    """T4: After the first protect() on a glossary, further calls on the same glossary must trigger 0 compiles."""
+    import re
+    from pathlib import Path
+
+    from sarathi.shakti.translation.glossary import GlossaryStore
+    from sarathi.shakti.translation.models import TranslationDirection
+    from sarathi.shakti.translation.protector import TranslationProtector
+
+    g = GlossaryStore(Path("data/translation"))
+    terms = g.get_terms(TranslationDirection.HI_TO_EN)
+    assert len(terms) > 1000
+
+    protector = TranslationProtector()
+    text = "माननीय न्यायालय ने आरोपी को जमानत दे दी।"
+
+    # Warm-up call (first call compiles the matcher)
+    protector.protect(text, glossary_mappings=terms)
+
+    # Spy on re.compile during second call
+    compile_count = 0
+    orig_compile = re.compile
+
+    def spy_compile(*args: Any, **kwargs: Any) -> Any:
+        nonlocal compile_count
+        compile_count += 1
+        return orig_compile(*args, **kwargs)
+
+    monkeypatch.setattr(re, "compile", spy_compile)
+
+    # Second call with the same glossary
+    protector.protect(text, glossary_mappings=terms)
+
+    assert compile_count == 0, f"Expected 0 re.compile calls on subsequent protect() call, got {compile_count}"
+
+
+def test_bug_T4_glossary_matching_equivalence() -> None:
+    """T4: Equivalence test: for fixed sample text and real glossaries, new matcher equals old oracle logic."""
+    import re
+    from pathlib import Path
+
+    from sarathi.shakti.translation.glossary import GlossaryStore
+    from sarathi.shakti.translation.models import TranslationDirection
+    from sarathi.shakti.translation.protector import TranslationProtector
+
+    g = GlossaryStore(Path("data/translation"))
+    terms = g.get_terms(TranslationDirection.HI_TO_EN)
+
+    text = "माननीय न्यायालय ने आरोपी को जमानत दे दी। केन्द्रीय अन्वेषण ब्यूरो (CBI) ने याचिका दाखिल की।"
+
+    # Oracle implementation (the unpatched O(N) regex approach)
+    def oracle_compile_term_pattern(term: str) -> re.Pattern[str]:
+        esc = re.escape(term)
+        prefix = r"(?<!\w)" if term and term[0].isalnum() else ""
+        suffix = r"(?!\w)" if term and term[-1].isalnum() else ""
+        flags = re.IGNORECASE if any(ord(c) < 128 and c.isalpha() for c in term) else 0
+        return re.compile(f"{prefix}{esc}{suffix}", flags)
+
+    oracle_matches: list[tuple[int, int, str, str, int]] = []
+    sorted_srcs = sorted([s for s in terms.keys() if s.strip()], key=len, reverse=True)
+    for src in sorted_srcs:
+        target_val = terms[src]
+        for m in oracle_compile_term_pattern(src).finditer(text):
+            oracle_matches.append((m.start(), m.end(), target_val, "glossary_term", 10))
+
+    oracle_matches.sort(key=lambda x: (x[0], x[4], -(x[1] - x[0])))
+    oracle_selected: list[tuple[int, int, str, str]] = []
+    last_end = 0
+    for start, end, orig_val, span_type, _ in oracle_matches:
+        if start >= last_end:
+            oracle_selected.append((start, end, orig_val, span_type))
+            last_end = end
+
+    # New implementation
+    protector = TranslationProtector()
+    _, new_spans = protector.protect(text, glossary_mappings=terms)
+
+    assert len(new_spans) == len(oracle_selected)
+    for span, oracle in zip(new_spans, oracle_selected):
+        assert span.original_text == oracle[2]
+        assert span.span_type == oracle[3]
+
+
+@pytest.mark.performance
+def test_bug_T4_glossary_matching_performance() -> None:
+    """T4: 200 calls on the real HI->EN glossary in under 10 ms average per call."""
+    import time
+    from pathlib import Path
+
+    from sarathi.shakti.translation.glossary import GlossaryStore
+    from sarathi.shakti.translation.models import TranslationDirection
+    from sarathi.shakti.translation.protector import TranslationProtector
+
+    g = GlossaryStore(Path("data/translation"))
+    terms = g.get_terms(TranslationDirection.HI_TO_EN)
+
+    protector = TranslationProtector()
+    text = "माननीय न्यायालय ने आरोपी को जमानत दे दी। केन्द्रीय अन्वेषण ब्यूरो (CBI) ने याचिका दाखिल की।"
+
+    # Warmup
+    protector.protect(text, glossary_mappings=terms)
+
+    t0 = time.perf_counter()
+    n_calls = 200
+    for _ in range(n_calls):
+        protector.protect(text, glossary_mappings=terms)
+    elapsed_total_ms = (time.perf_counter() - t0) * 1000.0
+    avg_ms = elapsed_total_ms / n_calls
+
+    assert avg_ms < 10.0, f"Average protect() call took {avg_ms:.2f} ms (expected < 10.0 ms)"
 

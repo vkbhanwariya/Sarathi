@@ -7,6 +7,9 @@ alphanumeric IDs/codes, references, and domain terminology survive translation 1
 from __future__ import annotations
 
 import re
+from collections import defaultdict
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Mapping, Sequence
 
 from sarathi.shakti.text.span_protection import (
@@ -27,13 +30,74 @@ _TRANSLATION_ID_RE: re.Pattern[str] = re.compile(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _CompiledTermGroup:
+    pattern: re.Pattern[str]
+    lookup: dict[str, str]
+    lower_lookup: dict[str, str]
+    is_ignore_case: bool
+
+
+@lru_cache(maxsize=1024)
 def _compile_term_pattern(term: str) -> re.Pattern[str]:
-    """Compile boundary-aware regex pattern for a glossary or custom term."""
+    """Compile boundary-aware regex pattern for a single term."""
     esc = re.escape(term)
     prefix = r"(?<!\w)" if term and term[0].isalnum() else ""
     suffix = r"(?!\w)" if term and term[-1].isalnum() else ""
     flags = re.IGNORECASE if any(ord(c) < 128 and c.isalpha() for c in term) else 0
     return re.compile(f"{prefix}{esc}{suffix}", flags)
+
+
+@lru_cache(maxsize=32)
+def _compile_glossary_groups(entries: tuple[tuple[str, str], ...]) -> tuple[_CompiledTermGroup, ...]:
+    """Partition glossary mappings into at most 8 alternation groups and compile cached matchers."""
+    buckets: dict[tuple[bool, bool, bool], list[tuple[str, str]]] = defaultdict(list)
+    for src, tgt in entries:
+        src_clean = src.strip()
+        if not src_clean:
+            continue
+        p = bool(src_clean[0].isalnum())
+        s = bool(src_clean[-1].isalnum())
+        i = any(ord(c) < 128 and c.isalpha() for c in src_clean)
+        buckets[(p, s, i)].append((src_clean, tgt))
+
+    compiled: list[_CompiledTermGroup] = []
+    for (p, s, i), items in buckets.items():
+        items.sort(key=lambda x: len(x[0]), reverse=True)
+        prefix = r"(?<!\w)" if p else ""
+        suffix = r"(?!\w)" if s else ""
+        flags = re.IGNORECASE if i else 0
+        pattern_str = f"{prefix}(?:{'|'.join(re.escape(k) for k, _ in items)}){suffix}"
+        rgx = re.compile(pattern_str, flags)
+        lookup = {k: v for k, v in items}
+        lower_lookup = {k.lower(): v for k, v in items} if i else {}
+        compiled.append(_CompiledTermGroup(rgx, lookup, lower_lookup, i))
+    return tuple(compiled)
+
+
+@lru_cache(maxsize=32)
+def _compile_custom_term_groups(terms: tuple[str, ...]) -> tuple[_CompiledTermGroup, ...]:
+    """Partition custom terms into at most 8 alternation groups and compile cached matchers."""
+    buckets: dict[tuple[bool, bool, bool], list[str]] = defaultdict(list)
+    for term in terms:
+        t_clean = term.strip()
+        if not t_clean:
+            continue
+        p = bool(t_clean[0].isalnum())
+        s = bool(t_clean[-1].isalnum())
+        i = any(ord(c) < 128 and c.isalpha() for c in t_clean)
+        buckets[(p, s, i)].append(t_clean)
+
+    compiled: list[_CompiledTermGroup] = []
+    for (p, s, i), items in buckets.items():
+        items.sort(key=len, reverse=True)
+        prefix = r"(?<!\w)" if p else ""
+        suffix = r"(?!\w)" if s else ""
+        flags = re.IGNORECASE if i else 0
+        pattern_str = f"{prefix}(?:{'|'.join(re.escape(k) for k in items)}){suffix}"
+        rgx = re.compile(pattern_str, flags)
+        compiled.append(_CompiledTermGroup(rgx, {}, {}, i))
+    return tuple(compiled)
 
 
 class TranslationProtector(BaseSpanProtector):
@@ -55,17 +119,29 @@ class TranslationProtector(BaseSpanProtector):
 
         # 1. Domain Glossary Mappings (Priority 10)
         if glossary_mappings:
-            sorted_srcs = sorted([s for s in glossary_mappings.keys() if s.strip()], key=len, reverse=True)
-            for src in sorted_srcs:
-                target_val = glossary_mappings[src]
-                for m in _compile_term_pattern(src).finditer(text):
-                    raw_matches.append((m.start(), m.end(), target_val, "glossary_term", 10))
+            cache_key = (
+                glossary_mappings
+                if isinstance(glossary_mappings, tuple)
+                else tuple(sorted(glossary_mappings.items()))
+            )
+            for group in _compile_glossary_groups(cache_key):
+                for m in group.pattern.finditer(text):
+                    val = m.group(0)
+                    tgt = group.lookup.get(val)
+                    if tgt is None and group.is_ignore_case:
+                        tgt = group.lower_lookup.get(val.lower())
+                    if tgt is not None:
+                        raw_matches.append((m.start(), m.end(), tgt, "glossary_term", 10))
 
         # 2. Custom Terms (Priority 20)
         if custom_terms:
-            sorted_terms = sorted([t for t in custom_terms if t.strip()], key=len, reverse=True)
-            for term in sorted_terms:
-                for m in _compile_term_pattern(term).finditer(text):
+            c_key = (
+                custom_terms
+                if isinstance(custom_terms, tuple)
+                else tuple(sorted(custom_terms))
+            )
+            for group in _compile_custom_term_groups(c_key):
+                for m in group.pattern.finditer(text):
                     raw_matches.append((m.start(), m.end(), m.group(0), "custom_term", 20))
 
         # 3. URLs & Emails (Priority 30)
