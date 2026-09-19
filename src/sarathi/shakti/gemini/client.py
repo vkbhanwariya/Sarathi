@@ -6,7 +6,6 @@ import base64
 import json
 import os
 import re
-import time
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -39,12 +38,24 @@ class GeminiClient:
         base_url: str = _DEFAULT_BASE_URL,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         rate_limit_delay_seconds: float = 2.0,
+        requests_per_minute: float | None = None,
+        transport: Any | None = None,
+        http_client: Any | None = None,
     ) -> None:
+        from sarathi.shakti.cloud.http import CloudHttpClient
+
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._rate_limit_delay_seconds = max(0.0, float(rate_limit_delay_seconds))
-        self._last_request_time: float = 0.0
+        self._requests_per_minute = requests_per_minute
+        self._http: CloudHttpClient = http_client or CloudHttpClient(
+            base_url=self._base_url,
+            timeout_seconds=self._timeout_seconds,
+            rate_limit_delay_seconds=self._rate_limit_delay_seconds,
+            requests_per_minute=self._requests_per_minute,
+            transport=transport,
+        )
 
     @property
     def is_configured(self) -> bool:
@@ -62,7 +73,12 @@ class GeminiClient:
             message="Google Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
         )
 
-    def _post(self, model: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post(
+        self,
+        model: str,
+        payload: dict[str, Any],
+        cancellation_token: Any | None = None,
+    ) -> dict[str, Any]:
         """Perform sanitized HTTP POST to Gemini generateContent endpoint."""
         api_key = self._get_api_key()
         url = f"{self._base_url}/models/{model}:generateContent"
@@ -70,127 +86,18 @@ class GeminiClient:
             "x-goog-api-key": api_key,
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "Sarathi/2.0",
         }
         body_bytes = json.dumps(payload).encode("utf-8")
-
-        # Enforce rate pacing interval to prevent bursting past RPM limit
-        if self._rate_limit_delay_seconds > 0.0 and self._last_request_time > 0.0:
-            elapsed = time.monotonic() - self._last_request_time
-            if elapsed < self._rate_limit_delay_seconds:
-                time.sleep(self._rate_limit_delay_seconds - elapsed)
-        self._last_request_time = time.monotonic()
-
-        status_code = 0
-        resp_text = ""
-        resp_headers: Any = {}
-        max_attempts = 5
-        for attempt in range(max_attempts):
-            try:
-                import httpx
-
-                with httpx.Client(timeout=self._timeout_seconds) as client:
-                    resp = client.post(url, headers=headers, content=body_bytes)
-                    status_code = resp.status_code
-                    resp_text = resp.text
-                    resp_headers = getattr(resp, "headers", {})
-            except ImportError as imp_err:
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message="HTTP transport dependency (httpx) is not installed.",
-                ) from imp_err
-            except httpx.TimeoutException as exc:
-                if attempt < max_attempts - 1:
-                    time.sleep(1.0)
-                    self._last_request_time = time.monotonic()
-                    continue
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Network timeout while connecting to Google Gemini API.",
-                ) from exc
-            except Exception as exc:
-                if attempt < max_attempts - 1:
-                    time.sleep(1.0)
-                    self._last_request_time = time.monotonic()
-                    continue
-                sanitized_err = str(exc).replace(api_key, "[REDACTED_API_KEY]") if api_key else "Network error"
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message=f"Error connecting to Google Gemini API: {sanitized_err}",
-                ) from exc
-
-            # Parse Retry-After and rate limit headers on 429
-            if status_code == 429 and attempt < max_attempts - 1:
-                retry_after_str = resp_headers.get("retry-after") or resp_headers.get("x-ratelimit-reset")
-                delay = 2.0 * (2**attempt)
-                if retry_after_str:
-                    try:
-                        delay = max(float(retry_after_str), delay)
-                    except ValueError:
-                        pass
-                time.sleep(delay)
-                self._last_request_time = time.monotonic()
-                continue
-
-            # Retry transient 503 High Demand spikes
-            if status_code == 503 and attempt < max_attempts - 1:
-                time.sleep(1.5 * (attempt + 1))
-                self._last_request_time = time.monotonic()
-                continue
-            break
-
-        # Map HTTP error codes to canonical FailureCodes with sanitized messages
-        if status_code in (401, 403):
-            raise DoshError(
-                code=FailureCode.SECURITY_DENIED,
-                message="Google Gemini API authentication failed. Verify that GEMINI_API_KEY is valid.",
-            )
-        if status_code == 429:
-            detail_msg = ""
-            try:
-                err_data = json.loads(resp_text)
-                if isinstance(err_data, dict) and "error" in err_data:
-                    detail_msg = str(err_data["error"].get("message", "")).strip()
-            except Exception:
-                pass
-            sanitized = f": {detail_msg}" if detail_msg else ""
-            raise DoshError(
-                code=FailureCode.RESOURCE_UNAVAILABLE,
-                message=f"Google Gemini API rate limit exceeded{sanitized}. Consider increasing rate_limit_delay_seconds or upgrading tier.",
-            )
-        if status_code == 404:
-            detail_msg = ""
-            try:
-                err_data = json.loads(resp_text)
-                if isinstance(err_data, dict) and "error" in err_data:
-                    detail_msg = str(err_data["error"].get("message", "")).strip()
-            except Exception:
-                pass
-            sanitized = f": {detail_msg}" if detail_msg else ""
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message=(
-                    f"Google Gemini API returned error status 404 (Model or Resource Not Found){sanitized}. "
-                    f"Verify configured model '{model}' exists (e.g. 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash')."
-                ),
-            )
-        if status_code >= 400:
-            detail_msg = ""
-            try:
-                err_data = json.loads(resp_text)
-                if isinstance(err_data, dict) and "error" in err_data:
-                    detail_msg = str(err_data["error"].get("message", "")).strip()
-            except Exception:
-                pass
-            sanitized = f": {detail_msg}" if detail_msg else ""
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message=f"Google Gemini API returned error status {status_code}{sanitized}.",
-            )
-
+        resp = self._http.post(
+            url,
+            headers=headers,
+            content=body_bytes,
+            cancellation_token=cancellation_token,
+            redact_keys=(api_key,),
+        )
         try:
-            return json.loads(resp_text)
-        except json.JSONDecodeError as err:
+            return resp.json()
+        except Exception as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to parse JSON response from Google Gemini API.",

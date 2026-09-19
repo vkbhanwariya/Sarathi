@@ -1,7 +1,6 @@
-"""Direct REST client for Mistral AI APIs with sanitized error handling.
+"""Direct REST client for Mistral AI APIs with sanitized error handling and pooled transport.
 
-Uses explicit authentication headers and sanitized error mapping.
-Supports both httpx and standard library urllib as a fallback.
+Uses explicit authentication headers and sanitized error mapping via CloudHttpClient.
 """
 
 from __future__ import annotations
@@ -10,10 +9,10 @@ import base64
 import json
 import os
 import re
-import time
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.shakti.cloud.http import CloudHttpClient
 
 _DEFAULT_BASE_URL = "https://api.mistral.ai/v1"
 _DEFAULT_TIMEOUT_SECONDS = 60.0
@@ -28,12 +27,22 @@ class MistralClient:
         base_url: str = _DEFAULT_BASE_URL,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         rate_limit_delay_seconds: float = 2.0,
+        requests_per_minute: float | None = None,
+        http_client: CloudHttpClient | None = None,
+        transport: Any | None = None,
     ) -> None:
         self._api_key = api_key or os.environ.get("MISTRAL_API_KEY")
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._rate_limit_delay_seconds = max(0.0, float(rate_limit_delay_seconds))
-        self._last_request_time: float = 0.0
+        self._requests_per_minute = requests_per_minute
+        self._http: CloudHttpClient = http_client or CloudHttpClient(
+            base_url=self._base_url,
+            timeout_seconds=self._timeout_seconds,
+            rate_limit_delay_seconds=self._rate_limit_delay_seconds,
+            requests_per_minute=self._requests_per_minute,
+            transport=transport,
+        )
 
     @property
     def is_configured(self) -> bool:
@@ -49,7 +58,12 @@ class MistralClient:
             )
         return self._api_key.strip()
 
-    def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+        cancellation_token: Any | None = None,
+    ) -> dict[str, Any]:
         """Execute HTTP POST request to Mistral API with rate pacing and exponential backoff retry."""
         api_key = self._get_api_key()
         url = f"{self._base_url}/{endpoint.lstrip('/')}"
@@ -57,125 +71,18 @@ class MistralClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "Sarathi/2.0",
         }
         body_bytes = json.dumps(payload).encode("utf-8")
-
-        # Enforce rate pacing interval to prevent bursting past RPS limit
-        if self._rate_limit_delay_seconds > 0.0 and self._last_request_time > 0.0:
-            elapsed = time.monotonic() - self._last_request_time
-            if elapsed < self._rate_limit_delay_seconds:
-                time.sleep(self._rate_limit_delay_seconds - elapsed)
-        self._last_request_time = time.monotonic()
-
-        status_code = 0
-        resp_text = ""
-        resp_headers: Any = {}
-        max_attempts = 5
-        for attempt in range(max_attempts):
-            try:
-                import httpx
-
-                with httpx.Client(timeout=self._timeout_seconds) as client:
-                    resp = client.post(url, headers=headers, content=body_bytes)
-                    status_code = resp.status_code
-                    resp_text = resp.text
-                    resp_headers = getattr(resp, "headers", {})
-            except ImportError as imp_err:
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message="HTTP transport dependency (httpx) is not installed.",
-                ) from imp_err
-            except httpx.TimeoutException as net_err:
-                if attempt < max_attempts - 1:
-                    time.sleep(1.0)
-                    self._last_request_time = time.monotonic()
-                    continue
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Network timeout while connecting to Mistral API.",
-                ) from net_err
-            except Exception as exc:
-                if attempt < max_attempts - 1:
-                    time.sleep(1.0)
-                    self._last_request_time = time.monotonic()
-                    continue
-                raise DoshError(
-                    code=FailureCode.EXECUTION_FAILED,
-                    message="Network communication error while connecting to Mistral API.",
-                ) from exc
-
-            # Retry transient 429 Rate Limit spikes respecting Retry-After header with exponential backoff
-            if status_code == 429 and attempt < max_attempts - 1:
-                wait_sec = 0.0
-                if hasattr(resp_headers, "get"):
-                    raw_val = resp_headers.get("retry-after") or resp_headers.get("x-ratelimit-reset")
-                    if isinstance(raw_val, (int, float)):
-                        wait_sec = float(raw_val)
-                    elif isinstance(raw_val, str) and raw_val.strip():
-                        try:
-                            wait_sec = float(raw_val.strip())
-                        except ValueError:
-                            pass
-                if wait_sec <= 0.0:
-                    wait_sec = 2.5 * (2 ** attempt)
-                else:
-                    wait_sec += 0.5
-                time.sleep(wait_sec)
-                self._last_request_time = time.monotonic()
-                continue
-
-            # Retry transient 503 High Demand spikes
-            if status_code == 503 and attempt < max_attempts - 1:
-                time.sleep(1.5 * (attempt + 1))
-                self._last_request_time = time.monotonic()
-                continue
-            break
-
-        # Handle HTTP status codes without leaking headers or request tokens
-        if status_code in (401, 403):
-            detail_msg = ""
-            try:
-                err_data = json.loads(resp_text)
-                if isinstance(err_data, dict):
-                    detail_msg = str(err_data.get("message") or err_data.get("detail", "")).strip()
-            except Exception:
-                pass
-            sanitized = f": {detail_msg}" if detail_msg else ""
-            raise DoshError(
-                code=FailureCode.SECURITY_DENIED,
-                message=f"Mistral API authentication failed{sanitized}. Verify that MISTRAL_API_KEY is valid.",
-            )
-        if status_code == 429:
-            detail_msg = ""
-            try:
-                err_data = json.loads(resp_text)
-                if isinstance(err_data, dict):
-                    detail_msg = str(err_data.get("message") or err_data.get("detail", "")).strip()
-            except Exception:
-                pass
-            sanitized = f": {detail_msg}" if detail_msg else ""
-            raise DoshError(
-                code=FailureCode.RESOURCE_UNAVAILABLE,
-                message=f"Mistral API rate limit exceeded{sanitized}. Consider increasing rate_limit_delay_seconds or upgrading tier.",
-            )
-        if status_code >= 400:
-            detail_msg = ""
-            try:
-                err_data = json.loads(resp_text)
-                if isinstance(err_data, dict):
-                    detail_msg = str(err_data.get("message") or err_data.get("detail", "")).strip()
-            except Exception:
-                pass
-            sanitized = f": {detail_msg}" if detail_msg else ""
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message=f"Mistral API returned error status {status_code}{sanitized}.",
-            )
-
+        resp = self._http.post(
+            url,
+            headers=headers,
+            content=body_bytes,
+            cancellation_token=cancellation_token,
+            redact_keys=(api_key,),
+        )
         try:
-            return json.loads(resp_text)
-        except json.JSONDecodeError as err:
+            return resp.json()
+        except Exception as err:
             raise DoshError(
                 code=FailureCode.EXECUTION_FAILED,
                 message="Failed to parse JSON response from Mistral API.",

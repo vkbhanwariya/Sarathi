@@ -24,6 +24,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Request,
     Result,
+    WarningRecord,
 )
 from sarathi.sankalpa.document import transform_canonical_document
 from sarathi.shakti.artifact_naming import format_artifact_filename, resolve_source_input
@@ -71,6 +72,33 @@ def is_structural_placeholder(text: str | None) -> bool:
     return bool(_STRUCTURAL_TAG_RE.match(stripped))
 
 
+def _get_provider_concurrency(provider_id: str, request: Request, context: ExecutionContext) -> int:
+    """Resolve max_concurrency for cloud provider batches from options, context, or sutra settings."""
+    if request.custom_options:
+        for key in ("max_concurrency", f"{provider_id}_max_concurrency"):
+            if key in request.custom_options:
+                try:
+                    return max(1, int(request.custom_options[key]))
+                except (ValueError, TypeError):
+                    pass
+    if context.metadata and "max_concurrency" in context.metadata:
+        try:
+            return max(1, int(context.metadata["max_concurrency"]))
+        except (ValueError, TypeError):
+            pass
+    try:
+        from sarathi.sutra import load_settings
+
+        settings = load_settings("config/settings.toml")
+        prov_norm = provider_id.replace("google_", "").lower()
+        sec = settings.get_section(prov_norm)
+        if sec and "max_concurrency" in sec:
+            return max(1, int(sec["max_concurrency"]))
+    except Exception:
+        pass
+    return 1
+
+
 def execute_cloud_translation(
     request: Request,
     context: ExecutionContext,
@@ -82,6 +110,7 @@ def execute_cloud_translation(
     declaration: CapabilityDeclaration,
     legal_builder: LegalContextBuilder | None = None,
     batch_translate_fn: Callable[..., list[str]] | None = None,
+    yantra: Any | None = None,
 ) -> Result:
     """Execute canonical cloud translation pipeline with context-aware legal grounding and batch optimization."""
     if not isinstance(request, Request):
@@ -151,6 +180,10 @@ def execute_cloud_translation(
     )
     custom_vars = request.custom_options.get("custom_variants") if request.custom_options else None
     harmonizer = GlossaryHarmonizer(custom_variants=custom_vars)
+
+    all_warnings: list[WarningRecord] = []
+    if prior_result is not None and prior_result.warnings:
+        all_warnings.extend(prior_result.warnings)
 
     translated_docs: list[CanonicalDocument] = []
     all_payloads: list[ArtifactPayload] = []
@@ -236,24 +269,100 @@ def execute_cloud_translation(
                 _collect_for_batch(str(doc_or_str))
 
             if texts_to_batch:
-                try:
-                    batched_outputs = batch_translate_fn(
-                        texts=texts_to_batch,
+                batch_size = 16
+                if request.custom_options and "batch_size" in request.custom_options:
+                    try:
+                        batch_size = max(1, int(request.custom_options["batch_size"]))
+                    except (ValueError, TypeError):
+                        pass
+
+                batch_chunks = [
+                    texts_to_batch[i : i + batch_size]
+                    for i in range(0, len(texts_to_batch), batch_size)
+                ]
+                max_concurrency = _get_provider_concurrency(provider_id, request, context)
+
+                def _run_single_chunk(chunk: list[str]) -> list[str]:
+                    return batch_translate_fn(
+                        texts=chunk,
                         source_lang=source_lang,
                         target_lang=target_lang,
                         model=model,
                         system_prompt=doc_system_prompt,
                     )
-                    if isinstance(batched_outputs, (list, tuple)) and len(batched_outputs) == len(texts_to_batch):
-                        for src, tgt in zip(texts_to_batch, batched_outputs):
-                            if isinstance(tgt, str):
-                                trans_memo[src] = harmonizer.harmonize(tgt, trans_direction)
-                except DoshError as err:
-                    if err.code in (FailureCode.RESOURCE_UNAVAILABLE, FailureCode.SECURITY_DENIED):
-                        raise
-                except Exception:
-                    # Graceful fallback to on-demand translate_fn if batch call fails
-                    pass
+
+                if len(batch_chunks) == 1 or max_concurrency == 1:
+                    for chunk in batch_chunks:
+                        try:
+                            batched_outputs = _run_single_chunk(chunk)
+                            if isinstance(batched_outputs, (list, tuple)) and len(batched_outputs) == len(chunk):
+                                for src, tgt in zip(chunk, batched_outputs):
+                                    if isinstance(tgt, str):
+                                        trans_memo[src] = harmonizer.harmonize(tgt, trans_direction)
+                        except DoshError as err:
+                            if err.code in (
+                                FailureCode.RESOURCE_UNAVAILABLE,
+                                FailureCode.SECURITY_DENIED,
+                                FailureCode.OPERATION_CANCELLED,
+                            ):
+                                raise
+                            all_warnings.append(
+                                WarningRecord(
+                                    code="CLOUD_BATCH_FALLBACK",
+                                    message=f"Cloud batch translation failed with {type(err).__name__}; falling back to per-text translation.",
+                                    stage="cloud_translation",
+                                )
+                            )
+                        except Exception as exc:
+                            all_warnings.append(
+                                WarningRecord(
+                                    code="CLOUD_BATCH_FALLBACK",
+                                    message=f"Cloud batch translation failed with {type(exc).__name__}; falling back to per-text translation.",
+                                    stage="cloud_translation",
+                                )
+                            )
+                else:
+                    try:
+                        if yantra is not None:
+                            yantra_inst = yantra
+                        else:
+                            from sarathi.yantra import Yantra
+
+                            yantra_inst = Yantra(Yantra.default_inventory())
+
+                        subtasks = [(lambda c=chunk: _run_single_chunk(c)) for chunk in batch_chunks]
+                        results = yantra_inst.execute_subtasks(
+                            subtasks,
+                            context=context,
+                            max_concurrency=max_concurrency,
+                        )
+                        for chunk, batched_outputs in zip(batch_chunks, results):
+                            if isinstance(batched_outputs, (list, tuple)) and len(batched_outputs) == len(chunk):
+                                for src, tgt in zip(chunk, batched_outputs):
+                                    if isinstance(tgt, str):
+                                        trans_memo[src] = harmonizer.harmonize(tgt, trans_direction)
+                    except DoshError as err:
+                        if err.code in (
+                            FailureCode.RESOURCE_UNAVAILABLE,
+                            FailureCode.SECURITY_DENIED,
+                            FailureCode.OPERATION_CANCELLED,
+                        ):
+                            raise
+                        all_warnings.append(
+                            WarningRecord(
+                                code="CLOUD_BATCH_FALLBACK",
+                                message=f"Cloud batch translation failed with {type(err).__name__}; falling back to per-text translation.",
+                                stage="cloud_translation",
+                            )
+                        )
+                    except Exception as exc:
+                        all_warnings.append(
+                            WarningRecord(
+                                code="CLOUD_BATCH_FALLBACK",
+                                message=f"Cloud batch translation failed with {type(exc).__name__}; falling back to per-text translation.",
+                                stage="cloud_translation",
+                            )
+                        )
 
         def _call_translate(text: str) -> str:
             if not text or not text.strip():
@@ -368,8 +477,14 @@ def execute_cloud_translation(
                                     for orig, trans in zip(uncached, batched):
                                         if isinstance(trans, str):
                                             trans_memo[orig] = harmonizer.harmonize(trans, trans_direction)
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                all_warnings.append(
+                                    WarningRecord(
+                                        code="CLOUD_BATCH_FALLBACK",
+                                        message=f"Cloud batch translation failed with {type(exc).__name__}; falling back to per-text translation.",
+                                        stage="cloud_translation",
+                                    )
+                                )
                     return [_call_translate(s) for s in batch]
 
                 docx_payload = transform_docx_translation_artifact(
@@ -409,4 +524,5 @@ def execute_cloud_translation(
         data=output_data,
         artifact_payloads=tuple(all_payloads),
         provenance=tuple(all_provenance),
+        warnings=tuple(all_warnings),
     )
