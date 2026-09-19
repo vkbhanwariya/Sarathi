@@ -62,9 +62,10 @@ def module_web_server(module_agni: Agni) -> Any:
 
 
 @pytest.fixture
-def web_server(module_web_server: MukhaWebServer) -> MukhaWebServer:
+def web_server(module_web_server: MukhaWebServer, tmp_path: Path) -> MukhaWebServer:
     """Provide running MukhaWebServer, resetting runner state between tests."""
     module_web_server.reset()
+    module_web_server.register_input_directory(tmp_path)
     yield module_web_server
     module_web_server.reset()
 
@@ -95,6 +96,11 @@ class CaseInsensitiveHeaders(dict):
         return super().get(key, default)
 
 
+def get_auth_cookie(web_server: MukhaWebServer) -> dict[str, str]:
+    """Return authorization cookie headers for a running MukhaWebServer."""
+    return {"Cookie": f"sarathi_session={web_server.auth_token}"}
+
+
 def http_get(
     url: str,
     headers: dict[str, str] | None = None,
@@ -104,6 +110,14 @@ def http_get(
     req_headers = {"Connection": "close"}
     if headers:
         req_headers.update(headers)
+    from sarathi.mukha.web.server import _ACTIVE_SERVER_TOKENS
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.port and parsed.port in _ACTIVE_SERVER_TOKENS:
+        if "Cookie" not in req_headers and "cookie" not in req_headers and req_headers.get("No-Auth") != "true":
+            req_headers["Cookie"] = f"sarathi_session={_ACTIVE_SERVER_TOKENS[parsed.port]}"
+    req_headers.pop("No-Auth", None)
+
     for attempt in range(5):
         req = urllib.request.Request(url, headers=req_headers)
         try:
@@ -145,6 +159,13 @@ def http_post_json(
     req_headers = {"Content-Type": "application/json", "Connection": "close"}
     if headers:
         req_headers.update(headers)
+    from sarathi.mukha.web.server import _ACTIVE_SERVER_TOKENS
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.port and parsed.port in _ACTIVE_SERVER_TOKENS:
+        if "Cookie" not in req_headers and "cookie" not in req_headers and req_headers.get("No-Auth") != "true":
+            req_headers["Cookie"] = f"sarathi_session={_ACTIVE_SERVER_TOKENS[parsed.port]}"
+    req_headers.pop("No-Auth", None)
 
     for attempt in range(5):
         req = urllib.request.Request(url, data=payload, headers=req_headers, method="POST")

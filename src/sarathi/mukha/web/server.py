@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import socket
 import threading
 import time
@@ -32,6 +33,8 @@ from sarathi.sankalpa import ArtifactRef, ExecutionProfile
 if TYPE_CHECKING:
     from sarathi.agni import Agni
 
+_ACTIVE_SERVER_TOKENS: dict[int, str] = {}
+
 
 class MukhaWebServer:
     """Loopback-only Starlette presentation server for the Mukha web application."""
@@ -49,11 +52,18 @@ class MukhaWebServer:
         self._host = host
         self._requested_port = port
         self._resolved_port = 0
+        self._auth_token = secrets.token_urlsafe(32)
+        self._registered_input_directories: set[Path] = set()
         self._runner = RunCoordinator(agni)
         self._asgi_app = create_mukha_app(self)
         self._uvicorn_server: uvicorn.Server | None = None
         self._server_thread: threading.Thread | None = None
         self._server_socket: socket.socket | None = None
+
+    @property
+    def auth_token(self) -> str:
+        """Return the session authentication token."""
+        return self._auth_token
 
     @property
     def runner(self) -> RunCoordinator:
@@ -64,9 +74,16 @@ class MukhaWebServer:
         """Return True when an interactive processing run is active."""
         return self._runner.is_busy()
 
+    def register_input_directory(self, directory: Path | str) -> None:
+        """Register an authorized input directory for preview inspection."""
+        with self._runner._lock:
+            self._registered_input_directories.add(Path(directory).resolve())
+
     def reset(self) -> None:
         """Reset runner state on the presentation server."""
         self._runner.reset()
+        with self._runner._lock:
+            self._registered_input_directories.clear()
 
     @property
     def agni(self) -> Any:
@@ -99,9 +116,31 @@ class MukhaWebServer:
         return self._resolved_port
 
     @property
-    def local_url(self) -> str:
+    def base_url(self) -> str:
         """Return the canonical loopback origin for the Mukha application."""
         return f"http://127.0.0.1:{self._resolved_port}"
+
+    @property
+    def local_url(self) -> str:
+        """Return the canonical loopback origin with session token for the Mukha application."""
+        return f"http://127.0.0.1:{self._resolved_port}/?t={self._auth_token}"
+
+    def get_authorized_preview_roots(self) -> tuple[Path, ...]:
+        """Return all authorized root directories for preview inspection."""
+        roots: list[Path] = [
+            self._agni.input_root.resolve(),
+            self._agni.output_root.resolve(),
+            self._agni.runtime_root.resolve(),
+        ]
+        with self._runner._lock:
+            roots.extend(self._registered_input_directories)
+            for p in self._runner._input_path_registry.values():
+                if p.is_file():
+                    roots.append(p.parent.resolve())
+                    roots.append(p.resolve())
+                elif p.is_dir():
+                    roots.append(p.resolve())
+        return tuple(roots)
 
     def get_confirmed_artifact(self, run_id: str, artifact_id: str) -> ArtifactRef | None:
         """Look up a confirmed artifact by run and artifact IDs."""
@@ -334,8 +373,11 @@ class MukhaWebServer:
                 raise RuntimeError("Mukha web server startup timed out.")
             time.sleep(0.01)
 
+        _ACTIVE_SERVER_TOKENS[self._resolved_port] = self._auth_token
+
     def stop(self) -> None:
         """Stop Uvicorn and release the loopback socket cleanly."""
+        _ACTIVE_SERVER_TOKENS.pop(self._resolved_port, None)
         server = self._uvicorn_server
         thread = self._server_thread
         if server is not None:
@@ -359,4 +401,4 @@ class MukhaWebServer:
         self._server_socket = None
 
 
-__all__ = ["MukhaWebServer", "_format_public_error"]
+__all__ = ["MukhaWebServer", "_ACTIVE_SERVER_TOKENS", "_format_public_error"]

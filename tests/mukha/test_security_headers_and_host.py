@@ -8,6 +8,7 @@ Verifies:
 from __future__ import annotations
 
 import http.client
+from pathlib import Path
 
 import pytest
 
@@ -105,6 +106,7 @@ class TestMukhaWebServerSecurityHeaders:
         conn = http.client.HTTPConnection("127.0.0.1", web_server.resolved_port)
         conn.putrequest("GET", "/api/state", skip_host=True)
         conn.putheader("Host", f"127.0.0.1:{web_server.resolved_port}")
+        conn.putheader("Cookie", f"sarathi_session={web_server.auth_token}")
         conn.endheaders()
         response = conn.getresponse()
         assert response.status == 200
@@ -132,3 +134,84 @@ class TestMukhaWebServerSecurityHeaders:
         assert "default-src 'self'" in headers.get("content-security-policy", "")
         assert headers.get("cache-control") == "no-cache"
         conn.close()
+
+
+def test_bug_S1_web_security_and_auth(tmp_path: Path) -> None:
+    """S1: Verify session token authentication on /api/** and allowlist-root path containment on /api/preview*."""
+    from starlette.testclient import TestClient
+
+    from sarathi.agni import Agni
+    from sarathi.mukha.web import MukhaWebServer
+
+    input_dir = tmp_path / "Input"
+    input_dir.mkdir()
+    output_dir = tmp_path / "Output"
+    output_dir.mkdir()
+    runtime_dir = tmp_path / "Runtime"
+    runtime_dir.mkdir()
+    outside_dir = tmp_path / "Outside"
+    outside_dir.mkdir()
+
+    outside_file = outside_dir / "secret.txt"
+    outside_file.write_text("classified data", encoding="utf-8")
+
+    allowed_file = input_dir / "sample.txt"
+    allowed_file.write_text("public input data", encoding="utf-8")
+
+    # Symlink inside allowed root pointing outside
+    symlink_file = input_dir / "symlink_secret.txt"
+    try:
+        symlink_file.symlink_to(outside_file)
+        has_symlink = True
+    except OSError:
+        has_symlink = False
+
+    with Agni(runtime_root=runtime_dir, output_root=output_dir, input_root=input_dir) as agni:
+        server = MukhaWebServer(agni=agni, host="127.0.0.1", port=0)
+        client = TestClient(server._asgi_app, base_url="http://127.0.0.1")
+
+        # 1. Every /api/** route returns 401/403 without the token cookie
+        for route in ("/api/state", "/api/history", "/api/review"):
+            resp = client.get(route)
+            assert resp.status_code in (401, 403), (
+                f"Route {route} was accessible without auth (got {resp.status_code})"
+            )
+
+        # 2. Wrong token is rejected on GET /?t=...
+        resp_wrong = client.get("/?t=wrong_token_12345", follow_redirects=False)
+        assert resp_wrong.status_code in (401, 403)
+
+        # 3. Valid token sets HttpOnly; SameSite=Strict cookie and redirects to /
+        token = getattr(server, "auth_token", "test_token")
+        resp_valid = client.get(f"/?t={token}", follow_redirects=False)
+        assert resp_valid.status_code in (302, 303)
+        assert resp_valid.headers.get("location") == "/"
+        cookie_header = resp_valid.headers.get("set-cookie", "")
+        assert "sarathi_session=" in cookie_header
+        assert "httponly" in cookie_header.lower()
+        assert "samesite=strict" in cookie_header.lower()
+
+        # 4. With the session cookie, API calls work
+        client.cookies.set("sarathi_session", token)
+        resp_auth = client.get("/api/state")
+        assert resp_auth.status_code == 200
+        assert resp_auth.json().get("ok") is True
+
+        # 5. File outside allowed roots is refused by all three /api/preview* routes
+        for p_route in ("/api/preview", "/api/preview/raw", "/api/preview/pdf_page"):
+            resp_outside = client.get(f"{p_route}?path={outside_file}")
+            assert resp_outside.status_code in (400, 403), (
+                f"{p_route} allowed outside path (got {resp_outside.status_code})"
+            )
+
+            if has_symlink:
+                resp_symlink = client.get(f"{p_route}?path={symlink_file}")
+                assert resp_symlink.status_code in (400, 403), (
+                    f"{p_route} followed escaping symlink (got {resp_symlink.status_code})"
+                )
+
+        # 6. File inside allowed root is served
+        resp_inside = client.get(f"/api/preview?path={allowed_file}")
+        assert resp_inside.status_code == 200
+        resp_inside_raw = client.get(f"/api/preview/raw?path={allowed_file}")
+        assert resp_inside_raw.status_code == 200

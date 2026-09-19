@@ -11,7 +11,7 @@ import re
 import urllib.parse
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from sarathi.dosh import DoshError
 from sarathi.sankalpa import ExecutionProfile
@@ -133,8 +133,12 @@ def _serialize_dataclass(obj: Any) -> Any:
     return str(obj)
 
 
-def _is_safe_preview_path(path_str: str) -> tuple[bool, str | None]:
-    """Verify that a path is safe from directory traversal and sensitive system directories."""
+def _is_safe_preview_path(
+    path_str: str,
+    allowed_roots: Sequence[Path | str] | None = None,
+    kavacha: Any | None = None,
+) -> tuple[bool, str | None]:
+    """Verify that a path is safe from directory traversal and contained within authorized roots."""
     if not path_str or not path_str.strip():
         return False, "Missing 'path' query parameter."
     if ".." in path_str and ("../" in path_str or "..\\" in path_str):
@@ -145,18 +149,21 @@ def _is_safe_preview_path(path_str: str) -> tuple[bool, str | None]:
     except Exception:
         return False, "Invalid file path."
 
-    # Check filename against sensitive system files
-    fname = resolved.name.lower()
-    if fname in (".env", "id_rsa", "id_ed25519", "sam", "system", "security", "shadow", "passwd", "hosts"):
-        return False, "Access to sensitive files is forbidden."
-
-    # Check path parts against forbidden OS root directories
-    resolved_parts = [p.lower() for p in resolved.parts]
-    forbidden_dirs = {"windows", "system32", "etc", "proc", "sys", "dev", ".ssh"}
-    for part in resolved_parts:
-        clean_part = part.rstrip(":\\/")
-        if clean_part in forbidden_dirs or part in forbidden_dirs:
-            return False, "Access to system paths is forbidden."
+    if allowed_roots is not None:
+        if kavacha is not None and hasattr(kavacha, "validate_path_containment"):
+            try:
+                kavacha.validate_path_containment(resolved, allowed_roots)
+                return True, None
+            except DoshError:
+                return False, "Access to path outside authorized root directories is denied."
+        else:
+            for root in allowed_roots:
+                try:
+                    resolved.relative_to(Path(root).resolve())
+                    return True, None
+                except (ValueError, OSError):
+                    continue
+            return False, "Access to path outside authorized root directories is denied."
 
     return True, None
 

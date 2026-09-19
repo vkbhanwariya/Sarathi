@@ -111,3 +111,52 @@ class Kavacha:
                     )
                 except ValueError:
                     pass
+
+    def validate_path_containment(
+        self,
+        path: Path | str,
+        allowed_roots: Sequence[Path | str],
+    ) -> Path:
+        """Verify that a path resides within at least one approved root directory.
+
+        Resolves symlinks and relative segments before checking containment.
+        Rejects paths outside allowed roots, including symlinks that point outside.
+
+        Returns:
+            Resolved Path if contained within an allowed root.
+
+        Raises:
+            DoshError(FailureCode.SECURITY_DENIED): If path is outside all allowed roots.
+        """
+        try:
+            resolved = Path(path).resolve()
+        except OSError as err:
+            raise DoshError(
+                code=FailureCode.EXECUTION_FAILED,
+                message="Failed to resolve path.",
+            ) from err
+
+        for root in allowed_roots:
+            try:
+                resolved_root = Path(root).resolve()
+                resolved.relative_to(resolved_root)
+                return resolved
+            except (ValueError, OSError):
+                continue
+
+        raise DoshError(
+            code=FailureCode.SECURITY_DENIED,
+            message="Access to path outside authorized root directories is denied.",
+        )
+
+    def is_path_contained(
+        self,
+        path: Path | str,
+        allowed_roots: Sequence[Path | str],
+    ) -> bool:
+        """Return True if path is contained within at least one approved root directory."""
+        try:
+            self.validate_path_containment(path, allowed_roots)
+            return True
+        except DoshError:
+            return False

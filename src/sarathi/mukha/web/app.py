@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
+import http.cookies
 import importlib.resources
 import json
 import mimetypes
@@ -135,10 +137,11 @@ def _confirmed_artifact_response(
 
 
 class LoopbackSecurityMiddleware:
-    """Enforce loopback Host/Origin rules and canonical response security headers."""
+    """Enforce loopback Host/Origin rules, session token authentication, and canonical response security headers."""
 
-    def __init__(self, app: Any) -> None:
+    def __init__(self, app: Any, mukha: MukhaWebServer | None = None) -> None:
         self.app = app
+        self.mukha = mukha
 
     @staticmethod
     def _secure_headers(headers: MutableHeaders) -> None:
@@ -173,6 +176,35 @@ class LoopbackSecurityMiddleware:
             self._secure_headers(response.headers)
             await response(scope, receive, send)
             return
+
+        path = scope.get("path", "")
+        if path.startswith("/api/"):
+            auth_token = getattr(self.mukha, "auth_token", None) if self.mukha is not None else None
+            if auth_token:
+                authenticated = False
+                cookie_header = header_map.get("cookie", "")
+                if cookie_header:
+                    cookies = http.cookies.SimpleCookie()
+                    try:
+                        cookies.load(cookie_header)
+                        if "sarathi_session" in cookies:
+                            val = cookies["sarathi_session"].value
+                            if hmac.compare_digest(val, auth_token):
+                                authenticated = True
+                    except Exception:
+                        pass
+
+                auth_header = header_map.get("authorization", "")
+                if not authenticated and auth_header.startswith("Bearer "):
+                    bearer_token = auth_header[7:].strip()
+                    if hmac.compare_digest(bearer_token, auth_token):
+                        authenticated = True
+
+                if not authenticated:
+                    response = _json(401, {"ok": False, "error": "Unauthorized: Session authentication required."})
+                    self._secure_headers(response.headers)
+                    await response(scope, receive, send)
+                    return
 
         async def secure_send(message: dict[str, Any]) -> None:
             if message.get("type") == "http.response.start":
@@ -260,7 +292,21 @@ def _parse_review_intent(body: dict[str, Any]) -> tuple[ReviewIntent | None, str
 def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
     """Build the Starlette application around an existing Mukha presentation façade."""
 
-    async def root(_: Request) -> Response:
+    async def root(request: Request) -> Response:
+        t = request.query_params.get("t")
+        if t is not None:
+            if hmac.compare_digest(t, mukha.auth_token):
+                response = Response(status_code=303, headers={"Location": "/"})
+                response.set_cookie(
+                    key="sarathi_session",
+                    value=mukha.auth_token,
+                    httponly=True,
+                    samesite="strict",
+                    path="/",
+                )
+                return response
+            else:
+                return _json(403, {"ok": False, "error": "Forbidden: Invalid session token."})
         return _static_response("ui/index.html", "text/html")
 
     async def ui_asset(request: Request) -> Response:
@@ -424,7 +470,11 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         path_value = request.query_params.get("path", "").strip()
         if not path_value:
             return _json(400, {"ok": False, "error": "Missing 'path' query parameter."})
-        safe, error = _is_safe_preview_path(path_value)
+        safe, error = _is_safe_preview_path(
+            path_value,
+            allowed_roots=mukha.get_authorized_preview_roots(),
+            kavacha=mukha.kavacha,
+        )
         if not safe:
             return _json(400 if "traversal" in (error or "") else 403, {"ok": False, "error": error})
         status, payload = await asyncio.to_thread(build_document_preview, path_value)
@@ -434,7 +484,11 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         path_value = request.query_params.get("path", "").strip()
         if not path_value:
             return _json(400, {"ok": False, "error": "Missing 'path' query parameter."})
-        safe, error = _is_safe_preview_path(path_value)
+        safe, error = _is_safe_preview_path(
+            path_value,
+            allowed_roots=mukha.get_authorized_preview_roots(),
+            kavacha=mukha.kavacha,
+        )
         if not safe:
             return _json(400 if "traversal" in (error or "") else 403, {"ok": False, "error": error})
         return _raw_file_response(Path(path_value).resolve(), download="download" in request.query_params)
@@ -443,7 +497,11 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         path_value = request.query_params.get("path", "").strip()
         if not path_value:
             return _json(400, {"ok": False, "error": "Missing 'path' query parameter."})
-        safe, error = _is_safe_preview_path(path_value)
+        safe, error = _is_safe_preview_path(
+            path_value,
+            allowed_roots=mukha.get_authorized_preview_roots(),
+            kavacha=mukha.kavacha,
+        )
         if not safe:
             return _json(400 if "traversal" in (error or "") else 403, {"ok": False, "error": error})
         try:
@@ -696,7 +754,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         Route("/api/{path:path}", api_not_found),
     ]
     app = Starlette(routes=routes)
-    app.add_middleware(LoopbackSecurityMiddleware)
+    app.add_middleware(LoopbackSecurityMiddleware, mukha=mukha)
     return app
 
 

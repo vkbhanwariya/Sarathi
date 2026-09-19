@@ -890,7 +890,10 @@ def test_static_assets_serving(web_server: MukhaWebServer) -> None:
 
 def test_api_events_sse(web_server: MukhaWebServer) -> None:
     """GET /api/events establishes text/event-stream with initial state event."""
-    req = urllib.request.Request(f"http://127.0.0.1:{web_server.resolved_port}/api/events")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/events",
+        headers={"Cookie": f"sarathi_session={web_server.auth_token}"},
+    )
     with urllib.request.urlopen(req, timeout=5.0) as resp:
         assert resp.status == 200
         content_type = resp.headers.get("Content-Type", "")
@@ -1541,7 +1544,10 @@ def test_state_revision_monotonic_increment(web_server: MukhaWebServer) -> None:
 
 def test_sse_emits_schema_version_and_state_revision(web_server: MukhaWebServer) -> None:
     url = f"http://127.0.0.1:{web_server.resolved_port}/api/events"
-    req = urllib.request.Request(url, headers={"Host": "127.0.0.1"})
+    req = urllib.request.Request(
+        url,
+        headers={"Host": "127.0.0.1", "Cookie": f"sarathi_session={web_server.auth_token}"},
+    )
     with urllib.request.urlopen(req, timeout=5.0) as resp:
         lines = []
         for _ in range(5):
