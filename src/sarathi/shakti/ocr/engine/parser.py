@@ -15,12 +15,21 @@ from typing import Any
 from sarathi.sankalpa import TextSpan, WarningRecord
 from sarathi.shakti.ocr.engine.common import STAGE_NAME
 
-_ALPHANUMERIC_FILTER_RE = re.compile(r"[^\x20-\x7E₹€£\n\r\t•–—“”‘’]")
+_ALPHANUMERIC_FILTER_RE = re.compile(
+    r"[^\x20-\x7E\u00C0-\u024F₹€£¥§°±×÷½¼¾©®™…\n\r\t•–—“”‘’]"
+)
 _HAS_ENGLISH_OR_DIGIT_RE = re.compile(r"[A-Za-z0-9]")
 
 
 def filter_english_and_numbers(text: str) -> str:
-    """Filter text to retain only English characters, numbers, and standard alphanumeric symbols."""
+    """Filter text destructively to retain Latin-script letters, numbers, and allowed punctuation.
+
+    WARNING: Destructive by design. Drops non-Latin scripts (e.g. Devanagari) completely,
+    normalizes non-breaking spaces, and returns empty string if no ASCII letters or digits remain.
+    Preserves Latin-1 Supplement and Latin Extended letters (accented characters), currency
+    (₹, €, £, ¥), math/fractions (±, ×, ÷, ½, ¼, ¾, °), and legal/typographic symbols (§, ©, ®, ™, …).
+    """
+    text = text.replace("\u00a0", " ")
     cleaned = _ALPHANUMERIC_FILTER_RE.sub("", text)
     cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
     if not _HAS_ENGLISH_OR_DIGIT_RE.search(cleaned):

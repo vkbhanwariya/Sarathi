@@ -103,3 +103,33 @@ def test_font_conversion_lightweight_oracle_mode(tmp_path: Path) -> None:
     assert prov.evidence["model"] == "PP-OCRv6"
     assert prov.evidence["scope"] == "english_and_numbers"
     assert any("Remington" in line or "12" in line for line in page_data.text.splitlines())
+
+
+def test_bug_O14_latin_supplement_and_symbols() -> None:
+    """O14: Verify filter_english_and_numbers preserves accented Latin letters, math/legal symbols, and NBSP."""
+    # 1. Accented Latin letters (Latin-1 Supplement and Latin Extended)
+    assert filter_english_and_numbers("Café résumé naïve") == "Café résumé naïve"
+
+    # 2. Legal and math symbols
+    assert (
+        filter_english_and_numbers("Sec § 3 — 5° ± 2 × 3 ½ © ®")
+        == "Sec § 3 — 5° ± 2 × 3 ½ © ®"
+    )
+
+    # 3. Additional symbols: ÷, ¼, ¾, ™, …, ¥
+    assert (
+        filter_english_and_numbers("Math: 10 ÷ 2 = 5, ¼ kg, ¾ lb, Brand™ ¥100 …")
+        == "Math: 10 ÷ 2 = 5, ¼ kg, ¾ lb, Brand™ ¥100 …"
+    )
+
+    # 4. Non-breaking space (NBSP) mapped to regular space
+    assert filter_english_and_numbers("Rule\u00a042 Clause\u00a0A") == "Rule 42 Clause A"
+
+    # 5. Pure Devanagari returns empty string
+    assert filter_english_and_numbers("भारतीय रिजर्व बैंक") == ""
+
+    # 6. Text with no ASCII letters or digits returns empty string
+    assert filter_english_and_numbers("§ ° ± × ÷ ½ ¼ ¾ © ® ™ …") == ""
+
+    # 7. Mixed English + Devanagari keeps only the English part
+    assert filter_english_and_numbers("Branch शाखा 001") == "Branch 001"
