@@ -34,6 +34,8 @@ dist/
 
 # Frontend & Node Dependencies
 node_modules/
+ui/node_modules/
+ui/dist/
 .npm/
 
 
@@ -51,6 +53,8 @@ Runtime/
 .project
 .pydevproject
 .settings/
+.cursor/
+.claude/
 .DS_Store
 Thumbs.db
 Desktop.ini
@@ -60,6 +64,7 @@ $RECYCLE.BIN/
 # Antigravity & Agent Caches / Scratch
 .antigravity/
 .gemini/
+.system_generated/
 scratch/
 
 # Environment & Secrets

@@ -36,6 +36,8 @@ dist/
 
 # Frontend
 node_modules/
+ui/node_modules/
+ui/dist/
 .npm/
 
 # IDE & Editor Configurations
@@ -64,6 +66,9 @@ Runtime/
 # Antigravity & Agent Caches / Scratch
 .antigravity/
 .gemini/
+.system_generated/
+.cursor/
+.claude/
 
 # Environment & Secrets
 .env
