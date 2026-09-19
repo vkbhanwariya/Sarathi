@@ -24,6 +24,23 @@ DEFAULT_CHECKPOINT_DIR: Path = Path("Runtime/Cache/ocr_checkpoints")
 CHECKPOINT_SCHEMA_VERSION: int = 1
 
 
+def get_default_checkpoint_dir(runtime_root: Path | None = None) -> Path:
+    """Resolve the canonical checkpoint directory adhering to configured runtime root."""
+    if DEFAULT_CHECKPOINT_DIR != Path("Runtime/Cache/ocr_checkpoints"):
+        return DEFAULT_CHECKPOINT_DIR.resolve()
+    if runtime_root is not None:
+        return (runtime_root / "Cache" / "ocr_checkpoints").resolve()
+    try:
+        from sarathi.sutra import get_settings
+
+        st = get_settings()
+        if hasattr(st, "storage_runtime_root"):
+            return (st.storage_runtime_root / "Cache" / "ocr_checkpoints").resolve()
+    except Exception:
+        pass
+    return DEFAULT_CHECKPOINT_DIR.resolve()
+
+
 def compute_doc_hash(data: bytes) -> str:
     """Compute deterministic SHA-256 fingerprint of input document bytes."""
     return hashlib.sha256(data).hexdigest()[:16]
@@ -36,6 +53,7 @@ def compute_params_hash(
     lang: str = "hi",
     custom_options: Mapping[str, Any] | None = None,
     model_version: str = "v5_v6",
+    asset_version: str | None = None,
 ) -> str:
     """Compute deterministic parameter fingerprint influencing page OCR output."""
     prof_str = profile.value if isinstance(profile, ExecutionProfile) else str(profile)
@@ -55,15 +73,27 @@ def compute_params_hash(
         "critical_retry_threshold",
         "review_threshold",
         "critical_review_threshold",
+        "remove_stamps",
+        "inpaint_stamps",
+        "stamp_mode",
+        "lightweight",
+        "preprocess",
+        "unpaper",
+        "denoise",
+        "shadow_removal",
+        "adaptive_binarize",
     )
     extracted_opts = _clean_dict({k: opts[k] for k in relevant_keys if k in opts})
+    eff_asset_version = asset_version or opts.get("asset_version", "")
 
     fingerprint_obj = {
+        "schema_version": CHECKPOINT_SCHEMA_VERSION,
         "page": page_number,
         "profile": prof_str,
         "dpi": dpi,
         "lang": str(getattr(lang, "value", lang)),
         "model_version": str(model_version),
+        "asset_version": str(eff_asset_version),
         "options": extracted_opts,
     }
     canonical_str = json.dumps(fingerprint_obj, sort_keys=True, separators=(",", ":"), default=str)
@@ -77,7 +107,7 @@ def get_checkpoint_path(
     cache_dir: Path | None = None,
 ) -> Path:
     """Resolve the canonical filesystem path for a specific page checkpoint."""
-    base_dir = (cache_dir or DEFAULT_CHECKPOINT_DIR).resolve()
+    base_dir = (cache_dir or get_default_checkpoint_dir()).resolve()
     return base_dir / doc_hash / f"p{page_number:04d}_{params_hash}.json"
 
 
@@ -317,10 +347,71 @@ def load_page_checkpoint(
         warnings = deserialize_warnings(data.get("warnings", []))
 
         return page_data, provenance, warnings
-    except Exception as exc:
+    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
         logger.debug("Removing corrupted page checkpoint %s: %s", target_path, exc)
         try:
             target_path.unlink(missing_ok=True)
         except OSError:
             pass
         return None
+    except OSError as exc:
+        logger.debug("Transient I/O error reading checkpoint %s: %s", target_path, exc)
+        return None
+
+
+def evict_checkpoints(
+    cache_dir: Path | None = None,
+    max_bytes: int | None = None,
+    max_age_seconds: float | None = None,
+) -> int:
+    """Evict old or excessive checkpoints based on age and total byte capacity.
+
+    Returns the number of checkpoint files evicted.
+    """
+    base_dir = (cache_dir or get_default_checkpoint_dir()).resolve()
+    if not base_dir.is_dir():
+        return 0
+
+    import time
+
+    now = time.time()
+    evicted_count = 0
+
+    file_entries: list[tuple[Path, int, float]] = []
+    try:
+        for f in base_dir.rglob("p*.json"):
+            if f.is_file() and not f.name.endswith(".tmp"):
+                try:
+                    st = f.stat()
+                    file_entries.append((f, st.st_size, st.st_mtime))
+                except OSError:
+                    pass
+    except OSError:
+        return 0
+
+    remaining_entries: list[tuple[Path, int, float]] = []
+    for f_path, f_size, f_mtime in file_entries:
+        if max_age_seconds is not None and (now - f_mtime) > max_age_seconds:
+            try:
+                f_path.unlink(missing_ok=True)
+                evicted_count += 1
+            except OSError:
+                remaining_entries.append((f_path, f_size, f_mtime))
+        else:
+            remaining_entries.append((f_path, f_size, f_mtime))
+
+    if max_bytes is not None:
+        total_size = sum(sz for _, sz, _ in remaining_entries)
+        if total_size > max_bytes:
+            remaining_entries.sort(key=lambda x: x[2])
+            for f_path, f_size, _ in remaining_entries:
+                if total_size <= max_bytes:
+                    break
+                try:
+                    f_path.unlink(missing_ok=True)
+                    total_size -= f_size
+                    evicted_count += 1
+                except OSError:
+                    pass
+
+    return evicted_count

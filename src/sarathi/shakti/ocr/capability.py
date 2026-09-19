@@ -170,11 +170,19 @@ class OCRCapability:
         data_root: Path | None = None,
         yantra: Yantra | None = None,
         darpana: Darpana | None = None,
+        runtime_root: Path | None = None,
+        cache_dir: Path | None = None,
     ) -> None:
         self.declaration: CapabilityDeclaration = declaration
         self._engine: RapidOCREngine = engine if engine is not None else RapidOCREngine(data_root=data_root)
         self._yantra: Yantra | None = yantra
         self._darpana: Darpana | None = darpana
+        self._runtime_root: Path | None = runtime_root
+        self._cache_dir: Path | None = (
+            cache_dir
+            if cache_dir is not None
+            else ((runtime_root / "Cache" / "ocr_checkpoints") if runtime_root is not None else None)
+        )
 
     @property
     def asset_version(self) -> str:
@@ -456,8 +464,10 @@ class OCRCapability:
                         dpi=dpi,
                         lang=target_lang,
                         custom_options=request.custom_options,
+                        model_version=getattr(self._engine, "model_version", "v5_v6"),
+                        asset_version=self.asset_version,
                     )
-                    cached = load_page_checkpoint(d_hash, p_idx, p_hash)
+                    cached = load_page_checkpoint(d_hash, p_idx, p_hash, cache_dir=self._cache_dir)
                     if cached is not None:
                         c_pdata, c_prov, c_warns = cached
                         doc_page_results[inp.input_id].append((p_idx, c_pdata, c_prov, c_warns))
@@ -574,6 +584,8 @@ class OCRCapability:
                             dpi=dpi,
                             lang=target_lang,
                             custom_options=request.custom_options,
+                            model_version=getattr(self._engine, "model_version", "v5_v6"),
+                            asset_version=self.asset_version,
                         )
                         save_page_checkpoint(
                             doc_hash=doc_hashes[inp_ref.input_id],
@@ -582,6 +594,7 @@ class OCRCapability:
                             page_data=p_data,
                             provenance=p_prov,
                             warnings=p_warns,
+                            cache_dir=self._cache_dir,
                         )
                     return p_data, p_prov, p_warns
 
@@ -659,6 +672,8 @@ class OCRCapability:
                             dpi=dpi,
                             lang=target_lang,
                             custom_options=request.custom_options,
+                            model_version=getattr(self._engine, "model_version", "v5_v6"),
+                            asset_version=self.asset_version,
                         )
                         save_page_checkpoint(
                             doc_hash=doc_hashes[inp.input_id],
@@ -667,6 +682,7 @@ class OCRCapability:
                             page_data=page_data,
                             provenance=prov,
                             warnings=page_warnings,
+                            cache_dir=self._cache_dir,
                         )
                     doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
 

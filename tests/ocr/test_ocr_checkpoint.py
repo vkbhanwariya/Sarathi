@@ -235,3 +235,86 @@ def test_capability_zero_recomputation_on_checkpoint_hit(tmp_path: Path, monkeyp
     res3 = cap.execute(req_force, ctx)
     assert res3.data.pages[0].text == "Original OCR Page 1"
     assert engine.ocr_page.call_count == 2
+
+
+def test_bug_O1_checkpoint_robustness(tmp_path: Path, monkeypatch: Any) -> None:
+    """O1: Checkpoints must avoid CWD-relative paths, hash all relevant options, survive transient OSError, and evict."""
+    from unittest.mock import patch
+
+    # 1. compute_params_hash must differ when remove_stamps, inpaint_stamps, lightweight, preprocess, or asset_version differ
+    base_hash = compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi")
+    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"remove_stamps": True}) != base_hash
+    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"inpaint_stamps": True}) != base_hash
+    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"lightweight": True}) != base_hash
+    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"preprocess": False}) != base_hash
+    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", asset_version="2.0") != base_hash
+
+    # 2. Corrupt checkpoint file must NOT be deleted when error is a transient OSError
+    dummy_page = PageData(page_number=1, text="Test")
+    test_cache_dir = tmp_path / "cache"
+    chk_path = save_page_checkpoint("doc1", 1, "h1", dummy_page, None, (), cache_dir=test_cache_dir)
+    assert chk_path is not None and chk_path.is_file()
+
+    def mock_oserror_open(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("Disk temporarily unavailable")
+
+    with patch("builtins.open", mock_oserror_open):
+        res = load_page_checkpoint("doc1", 1, "h1", cache_dir=test_cache_dir)
+        assert res is None
+    # File must NOT be deleted on transient OSError!
+    assert chk_path.is_file(), "Transient OSError must not delete the checkpoint file"
+
+    # 3. Eviction removes oldest files beyond byte or age cap
+    import os
+    import time
+
+    from sarathi.shakti.ocr.engine.checkpoint import evict_checkpoints
+
+    evict_dir = tmp_path / "evict_test"
+    p1 = save_page_checkpoint("doc_evict", 1, "h1", dummy_page, None, (), cache_dir=evict_dir)
+    p2 = save_page_checkpoint("doc_evict", 2, "h2", dummy_page, None, (), cache_dir=evict_dir)
+    p3 = save_page_checkpoint("doc_evict", 3, "h3", dummy_page, None, (), cache_dir=evict_dir)
+    assert p1 and p2 and p3
+
+    # Set artificial mtimes: p1 is oldest (1000s ago), p2 is middle (500s ago), p3 is newest (now)
+    now = time.time()
+    os.utime(p1, (now - 1000, now - 1000))
+    os.utime(p2, (now - 500, now - 500))
+    os.utime(p3, (now, now))
+
+    # Age eviction: max_age_seconds=750 should evict p1 (1000s old), keep p2 and p3
+    evicted_count = evict_checkpoints(cache_dir=evict_dir, max_age_seconds=750)
+    assert evicted_count == 1
+    assert not p1.exists()
+    assert p2.exists()
+    assert p3.exists()
+
+    # Byte eviction: set max_bytes such that only 1 file fits
+    file_size = p2.stat().st_size
+    evicted_count = evict_checkpoints(cache_dir=evict_dir, max_bytes=file_size)
+    assert evicted_count == 1
+    assert not p2.exists()
+    assert p3.exists()
+
+    # 4. monkeypatch.chdir(tmp_path) and run capability: no "Runtime/" created in CWD
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    monkeypatch.chdir(work_dir)
+
+    engine = MagicMock(spec=RapidOCREngine)
+    engine.asset_version = "1.0"
+    engine.ocr_page.return_value = (PageData(page_number=1, text="Text"), None, None, ())
+
+    img = Image.new("RGB", (50, 50), color="white")
+    img_file = work_dir / "sample.png"
+    img.save(img_file, format="PNG")
+    inp = InputRef(input_id="inp-cwd", source_path=img_file, display_name="sample.png", size_bytes=img_file.stat().st_size)
+    req = Request(request_id="req-cwd", requirement="ocr", inputs=(inp,))
+    ctx = ExecutionContext("run-cwd", "req-cwd", "t-cwd", "s-cwd")
+
+    # Configured runtime root
+    cfg_runtime = tmp_path / "ConfiguredRuntime"
+    cap = OCRCapability(engine=engine, runtime_root=cfg_runtime)
+    cap.execute(req, ctx)
+
+    assert not (work_dir / "Runtime").exists(), "Runtime/ folder must not be created in CWD!"
