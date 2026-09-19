@@ -546,3 +546,63 @@ class TestYantraExecution:
         notes = getattr(primary_err, "__notes__", [])
         assert any("OSError" in note for note in notes)
         assert not any("Device bus failure" in note for note in notes)
+
+
+def test_bug_Y1_device_permit_no_busy_polling() -> None:
+    """Y1: Verify device_permit does not busy-poll when timeout is None.
+
+    Subclass threading.Condition to count wait calls.
+    With a permit blocked for 300 ms and no timeout, at most 2 wait calls happen.
+    After release, waiter acquires within 50 ms.
+    """
+    import threading
+    import time
+
+    from sarathi.yantra.devices import DeviceInfo, DeviceInventory
+    from sarathi.yantra.resources import _ResourceAllocator
+
+    dev = DeviceInfo(device_id="cpu-test", device_type=DeviceType.CPU, capacity=1)
+    inv = DeviceInventory((dev,))
+    allocator = _ResourceAllocator(inv)
+
+    class CountingCondition(threading.Condition):
+        def __init__(self, lock: threading.Lock) -> None:
+            super().__init__(lock)
+            self.wait_count = 0
+
+        def wait(self, timeout: float | None = None) -> bool:
+            self.wait_count += 1
+            return super().wait(timeout=timeout)
+
+    counting_cv = CountingCondition(allocator._lock)
+    allocator._cv = counting_cv
+
+    acquire_latency: float = 0.0
+    waiter_started = threading.Event()
+    waiter_finished = threading.Event()
+
+    def waiter():
+        nonlocal acquire_latency
+        waiter_started.set()
+        t0 = time.monotonic()
+        with allocator.device_permit("cpu-test", timeout=None):
+            acquire_latency = time.monotonic() - t0
+        waiter_finished.set()
+
+    with allocator.device_permit("cpu-test"):
+        t = threading.Thread(target=waiter)
+        t.start()
+        waiter_started.wait()
+        # Hold permit blocked for 300 ms
+        time.sleep(0.3)
+
+    release_time = time.monotonic()
+    waiter_finished.wait(timeout=2.0)
+    t.join()
+
+    # After a release, the waiter acquires within 50 ms
+    latency_after_release = time.monotonic() - release_time
+    assert latency_after_release <= 0.05, f"Waiter took {latency_after_release:.4f}s to acquire after release"
+
+    # With a permit blocked for 300 ms and no timeout, at most 2 wait calls happen
+    assert counting_cv.wait_count <= 2, f"Expected at most 2 wait calls, got {counting_cv.wait_count}"

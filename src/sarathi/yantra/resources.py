@@ -119,9 +119,9 @@ class _ResourceAllocator:
                             code=FailureCode.RESOURCE_UNAVAILABLE,
                             message=f"Device '{device_id}' capacity saturated; timed out waiting for permit.",
                         )
-                    self._cv.wait(timeout=min(0.05, remaining))
+                    self._cv.wait(timeout=remaining)
                 else:
-                    self._cv.wait(timeout=0.05)
+                    self._cv.wait()
 
             if self._is_closed:
                 raise DoshError(
