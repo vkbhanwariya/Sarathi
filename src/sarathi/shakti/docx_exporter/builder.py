@@ -41,7 +41,7 @@ def _format_run_xml(
     eff_cs_font = cs_font or font
     eff_cs_size = size_cs_half_pt if size_cs_half_pt is not None else size_half_pt
     props: list[str] = [
-        f'<w:rFonts w:ascii={quoteattr(font)} w:hAnsi={quoteattr(font)} w:cs={quoteattr(eff_cs_font)}/>',
+        f"<w:rFonts w:ascii={quoteattr(font)} w:hAnsi={quoteattr(font)} w:cs={quoteattr(eff_cs_font)}/>",
         f'<w:sz w:val="{size_half_pt}"/>',
         f'<w:szCs w:val="{eff_cs_size}"/>',
     ]
@@ -65,7 +65,7 @@ def _format_run_xml(
     else:
         inner_xml = f'<w:t xml:space="preserve">{escape(sanitized)}</w:t>'
 
-    return f'<w:r><w:rPr>{"".join(props)}</w:rPr>{inner_xml}</w:r>'
+    return f"<w:r><w:rPr>{''.join(props)}</w:rPr>{inner_xml}</w:r>"
 
 
 def _format_paragraph_xml(
@@ -373,12 +373,13 @@ def build_docx_payload(
                         page_tables_by_name[tbl.name.strip().lower()] = tbl
                     page_tables_by_name[f"table_{t_idx}"] = tbl
                     page_tables_by_name[f"table {t_idx}"] = tbl
-                    if tbl.headers:
+                    if tbl.headers and len(tbl.headers) > 1:
                         table_row_signatures.add(" | ".join(cell_text(c) for c in tbl.headers))
                         table_row_signatures.add("\t".join(cell_text(c) for c in tbl.headers))
                     for row in tbl.rows:
-                        table_row_signatures.add(" | ".join(cell_text(c) for c in row))
-                        table_row_signatures.add("\t".join(cell_text(c) for c in row))
+                        if len(row) > 1:
+                            table_row_signatures.add(" | ".join(cell_text(c) for c in row))
+                            table_row_signatures.add("\t".join(cell_text(c) for c in row))
 
             if p.text:
                 for line in p.text.splitlines():
@@ -423,7 +424,7 @@ def build_docx_payload(
                             continue
 
                     # 2. Suppress duplicate plain-text table rows
-                    if trimmed in table_row_signatures:
+                    if trimmed in table_row_signatures and (" | " in trimmed or "\t" in trimmed):
                         continue
 
                     line_bold = False
@@ -494,6 +495,24 @@ def build_docx_payload(
                         )
                         body_parts.append("<w:p/>")
 
+        # If pages existed but had zero text, fall back to doc.text narrative
+        if not any(page.text and page.text.strip() for page in doc.pages) and doc.text and doc.text.strip():
+            for line in doc.text.splitlines():
+                trimmed = line.strip()
+                if not trimmed:
+                    body_parts.append("<w:p/>")
+                    continue
+                if trimmed in table_row_signatures and (" | " in trimmed or "\t" in trimmed):
+                    continue
+                body_parts.append(
+                    _format_paragraph_xml(
+                        trimmed,
+                        default_font=default_font,
+                        default_size_pt=default_size_pt,
+                        legacy_target_font=legacy_target_font,
+                    )
+                )
+
     elif doc.text:
         table_row_signatures = set()
         doc_tables_by_name = {}
@@ -503,12 +522,13 @@ def build_docx_payload(
                     doc_tables_by_name[tbl.name.strip().lower()] = tbl
                 doc_tables_by_name[f"table_{t_idx}"] = tbl
                 doc_tables_by_name[f"table {t_idx}"] = tbl
-                if tbl.headers:
+                if tbl.headers and len(tbl.headers) > 1:
                     table_row_signatures.add(" | ".join(cell_text(c) for c in tbl.headers))
                     table_row_signatures.add("\t".join(cell_text(c) for c in tbl.headers))
                 for row in tbl.rows:
-                    table_row_signatures.add(" | ".join(cell_text(c) for c in row))
-                    table_row_signatures.add("\t".join(cell_text(c) for c in row))
+                    if len(row) > 1:
+                        table_row_signatures.add(" | ".join(cell_text(c) for c in row))
+                        table_row_signatures.add("\t".join(cell_text(c) for c in row))
 
         for line in doc.text.splitlines():
             trimmed = line.strip()
@@ -547,7 +567,7 @@ def build_docx_payload(
                     continue
 
             # 2. Suppress duplicate plain-text table rows
-            if trimmed in table_row_signatures:
+            if trimmed in table_row_signatures and (" | " in trimmed or "\t" in trimmed):
                 continue
 
             line_bold = False

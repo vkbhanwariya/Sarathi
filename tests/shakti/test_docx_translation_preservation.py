@@ -412,3 +412,75 @@ def test_docx_translation_sanitizes_hallucinated_tags_and_repetition_loops() -> 
     assert "/ fmt" not in full_text
     assert "< br" not in full_text
     assert "गोपनीय" in full_text
+
+
+def test_docx_translation_preserves_hyperlinks_fields_tabs_and_attribs() -> None:
+    """Verify in-place translation preserves paragraph attributes (paraId), hyperlinks, fields, tabs, and bookmarks."""
+    doc_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml">\n'
+        "  <w:body>\n"
+        '    <w:p w14:paraId="34D8A2B1" w14:textId="77777777">\n'
+        '      <w:pPr><w:jc w:val="both"/></w:pPr>\n'
+        "      <w:r><w:tab/><w:t>Please visit </w:t></w:r>\n"
+        '      <w:hyperlink r:id="rId5" w:history="1">\n'
+        '        <w:r><w:rPr><w:rStyle w:val="Hyperlink"/><w:b/></w:rPr><w:t>our website</w:t></w:r>\n'
+        "      </w:hyperlink>\n"
+        "      <w:r><w:t> on page </w:t></w:r>\n"
+        '      <w:fldSimple w:instr="PAGE"><w:r><w:t>1</w:t></w:r></w:fldSimple>\n'
+        '      <w:bookmarkStart w:id="0" w:name="_GoBack"/><w:bookmarkEnd w:id="0"/>\n'
+        "    </w:p>\n"
+        "  </w:body>\n"
+        "</w:document>"
+    )
+    raw_bytes = _build_minimal_test_docx(doc_xml)
+
+    def _translate_fn(batch: list[str]) -> list[str]:
+        # Return translated text preserving formatting tags
+        results = []
+        for text in batch:
+            res = text.replace("Please visit", "कृपया देखें")
+            res = res.replace("our website", "हमारी वेबसाइट")
+            res = res.replace("on page", "पृष्ठ पर")
+            results.append(res)
+        return results
+
+    result = transform_docx_translation_artifact(
+        raw_bytes,
+        translate_fn=_translate_fn,
+        filename="preserved_elements.docx",
+    )
+
+    with zipfile.ZipFile(io.BytesIO(result.content), "r") as zf:
+        out_xml = zf.read("word/document.xml").decode("utf-8")
+
+    root = ET.fromstring(out_xml)
+    p = root.find(f".//{{{_W_NS}}}p")
+    assert p is not None
+
+    # 1. Paragraph attributes (w14:paraId, w14:textId) must be preserved
+    w14_ns = "http://schemas.microsoft.com/office/word/2010/wordml"
+    assert p.get(f"{{{w14_ns}}}paraId") == "34D8A2B1", "p.attrib (paraId) was lost!"
+    assert p.get(f"{{{w14_ns}}}textId") == "77777777", "p.attrib (textId) was lost!"
+
+    # 2. Hyperlink element must be preserved with its relationship ID and translated inner text
+    hlink = p.find(f"{{{_W_NS}}}hyperlink")
+    assert hlink is not None, "<w:hyperlink> was lost!"
+    r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    assert hlink.get(f"{{{r_ns}}}id") == "rId5", "Hyperlink r:id was lost!"
+    hlink_text = "".join(t.text or "" for t in hlink.findall(f".//{{{_W_NS}}}t"))
+    assert "हमारी वेबसाइट" in hlink_text, "Hyperlink text was not translated!"
+
+    # 3. Simple field code must be preserved
+    fld = p.find(f"{{{_W_NS}}}fldSimple")
+    assert fld is not None, "<w:fldSimple> was lost!"
+    assert fld.get(f"{{{_W_NS}}}instr") == "PAGE"
+
+    # 4. Tab must be preserved
+    assert p.find(f".//{{{_W_NS}}}tab") is not None, "<w:tab/> was lost!"
+
+    # 5. Bookmarks must be preserved
+    assert p.find(f"{{{_W_NS}}}bookmarkStart") is not None, "<w:bookmarkStart> was lost!"
+    assert p.find(f"{{{_W_NS}}}bookmarkEnd") is not None, "<w:bookmarkEnd> was lost!"

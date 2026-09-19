@@ -75,7 +75,9 @@ _CANONICAL_HI_VARIANTS: Sequence[tuple[re.Pattern[str], str]] = (
 # Canonical statutory synonyms for Hindi -> English translation
 _CANONICAL_EN_VARIANTS: Sequence[tuple[re.Pattern[str], str]] = (
     (
-        re.compile(r"\b(?:Crime\s+Income|Proceeds\s+of\s+(?:Offence|Crime\s+Money|illegal\s+activity))\b", re.IGNORECASE),
+        re.compile(
+            r"\b(?:Crime\s+Income|Proceeds\s+of\s+(?:Offence|Crime\s+Money|illegal\s+activity))\b", re.IGNORECASE
+        ),
         "Proceeds of Crime",
     ),
     (
@@ -110,8 +112,16 @@ class GlossaryHarmonizer:
                     is_devanagari = any("\u0900" <= c <= "\u097f" for c in stripped)
                     char_class = _DEV_WORD_CHARS if is_devanagari else r"\w"
                     flags = re.IGNORECASE if any(ord(c) < 128 and c.isalpha() for c in stripped) else 0
-                    prefix = f"(?<![{char_class}])" if (stripped[0].isalnum() or ("\u0900" <= stripped[0] <= "\u097f")) else ""
-                    suffix = f"(?![{char_class}])" if (stripped[-1].isalnum() or ("\u0900" <= stripped[-1] <= "\u097f")) else ""
+                    prefix = (
+                        f"(?<![{char_class}])"
+                        if (stripped[0].isalnum() or ("\u0900" <= stripped[0] <= "\u097f"))
+                        else ""
+                    )
+                    suffix = (
+                        f"(?![{char_class}])"
+                        if (stripped[-1].isalnum() or ("\u0900" <= stripped[-1] <= "\u097f"))
+                        else ""
+                    )
                     pat = re.compile(f"{prefix}{re.escape(stripped)}{suffix}", flags)
                     self._compiled_custom.append((pat, canonical.strip()))
 

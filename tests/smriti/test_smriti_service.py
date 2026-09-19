@@ -472,3 +472,37 @@ def test_sqlite_store_bounded_eviction_and_connection_reuse(tmp_path: Path) -> N
     assert refreshed is not None
     assert refreshed.data.text == "refreshed"
     store.close()
+
+
+def test_sqlite_store_evicts_entry_on_corrupt_artifact_blob(tmp_path: Path) -> None:
+    """Verify SQLiteCacheStore treats corrupt or missing artifact blobs as cache misses and evicts the entry."""
+    from sarathi.sankalpa import ArtifactIntent, ArtifactPayload
+    from sarathi.smriti.key import CacheKey
+    from sarathi.smriti.store import SQLiteCacheStore
+
+    store = SQLiteCacheStore(db_path=tmp_path / "cache.db")
+    doc = CanonicalDocument(document_id="doc_blob", text="Blob test")
+    large_bytes = b"sample_blob_content" * 2000
+    payload = ArtifactPayload(
+        intent=ArtifactIntent(name="data.bin", role="raw_data", media_type="application/octet-stream"),
+        content=large_bytes,
+    )
+    result = Result(data=doc, artifact_payloads=(payload,))
+    key = CacheKey(capability_id="test", fingerprint="fp_blob", profile="instant", key_hash="blob_hash_001")
+    store.put(key, result)
+
+    # Corrupt the artifact .bin file on disk
+    artifacts_dir = tmp_path / "artifacts"
+    bin_files = list(artifacts_dir.glob("*.bin"))
+    assert len(bin_files) == 1
+    bin_files[0].write_bytes(b"corrupted")
+
+    # Store get should catch the corruption, delete the invalid entry, and return None (cache miss)
+    miss_result = store.get(key)
+    assert miss_result is None
+
+    # Entry is deleted from SQLite
+    with store._lock, store._get_connection() as conn:
+        row = conn.execute("SELECT 1 FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)).fetchone()
+        assert row is None
+    store.close()

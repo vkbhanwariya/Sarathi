@@ -243,10 +243,22 @@ def test_bug_O1_checkpoint_robustness(tmp_path: Path, monkeypatch: Any) -> None:
 
     # 1. compute_params_hash must differ when remove_stamps, inpaint_stamps, lightweight, preprocess, or asset_version differ
     base_hash = compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi")
-    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"remove_stamps": True}) != base_hash
-    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"inpaint_stamps": True}) != base_hash
-    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"lightweight": True}) != base_hash
-    assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"preprocess": False}) != base_hash
+    assert (
+        compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"remove_stamps": True})
+        != base_hash
+    )
+    assert (
+        compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"inpaint_stamps": True})
+        != base_hash
+    )
+    assert (
+        compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"lightweight": True})
+        != base_hash
+    )
+    assert (
+        compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", custom_options={"preprocess": False})
+        != base_hash
+    )
     assert compute_params_hash(1, ExecutionProfile.ACCURATE, dpi=200, lang="hi", asset_version="2.0") != base_hash
 
     # 2. Corrupt checkpoint file must NOT be deleted when error is a transient OSError
@@ -308,7 +320,9 @@ def test_bug_O1_checkpoint_robustness(tmp_path: Path, monkeypatch: Any) -> None:
     img = Image.new("RGB", (50, 50), color="white")
     img_file = work_dir / "sample.png"
     img.save(img_file, format="PNG")
-    inp = InputRef(input_id="inp-cwd", source_path=img_file, display_name="sample.png", size_bytes=img_file.stat().st_size)
+    inp = InputRef(
+        input_id="inp-cwd", source_path=img_file, display_name="sample.png", size_bytes=img_file.stat().st_size
+    )
     req = Request(request_id="req-cwd", requirement="ocr", inputs=(inp,))
     ctx = ExecutionContext("run-cwd", "req-cwd", "t-cwd", "s-cwd")
 

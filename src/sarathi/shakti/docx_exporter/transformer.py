@@ -196,23 +196,35 @@ def transform_docx_artifact(
 
 def _extract_paragraph_translation_unit(
     p: ET.Element,
-) -> tuple[str, dict[str, ET.Element]]:
-    """Extract translatable text from a paragraph.
+) -> tuple[str, dict[str, Any]]:
+    """Extract translatable text from a paragraph, preserving hyperlinks and tabs.
 
-    If all text runs share uniform visual formatting (or there is only one text run),
-    clean text is returned without intrusive <fmt> tags, and the formatting is stored
-    under '__uniform__'.
-    If mixed formatting is present across runs, runs with visual formatting are wrapped in <fmt id="N">.
+    If all text runs share uniform visual formatting (or there is only one text run) and
+    no hyperlinks are present, clean text is returned without intrusive <fmt> tags.
+    If mixed formatting or hyperlinks are present, runs are wrapped in <fmt id="N">.
     """
     r_tag = f"{{{_W_NS}}}r"
     t_tag = f"{{{_W_NS}}}t"
     rpr_tag = f"{{{_W_NS}}}rPr"
+    tab_tag = f"{{{_W_NS}}}tab"
+    hyperlink_tag = f"{{{_W_NS}}}hyperlink"
 
-    runs_info: list[tuple[str, ET.Element | None, bool, str]] = []
+    runs_info: list[tuple[str, ET.Element | None, bool, str, ET.Element | None]] = []
+
     for child in p:
         if child.tag == r_tag:
+            has_non_story = any(
+                c.tag.split("}")[-1]
+                in ("drawing", "pict", "footnoteReference", "endnoteReference", "fldChar", "instrText")
+                for c in child
+            )
+            if has_non_story:
+                continue
+
             t_elem = child.find(t_tag)
             text = t_elem.text if t_elem is not None and t_elem.text else ""
+            if child.find(tab_tag) is not None:
+                text = "\t" + text
             if not text:
                 continue
 
@@ -228,29 +240,41 @@ def _extract_paragraph_translation_unit(
                 if has_formatting:
                     rpr_sig = ET.tostring(rpr).decode("utf-8")
 
-            runs_info.append((text, rpr, has_formatting, rpr_sig))
+            runs_info.append((text, rpr, has_formatting, rpr_sig, None))
+
+        elif child.tag == hyperlink_tag:
+            for r_elem in child.findall(r_tag):
+                t_elem = r_elem.find(t_tag)
+                text = t_elem.text if t_elem is not None and t_elem.text else ""
+                if r_elem.find(tab_tag) is not None:
+                    text = "\t" + text
+                if not text:
+                    continue
+                rpr = r_elem.find(rpr_tag)
+                runs_info.append((text, rpr, True, "hyperlink", child))
 
     if not runs_info:
         return "", {}
 
-    # Check if all runs share uniform formatting
+    has_any_link = any(link is not None for _, _, _, _, link in runs_info)
     first_has_fmt = runs_info[0][2]
     first_sig = runs_info[0][3]
-    is_uniform = all(has_fmt == first_has_fmt and sig == first_sig for _, _, has_fmt, sig in runs_info)
+    is_uniform = (not has_any_link) and all(
+        has_fmt == first_has_fmt and sig == first_sig for _, _, has_fmt, sig, _ in runs_info
+    )
 
-    fmt_map: dict[str, ET.Element] = {}
+    fmt_map: dict[str, Any] = {}
     if is_uniform:
-        plain_text = "".join(text for text, _, _, _ in runs_info)
+        plain_text = "".join(text for text, _, _, _, _ in runs_info)
         if first_has_fmt and runs_info[0][1] is not None:
-            fmt_map["__uniform__"] = runs_info[0][1]
+            fmt_map["__uniform__"] = {"rpr": runs_info[0][1], "hyperlink": None}
         return plain_text, fmt_map
 
-    # Mixed formatting across runs: wrap formatted runs with <fmt id="N">
     parts: list[str] = []
-    for text, rpr, has_fmt, _ in runs_info:
-        if has_fmt and rpr is not None:
+    for text, rpr, has_fmt, _, link in runs_info:
+        if (has_fmt and rpr is not None) or link is not None:
             fmt_id = str(len(fmt_map))
-            fmt_map[fmt_id] = rpr
+            fmt_map[fmt_id] = {"rpr": rpr, "hyperlink": link}
             parts.append(f'<fmt id="{fmt_id}">{text}</fmt>')
         else:
             parts.append(text)
@@ -261,33 +285,32 @@ def _extract_paragraph_translation_unit(
 def _reconstruct_translated_paragraph(
     p: ET.Element,
     translated_text: str,
-    fmt_map: dict[str, ET.Element],
+    fmt_map: dict[str, Any],
 ) -> None:
-    """Reconstruct runs in a paragraph using translated text and restored formatting markers."""
+    """Reconstruct runs in a paragraph using translated text, preserving paragraph attributes, hyperlinks, and fields."""
     r_tag = f"{{{_W_NS}}}r"
     t_tag = f"{{{_W_NS}}}t"
-    p_pr_tag = f"{{{_W_NS}}}pPr"
-    drawing_tag = f"{{{_W_NS}}}drawing"
-    pict_tag = f"{{{_W_NS}}}pict"
+    hyperlink_tag = f"{{{_W_NS}}}hyperlink"
 
-    # 1. Identify which children to keep (e.g. pPr, runs containing drawings/images, bookmarks)
-    children_to_keep: list[ET.Element] = []
+    # 1. Remove only story text runs and hyperlinks that are being replaced; NEVER call p.clear()!
+    # Preserves p.attrib (w14:paraId, w14:textId), pPr, fields, bookmarks, comments, math, drawings.
     for child in list(p):
-        if child.tag == p_pr_tag:
-            children_to_keep.append(child)
-        elif child.tag == r_tag and (child.find(drawing_tag) is not None or child.find(pict_tag) is not None):
-            children_to_keep.append(child)
-        elif child.tag.endswith("bookmarkStart") or child.tag.endswith("bookmarkEnd"):
-            children_to_keep.append(child)
-
-    p.clear()
-    for child in children_to_keep:
-        p.append(child)
+        if child.tag == r_tag:
+            has_non_story = any(
+                c.tag.split("}")[-1]
+                in ("drawing", "pict", "footnoteReference", "endnoteReference", "fldChar", "instrText")
+                for c in child
+            )
+            if not has_non_story:
+                p.remove(child)
+        elif child.tag == hyperlink_tag:
+            p.remove(child)
 
     if not translated_text:
         return
 
-    default_rpr = fmt_map.get("__uniform__")
+    uniform_entry = fmt_map.get("__uniform__")
+    default_rpr = uniform_entry.get("rpr") if isinstance(uniform_entry, dict) else uniform_entry
 
     # 2. Parse <fmt id="..."> tags with resilient support for spacing, primes, and NMT distortions
     tag_pattern = re.compile(
@@ -300,7 +323,7 @@ def _reconstruct_translated_paragraph(
     )
 
     pos = 0
-    run_specs: list[tuple[str, ET.Element | None]] = []
+    run_specs: list[tuple[str, Any]] = []
     matched_any = False
     for m in tag_pattern.finditer(translated_text):
         matched_any = True
@@ -309,8 +332,8 @@ def _reconstruct_translated_paragraph(
             run_specs.append((prefix, default_rpr))
         fmt_id = m.group(1)
         inner = m.group(2)
-        target_rpr = fmt_map.get(fmt_id) or default_rpr
-        run_specs.append((inner, target_rpr))
+        target_entry = fmt_map.get(fmt_id) or default_rpr
+        run_specs.append((inner, target_entry))
         pos = m.end()
     suffix = translated_text[pos:]
     if suffix:
@@ -319,15 +342,23 @@ def _reconstruct_translated_paragraph(
     if not matched_any:
         run_specs = [(translated_text, default_rpr)]
 
-    # 3. Create new runs
-    for text_chunk, rpr_template in run_specs:
+    # 3. Create new runs and reconstruct hyperlinks
+    for text_chunk, target_spec in run_specs:
         clean_chunk = clean_tag_re.sub("", text_chunk)
-        # Collapse degenerate repeated line-break loops from NMT hallucinations
         clean_chunk = re.sub(r"(?:<\s*br\s*/?\s*>\s*)+", " ", clean_chunk, flags=re.IGNORECASE)
-        # Normalize stray spacing artifacts
-        clean_chunk = re.sub(r"[ \t]+", " ", clean_chunk)
-        if not clean_chunk.strip():
+        clean_chunk = re.sub(r" {2,}", " ", clean_chunk)
+        if not clean_chunk.strip() and "\t" not in clean_chunk:
             continue
+
+        if isinstance(target_spec, dict):
+            rpr_template = target_spec.get("rpr")
+            hyperlink_node = target_spec.get("hyperlink")
+        elif isinstance(target_spec, ET.Element):
+            rpr_template = target_spec
+            hyperlink_node = None
+        else:
+            rpr_template = default_rpr
+            hyperlink_node = None
 
         new_r = ET.Element(r_tag)
         target_template = rpr_template or default_rpr
@@ -350,22 +381,41 @@ def _reconstruct_translated_paragraph(
             new_r.append(new_rpr)
 
         sanitized_chunk = sanitize_xml_text(clean_chunk, preserve_form_feed=True)
+
+        def _append_run_content(container_r: ET.Element, text_val: str) -> None:
+            if "\t" in text_val:
+                t_parts = text_val.split("\t")
+                for t_idx, part in enumerate(t_parts):
+                    if t_idx > 0:
+                        ET.SubElement(container_r, f"{{{_W_NS}}}tab")
+                    clean_p = sanitize_xml_text(part)
+                    if clean_p:
+                        nt = ET.SubElement(container_r, t_tag)
+                        nt.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+                        nt.text = clean_p
+            else:
+                clean_p = sanitize_xml_text(text_val)
+                if clean_p:
+                    nt = ET.SubElement(container_r, t_tag)
+                    nt.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+                    nt.text = clean_p
+
         if "\x0c" in sanitized_chunk:
             ff_parts = sanitized_chunk.split("\x0c")
             for ff_idx, ff_part in enumerate(ff_parts):
                 if ff_idx > 0:
                     br_elem = ET.SubElement(new_r, f"{{{_W_NS}}}br")
                     br_elem.attrib[f"{{{_W_NS}}}type"] = "page"
-                clean_part = sanitize_xml_text(ff_part)
-                if clean_part:
-                    new_t = ET.SubElement(new_r, t_tag)
-                    new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
-                    new_t.text = clean_part
+                _append_run_content(new_r, ff_part)
         else:
-            new_t = ET.SubElement(new_r, t_tag)
-            new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
-            new_t.text = sanitized_chunk
-        p.append(new_r)
+            _append_run_content(new_r, sanitized_chunk)
+
+        if hyperlink_node is not None:
+            new_hlink = ET.Element(hyperlink_node.tag, attrib=dict(hyperlink_node.attrib))
+            new_hlink.append(new_r)
+            p.append(new_hlink)
+        else:
+            p.append(new_r)
 
     _merge_adjacent_compatible_runs(p)
 

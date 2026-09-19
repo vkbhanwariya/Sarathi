@@ -174,3 +174,44 @@ def test_provider_readiness_indictrans2_subfolder_with_dual_spm(tmp_path: Path) 
         assert res.ready
         assert res.status == ReadinessStatus.READY
         assert "IndicTrans2 CTranslate2" in res.reason
+
+
+def test_native_backend_exports_and_translate_delegation() -> None:
+    """Verify CTranslate2NativeBackend, BackendTranslationResult, and engine.translate delegation."""
+    from unittest.mock import MagicMock
+
+    from sarathi.shakti.translation.engine import (
+        BackendTranslationResult,
+        CTranslate2NativeBackend,
+        CTranslate2TranslationEngine,
+    )
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    # Verify typed dataclass
+    result = BackendTranslationResult(
+        sentences=["Hello world"],
+        device="cpu",
+        truncation_flags=(False,),
+    )
+    assert result.sentences == ["Hello world"]
+    assert result.device == "cpu"
+    assert result.truncation_flags == (False,)
+
+    # Verify CTranslate2NativeBackend class is available at module scope
+    assert CTranslate2NativeBackend is not None
+
+    # Verify translate() delegates directly to translate_batch()
+    engine = CTranslate2TranslationEngine()
+    mock_batch = MagicMock(return_value=[MagicMock(translated_text="Delegated")])
+    engine.translate_batch = mock_batch  # type: ignore[method-assign]
+
+    res = engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN)
+    assert res.translated_text == "Delegated"
+    mock_batch.assert_called_once_with(
+        texts=["परीक्षण"],
+        direction=TranslationDirection.HI_TO_EN,
+        execution_binding=None,
+        engine="indictrans2",
+        glossary_terms=None,
+        custom_terms=(),
+    )

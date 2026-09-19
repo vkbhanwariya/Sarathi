@@ -166,11 +166,7 @@ def detect_stamps(
         import numpy as np
 
         if not isinstance(image_rgb, np.ndarray) or len(image_rgb.shape) != 3 or image_rgb.size == 0:
-            h, w = (
-                image_rgb.shape[:2]
-                if isinstance(image_rgb, np.ndarray) and len(image_rgb.shape) >= 2
-                else (0, 0)
-            )
+            h, w = image_rgb.shape[:2] if isinstance(image_rgb, np.ndarray) and len(image_rgb.shape) >= 2 else (0, 0)
             return StampDetection(mask=np.zeros((h, w), dtype=np.uint8), regions=(), removed_ratio=0.0)
 
         h, w = image_rgb.shape[:2]
@@ -270,11 +266,7 @@ def detect_stamps(
 
         return StampDetection(mask=final_mask, regions=tuple(kept_regions), removed_ratio=removed_ratio)
     except Exception:
-        h, w = (
-            image_rgb.shape[:2]
-            if isinstance(image_rgb, np.ndarray) and len(image_rgb.shape) >= 2
-            else (0, 0)
-        )
+        h, w = image_rgb.shape[:2] if isinstance(image_rgb, np.ndarray) and len(image_rgb.shape) >= 2 else (0, 0)
         return StampDetection(mask=np.zeros((h, w), dtype=np.uint8), regions=(), removed_ratio=0.0)
 
 
@@ -305,7 +297,6 @@ def remove_stamp_artifacts(image_arr: Any) -> Any:
         return out
     except Exception:
         return image_arr
-
 
 
 def preprocess_ocr_image(

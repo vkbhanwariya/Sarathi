@@ -6,6 +6,8 @@ import base64
 import datetime
 import hashlib
 import json
+import os
+import time
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -278,7 +280,9 @@ def serialize_result(result: Result, artifacts_dir: Path | None = None) -> str:
             content_hash = hashlib.sha256(p.content).hexdigest()
             target_path = artifacts_dir / f"{content_hash}.bin"
             if not target_path.exists():
-                target_path.write_bytes(p.content)
+                tmp_path = artifacts_dir / f"{content_hash}.tmp.{os.getpid()}_{time.time_ns()}.bin"
+                tmp_path.write_bytes(p.content)
+                os.replace(tmp_path, target_path)
             payload_entry["content_hash"] = content_hash
             payload_entry["content_size"] = len(p.content)
         else:
@@ -350,7 +354,17 @@ def deserialize_result(json_str: str, artifacts_dir: Path | None = None) -> Resu
         rel_path = intent_dict.get("relative_path")
         if "content_hash" in p and artifacts_dir is not None:
             content_path = artifacts_dir / f"{p['content_hash']}.bin"
-            content = content_path.read_bytes() if content_path.exists() else b""
+            if not content_path.exists() or not content_path.is_file():
+                raise ValueError(f"Cached artifact blob missing: {content_path.name}")
+            content = content_path.read_bytes()
+            expected_size = p.get("content_size")
+            if expected_size is not None and len(content) != expected_size:
+                raise ValueError(f"Cached artifact blob size mismatch: expected {expected_size}, got {len(content)}")
+            actual_hash = hashlib.sha256(content).hexdigest()
+            if actual_hash != p["content_hash"]:
+                raise ValueError(
+                    f"Cached artifact blob hash corruption: expected {p['content_hash']}, got {actual_hash}"
+                )
         elif "content_b64" in p:
             content = base64.b64decode(p["content_b64"].encode("ascii"))
         else:

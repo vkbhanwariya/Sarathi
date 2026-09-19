@@ -25,6 +25,7 @@ from sarathi.shakti.text.typography import (
     detect_running_headers_footers,
     normalize_text_spacing,
 )
+from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK
 
 _PDF_TEXT_FLAGS = pymupdf.TEXT_DEHYPHENATE | pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_PRESERVE_LIGATURES
 
@@ -372,7 +373,6 @@ def read_pdf(
                 stage=CAPABILITY_ID,
             )
 
-    doc = pymupdf.open(stream=data, filetype="pdf")
     pages: list[PageData] = []
     provenances: list[ProvenanceRecord] = []
     warnings: list[WarningRecord] = [fallback_warning] if fallback_warning else []
@@ -387,13 +387,17 @@ def read_pdf(
         except Exception:
             fc_tools = None
 
+    GLOBAL_PYMUPDF_LOCK.acquire()
     try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
         total_pages = len(doc)
         page_heights: list[float] = []
         doc_font_map = _resolve_pdf_font_names(doc)
 
         # Pre-extract stream-order page data to avoid spatial jumbling
-        cached_pages: list[tuple[pymupdf.TextPage, list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str]]] = []
+        cached_pages: list[
+            tuple[pymupdf.TextPage, list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str]]
+        ] = []
         all_page_blocks: list[list[tuple[str, tuple[float, float, float, float]]]] = []
 
         for page_idx in range(total_pages):
@@ -518,7 +522,9 @@ def read_pdf(
                         if extracted_rows and len(extracted_rows) > 0:
                             header_obj = getattr(tab, "header", None)
                             header_names = getattr(header_obj, "names", None) if header_obj is not None else None
-                            is_external = bool(getattr(header_obj, "external", False)) if header_obj is not None else False
+                            is_external = (
+                                bool(getattr(header_obj, "external", False)) if header_obj is not None else False
+                            )
 
                             if is_external and header_names:
                                 headers = tuple(cell_text(h) for h in header_names)
@@ -564,7 +570,6 @@ def read_pdf(
                         page_tables.append(v_tab)
                         all_doc_tables.append(v_tab)
 
-
             pages.append(
                 PageData(
                     page_number=page_num,
@@ -601,7 +606,11 @@ def read_pdf(
                 )
             )
     finally:
-        doc.close()
+        try:
+            doc.close()
+        except Exception:
+            pass
+        GLOBAL_PYMUPDF_LOCK.release()
 
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",

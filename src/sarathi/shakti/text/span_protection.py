@@ -17,7 +17,9 @@ _URL_RE: re.Pattern[str] = re.compile(r"https?://\S+|www\.\S+")
 _EMAIL_RE: re.Pattern[str] = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}")
 _UNICODE_DEVANAGARI_RE: re.Pattern[str] = re.compile(r"[\u0900-\u097F]+(?:[\s\u0900-\u097F]*[\u0900-\u097F])?")
 _DATE_RE: re.Pattern[str] = re.compile(r"\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b")
-_NUM_RE: re.Pattern[str] = re.compile(r"(?:(?:Rs\.?|[₹$€£])\s?)?\b\d{1,3}(?:,\d{2,3})*(?:\.\d+)?(?:\b|%)")
+_NUM_RE: re.Pattern[str] = re.compile(
+    r"(?:(?:Rs\.?|[₹$€£])\s*)?(?<![A-Za-z]-)\b(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?(?:%|\b)"
+)
 _PERCENT_RE: re.Pattern[str] = re.compile(r"\b\d+%\b|\(\d+%\)")
 _ID_RE: re.Pattern[str] = re.compile(r"\b[A-Z0-9_-]{4,}\b")
 

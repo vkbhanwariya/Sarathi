@@ -202,9 +202,7 @@ def test_bug_T1_number_regex_whitespace() -> None:
 
     # 2. Assert no span text starts or ends with whitespace
     for s in spans:
-        assert s.original_text == s.original_text.strip(), (
-            f"Span '{s.original_text}' has leading/trailing whitespace"
-        )
+        assert s.original_text == s.original_text.strip(), f"Span '{s.original_text}' has leading/trailing whitespace"
 
     # 3. Assert the protected text still has a space before and after each placeholder
     for s in spans:
@@ -212,9 +210,7 @@ def test_bug_T1_number_regex_whitespace() -> None:
         idx = protected_text.find(p)
         assert idx != -1
         if idx > 0 and text[0:1] != p:
-            assert protected_text[idx - 1] == " ", (
-                f"Expected space before {p} in '{protected_text}'"
-            )
+            assert protected_text[idx - 1] == " ", f"Expected space before {p} in '{protected_text}'"
         after_char = protected_text[idx + len(p)] if idx + len(p) < len(protected_text) else ""
         assert after_char in (" ", ",", "."), (
             f"Expected space or punctuation after {p}, got '{after_char}' in '{protected_text}'"
@@ -450,7 +446,9 @@ def test_bug_T5_redundant_translation() -> None:
     assert isinstance(out_doc, CanonicalDocument)
 
     # 1. Assert every unique sentence reaches the backend exactly once
-    assert len(received_sentences) == 2, f"Expected 2 sentence translations, got {len(received_sentences)}: {received_sentences}"
+    assert len(received_sentences) == 2, (
+        f"Expected 2 sentence translations, got {len(received_sentences)}: {received_sentences}"
+    )
     assert received_sentences == ["पहला वाक्य।", "दूसरा वाक्य।"]
 
     # 2. Assert translated doc.text, page.text and spans are consistent with each other
@@ -502,7 +500,9 @@ def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
 
     # 1. Assert kwargs include explicit beam_size and max_decoding_length
     assert "beam_size" in captured_kwargs, f"Expected explicit 'beam_size' in kwargs, got {captured_kwargs}"
-    assert "max_decoding_length" in captured_kwargs, f"Expected explicit 'max_decoding_length' in kwargs, got {captured_kwargs}"
+    assert "max_decoding_length" in captured_kwargs, (
+        f"Expected explicit 'max_decoding_length' in kwargs, got {captured_kwargs}"
+    )
 
     # 2. Assert TRANSLATION_TRUNCATION_SUSPECTED is emitted in span_protection_issues or metadata
     span_issues = result.metadata.get("span_protection_issues", ())
@@ -597,3 +597,16 @@ def test_bug_T8_model_cache_deduplication(monkeypatch: Any) -> None:
         f"Expected exactly 1 Translator construction, got {translator_construct_count}"
     )
 
+
+def test_number_protection_unformatted_and_decimal() -> None:
+    """Verify unformatted 4+ digit numbers, decimal currency amounts, and percentages are protected."""
+    protector = TranslationProtector()
+    text = "Invoice 1234 amount Rs. 1250.00 rate 12345678 and ₹ 1,50,000.50 discount 25%."
+    _, spans = protector.protect(text)
+
+    protected_vals = [s.original_text for s in spans]
+    assert "1234" in protected_vals
+    assert "Rs. 1250.00" in protected_vals
+    assert "12345678" in protected_vals
+    assert "₹ 1,50,000.50" in protected_vals
+    assert "25%" in protected_vals

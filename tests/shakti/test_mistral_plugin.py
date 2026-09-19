@@ -518,7 +518,9 @@ class TestMistralBatchAndRateLimiting:
         monkeypatch.setenv("MISTRAL_API_KEY", "dummy_key")
         client = MistralClient(rate_limit_delay_seconds=0.0)
 
-        mock_resp_429 = MagicMock(status_code=429, text='{"message": "Rate limit reached"}', headers={"retry-after": "7"})
+        mock_resp_429 = MagicMock(
+            status_code=429, text='{"message": "Rate limit reached"}', headers={"retry-after": "7"}
+        )
         mock_resp_200 = MagicMock(
             status_code=200,
             text='{"choices": [{"message": {"content": "Translated OK"}}]}',

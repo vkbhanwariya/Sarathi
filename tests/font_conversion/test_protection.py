@@ -174,7 +174,9 @@ def test_statutory_and_legal_acronyms_protection() -> None:
     converter = FontConverter()
     validator = FontConversionValidator()
 
-    sample = "FIR No. 123/2026 u/s 302 IPC, BNS Sec 103, BNSS, BSA, PMLA Case by CBI & ED GSTIN: 07AAAAA0000A1Z5 Hkkjr ljdkj"
+    sample = (
+        "FIR No. 123/2026 u/s 302 IPC, BNS Sec 103, BNSS, BSA, PMLA Case by CBI & ED GSTIN: 07AAAAA0000A1Z5 Hkkjr ljdkj"
+    )
     protected, spans = protector.protect(sample)
     converted = converter.convert(protected, "krutidev010")
     final_text = protector.restore(converted, spans)

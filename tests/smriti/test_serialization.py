@@ -335,3 +335,29 @@ def test_large_binary_artifact_content_addressed_storage(tmp_path: Path) -> None
     restored = deserialize_result(serialized_json, artifacts_dir=artifacts_dir)
     assert len(restored.artifact_payloads) == 1
     assert restored.artifact_payloads[0].content == large_bytes
+
+
+def test_missing_or_corrupted_cached_artifact_raises_value_error(tmp_path: Path) -> None:
+    """Verify that missing or corrupted .bin artifact files fail deserialization with ValueError."""
+    doc = CanonicalDocument(document_id="doc-corrupt", text="Corrupt test")
+    large_bytes = b"sample_artifact_data" * 2000
+    intent = ArtifactIntent(name="report.pdf", role="export", media_type="application/pdf")
+    res = Result(data=doc, artifact_payloads=(ArtifactPayload(intent=intent, content=large_bytes),))
+
+    artifacts_dir = tmp_path / "artifacts"
+    serialized_json = serialize_result(res, artifacts_dir=artifacts_dir)
+    import json
+
+    data = json.loads(serialized_json)
+    bin_path = artifacts_dir / f"{data['artifact_payloads'][0]['content_hash']}.bin"
+    assert bin_path.exists()
+
+    # Case 1: File is missing
+    bin_path.unlink()
+    with pytest.raises(ValueError, match="Cached artifact blob missing"):
+        deserialize_result(serialized_json, artifacts_dir=artifacts_dir)
+
+    # Case 2: File is corrupted (size or hash mismatch)
+    bin_path.write_bytes(b"tampered content")
+    with pytest.raises(ValueError, match="Cached artifact blob"):
+        deserialize_result(serialized_json, artifacts_dir=artifacts_dir)

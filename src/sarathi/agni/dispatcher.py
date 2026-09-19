@@ -150,9 +150,7 @@ def _commit_and_finalize_workspace(
     try:
         resolved_out = workspace.output_dir.resolve()
         resolved_root = effective_output_root.resolve()
-        out_dir_ref = (
-            str(resolved_out.relative_to(resolved_root)).replace("\\", "/") if workspace.output_dir else None
-        )
+        out_dir_ref = str(resolved_out.relative_to(resolved_root)).replace("\\", "/") if workspace.output_dir else None
     except (ValueError, OSError):
         out_dir_ref = str(workspace.output_dir).replace("\\", "/") if workspace.output_dir else None
 

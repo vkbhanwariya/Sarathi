@@ -83,7 +83,12 @@ class TestTranslationDeviceBinding:
             assert res.metadata["device"] == "cuda"
             assert res.metadata["backend"] == "ctranslate2"
             mock_trans_cls.assert_called_once_with(
-                str(models_dir), device="cuda", device_index=0, inter_threads=1, intra_threads=0
+                str(models_dir),
+                device="cuda",
+                device_index=0,
+                compute_type="float16",
+                inter_threads=1,
+                intra_threads=0,
             )
 
     def test_translation_engine_falls_back_to_cpu_when_cuda_unavailable(self, tmp_path) -> None:
@@ -121,7 +126,12 @@ class TestTranslationDeviceBinding:
             cpu_total = os.cpu_count() or 4
             expected_intra = max(2, min(6, (cpu_total + 1) // 1))
             mock_trans_cls.assert_called_once_with(
-                str(models_dir), device="cpu", device_index=0, inter_threads=1, intra_threads=expected_intra
+                str(models_dir),
+                device="cpu",
+                device_index=0,
+                compute_type="int8_float32",
+                inter_threads=1,
+                intra_threads=expected_intra,
             )
 
     def test_translation_engine_raises_on_gpu_init_failure_without_cpu_fallback(self, tmp_path) -> None:

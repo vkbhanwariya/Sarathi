@@ -21,6 +21,9 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceRequirement, DeviceType, ExecutionContext
 from sarathi.yantra.devices import DeviceInfo, DeviceInventory
 
+# Global re-entrant lock guarding PyMuPDF (MuPDF) C-level calls across concurrent worker threads.
+GLOBAL_PYMUPDF_LOCK: threading.RLock = threading.RLock()
+
 
 @dataclass(frozen=True, slots=True)
 class Allocation:

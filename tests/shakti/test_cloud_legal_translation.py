@@ -240,7 +240,9 @@ class TestCloudLegalTranslationCapabilities:
 
         recorded_prompts: list[str | None] = []
 
-        def mock_translate(text: str, source_lang: str, target_lang: str, model: str, system_prompt: str | None = None) -> str:
+        def mock_translate(
+            text: str, source_lang: str, target_lang: str, model: str, system_prompt: str | None = None
+        ) -> str:
             recorded_prompts.append(system_prompt)
             return f"[TR: {text}]"
 
@@ -344,7 +346,7 @@ class TestBugO9CloudTransportAndOrchestration:
         assert len(sorted_ts) == 8
         for i in range(1, len(sorted_ts)):
             diff = sorted_ts[i] - sorted_ts[i - 1]
-            assert diff >= 0.18, f"Requests {i-1} and {i} were spaced by only {diff:.3f}s, expected >= 0.2s"
+            assert diff >= 0.18, f"Requests {i - 1} and {i} were spaced by only {diff:.3f}s, expected >= 0.2s"
 
         # 2. Cancellation during 429 backoff must raise OPERATION_CANCELLED within 0.5s
         token = CancellationToken()
@@ -405,9 +407,7 @@ class TestBugO9CloudTransportAndOrchestration:
             document_id="doc-fallback",
             source_input_id="inp-1",
             text="पहला वाक्य।\n\nदूसरा वाक्य।",
-            pages=(
-                PageData(page_number=1, text="पहला वाक्य।\n\nदूसरा वाक्य।"),
-            ),
+            pages=(PageData(page_number=1, text="पहला वाक्य।\n\nदूसरा वाक्य।"),),
         )
 
         def mock_translate_fn(text: str, **kwargs: Any) -> str:
@@ -460,11 +460,11 @@ class TestBugO9CloudTransportAndOrchestration:
                 in_flight -= 1
             return [f"Tr: {t}" for t in texts]
 
-        pages = tuple(PageData(page_number=i + 1, text=f"वाक्य {i+1}।") for i in range(8))
+        pages = tuple(PageData(page_number=i + 1, text=f"वाक्य {i + 1}।") for i in range(8))
         doc = CanonicalDocument(
             document_id="doc-concurrent",
             source_input_id="inp-1",
-            text="\n\n".join(f"वाक्य {i+1}।" for i in range(8)),
+            text="\n\n".join(f"वाक्य {i + 1}।" for i in range(8)),
             pages=pages,
         )
 
@@ -517,5 +517,5 @@ class TestBugO9CloudTransportAndOrchestration:
             declaration=GEMINI_TRANSLATION_DECLARATION,
             batch_translate_fn=ordered_batch,
         )
-        expected_order = [f"वाक्य {i+1}।" for i in range(8)]
+        expected_order = [f"वाक्य {i + 1}।" for i in range(8)]
         assert order_called == expected_order, f"Expected sequential order {expected_order}, got {order_called}"

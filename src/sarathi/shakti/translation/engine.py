@@ -7,6 +7,7 @@ import os
 import re
 import threading
 import tomllib
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
@@ -28,14 +29,63 @@ DEFAULT_BEAM_SIZE: int = 4
 DEFAULT_MAX_DECODING_LENGTH: int = 512
 MAX_SENTENCE_TOKENS: int = 256
 
-_ABBREVIATIONS: frozenset[str] = frozenset({
-    "mr", "mrs", "ms", "dr", "prof", "sec", "no", "nos", "hon",
-    "rs", "vs", "etc", "ltd", "pvt", "smt", "shri", "adv", "art",
-    "cl", "ch", "vol", "ors", "anr", "i.e", "e.g", "approx", "al",
-    "para", "viz", "ex", "dept", "govt", "dist", "st", "sq", "ft",
-    "in", "yd", "corp", "inc", "co", "repr", "gen", "col", "maj",
-    "capt", "lt", "mla", "mp", "cj", "acj", "j", "jj",
-})
+_ABBREVIATIONS: frozenset[str] = frozenset(
+    {
+        "mr",
+        "mrs",
+        "ms",
+        "dr",
+        "prof",
+        "sec",
+        "no",
+        "nos",
+        "hon",
+        "rs",
+        "vs",
+        "etc",
+        "ltd",
+        "pvt",
+        "smt",
+        "shri",
+        "adv",
+        "art",
+        "cl",
+        "ch",
+        "vol",
+        "ors",
+        "anr",
+        "i.e",
+        "e.g",
+        "approx",
+        "al",
+        "para",
+        "viz",
+        "ex",
+        "dept",
+        "govt",
+        "dist",
+        "st",
+        "sq",
+        "ft",
+        "in",
+        "yd",
+        "corp",
+        "inc",
+        "co",
+        "repr",
+        "gen",
+        "col",
+        "maj",
+        "capt",
+        "lt",
+        "mla",
+        "mp",
+        "cj",
+        "acj",
+        "j",
+        "jj",
+    }
+)
 
 _SPLIT_CHARS: frozenset[str] = frozenset({"।", "?", "!", "."})
 _CLOSING_CHARS: frozenset[str] = frozenset({'"', "'", "”", "’", ")", "]", "}"})
@@ -103,11 +153,7 @@ def split_sentences(text: str) -> list[tuple[str, str]]:
                     break
 
                 next_ch = text[ws_end]
-                if (
-                    next_ch.isupper()
-                    or ("\u0900" <= next_ch <= "\u097F")
-                    or next_ch.isdigit()
-                ):
+                if next_ch.isupper() or ("\u0900" <= next_ch <= "\u097f") or next_ch.isdigit():
                     seg = text[seg_start:punct_end]
                     sep = text[punct_end:ws_end]
                     splits.append((seg, sep))
@@ -154,6 +200,15 @@ def _compile_anubhava_pattern(src: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![\u0900-\u097F\w]){re.escape(src)}(?![\u0900-\u097F\w])")
 
 
+@dataclass(frozen=True, slots=True)
+class BackendTranslationResult:
+    """Typed result from local model translation backend."""
+
+    sentences: list[str]
+    device: str = "cpu"
+    truncation_flags: tuple[bool, ...] = ()
+
+
 class TranslatorBackend(Protocol):
     """Protocol for local model inference backend."""
 
@@ -163,9 +218,245 @@ class TranslatorBackend(Protocol):
         direction: TranslationDirection,
         execution_binding: ExecutionBinding | None = None,
         **kwargs: Any,
-    ) -> list[str] | tuple[list[str], str]:
+    ) -> list[str] | tuple[list[str], str] | tuple[list[str], str, list[bool]] | BackendTranslationResult:
         """Translate a batch of sentences."""
         ...
+
+
+class CTranslate2NativeBackend:
+    """Canonical CTranslate2 + SentencePiece neural translation backend."""
+
+    def __init__(self, root: Path, manifest: dict[str, Any]) -> None:
+        self._root = root
+        self._manifest = manifest
+        self._translators: dict[str, Any] = {}
+        self._spms: dict[str, Any] = {}
+        self._lock: threading.Lock = threading.Lock()
+
+    def translate_sentences(
+        self,
+        sentences: Sequence[str],
+        direction: TranslationDirection,
+        execution_binding: ExecutionBinding | None = None,
+        engine: str = "indictrans2",
+        **kwargs: Any,
+    ) -> BackendTranslationResult:
+        import ctranslate2
+        import sentencepiece
+
+        # Native model inference using CTranslate2 and SentencePiece
+        dir_key = direction.value
+        norm_engine = str(engine or "indictrans2").lower().strip()
+        if norm_engine == "opus_mt":
+            model_path = self._root / "models" / "opus_mt" / dir_key
+            if not model_path.exists():
+                model_path = self._root / "models" / f"opus_{dir_key}"
+            if not model_path.exists():
+                model_path = self._root / "models" / dir_key
+            spm_src_path = model_path / "spm.model"
+            spm_tgt_path = spm_src_path
+            if not model_path.exists() or not spm_src_path.exists():
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Model assets for OPUS-MT translation direction '{dir_key}' are missing or incomplete.",
+                )
+            model_info: dict[str, Any] = {}
+        else:
+            model_info = self._manifest.get("models", {}).get(dir_key) or {}
+            if not model_info and dir_key not in ("hi-en", "en-hi"):
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Model for direction '{dir_key}' not declared in manifest.",
+                )
+            # Check indictrans2 subdirectory first, then fallback to root models
+            model_path = self._root / "models" / "indictrans2" / dir_key
+            if not (
+                model_path.exists() and any((model_path / f).exists() for f in ("model.bin", "model.SRC", "spm.model"))
+            ):
+                model_path = self._root / "models" / dir_key
+
+            # Resolve source SentencePiece model
+            if (model_path / "model.SRC").is_file():
+                spm_src_path = model_path / "model.SRC"
+            elif (model_path / "src_spm.model").is_file():
+                spm_src_path = model_path / "src_spm.model"
+            else:
+                spm_src_path = model_path / "spm.model"
+
+            # Resolve target SentencePiece model
+            if (model_path / "model.TGT").is_file():
+                spm_tgt_path = model_path / "model.TGT"
+            elif (model_path / "tgt_spm.model").is_file():
+                spm_tgt_path = model_path / "tgt_spm.model"
+            else:
+                spm_tgt_path = spm_src_path
+
+            if not model_path.exists() or not spm_src_path.exists():
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
+                )
+
+        device = "cpu"
+        device_index = 0
+        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
+            try:
+                if hasattr(ctranslate2, "get_cuda_device_count") and ctranslate2.get_cuda_device_count() > 0:
+                    device = "cuda"
+                    dev_str = str(execution_binding.backend_device_id).strip()
+                    if ":" in dev_str:
+                        dev_str = dev_str.split(":")[-1]
+                    try:
+                        device_index = int(dev_str)
+                    except ValueError:
+                        device_index = 0
+            except Exception:
+                device = "cpu"
+
+        # Explicit compute type: int8_float32 for AVX2/AVX-VNNI neural acceleration on Core Ultra CPU
+        compute_type = model_info.get("compute_type")
+        if not compute_type:
+            compute_type = "int8_float32" if device == "cpu" else "float16"
+
+        trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}:{compute_type}"
+        spm_src_key = f"src:{spm_src_path.resolve()}"
+        spm_tgt_key = f"tgt:{spm_tgt_path.resolve()}"
+        with self._lock:
+            if trans_key not in self._translators:
+                cpu_fn = getattr(os, "process_cpu_count", None)
+                cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
+                default_concurrency = max(1, min(4, cpu_count // 4))
+
+                approved = (
+                    execution_binding.approved_concurrency
+                    if execution_binding is not None and execution_binding.approved_concurrency > 0
+                    else default_concurrency
+                )
+                if device == "cpu":
+                    # Thread budget invariant: scale worker processes and intra-threads to saturate CPU
+                    # without thrashing: inter_threads * intra_threads <= host logical capacity
+                    inter_threads = max(1, min(4, approved))
+                    intra_threads = max(2, min(6, (cpu_count + 1) // inter_threads))
+                else:
+                    inter_threads = approved
+                    intra_threads = 0
+
+                try:
+                    self._translators[trans_key] = ctranslate2.Translator(
+                        str(model_path),
+                        device=device,
+                        device_index=device_index,
+                        compute_type=compute_type,
+                        inter_threads=inter_threads,
+                        intra_threads=intra_threads,
+                    )
+                except (TypeError, ValueError):
+                    # Fallback for mock environments or models incompatible with int8_float32
+                    self._translators[trans_key] = ctranslate2.Translator(
+                        str(model_path),
+                        device=device,
+                        device_index=device_index,
+                        inter_threads=inter_threads,
+                        intra_threads=intra_threads,
+                    )
+                except Exception as exc:
+                    raise DoshError(
+                        code=FailureCode.EXECUTION_FAILED,
+                        message=(
+                            f"Failed to initialize translation model for direction '{dir_key}' "
+                            f"on device '{device}:{device_index}': {exc}"
+                        ),
+                    ) from exc
+
+            if spm_src_key not in self._spms:
+                sp_src = sentencepiece.SentencePieceProcessor()
+                sp_src.load(str(spm_src_path))
+                self._spms[spm_src_key] = sp_src
+
+            if spm_tgt_key not in self._spms:
+                sp_tgt = sentencepiece.SentencePieceProcessor()
+                sp_tgt.load(str(spm_tgt_path))
+                self._spms[spm_tgt_key] = sp_tgt
+
+            translator = self._translators[trans_key]
+            spm_src = self._spms[spm_src_key]
+            spm_tgt = self._spms[spm_tgt_key]
+
+        # Split sentences longer than MAX_SENTENCE_TOKENS tokens at ;, ,, or : boundaries
+        sentence_chunks: list[list[tuple[str, str]]] = []
+        flat_pieces: list[str] = []
+        for s in sentences:
+            raw_pieces = spm_src.encode_as_pieces(s)
+            if len(raw_pieces) > MAX_SENTENCE_TOKENS:
+                sub_parts = re.split(r"([;,:])\s*", s)
+                parts_list: list[tuple[str, str]] = []
+                for i in range(0, len(sub_parts), 2):
+                    sub_txt = sub_parts[i].strip()
+                    sub_sep = (sub_parts[i + 1] + " ") if i + 1 < len(sub_parts) else ""
+                    if sub_txt:
+                        parts_list.append((sub_txt, sub_sep))
+                        flat_pieces.append(sub_txt)
+                if not parts_list:
+                    parts_list = [(s, "")]
+                    flat_pieces.append(s)
+                sentence_chunks.append(parts_list)
+            else:
+                sentence_chunks.append([(s, "")])
+                flat_pieces.append(s)
+
+        if norm_engine == "indictrans2":
+            src_tag = model_info.get("source_lang", "hin_Deva" if dir_key == "hi-en" else "eng_Latn")
+            tgt_tag = model_info.get("target_lang", "eng_Latn" if dir_key == "hi-en" else "hin_Deva")
+            tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(p) for p in flat_pieces]
+        else:
+            tokenized = [spm_src.encode_as_pieces(p) for p in flat_pieces]
+
+        # Token-based batching bounds token count per forward pass, eliminating tail latency
+        # on uneven sentence lengths while distributing work across worker threads.
+        results = translator.translate_batch(
+            tokenized,
+            batch_type="tokens",
+            max_batch_size=1024,
+            beam_size=DEFAULT_BEAM_SIZE,
+            max_decoding_length=DEFAULT_MAX_DECODING_LENGTH,
+        )
+
+        decoded_pieces: list[str] = []
+        piece_truncations: list[bool] = []
+        for r in results:
+            hyp = r.hypotheses[0] if getattr(r, "hypotheses", None) else []
+            is_trunc = len(hyp) >= DEFAULT_MAX_DECODING_LENGTH
+            piece_truncations.append(is_trunc)
+            text = spm_tgt.decode_pieces(hyp)
+            if norm_engine == "indictrans2":
+                for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>", "\u2047", "Â"):
+                    text = text.replace(tag, "")
+            text = text.replace("\u2581", " ")
+            text = " ".join(text.split())
+            decoded_pieces.append(text.strip())
+
+        decoded_sentences: list[str] = []
+        sentence_truncations: list[bool] = []
+        p_idx = 0
+        for chunks in sentence_chunks:
+            s_text_parts: list[str] = []
+            s_has_trunc = False
+            for _, sep in chunks:
+                s_text_parts.append(decoded_pieces[p_idx] + sep)
+                if piece_truncations[p_idx]:
+                    s_has_trunc = True
+                p_idx += 1
+            decoded_sentences.append("".join(s_text_parts).strip())
+            sentence_truncations.append(s_has_trunc)
+
+        return BackendTranslationResult(
+            sentences=decoded_sentences,
+            device=device,
+            truncation_flags=tuple(sentence_truncations),
+        )
+
+
+_CTranslate2NativeBackend = CTranslate2NativeBackend
 
 
 class CTranslate2TranslationEngine:
@@ -292,228 +583,15 @@ class CTranslate2TranslationEngine:
             try:
                 import importlib
 
-                ctranslate2 = importlib.import_module("ctranslate2")
-                sentencepiece = importlib.import_module("sentencepiece")
+                importlib.import_module("ctranslate2")
+                importlib.import_module("sentencepiece")
             except ImportError as exc:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Translation dependencies (ctranslate2, sentencepiece) are not installed.",
                 ) from exc
 
-            # When model directory and packages exist, configure local CTranslate2 translator
-            class _CTranslate2NativeBackend:
-                def __init__(self, root: Path, manifest: dict[str, Any]) -> None:
-                    self._root = root
-                    self._manifest = manifest
-                    self._translators: dict[str, Any] = {}
-                    self._spms: dict[str, Any] = {}
-                    self._lock: threading.Lock = threading.Lock()
-
-                def translate_sentences(
-                    self,
-                    sentences: Sequence[str],
-                    direction: TranslationDirection,
-                    execution_binding: ExecutionBinding | None = None,
-                    engine: str = "indictrans2",
-                    **kwargs: Any,
-                ) -> tuple[list[str], str]:
-                    # Native model inference using CTranslate2 and SentencePiece
-                    dir_key = direction.value
-                    norm_engine = str(engine or "indictrans2").lower().strip()
-                    if norm_engine == "opus_mt":
-                        model_path = self._root / "models" / "opus_mt" / dir_key
-                        if not model_path.exists():
-                            model_path = self._root / "models" / f"opus_{dir_key}"
-                        if not model_path.exists():
-                            model_path = self._root / "models" / dir_key
-                        spm_src_path = model_path / "spm.model"
-                        spm_tgt_path = spm_src_path
-                        if not model_path.exists() or not spm_src_path.exists():
-                            raise DoshError(
-                                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                                message=f"Model assets for OPUS-MT translation direction '{dir_key}' are missing or incomplete.",
-                            )
-                        model_info = {}
-                    else:
-                        model_info = self._manifest.get("models", {}).get(dir_key) or {}
-                        if not model_info and dir_key not in ("hi-en", "en-hi"):
-                            raise DoshError(
-                                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                                message=f"Model for direction '{dir_key}' not declared in manifest.",
-                            )
-                        # Check indictrans2 subdirectory first, then fallback to root models
-                        model_path = self._root / "models" / "indictrans2" / dir_key
-                        if not (
-                            model_path.exists()
-                            and any((model_path / f).exists() for f in ("model.bin", "model.SRC", "spm.model"))
-                        ):
-                            model_path = self._root / "models" / dir_key
-
-                        # Resolve source SentencePiece model
-                        if (model_path / "model.SRC").is_file():
-                            spm_src_path = model_path / "model.SRC"
-                        elif (model_path / "src_spm.model").is_file():
-                            spm_src_path = model_path / "src_spm.model"
-                        else:
-                            spm_src_path = model_path / "spm.model"
-
-                        # Resolve target SentencePiece model
-                        if (model_path / "model.TGT").is_file():
-                            spm_tgt_path = model_path / "model.TGT"
-                        elif (model_path / "tgt_spm.model").is_file():
-                            spm_tgt_path = model_path / "tgt_spm.model"
-                        else:
-                            spm_tgt_path = spm_src_path
-
-                        if not model_path.exists() or not spm_src_path.exists():
-                            raise DoshError(
-                                code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                                message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
-                            )
-
-                    device = "cpu"
-                    device_index = 0
-                    if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
-                        try:
-                            if (
-                                hasattr(ctranslate2, "get_cuda_device_count")
-                                and ctranslate2.get_cuda_device_count() > 0
-                            ):
-                                device = "cuda"
-                                dev_str = str(execution_binding.backend_device_id).strip()
-                                if ":" in dev_str:
-                                    dev_str = dev_str.split(":")[-1]
-                                try:
-                                    device_index = int(dev_str)
-                                except ValueError:
-                                    device_index = 0
-                        except Exception:
-                            device = "cpu"
-
-                    trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}"
-                    spm_src_key = f"src:{spm_src_path.resolve()}"
-                    spm_tgt_key = f"tgt:{spm_tgt_path.resolve()}"
-                    with self._lock:
-                        if trans_key not in self._translators:
-                            cpu_fn = getattr(os, "process_cpu_count", None)
-                            cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
-                            default_concurrency = max(1, min(4, cpu_count // 4))
-
-                            approved = (
-                                execution_binding.approved_concurrency
-                                if execution_binding is not None and execution_binding.approved_concurrency > 0
-                                else default_concurrency
-                            )
-                            if device == "cpu":
-                                # Thread budget invariant: scale worker processes and intra-threads to saturate CPU
-                                # without thrashing: inter_threads * intra_threads <= host logical capacity
-                                inter_threads = max(1, min(4, approved))
-                                intra_threads = max(2, min(6, (cpu_count + 1) // inter_threads))
-                            else:
-                                inter_threads = approved
-                                intra_threads = 0
-
-                            try:
-                                self._translators[trans_key] = ctranslate2.Translator(
-                                    str(model_path),
-                                    device=device,
-                                    device_index=device_index,
-                                    inter_threads=inter_threads,
-                                    intra_threads=intra_threads,
-                                )
-                            except Exception as exc:
-                                raise DoshError(
-                                    code=FailureCode.EXECUTION_FAILED,
-                                    message=(
-                                        f"Failed to initialize translation model for direction '{dir_key}' "
-                                        f"on device '{device}:{device_index}': {exc}"
-                                    ),
-                                ) from exc
-
-                        if spm_src_key not in self._spms:
-                            sp_src = sentencepiece.SentencePieceProcessor()
-                            sp_src.load(str(spm_src_path))
-                            self._spms[spm_src_key] = sp_src
-
-                        if spm_tgt_key not in self._spms:
-                            sp_tgt = sentencepiece.SentencePieceProcessor()
-                            sp_tgt.load(str(spm_tgt_path))
-                            self._spms[spm_tgt_key] = sp_tgt
-
-                        translator = self._translators[trans_key]
-                        spm_src = self._spms[spm_src_key]
-                        spm_tgt = self._spms[spm_tgt_key]
-
-                    # Split sentences longer than MAX_SENTENCE_TOKENS tokens at ;, ,, or : boundaries
-                    sentence_chunks: list[list[tuple[str, str]]] = []
-                    flat_pieces: list[str] = []
-                    for s in sentences:
-                        raw_pieces = spm_src.encode_as_pieces(s)
-                        if len(raw_pieces) > MAX_SENTENCE_TOKENS:
-                            sub_parts = re.split(r"([;,:])\s*", s)
-                            parts_list: list[tuple[str, str]] = []
-                            for i in range(0, len(sub_parts), 2):
-                                sub_txt = sub_parts[i].strip()
-                                sub_sep = (sub_parts[i + 1] + " ") if i + 1 < len(sub_parts) else ""
-                                if sub_txt:
-                                    parts_list.append((sub_txt, sub_sep))
-                                    flat_pieces.append(sub_txt)
-                            if not parts_list:
-                                parts_list = [(s, "")]
-                                flat_pieces.append(s)
-                            sentence_chunks.append(parts_list)
-                        else:
-                            sentence_chunks.append([(s, "")])
-                            flat_pieces.append(s)
-
-                    if norm_engine == "indictrans2":
-                        src_tag = model_info.get("source_lang", "hin_Deva" if dir_key == "hi-en" else "eng_Latn")
-                        tgt_tag = model_info.get("target_lang", "eng_Latn" if dir_key == "hi-en" else "hin_Deva")
-                        tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(p) for p in flat_pieces]
-                    else:
-                        tokenized = [spm_src.encode_as_pieces(p) for p in flat_pieces]
-
-                    # Token-based batching bounds token count per forward pass, eliminating tail latency
-                    # on uneven sentence lengths while distributing work across worker threads.
-                    results = translator.translate_batch(
-                        tokenized,
-                        batch_type="tokens",
-                        max_batch_size=1024,
-                        beam_size=DEFAULT_BEAM_SIZE,
-                        max_decoding_length=DEFAULT_MAX_DECODING_LENGTH,
-                    )
-
-                    decoded_pieces: list[str] = []
-                    piece_truncations: list[bool] = []
-                    for r in results:
-                        hyp = r.hypotheses[0] if getattr(r, "hypotheses", None) else []
-                        is_trunc = len(hyp) >= DEFAULT_MAX_DECODING_LENGTH
-                        piece_truncations.append(is_trunc)
-                        text = spm_tgt.decode_pieces(hyp)
-                        if norm_engine == "indictrans2":
-                            for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>", "\u2047", "Â"):
-                                text = text.replace(tag, "")
-                        text = text.replace("\u2581", " ")
-                        text = " ".join(text.split())
-                        decoded_pieces.append(text.strip())
-
-                    decoded_sentences: list[str] = []
-                    sentence_truncations: list[bool] = []
-                    p_idx = 0
-                    for chunks in sentence_chunks:
-                        s_text_parts: list[str] = []
-                        s_has_trunc = False
-                        for _, sep in chunks:
-                            s_text_parts.append(decoded_pieces[p_idx] + sep)
-                            if piece_truncations[p_idx]:
-                                s_has_trunc = True
-                            p_idx += 1
-                        decoded_sentences.append("".join(s_text_parts).strip())
-                        sentence_truncations.append(s_has_trunc)
-
-                    return decoded_sentences, device, sentence_truncations
-
-            self._initialized_backend = _CTranslate2NativeBackend(self._data_root, manifest_dict)
+            self._initialized_backend = CTranslate2NativeBackend(self._data_root, manifest_dict)
             return self._initialized_backend
 
     def translate(
@@ -526,89 +604,14 @@ class CTranslate2TranslationEngine:
         custom_terms: Sequence[str] = (),
     ) -> TranslationResult:
         """Translate normalized Unicode text via CTranslate2 with span protection and glossary."""
-        src_lang = Language.HINDI if direction == TranslationDirection.HI_TO_EN else Language.ENGLISH
-        tgt_lang = Language.ENGLISH if direction == TranslationDirection.HI_TO_EN else Language.HINDI
-
-        target_device = "cpu"
-        if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
-            target_device = execution_binding.backend_device_id or "cuda"
-
-        norm_engine = str(engine or "indictrans2").lower().strip()
-
-        if not text or not text.strip():
-            return TranslationResult(
-                translated_text=text,
-                source_language=src_lang,
-                target_language=tgt_lang,
-                direction=direction,
-                protected_spans_count=0,
-                metadata={"device": target_device, "backend": "ctranslate2", "engine": norm_engine},
-            )
-
-        # 1. Retrieve domain glossary mappings for this direction
-        active_glossary = glossary_terms if glossary_terms is not None else self._glossary.get_terms(direction)
-
-        # 2. Protect factual spans, custom terms (e.g. legal citations), and domain glossary terms
-        protected_text, spans = self._protector.protect(
-            text,
-            custom_terms=custom_terms,
-            glossary_mappings=active_glossary,
-        )
-
-        # 3. Split into sentences
-        split_units = split_sentences(protected_text)
-        if not split_units:
-            split_units = [(protected_text, "")]
-
-        raw_sentences = [seg for seg, _ in split_units]
-        separators = [sep for _, sep in split_units]
-
-        # 4. Pre-process sentences: apply approved Anubhava overrides
-        dir_key = direction.value
-        prepared_sentences = [self._apply_anubhava(sent, dir_key) for sent in raw_sentences]
-
-        # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)
-        backend = self._ensure_backend()
-        backend_res = backend.translate_sentences(
-            prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
-        )
-
-        truncation_suspected = False
-        if isinstance(backend_res, tuple) and len(backend_res) >= 2:
-            translated_sentences = backend_res[0]
-            factual_device = backend_res[1]
-            if len(backend_res) > 2 and any(backend_res[2]):
-                truncation_suspected = True
-        else:
-            translated_sentences = backend_res
-            factual_device = target_device
-
-        translated_body = "".join(ts + sep for ts, sep in zip(translated_sentences, separators))
-
-        # 5. Restore protected spans byte-for-byte with integrity verification
-        final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
-
-        metadata: dict[str, Any] = {
-            "sentences_count": len(raw_sentences),
-            "device": factual_device,
-            "backend": "ctranslate2",
-            "engine": norm_engine,
-        }
-        if truncation_suspected:
-            span_issues.append("TRANSLATION_TRUNCATION_SUSPECTED")
-            metadata["truncation_suspected"] = True
-            metadata["warnings"] = ("TRANSLATION_TRUNCATION_SUSPECTED",)
-        if span_issues:
-            metadata["span_protection_issues"] = tuple(span_issues)
-
-        return TranslationResult(
-            translated_text=final_text,
-            source_language=src_lang,
-            target_language=tgt_lang,
+        return self.translate_batch(
+            texts=[text],
             direction=direction,
-            protected_spans_count=len(spans),
-            metadata=metadata,
-        )
+            execution_binding=execution_binding,
+            engine=engine,
+            glossary_terms=glossary_terms,
+            custom_terms=custom_terms,
+        )[0]
 
     def translate_batch(
         self,
@@ -668,7 +671,11 @@ class CTranslate2TranslationEngine:
             )
 
             truncation_flags: list[bool] = []
-            if isinstance(backend_res, tuple) and len(backend_res) >= 2:
+            if isinstance(backend_res, BackendTranslationResult):
+                all_translated_sentences = backend_res.sentences
+                factual_device = backend_res.device
+                truncation_flags = list(backend_res.truncation_flags)
+            elif isinstance(backend_res, tuple) and len(backend_res) >= 2:
                 all_translated_sentences = backend_res[0]
                 factual_device = backend_res[1]
                 if len(backend_res) > 2:

@@ -249,7 +249,7 @@ class GeminiClient:
                 f"You are a professional legal, administrative, and technical translator.\n"
                 f"Translate each text segment faithfully from {source_lang} to {target_lang}.\n"
                 f"Strict Rules:\n"
-                f"- Return every segment enclosed in its exact matching `<segment id=\"...\">` and `</segment>` tags.\n"
+                f'- Return every segment enclosed in its exact matching `<segment id="...">` and `</segment>` tags.\n'
                 f"- Do not omit, combine, or reorder segments.\n"
                 f"- Strictly preserve formatting, line breaks, tokens enclosed in '__PROTECTED_SPAN_', citations, section numbers, dates, and amounts.\n"
                 f"- Output ONLY the tagged translated segments without preamble or commentary."

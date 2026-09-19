@@ -6,7 +6,8 @@ import io
 import threading
 from typing import Any, Iterator
 
-_PYMUPDF_LOCK = threading.Lock()
+from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK as _PYMUPDF_LOCK
+
 DEFAULT_MAX_PIXMAP_DIMENSION: int = 4096
 
 
@@ -256,6 +257,7 @@ class BoundedPageRasterizer:
         Blocks until the page has been rasterized or rasterization fails.
         Releases buffer space so subsequent pages can be rasterized.
         """
+        self.start()
         with self._cond:
             while page_number not in self._ready_pages and page_number not in self._errors and not self._closed:
                 if self._cancellation_token is not None and self._cancellation_token.is_cancelled:

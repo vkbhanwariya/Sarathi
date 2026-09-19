@@ -238,9 +238,7 @@ class OCRCapability:
         """Shared page processing routine used by both sequential and parallel OCR paths."""
         check_cancelled(context)
         if progress_cb is not None:
-            dev_str = (
-                context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
-            )
+            dev_str = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
             progress_cb(
                 file_display_name=inp_ref.display_name,
                 page_number=page_idx,
@@ -586,6 +584,8 @@ class OCRCapability:
         if can_parallelize:
             all_items: list[tuple[InputRef, int, int]] = []
             rasterizers: dict[str, BoundedPageRasterizer] = {}
+            total_target_buffer = 8
+            per_doc_buffered = max(1, min(4, total_target_buffer // max(1, len(ocr_inputs))))
             for inp, file_bytes, tot_pages, needed_indices, _ in ocr_inputs:
                 if not needed_indices:
                     continue
@@ -593,14 +593,14 @@ class OCRCapability:
                     file_bytes,
                     pages=needed_indices,
                     dpi=dpi,
-                    max_buffered=6,
+                    max_buffered=per_doc_buffered,
                     cancellation_token=context.cancellation_token,
                 )
                 for p_idx in needed_indices:
                     all_items.append((inp, p_idx, tot_pages))
 
-            for r in rasterizers.values():
-                r.start()
+            # BoundedPageRasterizer lazily starts on first get_page() call,
+            # avoiding thread storms and memory spikes across multi-doc batches.
 
             def _make_page_task(
                 inp_ref: InputRef, p_idx: int, tot_pages: int

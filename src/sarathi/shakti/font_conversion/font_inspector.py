@@ -31,7 +31,17 @@ except ImportError:
 
 
 DEFAULT_ANCHOR_SYMBOLS: tuple[str, ...] = (
-    "d", "x", "m", "k", "f", "Z", "ñ", "ò", "ö", "Ù", "Ø",
+    "d",
+    "x",
+    "m",
+    "k",
+    "f",
+    "Z",
+    "ñ",
+    "ò",
+    "ö",
+    "Ù",
+    "Ø",
 )
 
 

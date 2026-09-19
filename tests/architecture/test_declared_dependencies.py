@@ -114,7 +114,6 @@ def test_all_imports_declared_in_pyproject() -> None:
         if undeclared:
             undeclared_by_file[rel_path] = undeclared
 
-    assert not undeclared_by_file, (
-        "Found undeclared third-party imports in src/sarathi:\n"
-        + "\n".join(f"  {f}: {sorted(imps)}" for f, imps in sorted(undeclared_by_file.items()))
+    assert not undeclared_by_file, "Found undeclared third-party imports in src/sarathi:\n" + "\n".join(
+        f"  {f}: {sorted(imps)}" for f, imps in sorted(undeclared_by_file.items())
     )

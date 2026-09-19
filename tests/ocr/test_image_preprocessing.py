@@ -333,7 +333,9 @@ def test_bug_O12_page_orientation_detection() -> None:
     assert any(w.code == "OCR_PAGE_ROTATED" for w in w270)
 
 
-def make_stamped_page() -> tuple[np.ndarray, list[tuple[int, int, int, tuple[int, int, int]]], list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
+def make_stamped_page() -> tuple[
+    np.ndarray, list[tuple[int, int, int, tuple[int, int, int]]], list[np.ndarray], np.ndarray, np.ndarray, np.ndarray
+]:
     """Generate synthetic document with 5 colored stamps, red heading, small red blob, and black text."""
     cv2 = pytest.importorskip("cv2")
     # Synthetic page 800x600, white background
@@ -354,10 +356,7 @@ def make_stamped_page() -> tuple[np.ndarray, list[tuple[int, int, int, tuple[int
     # Small red text blob (under 0.1% area = 480 px)
     cv2.putText(img, "Ref: 99", (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220, 30, 30), 1)
     blob_mask = (
-        (img[:, :, 0] > 150)
-        & (img[:, :, 1] < 50)
-        & (np.arange(800)[:, None] >= 70)
-        & (np.arange(800)[:, None] < 100)
+        (img[:, :, 0] > 150) & (img[:, :, 1] < 50) & (np.arange(800)[:, None] >= 70) & (np.arange(800)[:, None] < 100)
     )
 
     # Black text lines across the page
@@ -377,11 +376,11 @@ def make_stamped_page() -> tuple[np.ndarray, list[tuple[int, int, int, tuple[int
 
     # 5 stamps: red, blue, violet, faded pink, dark navy
     stamps = [
-        (150, 250, 45, (220, 30, 30)),    # red
-        (450, 250, 45, (30, 80, 220)),    # blue
-        (150, 450, 45, (150, 40, 200)),   # violet
+        (150, 250, 45, (220, 30, 30)),  # red
+        (450, 250, 45, (30, 80, 220)),  # blue
+        (150, 450, 45, (150, 40, 200)),  # violet
         (450, 450, 45, (230, 140, 160)),  # faded pink
-        (300, 650, 45, (15, 30, 100)),    # dark navy
+        (300, 650, 45, (15, 30, 100)),  # dark navy
     ]
 
     stamp_masks = []
@@ -400,9 +399,7 @@ def make_stamped_page() -> tuple[np.ndarray, list[tuple[int, int, int, tuple[int
         for c in range(3):
             val = rgb[c]
             mask_bool = s_mask > 0
-            img[mask_bool, c] = np.clip(
-                (img[mask_bool, c].astype(np.float32) * (val / 255.0)), 0, 255
-            ).astype(np.uint8)
+            img[mask_bool, c] = np.clip((img[mask_bool, c].astype(np.float32) * (val / 255.0)), 0, 255).astype(np.uint8)
 
     return img, stamps, stamp_masks, heading_mask, blob_mask, black_text_mask
 
@@ -426,22 +423,22 @@ def test_bug_O13_stamp_identification_and_removal() -> None:
         near_white_count = np.count_nonzero((gray_out >= 200) & stamp_only)
         total_stamp_only = np.count_nonzero(stamp_only)
         frac = near_white_count / total_stamp_only if total_stamp_only else 1.0
-        assert frac >= 0.98, f"Stamp {idx} ({rgb}) failed: only {frac*100:.1f}% near-white"
+        assert frac >= 0.98, f"Stamp {idx} ({rgb}) failed: only {frac * 100:.1f}% near-white"
 
     # 2. Legitimate red heading keeps at least 95% of its pixels
     heading_kept = np.count_nonzero(out[heading_mask, 0] > 150)
     heading_frac = heading_kept / np.count_nonzero(heading_mask)
-    assert heading_frac >= 0.95, f"Heading destroyed: only {heading_frac*100:.1f}% kept"
+    assert heading_frac >= 0.95, f"Heading destroyed: only {heading_frac * 100:.1f}% kept"
 
     # 3. At least 95% of original black text pixels survive
     survived_text = (gray_out < 100) & black_text_mask
     survived_ratio = np.count_nonzero(survived_text) / np.count_nonzero(black_text_mask)
-    assert survived_ratio >= 0.95, f"Text erased: only {survived_ratio*100:.1f}% survived"
+    assert survived_ratio >= 0.95, f"Text erased: only {survived_ratio * 100:.1f}% survived"
 
     # 4. Small red text blob is unchanged
     blob_kept = np.count_nonzero(out[blob_mask, 0] > 150)
     blob_frac = blob_kept / np.count_nonzero(blob_mask)
-    assert blob_frac >= 0.95, f"Small blob altered: only {blob_frac*100:.1f}% kept"
+    assert blob_frac >= 0.95, f"Small blob altered: only {blob_frac * 100:.1f}% kept"
 
     # 5. Page with no stamps is returned unchanged with removed_ratio == 0
     clean_page = np.full((100, 100, 3), 255, dtype=np.uint8)
@@ -454,9 +451,7 @@ def test_bug_O13_stamp_identification_and_removal() -> None:
     # 7. Coordinator warning verification
     engine = RapidOCREngine(engine=lambda arr, **kw: mock.MagicMock(txts=[], boxes=[], scores=[]))
     # Unstamped page must NOT emit EXPERIMENTAL_STAMP_REMOVAL or STAMP_REMOVAL_APPLIED
-    _, _, _, w_clean = engine.ocr_page(
-        clean_page, 1, "in-1", custom_options={"stamp_mode": "remove"}
-    )
+    _, _, _, w_clean = engine.ocr_page(clean_page, 1, "in-1", custom_options={"stamp_mode": "remove"})
     assert not any(w.code in ("EXPERIMENTAL_STAMP_REMOVAL", "STAMP_REMOVAL_APPLIED") for w in w_clean)
 
     # Stamped page must emit STAMP_REMOVAL_APPLIED with context

@@ -48,9 +48,7 @@ def test_identity_fallback_unknown_pair() -> None:
         (12.0, "Times New Roman", "Nirmala UI", 12.0),
     ],
 )
-def test_font_pair_baselines(
-    source_size: float, anchor_font: str, target_font: str, expected_size: float
-) -> None:
+def test_font_pair_baselines(source_size: float, anchor_font: str, target_font: str, expected_size: float) -> None:
     """Verify legacy-to-modern and modern-to-modern baseline scaling rules."""
     res = normalize_font_size(source_size, anchor_font=anchor_font, target_font=target_font)
     assert res == pytest.approx(expected_size)

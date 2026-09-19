@@ -32,6 +32,7 @@ from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.gemini.client import GeminiClient
 from sarathi.shakti.gemini.plugin import GEMINI_OCR_DECLARATION
 from sarathi.shakti.text.markdown import extract_markdown_tables
+from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK
 
 
 def _clean_ocr_text(text: str) -> str:
@@ -107,9 +108,7 @@ class GeminiOCRCapability:
                 ) from exc
 
             media_type = inp.media_type or _infer_media_type(inp.source_path)
-            prompt_override = (
-                request.custom_options.get("prompt") if request.custom_options else None
-            )
+            prompt_override = request.custom_options.get("prompt") if request.custom_options else None
 
             is_pdf = (
                 media_type == "application/pdf"
@@ -123,14 +122,19 @@ class GeminiOCRCapability:
                 try:
                     import pymupdf
 
-                    pdf_doc = pymupdf.open(stream=content_bytes, filetype="pdf")
-                    num_pages = len(pdf_doc)
-                    for page_idx in range(num_pages):
-                        single_doc = pymupdf.open()
-                        single_doc.insert_pdf(pdf_doc, from_page=page_idx, to_page=page_idx)
-                        page_items.append((page_idx + 1, single_doc.tobytes(), "application/pdf"))
-                        single_doc.close()
-                    pdf_doc.close()
+                    with GLOBAL_PYMUPDF_LOCK:
+                        pdf_doc = pymupdf.open(stream=content_bytes, filetype="pdf")
+                        try:
+                            num_pages = len(pdf_doc)
+                            for page_idx in range(num_pages):
+                                single_doc = pymupdf.open()
+                                try:
+                                    single_doc.insert_pdf(pdf_doc, from_page=page_idx, to_page=page_idx)
+                                    page_items.append((page_idx + 1, single_doc.tobytes(), "application/pdf"))
+                                finally:
+                                    single_doc.close()
+                        finally:
+                            pdf_doc.close()
                 except Exception:
                     page_items = [(1, content_bytes, media_type)]
             else:
@@ -170,7 +174,11 @@ class GeminiOCRCapability:
 
                     # Derive confidence if avgLogprobs is available from Gemini
                     avg_logprob = cand.get("avgLogprobs")
-                    if isinstance(avg_logprob, (int, float)) and not isinstance(avg_logprob, bool) and avg_logprob <= 0.0:
+                    if (
+                        isinstance(avg_logprob, (int, float))
+                        and not isinstance(avg_logprob, bool)
+                        and avg_logprob <= 0.0
+                    ):
                         confidence_score = round(min(1.0, math.exp(float(avg_logprob))), 4)
 
                 if not extracted_text:

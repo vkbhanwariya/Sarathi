@@ -77,8 +77,6 @@ def test_structural_defect_emits_warning_and_completes_in_capability() -> None:
     assert "structural Devanagari defect" in defect_warn.message
 
 
-
-
 def test_cross_run_split_matra_does_not_fail_structural_validation() -> None:
     """Verify cross-run split syllables (e.g. 'd' in span 1, 'k' in span 2) convert cleanly without orphan matra error."""
     cap = FontConversionCapability()

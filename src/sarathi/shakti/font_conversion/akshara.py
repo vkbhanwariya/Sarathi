@@ -12,9 +12,11 @@ from __future__ import annotations
 
 try:
     import regex as re
+
     _HAS_REGEX = True
 except ImportError:
     import re  # type: ignore[no-redef]
+
     _HAS_REGEX = False
 
 import functools

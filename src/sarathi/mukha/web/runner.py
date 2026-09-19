@@ -740,11 +740,7 @@ class RunCoordinator:
             input_warn_counts: dict[str, int] = {inp.input_id: 0 for inp in request.inputs}
             unassociated_warns = 0
             for w in result.warnings:
-                w_inp = (
-                    w.context.get("input_id")
-                    or w.context.get("source_input_id")
-                    or w.context.get("source_file")
-                )
+                w_inp = w.context.get("input_id") or w.context.get("source_input_id") or w.context.get("source_file")
                 if w_inp and w_inp in input_warn_counts:
                     input_warn_counts[w_inp] += 1
                 else:
@@ -786,15 +782,12 @@ class RunCoordinator:
             is_run_cached = bool(result.metadata.get("cached")) if result and result.metadata else False
             if not is_run_cached and maruti_recs:
                 is_run_cached = any(
-                    r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
-                    for r in maruti_recs
+                    r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit" for r in maruti_recs
                 )
             stage_label = "Completed (Cached)" if is_run_cached else "Completed"
 
             for inp in request.inputs:
-                existing = self._file_progress.get(inp.input_id) or self._file_progress.get(
-                    inp.display_name, {}
-                )
+                existing = self._file_progress.get(inp.input_id) or self._file_progress.get(inp.display_name, {})
                 start_t = existing.get("started_ns")
                 duration = existing.get("duration_ns")
                 w_count = input_warn_counts.get(inp.input_id, 0)
@@ -826,9 +819,7 @@ class RunCoordinator:
                         ) and (inp.input_id in contributing_inputs or not contributing_inputs)
                         has_output = has_input_doc or has_input_artifact or has_aggregate_credit
                     else:
-                        has_output = (
-                            inp.input_id in doc_map or result.data is not None or bool(result.artifacts)
-                        )
+                        has_output = inp.input_id in doc_map or result.data is not None or bool(result.artifacts)
 
                     if not has_output:
                         f_stat = "FAILED"

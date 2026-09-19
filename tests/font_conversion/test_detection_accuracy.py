@@ -79,9 +79,7 @@ def test_schema_validation_missing_required_fields() -> None:
         ("UnknownCustomFont", None, "unknown"),
     ],
 )
-def test_resolve_profile_from_font_name(
-    font_name: str, expected_profile_id: str | None, expected_family: str
-) -> None:
+def test_resolve_profile_from_font_name(font_name: str, expected_profile_id: str | None, expected_family: str) -> None:
     """Verify trusted font resolution independent of digraph evidence."""
     profiles = load_font_profiles()
     prof_id, fam = resolve_profile_from_font_name(font_name, profiles)

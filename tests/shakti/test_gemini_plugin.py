@@ -293,7 +293,6 @@ class TestGeminiOCRCapability:
         assert len(canon_doc.pages[2].tables) == 0
 
 
-
 class TestGeminiTranslationCapability:
     """Verify Gemini translation execution, direction mapping, and artifact creation."""
 

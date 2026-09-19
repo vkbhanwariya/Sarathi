@@ -62,9 +62,7 @@ def _preprocess_page_image(
     preprocess_requested = custom_options.get("preprocess") if custom_options else None
     should_preprocess = (preprocess_requested is not False) and not is_lightweight
 
-    is_instant = profile == ExecutionProfile.INSTANT and not (
-        custom_options and custom_options.get("preserve_layout")
-    )
+    is_instant = profile == ExecutionProfile.INSTANT and not (custom_options and custom_options.get("preserve_layout"))
 
     raw_stamp_mode = custom_options.get("stamp_mode") if custom_options else None
     if raw_stamp_mode is not None:
@@ -127,7 +125,15 @@ def _preprocess_page_image(
             threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
             img_arr = np.array(threshold_img.convert("RGB"))
 
-    return img_arr, stamps_detected_regions, stamp_removal_applied, stamp_removed_ratio, stamp_filled_arr, is_binarized, stamp_mode
+    return (
+        img_arr,
+        stamps_detected_regions,
+        stamp_removal_applied,
+        stamp_removed_ratio,
+        stamp_filled_arr,
+        is_binarized,
+        stamp_mode,
+    )
 
 
 def _evaluate_page_orientation(
@@ -492,7 +498,7 @@ class RapidOCREngine:
                 warnings.append(
                     WarningRecord(
                         code="STAMP_REMOVAL_APPLIED",
-                        message=f"Removed official stamp artifacts (coverage: {stamp_removed_ratio*100:.2f}%).",
+                        message=f"Removed official stamp artifacts (coverage: {stamp_removed_ratio * 100:.2f}%).",
                         stage=STAGE_NAME,
                         context={
                             "stamp_count": len(stamps_detected_regions),
@@ -793,8 +799,7 @@ class RapidOCREngine:
             metadata["confidence"] = page_confidence.score
         if stamp_mode != "off":
             metadata["stamps"] = [
-                {"bbox": list(r.bbox), "dominant_rgb": list(r.dominant_rgb)}
-                for r in stamps_detected_regions
+                {"bbox": list(r.bbox), "dominant_rgb": list(r.dominant_rgb)} for r in stamps_detected_regions
             ]
 
         evidence_dict: dict[str, Any] = {

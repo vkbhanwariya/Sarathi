@@ -182,7 +182,11 @@ class CloudHttpClient:
         max_attempts: int = 5,
     ) -> Any:
         """Perform pooled HTTP POST with thread-safe rate pacing, retry, and cancellation."""
-        url = endpoint_or_url if endpoint_or_url.startswith(("http://", "https://")) else f"{self._base_url}/{endpoint_or_url.lstrip('/')}"
+        url = (
+            endpoint_or_url
+            if endpoint_or_url.startswith(("http://", "https://"))
+            else f"{self._base_url}/{endpoint_or_url.lstrip('/')}"
+        )
         req_headers = dict(headers or {})
         req_headers.setdefault("User-Agent", self._user_agent)
 
@@ -289,7 +293,11 @@ class CloudHttpClient:
         max_attempts: int = 5,
     ) -> Any:
         """Perform pooled HTTP GET with rate pacing, retry, and error mapping."""
-        url = endpoint_or_url if endpoint_or_url.startswith(("http://", "https://")) else f"{self._base_url}/{endpoint_or_url.lstrip('/')}"
+        url = (
+            endpoint_or_url
+            if endpoint_or_url.startswith(("http://", "https://"))
+            else f"{self._base_url}/{endpoint_or_url.lstrip('/')}"
+        )
         req_headers = dict(headers or {})
         req_headers.setdefault("User-Agent", self._user_agent)
 
@@ -322,7 +330,11 @@ class CloudHttpClient:
                 if attempt < max_attempts - 1:
                     retry_after_str = None
                     if hasattr(resp_headers, "get"):
-                        retry_after_str = resp_headers.get("Retry-After") or resp_headers.get("retry-after") or resp_headers.get("x-ratelimit-reset")
+                        retry_after_str = (
+                            resp_headers.get("Retry-After")
+                            or resp_headers.get("retry-after")
+                            or resp_headers.get("x-ratelimit-reset")
+                        )
                     delay = None
                     if retry_after_str:
                         try:

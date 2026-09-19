@@ -120,9 +120,7 @@ class TranslationProtector(BaseSpanProtector):
         # 1. Domain Glossary Mappings (Priority 10)
         if glossary_mappings:
             cache_key = (
-                glossary_mappings
-                if isinstance(glossary_mappings, tuple)
-                else tuple(sorted(glossary_mappings.items()))
+                glossary_mappings if isinstance(glossary_mappings, tuple) else tuple(sorted(glossary_mappings.items()))
             )
             for group in _compile_glossary_groups(cache_key):
                 for m in group.pattern.finditer(text):
@@ -135,11 +133,7 @@ class TranslationProtector(BaseSpanProtector):
 
         # 2. Custom Terms (Priority 20)
         if custom_terms:
-            c_key = (
-                custom_terms
-                if isinstance(custom_terms, tuple)
-                else tuple(sorted(custom_terms))
-            )
+            c_key = custom_terms if isinstance(custom_terms, tuple) else tuple(sorted(custom_terms))
             for group in _compile_custom_term_groups(c_key):
                 for m in group.pattern.finditer(text):
                     raw_matches.append((m.start(), m.end(), m.group(0), "custom_term", 20))

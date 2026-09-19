@@ -173,9 +173,7 @@ def test_bug_S1_web_security_and_auth(tmp_path: Path) -> None:
         # 1. Every /api/** route returns 401/403 without the token cookie
         for route in ("/api/state", "/api/history", "/api/review"):
             resp = client.get(route)
-            assert resp.status_code in (401, 403), (
-                f"Route {route} was accessible without auth (got {resp.status_code})"
-            )
+            assert resp.status_code in (401, 403), f"Route {route} was accessible without auth (got {resp.status_code})"
 
         # 2. Wrong token is rejected on GET /?t=...
         resp_wrong = client.get("/?t=wrong_token_12345", follow_redirects=False)

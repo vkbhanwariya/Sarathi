@@ -501,7 +501,14 @@ class FontConversionCapability:
 
         def _process_doc(
             idx: int, doc: CanonicalDocument
-        ) -> tuple[int, CanonicalDocument, list[WarningRecord], ProvenanceRecord | None, list[ArtifactPayload], DoshError | None]:
+        ) -> tuple[
+            int,
+            CanonicalDocument,
+            list[WarningRecord],
+            ProvenanceRecord | None,
+            list[ArtifactPayload],
+            DoshError | None,
+        ]:
             if _is_doc_empty(doc):
                 return (
                     idx,

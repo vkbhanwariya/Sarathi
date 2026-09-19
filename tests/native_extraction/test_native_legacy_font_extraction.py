@@ -278,5 +278,7 @@ def test_resolve_pdf_font_names_embedded_sfnt(tmp_path: Path) -> None:
     font_map = _resolve_pdf_font_names(opened_doc)
     opened_doc.close()
 
-    matched_val = font_map.get("BAAAAA+KrutiDev010") or font_map.get("/BAAAAA+KrutiDev010") or font_map.get("KrutiDev010")
+    matched_val = (
+        font_map.get("BAAAAA+KrutiDev010") or font_map.get("/BAAAAA+KrutiDev010") or font_map.get("KrutiDev010")
+    )
     assert matched_val in ("KrutiDev010", "Kruti Dev 010")

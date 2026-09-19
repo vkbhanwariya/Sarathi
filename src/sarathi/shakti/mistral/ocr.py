@@ -63,9 +63,7 @@ class MistralOCRCapability:
             context.cancellation_token.check_cancelled()
 
         model = (
-            request.custom_options.get("model", self.default_model)
-            if request.custom_options
-            else self.default_model
+            request.custom_options.get("model", self.default_model) if request.custom_options else self.default_model
         )
 
         all_docs: list[CanonicalDocument] = []

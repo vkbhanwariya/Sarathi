@@ -107,9 +107,7 @@ def _check_translation_handoffs(
     detector: LanguageDetector,
 ) -> Result | None:
     """Evaluate whether inputs require OCR fallback or legacy font conversion handoff."""
-    if any(
-        not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs
-    ):
+    if any(not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs):
         return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
 
     for doc in docs:
@@ -357,8 +355,9 @@ class TranslationCapability:
         def _process_single_doc(
             idx: int,
             doc: CanonicalDocument,
-        ) -> tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload]]:
+        ) -> tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload], list[WarningRecord]]:
             check_cancelled(context)
+            doc_warnings: list[WarningRecord] = []
 
             if progress_cb is not None:
                 dev_str = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
@@ -579,7 +578,12 @@ class TranslationCapability:
                             ]
                             if missing:
                                 b_res = _call_engine_translate_batch(missing)
-                                for raw_t, r in zip(missing, b_res):
+                                if len(b_res) != len(missing):
+                                    raise DoshError(
+                                        code=FailureCode.EXECUTION_FAILED,
+                                        message=f"Batch translation count mismatch: expected {len(missing)}, got {len(b_res)}",
+                                    )
+                                for raw_t, r in zip(missing, b_res, strict=True):
                                     translation_cache[raw_t] = r
                             return [_trans_text(t) for t in batch]
 
@@ -589,8 +593,16 @@ class TranslationCapability:
                             translate_fn=_batch_trans,
                             filename=f"Translated_Document{suffix}.docx",
                             role="translated_document",
+                            warnings=doc_warnings,
                         )
-                    except Exception:
+                    except Exception as exc:
+                        doc_warnings.append(
+                            WarningRecord(
+                                code="DOCX_TRANSFORM_FAILED",
+                                message=f"Failed in-place DOCX translation, falling back to reconstructed document: {exc}",
+                                stage="docx_exporter",
+                            )
+                        )
                         docx_payload = None
 
                 if docx_payload is None:
@@ -601,28 +613,74 @@ class TranslationCapability:
                         default_font=doc_font,
                         default_size_pt=doc_size,
                     )
-                return translated_doc, prov, [txt_payload, docx_payload]
+
+                # Collect span protection and truncation issues across all executed translation results
+                for r in translation_cache.values():
+                    if not r.metadata:
+                        continue
+                    span_issues = r.metadata.get("span_protection_issues")
+                    if span_issues:
+                        for issue in span_issues:
+                            if isinstance(issue, str):
+                                doc_warnings.append(
+                                    WarningRecord(
+                                        code=issue,
+                                        message=f"Translation span protection issue: {issue}",
+                                        stage="translation",
+                                    )
+                                )
+                            elif isinstance(issue, dict):
+                                code_str = str(issue.get("code", "PROTECTED_SPAN_ISSUE"))
+                                orig = str(issue.get("original_text", ""))
+                                doc_warnings.append(
+                                    WarningRecord(
+                                        code=code_str,
+                                        message=f"Protected span issue on '{orig}': {code_str}",
+                                        stage="translation",
+                                    )
+                                )
+                    if r.metadata.get("truncation_suspected"):
+                        doc_warnings.append(
+                            WarningRecord(
+                                code="TRANSLATION_TRUNCATION_SUSPECTED",
+                                message="Suspected sentence truncation in translation output.",
+                                stage="translation",
+                            )
+                        )
+
+                return translated_doc, prov, [txt_payload, docx_payload], doc_warnings
 
         is_parallelizable = self.declaration.device_requirement.parallelizable
         if len(docs) > 1 and self._yantra is not None and is_parallelizable:
 
             def _make_task(
                 i: int, d: CanonicalDocument
-            ) -> Callable[[], tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload]]]:
+            ) -> Callable[[], tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload], list[WarningRecord]]]:
                 return lambda: _process_single_doc(i, d)
 
             subtasks = [_make_task(idx, doc) for idx, doc in enumerate(docs)]
             task_results = self._yantra.execute_subtasks(subtasks, context=context)
-            for t_doc, t_prov, t_payloads in task_results:
+            for t_doc, t_prov, t_payloads, t_warns in task_results:
                 translated_docs.append(t_doc)
                 provs.append(t_prov)
                 payloads.extend(t_payloads)
+                all_warnings.extend(t_warns)
         else:
             for idx, doc in enumerate(docs):
-                t_doc, t_prov, t_payloads = _process_single_doc(idx, doc)
+                t_doc, t_prov, t_payloads, t_warns = _process_single_doc(idx, doc)
                 translated_docs.append(t_doc)
                 provs.append(t_prov)
                 payloads.extend(t_payloads)
+                all_warnings.extend(t_warns)
+
+        # Deduplicate warnings while preserving order
+        unique_warnings: list[WarningRecord] = []
+        seen_keys: set[tuple[str, str, str | None]] = set()
+        for w in all_warnings:
+            key = (w.code, w.message, w.stage)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                unique_warnings.append(w)
 
         result_data = translated_docs[0] if len(translated_docs) == 1 else tuple(translated_docs)
         return Result(
@@ -630,5 +688,5 @@ class TranslationCapability:
             artifact_payloads=tuple(payloads),
             confidence=None,
             provenance=tuple(provs),
-            warnings=tuple(all_warnings),
+            warnings=tuple(unique_warnings),
         )

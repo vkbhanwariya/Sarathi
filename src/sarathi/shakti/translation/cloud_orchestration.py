@@ -276,10 +276,7 @@ def execute_cloud_translation(
                     except (ValueError, TypeError):
                         pass
 
-                batch_chunks = [
-                    texts_to_batch[i : i + batch_size]
-                    for i in range(0, len(texts_to_batch), batch_size)
-                ]
+                batch_chunks = [texts_to_batch[i : i + batch_size] for i in range(0, len(texts_to_batch), batch_size)]
                 max_concurrency = _get_provider_concurrency(provider_id, request, context)
 
                 def _run_single_chunk(chunk: list[str]) -> list[str]:
@@ -463,7 +460,11 @@ def execute_cloud_translation(
                     if not batch:
                         return []
                     if batch_translate_fn is not None:
-                        uncached = [s.strip() for s in batch if s.strip() and s.strip() not in trans_memo and not is_structural_placeholder(s)]
+                        uncached = [
+                            s.strip()
+                            for s in batch
+                            if s.strip() and s.strip() not in trans_memo and not is_structural_placeholder(s)
+                        ]
                         if uncached:
                             try:
                                 batched = batch_translate_fn(

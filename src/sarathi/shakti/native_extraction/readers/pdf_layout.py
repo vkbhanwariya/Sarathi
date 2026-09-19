@@ -22,6 +22,7 @@ from sarathi.shakti.native_extraction.readers.common import (
     STAGE_NAME,
 )
 from sarathi.shakti.text.typography import normalize_text_spacing, reconstruct_line_from_spans
+from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK
 
 _PDF_TEXT_FLAGS = pymupdf.TEXT_DEHYPHENATE | pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_PRESERVE_LIGATURES
 
@@ -302,15 +303,16 @@ def _process_page_chunk(
     """Worker task processing a sequence of pages with its own independent Document instance."""
     import pymupdf.layout as _pymupdf_layout  # noqa: F401
 
-    doc = pymupdf.open(stream=data, filetype="pdf")
-    results = []
-    try:
-        for p_idx in page_indices:
-            page = doc[p_idx]
-            results.append(_process_single_page(page, p_idx, total_pages, input_id, skip_header_footer))
-        return results
-    finally:
-        doc.close()
+    with GLOBAL_PYMUPDF_LOCK:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        results = []
+        try:
+            for p_idx in page_indices:
+                page = doc[p_idx]
+                results.append(_process_single_page(page, p_idx, total_pages, input_id, skip_header_footer))
+            return results
+        finally:
+            doc.close()
 
 
 def read_pdf_with_layout(
@@ -328,11 +330,12 @@ def read_pdf_with_layout(
     """
     import pymupdf.layout as _pymupdf_layout  # noqa: F401 # Ensures activation of pymupdf._get_layout
 
-    doc = pymupdf.open(stream=data, filetype="pdf")
-    try:
-        total_pages = len(doc)
-    finally:
-        doc.close()
+    with GLOBAL_PYMUPDF_LOCK:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        try:
+            total_pages = len(doc)
+        finally:
+            doc.close()
 
     if total_pages == 0:
         return (
@@ -349,11 +352,12 @@ def read_pdf_with_layout(
         )
 
     if total_pages == 1:
-        doc = pymupdf.open(stream=data, filetype="pdf")
-        try:
-            raw_results = [_process_single_page(doc[0], 0, 1, input_id, skip_header_footer)]
-        finally:
-            doc.close()
+        with GLOBAL_PYMUPDF_LOCK:
+            doc = pymupdf.open(stream=data, filetype="pdf")
+            try:
+                raw_results = [_process_single_page(doc[0], 0, 1, input_id, skip_header_footer)]
+            finally:
+                doc.close()
     else:
         max_workers = min(total_pages, min(os.cpu_count() or 4, 6))
         chunks: list[list[int]] = [[] for _ in range(max_workers)]

@@ -111,10 +111,7 @@ def test_bug_O14_latin_supplement_and_symbols() -> None:
     assert filter_english_and_numbers("Café résumé naïve") == "Café résumé naïve"
 
     # 2. Legal and math symbols
-    assert (
-        filter_english_and_numbers("Sec § 3 — 5° ± 2 × 3 ½ © ®")
-        == "Sec § 3 — 5° ± 2 × 3 ½ © ®"
-    )
+    assert filter_english_and_numbers("Sec § 3 — 5° ± 2 × 3 ½ © ®") == "Sec § 3 — 5° ± 2 × 3 ½ © ®"
 
     # 3. Additional symbols: ÷, ¼, ¾, ™, …, ¥
     assert (

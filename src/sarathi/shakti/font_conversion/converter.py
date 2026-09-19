@@ -179,8 +179,10 @@ class FontConverter:
 
         # Pass 4: Declarative Pre-Base Matra Reordering (zero family branching)
         if profile.prefixes:
-            cluster_pat = profile.cluster_pattern if profile.cluster_pattern else (
-                _KRUTI_CONSONANT_CLUSTER if profile.family in ("krutidev", "devlys") else r"[^\s]"
+            cluster_pat = (
+                profile.cluster_pattern
+                if profile.cluster_pattern
+                else (_KRUTI_CONSONANT_CLUSTER if profile.family in ("krutidev", "devlys") else r"[^\s]")
             )
             for pfx, matra_uni in profile.prefixes.items():
                 if pfx in cur_text:

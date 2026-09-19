@@ -21,9 +21,7 @@ def test_proper_noun_protection_and_restoration_lifecycle() -> None:
     """Verify honorific, kinship, and village prefixes are protected and restored in English."""
     guard = ProperNounGuard()
 
-    hindi_source = (
-        "अभियुक्त श्री रामप्रसाद पुत्र सुखदेव निवासी ग्राम रामपुर तहसील बयाना जिला भरतपुर।"
-    )
+    hindi_source = "अभियुक्त श्री रामप्रसाद पुत्र सुखदेव निवासी ग्राम रामपुर तहसील बयाना जिला भरतपुर।"
 
     protected_text, placeholders = guard.protect(hindi_source)
     assert len(placeholders) >= 3

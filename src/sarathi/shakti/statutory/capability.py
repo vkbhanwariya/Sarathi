@@ -22,6 +22,7 @@ from sarathi.sankalpa import (
 from sarathi.shakti.statutory.extractor import extract_statutory_entities
 from sarathi.shakti.statutory.models import StatutoryEntities
 from sarathi.shakti.statutory.plugin import CAPABILITY_DECLARATION
+from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
@@ -77,9 +78,12 @@ class StatutoryCapability:
                     import pymupdf
 
                     try:
-                        doc = pymupdf.open(stream=data, filetype="pdf")
-                        pages_text = [p.get_text() for p in doc]
-                        doc.close()
+                        with GLOBAL_PYMUPDF_LOCK:
+                            doc = pymupdf.open(stream=data, filetype="pdf")
+                            try:
+                                pages_text = [p.get_text() for p in doc]
+                            finally:
+                                doc.close()
                         text_items.append((doc_id, "\n".join(pages_text)))
                     except Exception as exc:
                         raise DoshError(

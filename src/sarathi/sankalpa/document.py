@@ -181,6 +181,7 @@ def transform_canonical_document(
     - Aggregates tables across ALL pages when document-level tables were originally empty.
     - When reconstruct_text_from_spans is True, page.text and doc.text are composed directly from transformed spans.
     """
+
     def _cell_val(val: Any) -> str:
         return "" if val is None else str(val).strip()
 

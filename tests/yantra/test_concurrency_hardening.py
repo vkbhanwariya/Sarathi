@@ -254,3 +254,32 @@ def test_estimated_memory_bounds_rejection() -> None:
     with pytest.raises(DoshError) as exc:
         allocator.allocate(req)
     assert exc.value.code == FailureCode.RESOURCE_UNAVAILABLE
+
+
+def test_global_pymupdf_lock_reentrant_and_synchronizes() -> None:
+    """Verify GLOBAL_PYMUPDF_LOCK is re-entrant on the same thread and serializes across threads."""
+    from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK
+
+    # Test re-entrancy
+    with GLOBAL_PYMUPDF_LOCK:
+        with GLOBAL_PYMUPDF_LOCK:
+            pass
+
+    # Test thread synchronization
+    order: list[str] = []
+    barrier = threading.Barrier(2)
+
+    def _worker() -> None:
+        barrier.wait()
+        with GLOBAL_PYMUPDF_LOCK:
+            order.append("worker")
+
+    t = threading.Thread(target=_worker)
+    with GLOBAL_PYMUPDF_LOCK:
+        t.start()
+        barrier.wait()
+        time.sleep(0.05)
+        order.append("main")
+
+    t.join(timeout=2.0)
+    assert order == ["main", "worker"]
