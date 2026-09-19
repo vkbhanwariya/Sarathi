@@ -181,3 +181,94 @@ def test_weak_crop_batch_recognition_fast_path() -> None:
     assert page_data.spans[1].text == "मजबूत2"
     assert page_data.spans[1].confidence == 0.88
     assert page_data.metadata.get("retry_improved_count") == 2
+
+
+def test_bug_O3_pymupdf_lock_not_held_across_yield() -> None:
+    """O3: _PYMUPDF_LOCK must not be held across generator yields or block concurrent operations."""
+    import threading
+    import time
+
+    from sarathi.shakti.ocr.engine.rasterize import iter_images_from_bytes
+
+    pdf_bytes = _create_test_pdf_bytes(num_pages=3)
+
+    # 1. Start generator and pull only 1 page, leaving it suspended
+    gen = iter_images_from_bytes(pdf_bytes)
+    first_page = next(gen)
+    assert first_page is not None
+
+    # 2. In another thread, call get_page_count_from_bytes. It must complete within 1.0s!
+    result_box = []
+    error_box = []
+
+    def background_worker() -> None:
+        try:
+            t0 = time.perf_counter()
+            cnt = get_page_count_from_bytes(pdf_bytes)
+            t1 = time.perf_counter()
+            result_box.append((cnt, t1 - t0))
+        except Exception as e:
+            error_box.append(e)
+
+    t = threading.Thread(target=background_worker, daemon=True)
+    t.start()
+    t.join(timeout=1.0)
+
+    # If lock was held across yield, the thread is still alive and blocked on _PYMUPDF_LOCK!
+    assert not t.is_alive(), "_PYMUPDF_LOCK was held across yield, blocking concurrent thread!"
+    assert len(result_box) == 1
+    assert result_box[0][0] == 3
+    assert result_box[0][1] < 1.0
+
+    # Consume rest of generator
+    second_page = next(gen)
+    third_page = next(gen)
+    assert second_page is not None
+    assert third_page is not None
+
+
+def test_bug_O3_two_bounded_rasterizers_interleave() -> None:
+    """O3: Two BoundedPageRasterizers on two PDFs can interleave concurrently without deadlock."""
+    import concurrent.futures
+
+    pdf1 = _create_test_pdf_bytes(num_pages=3)
+    pdf2 = _create_test_pdf_bytes(num_pages=3)
+
+    r1 = BoundedPageRasterizer(pdf1, pages=[1, 2, 3], dpi=100, max_buffered=1)
+    r2 = BoundedPageRasterizer(pdf2, pages=[1, 2, 3], dpi=100, max_buffered=1)
+
+    with r1, r2:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            # Concurrently read pages alternating between r1 and r2
+            f1 = pool.submit(lambda: [r1.get_page(1), r1.get_page(2), r1.get_page(3)])
+            f2 = pool.submit(lambda: [r2.get_page(1), r2.get_page(2), r2.get_page(3)])
+            pages1 = f1.result(timeout=3.0)
+            pages2 = f2.result(timeout=3.0)
+
+    assert len(pages1) == 3 and all(p is not None for p in pages1)
+    assert len(pages2) == 3 and all(p is not None for p in pages2)
+
+
+def test_bug_O3_tiff_n_frames_and_clamping() -> None:
+    """O3: get_page_count uses n_frames on multi-frame TIFF and clamps max dimension."""
+    import io
+
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine.rasterize import extract_single_page_image
+
+    # 1. Multi-frame TIFF
+    frames = [Image.new("RGB", (50, 50), color=c) for c in ("red", "green", "blue")]
+    buf = io.BytesIO()
+    frames[0].save(buf, format="TIFF", save_all=True, append_images=frames[1:])
+    tiff_bytes = buf.getvalue()
+
+    count = get_page_count_from_bytes(tiff_bytes)
+    assert count == 3
+
+    # 2. Clamped pixmap dimension
+    pdf_bytes = _create_test_pdf_bytes(num_pages=1)
+    # With max_dimension=100, page width=300 (which at dpi=200 would be 833px) should be clamped to <= 100
+    clamped_img = extract_single_page_image(pdf_bytes, page_number=1, dpi=200, max_dimension=100)
+    assert clamped_img is not None
+    assert max(clamped_img.width, clamped_img.height) <= 100

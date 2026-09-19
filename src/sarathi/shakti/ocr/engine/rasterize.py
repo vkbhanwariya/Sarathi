@@ -7,6 +7,25 @@ import threading
 from typing import Any, Iterator
 
 _PYMUPDF_LOCK = threading.Lock()
+DEFAULT_MAX_PIXMAP_DIMENSION: int = 4096
+
+
+def _render_clamped_pixmap(
+    page: Any,
+    dpi: int = 200,
+    max_dimension: int = DEFAULT_MAX_PIXMAP_DIMENSION,
+) -> Any:
+    """Render PyMuPDF page to pixmap, clamping maximum dimension to avoid memory blowup on huge pages."""
+    rect = page.rect
+    max_side = max(rect.width, rect.height)
+    scale = dpi / 72.0
+    if max_dimension > 0 and max_side * scale > max_dimension and max_side > 0:
+        scale = max_dimension / max_side
+        import pymupdf
+
+        mat = pymupdf.Matrix(scale, scale)
+        return page.get_pixmap(matrix=mat)
+    return page.get_pixmap(dpi=dpi)
 
 
 def get_page_count_from_bytes(data: bytes) -> int:
@@ -26,9 +45,14 @@ def get_page_count_from_bytes(data: bytes) -> int:
         except Exception:
             return 0
     try:
-        from PIL import Image, ImageSequence
+        from PIL import Image
 
         with Image.open(io.BytesIO(data)) as img:
+            n_frames = getattr(img, "n_frames", None)
+            if n_frames is not None and isinstance(n_frames, int) and n_frames >= 1:
+                return n_frames
+            from PIL import ImageSequence
+
             return sum(1 for _ in ImageSequence.Iterator(img)) or 1
     except Exception:
         return 0
@@ -39,6 +63,7 @@ def extract_single_page_image(
     page_number: int,
     dpi: int = 200,
     cancellation_token: Any | None = None,
+    max_dimension: int = DEFAULT_MAX_PIXMAP_DIMENSION,
 ) -> Any | None:
     """Extract and rasterize a single page (1-indexed) without rasterizing any other pages."""
     if cancellation_token is not None:
@@ -48,20 +73,26 @@ def extract_single_page_image(
         import pymupdf
         from PIL import Image
 
+        doc = None
         with _PYMUPDF_LOCK:
             try:
                 doc = pymupdf.open(stream=data, filetype="pdf")
+                total_pages = len(doc)
             except (pymupdf.FileDataError, pymupdf.EmptyFileError, ValueError):
                 return None
-            try:
-                if page_number < 1 or page_number > len(doc):
-                    return None
-                if cancellation_token is not None:
-                    cancellation_token.check_cancelled()
+
+        try:
+            if page_number < 1 or page_number > total_pages:
+                return None
+            if cancellation_token is not None:
+                cancellation_token.check_cancelled()
+            with _PYMUPDF_LOCK:
                 page = doc[page_number - 1]
-                pix = page.get_pixmap(dpi=dpi)
-                return Image.frombuffer("RGB", (pix.width, pix.height), pix.samples, "raw", "RGB", 0, 1)
-            finally:
+                pix = _render_clamped_pixmap(page, dpi=dpi, max_dimension=max_dimension)
+                img = Image.frombuffer("RGB", (pix.width, pix.height), pix.samples, "raw", "RGB", 0, 1).copy()
+            return img
+        finally:
+            with _PYMUPDF_LOCK:
                 doc.close()
 
     try:
@@ -84,6 +115,7 @@ def iter_images_from_bytes(
     dpi: int = 200,
     cancellation_token: Any | None = None,
     skip_pages: set[int] | None = None,
+    max_dimension: int = DEFAULT_MAX_PIXMAP_DIMENSION,
 ) -> Iterator[Any]:
     """Yield PIL RGB images page-by-page from input bytes (PDF or Image) with cooperative cancellation."""
     import pymupdf
@@ -91,22 +123,30 @@ def iter_images_from_bytes(
 
     # 1. Check if PDF
     if data.startswith(b"%PDF-") or b"%PDF-" in data[:1024]:
+        doc = None
         with _PYMUPDF_LOCK:
             try:
                 doc = pymupdf.open(stream=data, filetype="pdf")
+                num_pages = len(doc)
             except (pymupdf.FileDataError, pymupdf.EmptyFileError, ValueError):
                 return
 
-            try:
-                for page_idx, page in enumerate(doc, start=1):
-                    if cancellation_token is not None:
-                        cancellation_token.check_cancelled()
-                    if skip_pages and page_idx in skip_pages:
-                        yield None
-                        continue
-                    pix = page.get_pixmap(dpi=dpi)
-                    yield Image.frombuffer("RGB", (pix.width, pix.height), pix.samples, "raw", "RGB", 0, 1)
-            finally:
+        try:
+            for page_idx in range(1, num_pages + 1):
+                if cancellation_token is not None:
+                    cancellation_token.check_cancelled()
+                if skip_pages and page_idx in skip_pages:
+                    yield None
+                    continue
+
+                with _PYMUPDF_LOCK:
+                    page = doc[page_idx - 1]
+                    pix = _render_clamped_pixmap(page, dpi=dpi, max_dimension=max_dimension)
+                    img = Image.frombuffer("RGB", (pix.width, pix.height), pix.samples, "raw", "RGB", 0, 1).copy()
+
+                yield img
+        finally:
+            with _PYMUPDF_LOCK:
                 doc.close()
         return
 
@@ -138,9 +178,20 @@ def extract_images_from_bytes(
     dpi: int = 200,
     cancellation_token: Any | None = None,
     skip_pages: set[int] | None = None,
+    max_dimension: int = DEFAULT_MAX_PIXMAP_DIMENSION,
 ) -> list[Any]:
-    """Convert input file bytes (PDF or Image) into a list of PIL RGB images."""
-    return list(iter_images_from_bytes(data, dpi=dpi, cancellation_token=cancellation_token, skip_pages=skip_pages))
+    """Extract and rasterize all pages from input bytes into PIL RGB images in memory."""
+    return [
+        img
+        for img in iter_images_from_bytes(
+            data,
+            dpi=dpi,
+            cancellation_token=cancellation_token,
+            skip_pages=skip_pages,
+            max_dimension=max_dimension,
+        )
+        if img is not None
+    ]
 
 
 class BoundedPageRasterizer:
