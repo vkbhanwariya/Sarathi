@@ -219,9 +219,11 @@ def render_pdf_page(path_str: str, page_number: int) -> tuple[int, dict[str, Any
 
 
 def _extract_docx_preview(file_path: Path) -> tuple[list[str], list[dict[str, Any]]]:
-    """Extract paragraphs and tables from OpenXML docx using Python standard library."""
-    import xml.etree.ElementTree as ET
+    """Extract paragraphs and tables from OpenXML docx using safe zip and defusedxml parsing."""
     import zipfile
+
+    import defusedxml.ElementTree as defused_ET
+    from defusedxml.common import DefusedXmlException
 
     paragraphs: list[str] = []
     tables: list[dict[str, Any]] = []
@@ -232,32 +234,41 @@ def _extract_docx_preview(file_path: Path) -> tuple[list[str], list[dict[str, An
     tr_tag = f"{w_ns}tr"
     tc_tag = f"{w_ns}tc"
 
-    with zipfile.ZipFile(str(file_path), "r") as zf:
-        if "word/document.xml" not in zf.namelist():
-            return [], []
-        doc_xml = zf.read("word/document.xml")
-        tree = ET.fromstring(doc_xml)
-        body = tree.find(f"{w_ns}body")
-        if body is None:
-            return [], []
-        for elem in body:
-            if elem.tag == p_tag:
-                text = "".join(t.text for t in elem.findall(f".//{t_tag}") if t.text).strip()
-                if text:
-                    paragraphs.append(text)
-            elif elem.tag == tbl_tag:
-                tbl_rows: list[list[str]] = []
-                for tr in elem.findall(tr_tag):
-                    row_cells = [
-                        "".join(t.text for t in tc.findall(f".//{t_tag}") if t.text).strip()
-                        for tc in tr.findall(tc_tag)
-                    ]
-                    if row_cells:
-                        tbl_rows.append(row_cells)
-                if tbl_rows:
-                    headers = tbl_rows[0]
-                    data_rows = tbl_rows[1:] if len(tbl_rows) > 1 else []
-                    tables.append({"headers": headers, "rows": data_rows})
+    try:
+        with zipfile.ZipFile(str(file_path), "r") as zf:
+            infolist = zf.infolist()
+            if len(infolist) > 10000:
+                return [], []
+            total_uncompressed = sum(info.file_size for info in infolist)
+            if total_uncompressed > 1024 * 1024 * 1024:
+                return [], []
+            if "word/document.xml" not in zf.namelist():
+                return [], []
+            doc_xml = zf.read("word/document.xml")
+            tree = defused_ET.fromstring(doc_xml)
+            body = tree.find(f"{w_ns}body")
+            if body is None:
+                return [], []
+            for elem in body:
+                if elem.tag == p_tag:
+                    text = "".join(t.text for t in elem.findall(f".//{t_tag}") if t.text).strip()
+                    if text:
+                        paragraphs.append(text)
+                elif elem.tag == tbl_tag:
+                    tbl_rows: list[list[str]] = []
+                    for tr in elem.findall(tr_tag):
+                        row_cells = [
+                            "".join(t.text for t in tc.findall(f".//{t_tag}") if t.text).strip()
+                            for tc in tr.findall(tc_tag)
+                        ]
+                        if row_cells:
+                            tbl_rows.append(row_cells)
+                    if tbl_rows:
+                        headers = tbl_rows[0]
+                        data_rows = tbl_rows[1:] if len(tbl_rows) > 1 else []
+                        tables.append({"headers": headers, "rows": data_rows})
+    except (zipfile.BadZipFile, DefusedXmlException, Exception):
+        return [], []
     return paragraphs, tables
 
 

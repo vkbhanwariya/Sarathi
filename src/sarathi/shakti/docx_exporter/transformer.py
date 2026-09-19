@@ -40,6 +40,7 @@ from sarathi.shakti.docx_exporter.styles import (
     _is_complex_script_char,
     resolve_neutral_ooxml_font,
 )
+from sarathi.shakti.native_extraction.safe_zip import open_zip_safely, safe_fromstring
 from sarathi.shakti.text.legacy_detection import _KNOWN_MODERN_FONTS
 from sarathi.shakti.text.typography import contains_devanagari
 
@@ -119,7 +120,7 @@ def transform_docx_artifact(
         )
 
         with (
-            zipfile.ZipFile(in_buf, "r") as in_zf,
+            open_zip_safely(in_buf) as in_zf,
             zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf,
         ):
             styles_xml = in_zf.read("word/styles.xml") if "word/styles.xml" in in_zf.namelist() else None
@@ -149,7 +150,7 @@ def transform_docx_artifact(
 
                 if is_target_xml:
                     try:
-                        tree = ET.fromstring(raw_entry)
+                        tree = safe_fromstring(raw_entry)
                         _transform_xml_tree(
                             tree,
                             converter_fn,
@@ -393,7 +394,7 @@ def transform_docx_translation_artifact(
         out_buf = io.BytesIO()
 
         with (
-            zipfile.ZipFile(in_buf, "r") as in_zf,
+            open_zip_safely(in_buf) as in_zf,
             zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as out_zf,
         ):
             for item in in_zf.infolist():
@@ -411,7 +412,7 @@ def transform_docx_translation_artifact(
 
                 if is_target_xml:
                     try:
-                        tree = ET.fromstring(raw_entry)
+                        tree = safe_fromstring(raw_entry)
                         p_tag = f"{{{_W_NS}}}p"
 
                         # 1. Collect paragraphs needing translation

@@ -396,3 +396,51 @@ class Settings:
             code=FailureCode.INVALID_CONFIGURATION,
             message="plugins.disabled must be a sequence of strings.",
         )
+
+    @property
+    def limits_max_input_bytes(self) -> int:
+        """Return maximum allowed input file size in bytes, defaulting to 500 MB."""
+        sec = self.get_section("limits")
+        raw = sec.get("max_input_bytes", 524_288_000) if sec is not None else 524_288_000
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"limits.max_input_bytes must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
+    def limits_max_uncompressed_bytes(self) -> int:
+        """Return maximum allowed total uncompressed ZIP bytes, defaulting to 1 GiB."""
+        sec = self.get_section("limits")
+        raw = sec.get("max_uncompressed_bytes", 1_073_741_824) if sec is not None else 1_073_741_824
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"limits.max_uncompressed_bytes must be a positive integer, got {raw!r}.",
+            )
+        return raw
+
+    @property
+    def limits_max_compression_ratio(self) -> float:
+        """Return maximum allowed ZIP compression ratio, defaulting to 200.0."""
+        sec = self.get_section("limits")
+        raw = sec.get("max_compression_ratio", 200.0) if sec is not None else 200.0
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"limits.max_compression_ratio must be a positive number, got {raw!r}.",
+            )
+        return float(raw)
+
+    @property
+    def limits_max_zip_members(self) -> int:
+        """Return maximum allowed member files in a ZIP archive, defaulting to 10000."""
+        sec = self.get_section("limits")
+        raw = sec.get("max_zip_members", 10_000) if sec is not None else 10_000
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"limits.max_zip_members must be a positive integer, got {raw!r}.",
+            )
+        return raw

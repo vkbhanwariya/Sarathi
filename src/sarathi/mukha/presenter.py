@@ -94,6 +94,7 @@ class MukhaPresenter:
         runtime_root: Path | None = None,
         output_root: Path | None = None,
         recursive: bool = False,
+        max_input_bytes: int | None = None,
     ) -> tuple[tuple[InputRef, ...], InputSelectionView, PreflightView]:
         """Delegate input discovery to canonical intake module."""
         from sarathi.mukha.intake import intake_from_paths
@@ -104,6 +105,7 @@ class MukhaPresenter:
             runtime_root=runtime_root,
             output_root=output_root,
             recursive=recursive,
+            max_input_bytes=max_input_bytes,
         )
 
     @staticmethod

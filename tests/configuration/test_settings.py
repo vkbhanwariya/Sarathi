@@ -281,3 +281,27 @@ def test_bug_S2_shipped_settings_security_defaults() -> None:
         with pytest.raises(DoshError) as exc_info:
             kavacha.authorize(decl)
         assert exc_info.value.code is FailureCode.SECURITY_DENIED
+
+
+def test_limits_settings_accessors() -> None:
+    """Verify Settings limits accessors return defaults and validated values."""
+    empty_settings = Settings({})
+    assert empty_settings.limits_max_input_bytes == 524_288_000
+    assert empty_settings.limits_max_uncompressed_bytes == 1_073_741_824
+    assert empty_settings.limits_max_compression_ratio == 200.0
+    assert empty_settings.limits_max_zip_members == 10_000
+
+    custom = Settings(
+        {
+            "limits": {
+                "max_input_bytes": 1000,
+                "max_uncompressed_bytes": 5000,
+                "max_compression_ratio": 50.0,
+                "max_zip_members": 20,
+            }
+        }
+    )
+    assert custom.limits_max_input_bytes == 1000
+    assert custom.limits_max_uncompressed_bytes == 5000
+    assert custom.limits_max_compression_ratio == 50.0
+    assert custom.limits_max_zip_members == 20

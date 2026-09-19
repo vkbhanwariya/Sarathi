@@ -51,6 +51,7 @@ def intake_from_paths(
     runtime_root: Path | None = None,
     output_root: Path | None = None,
     recursive: bool = False,
+    max_input_bytes: int | None = None,
 ) -> tuple[tuple[InputRef, ...], InputSelectionView, PreflightView]:
     """Convert selected filesystem paths, pasted strings, or folders into canonical InputRefs.
 
@@ -84,6 +85,7 @@ def intake_from_paths(
     format_groups: dict[str, list[int]] = {}
     issues: list[tuple[str, str]] = []
     total_size = 0
+    limit_bytes = max_input_bytes if max_input_bytes is not None else 524_288_000
 
     # 1. Expand input elements (supporting pasted multiline strings and quoted tokens)
     expanded_candidates: list[Path] = []
@@ -190,6 +192,10 @@ def intake_from_paths(
                     issues.append((df.name, "failed to stat file size"))
                     continue
 
+                if size > limit_bytes:
+                    issues.append((df.name, f"file size ({size} bytes) exceeds limit ({limit_bytes} bytes)"))
+                    continue
+
                 seen_paths.add(df_resolved)
                 input_id = f"inp-{len(valid_refs) + 1:03d}"
                 ref = InputRef(
@@ -265,6 +271,20 @@ def intake_from_paths(
                     size_bytes=0,
                     is_eligible=False,
                     issue_reason="failed to read file size",
+                    source_path=str(cand),
+                )
+            )
+            continue
+
+        if size > limit_bytes:
+            issues.append((display_name, f"file size ({size} bytes) exceeds limit ({limit_bytes} bytes)"))
+            input_items.append(
+                InputItemView(
+                    input_id=f"inp-{len(input_items) + 1:03d}",
+                    display_name=display_name,
+                    size_bytes=size,
+                    is_eligible=False,
+                    issue_reason=f"file size ({size} bytes) exceeds limit ({limit_bytes} bytes)",
                     source_path=str(cand),
                 )
             )

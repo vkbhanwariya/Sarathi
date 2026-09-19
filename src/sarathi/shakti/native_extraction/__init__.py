@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from sarathi.shakti.native_extraction.capability import NativeExtractionCapability
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION, PLUGIN_INFO
+from sarathi.shakti.native_extraction.safe_zip import open_zip_safely, safe_fromstring
 
 __all__ = [
     "CAPABILITY_DECLARATION",
     "NativeExtractionCapability",
     "PLUGIN_INFO",
+    "open_zip_safely",
+    "safe_fromstring",
 ]

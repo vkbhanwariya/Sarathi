@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import xml.etree.ElementTree as ET
-import zipfile
 from typing import Any
 from zipfile import BadZipFile
 
@@ -24,6 +23,7 @@ from sarathi.shakti.native_extraction.readers.common import (
     PLUGIN_ID,
     STAGE_NAME,
 )
+from sarathi.shakti.native_extraction.safe_zip import open_zip_safely, safe_fromstring
 
 
 def _sheet_sort_key(fname: str) -> int:
@@ -41,6 +41,9 @@ def read_xlsx(
     provenances: list[ProvenanceRecord] = []
     warnings: list[WarningRecord] = []
     reader_used = "python-calamine"
+
+    with open_zip_safely(data) as _:
+        pass
 
     try:
         wb = python_calamine.CalamineWorkbook.from_object(io.BytesIO(data))
@@ -116,10 +119,10 @@ def read_xlsx(
     filter_detected = False
     filter_details: list[str] = []
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        with open_zip_safely(data) as zf:
             sheet_titles: list[str] = []
             if "xl/workbook.xml" in zf.namelist():
-                wb_root = ET.fromstring(zf.read("xl/workbook.xml"))
+                wb_root = safe_fromstring(zf.read("xl/workbook.xml"))
                 for elem in wb_root.iter():
                     if elem.tag.endswith("sheet") and "name" in elem.attrib:
                         sheet_titles.append(elem.attrib["name"])
@@ -133,7 +136,7 @@ def read_xlsx(
                 has_hidden = b'hidden="1"' in sheet_bytes or b'hidden="true"' in sheet_bytes
                 if has_af or has_hidden:
                     filter_detected = True
-                    s_tree = ET.fromstring(sheet_bytes)
+                    s_tree = safe_fromstring(sheet_bytes)
                     af_elem = next((e for e in s_tree.iter() if e.tag.endswith("autoFilter")), None)
                     af_ref = af_elem.attrib.get("ref", "none") if af_elem is not None else "none"
                     title = sheet_titles[idx] if idx < len(sheet_titles) else f"Sheet{idx + 1}"
@@ -292,7 +295,7 @@ def read_spreadsheet_ml(
     warnings: list[WarningRecord] = []
 
     try:
-        root = ET.fromstring(data)
+        root = safe_fromstring(data)
     except (ET.ParseError, UnicodeDecodeError):
         match = charset_normalizer.from_bytes(data).best()
         enc = match.encoding if match and match.encoding else "utf-8"
@@ -301,7 +304,7 @@ def read_spreadsheet_ml(
             end_decl = text_content.find("?>")
             if end_decl != -1:
                 text_content = text_content[end_decl + 2 :].lstrip()
-        root = ET.fromstring(text_content.encode("utf-8"))
+        root = safe_fromstring(text_content.encode("utf-8"))
 
     # Strip namespace for robust tag matching
     ns = ""

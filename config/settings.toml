@@ -46,3 +46,9 @@ rate_limit_delay_seconds = 2.0
 api_version = "2024-11-30"
 model_translation = "azure-translator-v3"
 timeout_seconds = 60
+
+[limits]
+max_input_bytes = 524288000
+max_uncompressed_bytes = 1073741824
+max_compression_ratio = 200.0
+max_zip_members = 10000

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from sarathi.shakti.docx_exporter.constants import _W_NS
+from sarathi.shakti.native_extraction.safe_zip import safe_fromstring
 
 
 def _is_complex_script_char(c: str) -> bool:
@@ -56,7 +57,7 @@ class DocxStyleResolver:
 
     def _parse_styles(self, styles_xml: bytes) -> None:
         try:
-            root = ET.fromstring(styles_xml)
+            root = safe_fromstring(styles_xml)
         except (ET.ParseError, ValueError):
             return
 

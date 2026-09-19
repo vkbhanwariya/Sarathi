@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import io
 import xml.etree.ElementTree as ET
-import zipfile
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -21,6 +19,7 @@ from sarathi.shakti.native_extraction.readers.common import (
     PLUGIN_ID,
     STAGE_NAME,
 )
+from sarathi.shakti.native_extraction.safe_zip import open_zip_safely, safe_fromstring
 
 _W_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _P_TAG = f"{_W_NAMESPACE}p"
@@ -68,7 +67,7 @@ def read_docx(
     provenances: list[ProvenanceRecord] = []
     warnings: list[WarningRecord] = []
 
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+    with open_zip_safely(data) as zf:
         if "word/document.xml" not in zf.namelist():
             raise DoshError(
                 code=FailureCode.UNSUPPORTED,
@@ -78,7 +77,7 @@ def read_docx(
         style_resolver = DocxStyleResolver(styles_xml)
 
         doc_xml = zf.read("word/document.xml")
-        tree = ET.fromstring(doc_xml)
+        tree = safe_fromstring(doc_xml)
 
         body = tree.find(f"{_W_NAMESPACE}body")
         if body is not None:

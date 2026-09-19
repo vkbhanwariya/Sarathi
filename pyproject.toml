@@ -6,6 +6,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "beautifulsoup4>=4.15.0",
     "charset-normalizer>=3.5.1",
+    "defusedxml>=0.7.1",
     "openpyxl>=3.1.5",
     "polars>=1.44.1",
     "pymupdf==1.28.2",

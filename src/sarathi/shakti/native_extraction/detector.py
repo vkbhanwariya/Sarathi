@@ -15,6 +15,7 @@ from sarathi.shakti.darshana.identifier import (
     _SPREADSHEET_ML_REGEX,
     _ZIP_MAGIC,
 )
+from sarathi.shakti.native_extraction.safe_zip import open_zip_safely
 
 
 class DetectedFormat(Enum):
@@ -57,9 +58,7 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
     # 3. ZIP / DOCX / XLSX / XLSM detection
     if data.startswith(_ZIP_MAGIC):
         try:
-            import io
-
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            with open_zip_safely(data) as zf:
                 namelist = zf.namelist()
                 if "word/document.xml" in namelist:
                     return DetectedFormat.DOCX
