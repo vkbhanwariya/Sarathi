@@ -1383,3 +1383,102 @@ def test_native_extraction_statutory_continuation_preserves_resume_self(tmp_path
 
     assert res.next_requirement == "ocr"
     assert res.resume_self is True
+
+
+def test_native_extraction_escalates_hybrid_scanned_pdf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify that hybrid scanned PDF with high image coverage and header-only text escalates to OCR."""
+    from sarathi.sankalpa import CanonicalDocument, PageData
+
+    hybrid_doc = CanonicalDocument(
+        document_id="doc-hybrid",
+        source_input_id="inp-hybrid",
+        text="Page 1 of 10",
+        pages=(
+            PageData(
+                page_number=1,
+                text="Page 1 of 10",
+                metadata={
+                    "image_coverage": 0.85,
+                    "header": "Page 1 of 10",
+                    "body_char_count": 0,
+                    "is_scanned_image": True,
+                },
+            ),
+        ),
+    )
+
+    pdf_file = tmp_path / "hybrid_scanned.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4\n%dummy pdf bytes for test\n%%EOF")
+
+    import sarathi.shakti.native_extraction.capability as nat_cap_mod
+
+    monkeypatch.setattr(
+        nat_cap_mod,
+        "_get_reader",
+        lambda fmt: (lambda data, input_id, **kwargs: (hybrid_doc, (), ()), ()),
+    )
+
+    inp = InputRef(
+        input_id="inp-hybrid",
+        source_path=pdf_file,
+        display_name="hybrid_scanned.pdf",
+        size_bytes=pdf_file.stat().st_size,
+    )
+    req = Request(
+        request_id="req-hybrid",
+        requirement="read_native",
+        inputs=(inp,),
+    )
+    ctx = ExecutionContext("run-hybrid", "req-hybrid", "t-h", "s-h")
+    cap = nat_cap_mod.NativeExtractionCapability()
+    res = cap.execute(req, ctx)
+
+    assert res.next_requirement == "ocr"
+    assert any(w.code == "NATIVE_EXTRACTION_EMPTY" for w in res.warnings)
+
+
+def test_read_docx_preserves_tabs_breaks_and_sdt_clauses() -> None:
+    """Verify read_docx extracts text preserving tabs, breaks, hyphens, and SDT clauses in document order."""
+    import io
+    import zipfile
+
+    from sarathi.shakti.native_extraction.readers.docx import read_docx
+
+    doc_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        '  <w:body>\n'
+        '    <w:p>\n'
+        '      <w:r>\n'
+        '        <w:t>Header</w:t>\n'
+        '        <w:tab/>\n'
+        '        <w:t>Value</w:t>\n'
+        '        <w:br/>\n'
+        '        <w:t>Line2</w:t>\n'
+        '        <w:noBreakHyphen/>\n'
+        '        <w:t>Suffix</w:t>\n'
+        '      </w:r>\n'
+        '    </w:p>\n'
+        '    <w:sdt>\n'
+        '      <w:sdtContent>\n'
+        '        <w:p>\n'
+        '          <w:r><w:t>SDT Clause Text</w:t></w:r>\n'
+        '        </w:p>\n'
+        '      </w:sdtContent>\n'
+        '    </w:sdt>\n'
+        '  </w:body>\n'
+        '</w:document>'
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("word/document.xml", doc_xml)
+    docx_bytes = buf.getvalue()
+
+    doc, warnings, artifacts = read_docx(docx_bytes, "test-docx-sdt")
+    assert "Header\tValue\nLine2-Suffix" in doc.text
+    assert "SDT Clause Text" in doc.text
+    # Verify document order: paragraph before SDT clause
+    idx_p = doc.text.find("Header\tValue")
+    idx_sdt = doc.text.find("SDT Clause Text")
+    assert 0 <= idx_p < idx_sdt

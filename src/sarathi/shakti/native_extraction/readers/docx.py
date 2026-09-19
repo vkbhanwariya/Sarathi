@@ -30,14 +30,47 @@ _TR_TAG = f"{_W_NAMESPACE}tr"
 _TC_TAG = f"{_W_NAMESPACE}tc"
 
 
+def _extract_run_text(r_elem: ET.Element) -> str:
+    """Extract full run text preserving tabs, breaks, and carriage returns in order."""
+    text_chunks: list[str] = []
+    for child in r_elem:
+        tag = child.tag
+        if tag == _T_TAG:
+            if child.text:
+                text_chunks.append(child.text)
+        elif tag == f"{_W_NAMESPACE}tab":
+            text_chunks.append("\t")
+        elif tag == f"{_W_NAMESPACE}br":
+            br_type = child.attrib.get(f"{_W_NAMESPACE}type", "")
+            text_chunks.append("\n\n" if br_type.lower() == "page" else "\n")
+        elif tag == f"{_W_NAMESPACE}cr":
+            text_chunks.append("\n")
+        elif tag == f"{_W_NAMESPACE}noBreakHyphen":
+            text_chunks.append("-")
+    return "".join(text_chunks)
+
+
+def _collect_body_elements(container: ET.Element) -> list[ET.Element]:
+    """Recursively collect top-level paragraph and table elements in document order, traversing SDT blocks."""
+    elements: list[ET.Element] = []
+    for child in container:
+        if child.tag in (_P_TAG, _TBL_TAG):
+            elements.append(child)
+        elif child.tag == f"{_W_NAMESPACE}sdt":
+            sdt_content = child.find(f"{_W_NAMESPACE}sdtContent")
+            target = sdt_content if sdt_content is not None else child
+            elements.extend(_collect_body_elements(target))
+    return elements
+
+
 def _extract_docx_cell_text(tc_elem: ET.Element) -> str:
-    """Extract nested paragraph or table text from a table cell element."""
+    """Extract nested paragraph or table text from a table cell element preserving tabs and breaks."""
     parts: list[str] = []
     for child in tc_elem:
         if child.tag == _P_TAG:
-            p_text = "".join(t.text for t in child.findall(f".//{_T_TAG}") if t.text)
+            p_text = "".join(_extract_run_text(r) for r in child.iter(_R_TAG))
             if p_text:
-                parts.append(p_text)
+                parts.append(p_text.strip())
         elif child.tag == _TBL_TAG:
             for sub_tr in child.findall(_TR_TAG):
                 row_parts: list[str] = []
@@ -48,10 +81,16 @@ def _extract_docx_cell_text(tc_elem: ET.Element) -> str:
                 if row_parts:
                     parts.append(" ".join(row_parts))
         elif child.tag == f"{_W_NAMESPACE}sdt":
-            sdt_text = "".join(t.text for t in child.findall(f".//{_T_TAG}") if t.text)
-            if sdt_text:
-                parts.append(sdt_text)
+            sdt_content = child.find(f"{_W_NAMESPACE}sdtContent")
+            target = sdt_content if sdt_content is not None else child
+            for sdt_p in target.findall(f".//{_P_TAG}"):
+                p_text = "".join(_extract_run_text(r) for r in sdt_p.iter(_R_TAG))
+                if p_text:
+                    parts.append(p_text.strip())
     if not parts:
+        runs_text = "".join(_extract_run_text(r) for r in tc_elem.iter(_R_TAG)).strip()
+        if runs_text:
+            return runs_text
         return "".join(t.text for t in tc_elem.findall(f".//{_T_TAG}") if t.text).strip()
     return "\n".join(parts).strip()
 
@@ -83,13 +122,14 @@ def read_docx(
         if body is not None:
             tbl_count = 0
             p_count = 0
-            for elem in body:
+            body_elements = _collect_body_elements(body)
+            for elem in body_elements:
                 if elem.tag == _P_TAG:
                     p_count += 1
                     p_runs_text: list[str] = []
                     run_count = 0
                     for r in elem.iter(_R_TAG):
-                        r_text = "".join(t.text for t in r.findall(_T_TAG) if t.text)
+                        r_text = _extract_run_text(r)
                         if r_text:
                             run_count += 1
                             p_runs_text.append(r_text)

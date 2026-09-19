@@ -647,6 +647,14 @@ class TranslationCapability:
                                 stage="translation",
                             )
                         )
+                    if r.metadata.get("input_truncation_suspected"):
+                        doc_warnings.append(
+                            WarningRecord(
+                                code="TRANSLATION_INPUT_TRUNCATED",
+                                message="Translation input exceeded token bounds and was truncated.",
+                                stage="translation",
+                            )
+                        )
 
                 return translated_doc, prov, [txt_payload, docx_payload], doc_warnings
 

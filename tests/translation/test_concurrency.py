@@ -395,3 +395,67 @@ def test_translate_batch_deduplicates_identical_sentences() -> None:
     assert "IS ISSUED TO THE RESPONDENTS" in results[2].translated_text
     assert "सूचना" in results[2].translated_text
     assert "24.05.2024" in results[2].translated_text
+
+
+def test_translate_token_bounded_chunking_and_input_truncation_warning(monkeypatch: Any, tmp_path: Path) -> None:
+    """Verify sentences exceeding token limit are chunked and input truncation is detected."""
+    from types import SimpleNamespace
+
+    from sarathi.shakti.translation.engine import (
+        CTranslate2NativeBackend,
+        _chunk_long_sentence,
+    )
+
+    class FakeSPM:
+        def encode_as_pieces(self, text: str) -> list[str]:
+            # Each word is 10 tokens
+            return [f"tok_{i}" for i in range(len(text.split()) * 10)]
+
+        def decode_pieces(self, pieces: list[str]) -> str:
+            return " ".join(pieces)
+
+    # 1. Test _chunk_long_sentence on a 40-word sentence with no punctuation (400 tokens > 256 limit)
+    spm = FakeSPM()
+    long_sentence = "word " * 40
+    chunks = _chunk_long_sentence(long_sentence.strip(), spm, max_tokens=256)
+    assert len(chunks) >= 2
+    # Verify every chunk is <= 256 tokens
+    for c_text, _ in chunks:
+        assert len(spm.encode_as_pieces(c_text)) <= 256
+
+    # 2. Test translate_sentences captures max_input_length=1024 and flags input truncation
+    captured_kwargs: dict[str, Any] = {}
+
+    class FakeTranslator:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def translate_batch(self, tokenized: Any, **kwargs: Any) -> Any:
+            nonlocal captured_kwargs
+            captured_kwargs.update(kwargs)
+            return [SimpleNamespace(hypotheses=[["out_tok"]])] * len(tokenized)
+
+    import ctranslate2
+
+    monkeypatch.setattr(ctranslate2, "Translator", FakeTranslator)
+
+    model_dir = tmp_path / "models" / "indictrans2" / "hi-en"
+    model_dir.mkdir(parents=True)
+    (model_dir / "spm.model").write_bytes(b"dummy")
+    (model_dir / "model.bin").write_bytes(b"dummy")
+
+    backend = CTranslate2NativeBackend(root=tmp_path, manifest={})
+    backend._spms[f"src:{(model_dir / 'spm.model').resolve()}"] = FakeSPM()
+    backend._spms[f"tgt:{(model_dir / 'spm.model').resolve()}"] = FakeSPM()
+
+    # Create a giant sentence that exceeds 1024 tokens (110 words * 10 = 1100 tokens)
+    giant_piece = "giant " * 110
+    # Monkeypatch _chunk_long_sentence to return the giant piece directly to trigger piece_input_truncation
+    monkeypatch.setattr(
+        "sarathi.shakti.translation.engine._chunk_long_sentence",
+        lambda s, spm, max_tok: [(s, "")],
+    )
+
+    res = backend.translate_sentences([giant_piece], direction=TranslationDirection.HI_TO_EN)
+    assert captured_kwargs.get("max_input_length") == 1024
+    assert res.input_truncation_flags == (True,)

@@ -207,6 +207,7 @@ class BackendTranslationResult:
     sentences: list[str]
     device: str = "cpu"
     truncation_flags: tuple[bool, ...] = ()
+    input_truncation_flags: tuple[bool, ...] = ()
 
 
 class TranslatorBackend(Protocol):
@@ -221,6 +222,51 @@ class TranslatorBackend(Protocol):
     ) -> list[str] | tuple[list[str], str] | tuple[list[str], str, list[bool]] | BackendTranslationResult:
         """Translate a batch of sentences."""
         ...
+
+
+def _chunk_long_sentence(
+    s: str,
+    spm_src: Any,
+    max_tokens: int = MAX_SENTENCE_TOKENS,
+) -> list[tuple[str, str]]:
+    """Split a long sentence into sub-parts bounded by max_tokens."""
+    sub_parts = re.split(r"([;,:])\s*", s)
+    preliminary_parts: list[tuple[str, str]] = []
+    for i in range(0, len(sub_parts), 2):
+        sub_txt = sub_parts[i].strip()
+        sub_sep = (sub_parts[i + 1] + " ") if i + 1 < len(sub_parts) else ""
+        if sub_txt:
+            preliminary_parts.append((sub_txt, sub_sep))
+    if not preliminary_parts:
+        preliminary_parts = [(s, "")]
+
+    final_chunks: list[tuple[str, str]] = []
+    for txt, sep in preliminary_parts:
+        pieces = spm_src.encode_as_pieces(txt)
+        if len(pieces) <= max_tokens:
+            final_chunks.append((txt, sep))
+            continue
+
+        # Sub-chunk by whitespace words
+        words = txt.split(" ")
+        current_words: list[str] = []
+        for w in words:
+            candidate = " ".join(current_words + [w]) if current_words else w
+            if current_words and len(spm_src.encode_as_pieces(candidate)) > max_tokens:
+                final_chunks.append((" ".join(current_words), " "))
+                current_words = [w]
+            else:
+                current_words.append(w)
+        if current_words:
+            remainder = " ".join(current_words)
+            while len(spm_src.encode_as_pieces(remainder)) > max_tokens:
+                cut_point = max(1, len(remainder) // 2)
+                final_chunks.append((remainder[:cut_point], ""))
+                remainder = remainder[cut_point:]
+            if remainder:
+                final_chunks.append((remainder, sep))
+
+    return final_chunks or [(s, "")]
 
 
 class CTranslate2NativeBackend:
@@ -382,24 +428,16 @@ class CTranslate2NativeBackend:
             spm_src = self._spms[spm_src_key]
             spm_tgt = self._spms[spm_tgt_key]
 
-        # Split sentences longer than MAX_SENTENCE_TOKENS tokens at ;, ,, or : boundaries
+        # Split sentences longer than MAX_SENTENCE_TOKENS tokens into token-bounded chunks
         sentence_chunks: list[list[tuple[str, str]]] = []
         flat_pieces: list[str] = []
         for s in sentences:
             raw_pieces = spm_src.encode_as_pieces(s)
             if len(raw_pieces) > MAX_SENTENCE_TOKENS:
-                sub_parts = re.split(r"([;,:])\s*", s)
-                parts_list: list[tuple[str, str]] = []
-                for i in range(0, len(sub_parts), 2):
-                    sub_txt = sub_parts[i].strip()
-                    sub_sep = (sub_parts[i + 1] + " ") if i + 1 < len(sub_parts) else ""
-                    if sub_txt:
-                        parts_list.append((sub_txt, sub_sep))
-                        flat_pieces.append(sub_txt)
-                if not parts_list:
-                    parts_list = [(s, "")]
-                    flat_pieces.append(s)
-                sentence_chunks.append(parts_list)
+                chunks = _chunk_long_sentence(s, spm_src, MAX_SENTENCE_TOKENS)
+                sentence_chunks.append(chunks)
+                for txt, _ in chunks:
+                    flat_pieces.append(txt)
             else:
                 sentence_chunks.append([(s, "")])
                 flat_pieces.append(s)
@@ -411,6 +449,8 @@ class CTranslate2NativeBackend:
         else:
             tokenized = [spm_src.encode_as_pieces(p) for p in flat_pieces]
 
+        piece_input_truncations = [len(tok) >= 1024 for tok in tokenized]
+
         # Token-based batching bounds token count per forward pass, eliminating tail latency
         # on uneven sentence lengths while distributing work across worker threads.
         results = translator.translate_batch(
@@ -419,6 +459,7 @@ class CTranslate2NativeBackend:
             max_batch_size=1024,
             beam_size=DEFAULT_BEAM_SIZE,
             max_decoding_length=DEFAULT_MAX_DECODING_LENGTH,
+            max_input_length=1024,
         )
 
         decoded_pieces: list[str] = []
@@ -437,22 +478,28 @@ class CTranslate2NativeBackend:
 
         decoded_sentences: list[str] = []
         sentence_truncations: list[bool] = []
+        sentence_input_truncations: list[bool] = []
         p_idx = 0
         for chunks in sentence_chunks:
             s_text_parts: list[str] = []
             s_has_trunc = False
+            s_has_input_trunc = False
             for _, sep in chunks:
                 s_text_parts.append(decoded_pieces[p_idx] + sep)
                 if piece_truncations[p_idx]:
                     s_has_trunc = True
+                if piece_input_truncations[p_idx]:
+                    s_has_input_trunc = True
                 p_idx += 1
             decoded_sentences.append("".join(s_text_parts).strip())
             sentence_truncations.append(s_has_trunc)
+            sentence_input_truncations.append(s_has_input_trunc)
 
         return BackendTranslationResult(
             sentences=decoded_sentences,
             device=device,
             truncation_flags=tuple(sentence_truncations),
+            input_truncation_flags=tuple(sentence_input_truncations),
         )
 
 
@@ -665,6 +712,7 @@ class CTranslate2TranslationEngine:
         factual_device = target_device
         all_translated_sentences: list[str] = []
         truncation_flags: list[bool] = []
+        input_truncation_flags: list[bool] = []
         if all_prepared_sentences:
             # Batch-local sentence deduplication
             unique_sentences: list[str] = []
@@ -686,10 +734,12 @@ class CTranslate2TranslationEngine:
 
             unique_translated: Sequence[str] = []
             unique_truncations: Sequence[bool] = []
+            unique_input_truncations: Sequence[bool] = []
             if isinstance(backend_res, BackendTranslationResult):
                 unique_translated = backend_res.sentences
                 factual_device = backend_res.device
                 unique_truncations = backend_res.truncation_flags
+                unique_input_truncations = backend_res.input_truncation_flags
             elif isinstance(backend_res, tuple) and len(backend_res) >= 2:
                 unique_translated = backend_res[0]
                 factual_device = backend_res[1]
@@ -709,6 +759,8 @@ class CTranslate2TranslationEngine:
             all_translated_sentences = [unique_translated[i] for i in sentence_map]
             if unique_truncations:
                 truncation_flags = [unique_truncations[i] for i in sentence_map]
+            if unique_input_truncations:
+                input_truncation_flags = [unique_input_truncations[i] for i in sentence_map]
 
 
         results: list[TranslationResult] = []
@@ -729,7 +781,9 @@ class CTranslate2TranslationEngine:
 
             sents = all_translated_sentences[start_idx : start_idx + sent_count]
             item_truncations = truncation_flags[start_idx : start_idx + sent_count] if truncation_flags else []
+            item_input_truncations = input_truncation_flags[start_idx : start_idx + sent_count] if input_truncation_flags else []
             truncation_suspected = any(item_truncations)
+            input_truncation_suspected = any(item_input_truncations)
             translated_body = "".join(ts + sep for ts, sep in zip(sents, separators))
             final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
 
@@ -739,10 +793,17 @@ class CTranslate2TranslationEngine:
                 "backend": "ctranslate2",
                 "engine": norm_engine,
             }
+            warnings_list: list[str] = []
             if truncation_suspected:
                 span_issues.append("TRANSLATION_TRUNCATION_SUSPECTED")
                 metadata["truncation_suspected"] = True
-                metadata["warnings"] = ("TRANSLATION_TRUNCATION_SUSPECTED",)
+                warnings_list.append("TRANSLATION_TRUNCATION_SUSPECTED")
+            if input_truncation_suspected:
+                span_issues.append("TRANSLATION_INPUT_TRUNCATED")
+                metadata["input_truncation_suspected"] = True
+                warnings_list.append("TRANSLATION_INPUT_TRUNCATED")
+            if warnings_list:
+                metadata["warnings"] = tuple(warnings_list)
             if span_issues:
                 metadata["span_protection_issues"] = tuple(span_issues)
 

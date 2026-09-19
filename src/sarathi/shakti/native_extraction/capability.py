@@ -28,6 +28,7 @@ from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
 from sarathi.shakti.native_extraction.detector import DetectedFormat, detect_content_format
 from sarathi.shakti.native_extraction.plugin import CAPABILITY_DECLARATION
+from sarathi.shakti.text.usability import is_usable_document as _has_usable_content
 
 
 def read_pdf(
@@ -101,20 +102,6 @@ def _get_reader(
             return read_csv_or_text, (csv.Error, UnicodeDecodeError)
         case _:
             return None
-
-
-def _has_usable_content(doc: CanonicalDocument) -> bool:
-    """Check whether a CanonicalDocument contains usable text or table data across all pages."""
-    if doc.pages:
-        for p in doc.pages:
-            p_text = bool(p.text and p.text.strip())
-            p_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in p.tables)
-            if not (p_text or p_tables):
-                return False
-        return True
-    has_text = bool(doc.text and doc.text.strip())
-    has_tables = any(len(t.rows) > 0 or len(t.headers) > 0 for t in doc.tables)
-    return has_text or has_tables
 
 
 class NativeExtractionCapability:

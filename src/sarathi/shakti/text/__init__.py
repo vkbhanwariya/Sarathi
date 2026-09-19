@@ -27,6 +27,7 @@ from sarathi.shakti.text.typography import (
     normalize_size,
     output_font,
 )
+from sarathi.shakti.text.usability import is_usable_document, is_usable_page
 
 __all__ = [
     "BaseSpanProtector",
@@ -42,6 +43,8 @@ __all__ = [
     "contains_devanagari",
     "is_legacy_text",
     "is_romanized_hindi",
+    "is_usable_document",
+    "is_usable_page",
     "lazy_exports",
     "load_font_profiles",
     "normalize_size",
