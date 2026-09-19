@@ -606,171 +606,14 @@ class RunCoordinator:
                     maruti_recs, pramana_recs = get_run_telemetry(self._agni, run_id)
                     wall_time_ns = max(0, time.perf_counter_ns() - self._active_start_ns)
 
-                    with self._lock:
-                        self._last_result = result
-                        self._last_result_run_id = run_id
-                        if result.metadata.get("output_dir"):
-                            self._run_output_roots[run_id] = Path(result.metadata["output_dir"])
-
-                        context_run_id = result.metadata.get("run_id")
-                        if context_run_id and str(context_run_id) != run_id:
-                            self._run_aliases[run_id] = str(context_run_id)
-                            self._run_aliases[str(context_run_id)] = run_id
-                        # Populate confirmed artifacts for download
-                        if result.artifacts:
-                            self._confirmed_artifacts[run_id] = {art.artifact_id: art for art in result.artifacts}
-                            if context_run_id and str(context_run_id) != run_id:
-                                self._confirmed_artifacts[str(context_run_id)] = self._confirmed_artifacts[run_id]
-
-                        # Correlate warnings per input
-                        input_warn_counts: dict[str, int] = {inp.input_id: 0 for inp in request.inputs}
-                        unassociated_warns = 0
-                        for w in result.warnings:
-                            w_inp = (
-                                w.context.get("input_id")
-                                or w.context.get("source_input_id")
-                                or w.context.get("source_file")
-                            )
-                            if w_inp and w_inp in input_warn_counts:
-                                input_warn_counts[w_inp] += 1
-                            else:
-                                unassociated_warns += 1
-
-                        self._unassociated_warning_count = unassociated_warns
-
-                        # Map produced document outputs to inputs
-                        doc_map: dict[str, Any] = {}
-                        contributing_inputs: set[str] = set()
-
-                        if isinstance(result.data, CanonicalDocument):
-                            doc_map[result.data.source_input_id] = result.data
-                            contributing_inputs.add(result.data.source_input_id)
-                        elif isinstance(result.data, (tuple, list)):
-                            for item in result.data:
-                                if isinstance(item, CanonicalDocument):
-                                    doc_map[item.source_input_id] = item
-                                    contributing_inputs.add(item.source_input_id)
-                                elif hasattr(item, "source_input_id") and item.source_input_id:
-                                    contributing_inputs.add(str(item.source_input_id))
-
-                        # Gather contributing inputs and outcomes from result metadata contract
-                        capability_outcomes = dict(result.metadata.get("input_outcomes") or {})
-                        contributing_meta = result.metadata.get("contributing_input_ids")
-                        if contributing_meta:
-                            contributing_inputs.update(str(cid) for cid in contributing_meta)
-
-                        # Also gather contributing inputs from result provenance
-                        if result.provenance:
-                            for p in result.provenance:
-                                if p.source_input_id:
-                                    contributing_inputs.add(p.source_input_id)
-
-                        successful_cnt = 0
-                        warning_cnt = 0
-                        failed_cnt = 0
-
-                        is_run_cached = bool(result.metadata.get("cached")) if result and result.metadata else False
-                        if not is_run_cached and maruti_recs:
-                            is_run_cached = any(
-                                r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
-                                for r in maruti_recs
-                            )
-                        stage_label = "Completed (Cached)" if is_run_cached else "Completed"
-
-                        for inp in request.inputs:
-                            existing = self._file_progress.get(inp.input_id) or self._file_progress.get(
-                                inp.display_name, {}
-                            )
-                            start_t = existing.get("started_ns")
-                            duration = existing.get("duration_ns")
-                            w_count = input_warn_counts.get(inp.input_id, 0)
-
-                            # Determine factual per-input status
-                            if inp.input_id in capability_outcomes:
-                                explicit_status = str(capability_outcomes[inp.input_id]).upper()
-                                if explicit_status in ("SUCCESS", "COMPLETED"):
-                                    f_stat = "WARNING" if w_count > 0 else "SUCCESS"
-                                elif explicit_status in ("WARNING",):
-                                    f_stat = "WARNING"
-                                else:
-                                    f_stat = "FAILED"
-                            else:
-                                if len(request.inputs) > 1:
-                                    has_input_doc = inp.input_id in doc_map
-                                    has_input_artifact = (
-                                        any(
-                                            str(art.metadata.get("source_input_id", "")) == inp.input_id
-                                            or str(art.metadata.get("input_id", "")) == inp.input_id
-                                            or inp.input_id in (art.metadata.get("source_input_ids") or ())
-                                            for art in result.artifacts
-                                        )
-                                        if result.artifacts
-                                        else False
-                                    )
-                                    has_aggregate_credit = any(
-                                        bool(art.metadata.get("is_aggregate")) for art in result.artifacts
-                                    ) and (inp.input_id in contributing_inputs or not contributing_inputs)
-                                    has_output = has_input_doc or has_input_artifact or has_aggregate_credit
-                                else:
-                                    has_output = (
-                                        inp.input_id in doc_map or result.data is not None or bool(result.artifacts)
-                                    )
-
-                                if not has_output:
-                                    f_stat = "FAILED"
-                                elif w_count > 0:
-                                    f_stat = "WARNING"
-                                else:
-                                    f_stat = "SUCCESS"
-
-                            if f_stat == "SUCCESS":
-                                successful_cnt += 1
-                            elif f_stat == "WARNING":
-                                warning_cnt += 1
-                            else:
-                                failed_cnt += 1
-
-                            info = {
-                                "input_id": inp.input_id,
-                                "file_display_name": inp.display_name,
-                                "status": f_stat,
-                                "stage": stage_label,
-                                "started_ns": start_t,
-                                "duration_ns": duration,
-                                "warning_count": w_count,
-                                "cached": is_run_cached,
-                            }
-                            self._file_progress[inp.input_id] = info
-                            self._file_progress[inp.display_name] = info
-
-                        # Determine factual overall run status
-                        if failed_cnt > 0 and successful_cnt == 0 and warning_cnt == 0:
-                            overall_status = "FAILED"
-                        elif failed_cnt > 0:
-                            overall_status = "PARTIAL"
-                        elif warning_cnt > 0 or unassociated_warns > 0:
-                            overall_status = "WARNING"
-                        else:
-                            overall_status = "SUCCESS"
-
-                        summary = MukhaPresenter.build_summary_view(
-                            run_id=run_id,
-                            status=overall_status,
-                            wall_time_ns=wall_time_ns,
-                            request=request,
-                            result=result,
-                            successful_files=successful_cnt,
-                            warning_files=warning_cnt,
-                            failed_files=failed_cnt,
-                            maruti_records=maruti_recs,
-                            pramana_records=pramana_recs,
-                            unassociated_warning_count=unassociated_warns,
-                        )
-                        self._terminal_status = overall_status
-                        self._terminal_summary = summary
-                        self._run_summaries[run_id] = summary
-                        if context_run_id and str(context_run_id) != run_id:
-                            self._run_summaries[str(context_run_id)] = summary
+                    self._finalize_successful_run(
+                        run_id=run_id,
+                        request=request,
+                        result=result,
+                        maruti_recs=maruti_recs,
+                        pramana_recs=pramana_recs,
+                        wall_time_ns=wall_time_ns,
+                    )
                 except DoshError as dosh_err:
                     is_cancelled = (
                         (request.cancellation_token and request.cancellation_token.is_cancelled)
@@ -866,6 +709,182 @@ class RunCoordinator:
             )
             self._active_thread.start()
             return StartRunResponse(status=StartRunStatus.OK, run_id=run_id)
+
+    def _finalize_successful_run(
+        self,
+        run_id: str,
+        request: Request,
+        result: Result,
+        maruti_recs: Any,
+        pramana_recs: Any,
+        wall_time_ns: int,
+    ) -> None:
+        """Process successful result, update live progress, and record terminal summary."""
+        with self._lock:
+            self._last_result = result
+            self._last_result_run_id = run_id
+            if result.metadata.get("output_dir"):
+                self._run_output_roots[run_id] = Path(result.metadata["output_dir"])
+
+            context_run_id = result.metadata.get("run_id")
+            if context_run_id and str(context_run_id) != run_id:
+                self._run_aliases[run_id] = str(context_run_id)
+                self._run_aliases[str(context_run_id)] = run_id
+            # Populate confirmed artifacts for download
+            if result.artifacts:
+                self._confirmed_artifacts[run_id] = {art.artifact_id: art for art in result.artifacts}
+                if context_run_id and str(context_run_id) != run_id:
+                    self._confirmed_artifacts[str(context_run_id)] = self._confirmed_artifacts[run_id]
+
+            # Correlate warnings per input
+            input_warn_counts: dict[str, int] = {inp.input_id: 0 for inp in request.inputs}
+            unassociated_warns = 0
+            for w in result.warnings:
+                w_inp = (
+                    w.context.get("input_id")
+                    or w.context.get("source_input_id")
+                    or w.context.get("source_file")
+                )
+                if w_inp and w_inp in input_warn_counts:
+                    input_warn_counts[w_inp] += 1
+                else:
+                    unassociated_warns += 1
+
+            self._unassociated_warning_count = unassociated_warns
+
+            # Map produced document outputs to inputs
+            doc_map: dict[str, Any] = {}
+            contributing_inputs: set[str] = set()
+
+            if isinstance(result.data, CanonicalDocument):
+                doc_map[result.data.source_input_id] = result.data
+                contributing_inputs.add(result.data.source_input_id)
+            elif isinstance(result.data, (tuple, list)):
+                for item in result.data:
+                    if isinstance(item, CanonicalDocument):
+                        doc_map[item.source_input_id] = item
+                        contributing_inputs.add(item.source_input_id)
+                    elif hasattr(item, "source_input_id") and item.source_input_id:
+                        contributing_inputs.add(str(item.source_input_id))
+
+            # Gather contributing inputs and outcomes from result metadata contract
+            capability_outcomes = dict(result.metadata.get("input_outcomes") or {})
+            contributing_meta = result.metadata.get("contributing_input_ids")
+            if contributing_meta:
+                contributing_inputs.update(str(cid) for cid in contributing_meta)
+
+            # Also gather contributing inputs from result provenance
+            if result.provenance:
+                for p in result.provenance:
+                    if p.source_input_id:
+                        contributing_inputs.add(p.source_input_id)
+
+            successful_cnt = 0
+            warning_cnt = 0
+            failed_cnt = 0
+
+            is_run_cached = bool(result.metadata.get("cached")) if result and result.metadata else False
+            if not is_run_cached and maruti_recs:
+                is_run_cached = any(
+                    r.phase_name == "cache.lookup" and r.attributes.get("outcome") == "hit"
+                    for r in maruti_recs
+                )
+            stage_label = "Completed (Cached)" if is_run_cached else "Completed"
+
+            for inp in request.inputs:
+                existing = self._file_progress.get(inp.input_id) or self._file_progress.get(
+                    inp.display_name, {}
+                )
+                start_t = existing.get("started_ns")
+                duration = existing.get("duration_ns")
+                w_count = input_warn_counts.get(inp.input_id, 0)
+
+                # Determine factual per-input status
+                if inp.input_id in capability_outcomes:
+                    explicit_status = str(capability_outcomes[inp.input_id]).upper()
+                    if explicit_status in ("SUCCESS", "COMPLETED"):
+                        f_stat = "WARNING" if w_count > 0 else "SUCCESS"
+                    elif explicit_status in ("WARNING",):
+                        f_stat = "WARNING"
+                    else:
+                        f_stat = "FAILED"
+                else:
+                    if len(request.inputs) > 1:
+                        has_input_doc = inp.input_id in doc_map
+                        has_input_artifact = (
+                            any(
+                                str(art.metadata.get("source_input_id", "")) == inp.input_id
+                                or str(art.metadata.get("input_id", "")) == inp.input_id
+                                or inp.input_id in (art.metadata.get("source_input_ids") or ())
+                                for art in result.artifacts
+                            )
+                            if result.artifacts
+                            else False
+                        )
+                        has_aggregate_credit = any(
+                            bool(art.metadata.get("is_aggregate")) for art in result.artifacts
+                        ) and (inp.input_id in contributing_inputs or not contributing_inputs)
+                        has_output = has_input_doc or has_input_artifact or has_aggregate_credit
+                    else:
+                        has_output = (
+                            inp.input_id in doc_map or result.data is not None or bool(result.artifacts)
+                        )
+
+                    if not has_output:
+                        f_stat = "FAILED"
+                    elif w_count > 0:
+                        f_stat = "WARNING"
+                    else:
+                        f_stat = "SUCCESS"
+
+                if f_stat == "SUCCESS":
+                    successful_cnt += 1
+                elif f_stat == "WARNING":
+                    warning_cnt += 1
+                else:
+                    failed_cnt += 1
+
+                info = {
+                    "input_id": inp.input_id,
+                    "file_display_name": inp.display_name,
+                    "status": f_stat,
+                    "stage": stage_label,
+                    "started_ns": start_t,
+                    "duration_ns": duration,
+                    "warning_count": w_count,
+                    "cached": is_run_cached,
+                }
+                self._file_progress[inp.input_id] = info
+                self._file_progress[inp.display_name] = info
+
+            # Determine factual overall run status
+            if failed_cnt > 0 and successful_cnt == 0 and warning_cnt == 0:
+                overall_status = "FAILED"
+            elif failed_cnt > 0:
+                overall_status = "PARTIAL"
+            elif warning_cnt > 0 or unassociated_warns > 0:
+                overall_status = "WARNING"
+            else:
+                overall_status = "SUCCESS"
+
+            summary = MukhaPresenter.build_summary_view(
+                run_id=run_id,
+                status=overall_status,
+                wall_time_ns=wall_time_ns,
+                request=request,
+                result=result,
+                successful_files=successful_cnt,
+                warning_files=warning_cnt,
+                failed_files=failed_cnt,
+                maruti_records=maruti_recs,
+                pramana_records=pramana_recs,
+                unassociated_warning_count=unassociated_warns,
+            )
+            self._terminal_status = overall_status
+            self._terminal_summary = summary
+            self._run_summaries[run_id] = summary
+            if context_run_id and str(context_run_id) != run_id:
+                self._run_summaries[str(context_run_id)] = summary
 
     def cancel_run(self, run_id: str) -> bool:
         """Cooperatively signal cancellation for the active run."""

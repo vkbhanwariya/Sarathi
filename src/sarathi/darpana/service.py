@@ -244,3 +244,33 @@ class Darpana:
         """Flush and close underlying persistent history store if configured."""
         if self._history_store is not None:
             self._history_store.close()
+
+
+def record_maruti(
+    darpana: Darpana | None,
+    context: ExecutionContext | None = None,
+    phase_name: str = "",
+    component: str = "",
+    duration_ns: int = 0,
+    outcome: str = "success",
+    attributes: Mapping[str, Any] | None = None,
+    timestamp_utc: str | None = None,
+) -> MarutiRecord | None:
+    """Safely construct and record a MarutiRecord in darpana, ignoring None darpana."""
+    if darpana is None:
+        return None
+    now_iso = timestamp_utc or datetime.now(timezone.utc).isoformat()
+    record = MarutiRecord(
+        run_id=context.run_id if context else "",
+        request_id=context.request_id if context else "",
+        trace_id=context.trace_id if context else "",
+        span_id=context.span_id if context else "",
+        phase_name=phase_name,
+        component=component,
+        timestamp_utc=now_iso,
+        duration_ns=duration_ns,
+        outcome=outcome,
+        attributes=dict(attributes) if attributes else {},
+    )
+    darpana.record_maruti(record)
+    return record

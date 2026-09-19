@@ -25,6 +25,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     TextSpan,
     WarningRecord,
+    check_cancelled,
 )
 from sarathi.shakti.ocr.engine.common import (
     CANONICAL_DATA_ROOT,
@@ -49,6 +50,182 @@ from sarathi.shakti.ocr.engine.preprocessing import (
     is_low_contrast_image,
 )
 from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
+
+
+def _preprocess_page_image(
+    img_arr: np.ndarray,
+    profile: ExecutionProfile,
+    custom_options: Mapping[str, Any] | None,
+) -> tuple[np.ndarray, tuple[Any, ...], bool, float, Any, bool, str]:
+    """Execute adaptive deskew, CLAHE, stamp detection/removal, and binarization."""
+    is_lightweight = bool(custom_options.get("lightweight", False)) if custom_options else False
+    preprocess_requested = custom_options.get("preprocess") if custom_options else None
+    should_preprocess = (preprocess_requested is not False) and not is_lightweight
+
+    is_instant = profile == ExecutionProfile.INSTANT and not (
+        custom_options and custom_options.get("preserve_layout")
+    )
+
+    raw_stamp_mode = custom_options.get("stamp_mode") if custom_options else None
+    if raw_stamp_mode is not None:
+        stamp_mode = str(raw_stamp_mode).lower().strip()
+    elif custom_options and (custom_options.get("remove_stamps") or custom_options.get("inpaint_stamps")):
+        stamp_mode = "remove"
+    else:
+        stamp_mode = "off"
+
+    if should_preprocess:
+        import sarathi.shakti.ocr.engine as ocr_engine
+
+        if is_instant:
+            deskew = custom_options.get("deskew", True) if custom_options else True
+            clahe = custom_options.get("clahe", False) if custom_options else False
+        else:
+            deskew = custom_options.get("deskew", True) if custom_options else True
+            if custom_options and "clahe" in custom_options:
+                clahe = bool(custom_options["clahe"])
+            else:
+                clahe = is_low_contrast_image(img_arr)
+
+        stamps_detected_regions: tuple[Any, ...] = ()
+        stamp_removal_applied = False
+        stamp_removed_ratio = 0.0
+        stamp_filled_arr: Any = None
+
+        if stamp_mode in ("tag", "remove", "auto"):
+            from sarathi.shakti.ocr.engine.preprocessing import detect_stamps, remove_stamp_artifacts
+
+            detection = detect_stamps(img_arr)
+            stamps_detected_regions = detection.regions
+            if detection.removed_ratio > 0.0:
+                stamp_filled_arr = remove_stamp_artifacts(img_arr)
+                if stamp_mode == "remove":
+                    img_arr = stamp_filled_arr
+                    stamp_removal_applied = True
+                    stamp_removed_ratio = detection.removed_ratio
+
+        img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=False)
+    else:
+        stamps_detected_regions = ()
+        stamp_removal_applied = False
+        stamp_removed_ratio = 0.0
+        stamp_filled_arr = None
+
+    is_binarized = False
+    if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
+        is_binarized = True
+        try:
+            import cv2
+
+            gray = cv2.cvtColor(img_arr, cv2.COLOR_RGB2GRAY) if len(img_arr.shape) == 3 else img_arr
+            thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+            img_arr = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
+        except ImportError:
+            from PIL import Image
+
+            gray_pil = Image.fromarray(img_arr).convert("L")
+            threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
+            img_arr = np.array(threshold_img.convert("RGB"))
+
+    return img_arr, stamps_detected_regions, stamp_removal_applied, stamp_removed_ratio, stamp_filled_arr, is_binarized, stamp_mode
+
+
+def _evaluate_page_orientation(
+    img_arr: np.ndarray,
+    output: Any,
+    lines: list[Any],
+    spans: list[TextSpan],
+    conf_scores: list[float],
+    parse_warnings: tuple[WarningRecord, ...],
+    custom_options: Mapping[str, Any] | None,
+    active_engine: Any,
+    use_cls_flag: bool,
+    filter_opt: bool,
+    cancellation_token: CancellationToken | None,
+) -> tuple[np.ndarray, Any, list[Any], list[TextSpan], list[float], tuple[WarningRecord, ...], int]:
+    """Detect inverted or rotated page orientation, test candidate rotations, and adopt best orientation."""
+    mean_conf = float(np.mean(conf_scores)) if conf_scores else 0.0
+    ratios: list[float] = []
+    for s in spans:
+        if s.bounding_box:
+            w_box = max(1e-6, float(s.bounding_box[2] - s.bounding_box[0]))
+            h_box = max(1e-6, float(s.bounding_box[3] - s.bounding_box[1]))
+            ratios.append(h_box / w_box)
+    median_ratio = float(np.median(ratios)) if ratios else 0.0
+
+    rotation_applied = 0
+    orientation_enabled = bool(custom_options.get("orientation_detection", True)) if custom_options else True
+    conf_thresh = float(custom_options.get("orientation_confidence_threshold", 0.6)) if custom_options else 0.6
+
+    if orientation_enabled and (mean_conf < conf_thresh or median_ratio > 1.5):
+        candidate_angles = [90, 270] if median_ratio > 1.5 else [180, 90, 270]
+        candidates = [
+            RotationCandidate(
+                rotation=0,
+                mean_confidence=mean_conf,
+                char_count=sum(len(s.text) for s in spans),
+                output=output,
+                spans=tuple(spans),
+                lines=tuple(lines),
+                conf_scores=tuple(conf_scores),
+                warnings=tuple(parse_warnings),
+            )
+        ]
+
+        rot_cv_map = {}
+        try:
+            import cv2
+
+            rot_cv_map = {
+                90: cv2.ROTATE_90_CLOCKWISE,
+                180: cv2.ROTATE_180,
+                270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+            }
+        except ImportError:
+            cv2 = None
+
+        for deg in candidate_angles:
+            check_cancelled(cancellation_token)
+
+            if cv2 is not None and deg in rot_cv_map:
+                rotated_arr = cv2.rotate(img_arr, rot_cv_map[deg])
+            else:
+                k = deg // 90
+                rotated_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
+
+            rot_output = active_engine(rotated_arr, use_det=True, use_cls=use_cls_flag)
+            r_lines, r_spans, r_confs, r_warns, _, _ = _parse_rapidocr_output(rot_output, filter_opt=filter_opt)
+            r_mean = float(np.mean(r_confs)) if r_confs else 0.0
+            r_chars = sum(len(s.text) for s in r_spans)
+            candidates.append(
+                RotationCandidate(
+                    rotation=deg,
+                    mean_confidence=r_mean,
+                    char_count=r_chars,
+                    output=rot_output,
+                    spans=tuple(r_spans),
+                    lines=tuple(r_lines),
+                    conf_scores=tuple(r_confs),
+                    warnings=tuple(r_warns),
+                )
+            )
+
+        best_deg = choose_page_rotation(candidates)
+        if best_deg != 0:
+            best_cand = next(c for c in candidates if c.rotation == best_deg)
+            rotation_applied = best_deg
+            spans = list(best_cand.spans)
+            lines = list(best_cand.lines)
+            conf_scores = list(best_cand.conf_scores)
+            parse_warnings = best_cand.warnings
+            output = best_cand.output
+            if cv2 is not None and best_deg in rot_cv_map:
+                img_arr = cv2.rotate(img_arr, rot_cv_map[best_deg])
+            else:
+                k = best_deg // 90
+                img_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
+
+    return img_arr, output, lines, spans, conf_scores, parse_warnings, rotation_applied
 
 
 class RapidOCREngine:
@@ -211,8 +388,7 @@ class RapidOCREngine:
         cancellation_token: CancellationToken | None = None,
     ) -> tuple[PageData, ProvenanceRecord, ConfidenceValue | None, tuple[WarningRecord, ...]]:
         """Run PP-OCR OpenVINO on a single image and return factual PageData, Provenance, and Warnings."""
-        if cancellation_token is not None and cancellation_token.is_cancelled:
-            cancellation_token.check_cancelled()
+        check_cancelled(cancellation_token)
 
         target_device = resolve_target_device(execution_binding)
         lang_opt = custom_options.get("lang") if custom_options else None
@@ -227,82 +403,19 @@ class RapidOCREngine:
             img_arr.shape[1] if hasattr(img_arr, "shape") and len(img_arr.shape) >= 2 else 0
         )
 
-        # Preprocessing resolution per mode
-        is_lightweight = bool(custom_options.get("lightweight", False)) if custom_options else False
-        preprocess_requested = custom_options.get("preprocess") if custom_options else None
-        should_preprocess = (preprocess_requested is not False) and not is_lightweight
+        (
+            img_arr,
+            stamps_detected_regions,
+            stamp_removal_applied,
+            stamp_removed_ratio,
+            stamp_filled_arr,
+            is_binarized,
+            stamp_mode,
+        ) = _preprocess_page_image(img_arr, profile, custom_options)
 
         is_instant = profile == ExecutionProfile.INSTANT and not (
             custom_options and custom_options.get("preserve_layout")
         )
-
-        if should_preprocess:
-            import sarathi.shakti.ocr.engine as ocr_engine
-
-            if is_instant:
-                deskew = custom_options.get("deskew", True) if custom_options else True
-                clahe = custom_options.get("clahe", False) if custom_options else False
-            else:
-                deskew = custom_options.get("deskew", True) if custom_options else True
-                if custom_options and "clahe" in custom_options:
-                    clahe = bool(custom_options["clahe"])
-                else:
-                    clahe = is_low_contrast_image(img_arr)
-
-            raw_stamp_mode = custom_options.get("stamp_mode") if custom_options else None
-            if raw_stamp_mode is not None:
-                stamp_mode = str(raw_stamp_mode).lower().strip()
-            elif custom_options and (custom_options.get("remove_stamps") or custom_options.get("inpaint_stamps")):
-                stamp_mode = "remove"
-            else:
-                stamp_mode = "off"
-
-            stamps_detected_regions: tuple[Any, ...] = ()
-            stamp_removal_applied = False
-            stamp_removed_ratio = 0.0
-            stamp_filled_arr: Any = None
-
-            if stamp_mode in ("tag", "remove", "auto"):
-                from sarathi.shakti.ocr.engine.preprocessing import detect_stamps, remove_stamp_artifacts
-
-                detection = detect_stamps(img_arr)
-                stamps_detected_regions = detection.regions
-                if detection.removed_ratio > 0.0:
-                    stamp_filled_arr = remove_stamp_artifacts(img_arr)
-                    if stamp_mode == "remove":
-                        img_arr = stamp_filled_arr
-                        stamp_removal_applied = True
-                        stamp_removed_ratio = detection.removed_ratio
-
-            img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=False)
-
-        else:
-            stamp_mode = "off"
-            stamps_detected_regions = ()
-            stamp_removal_applied = False
-            stamp_removed_ratio = 0.0
-            stamp_filled_arr = None
-
-        is_binarized = False
-        if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
-            is_binarized = True
-            try:
-                import cv2
-
-                gray = cv2.cvtColor(img_arr, cv2.COLOR_RGB2GRAY) if len(img_arr.shape) == 3 else img_arr
-                thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-                img_arr = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
-            except ImportError:
-                from PIL import Image
-
-                gray_pil = Image.fromarray(img_arr).convert("L")
-                threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
-                img_arr = np.array(threshold_img.convert("RGB"))
-
-        if cancellation_token is not None and cancellation_token.is_cancelled:
-            cancellation_token.check_cancelled()
-
-        # Angle classification flag
         if custom_options and "use_angle_cls" in custom_options:
             use_cls_flag = bool(custom_options["use_angle_cls"])
         elif custom_options and "use_cls" in custom_options:
@@ -328,9 +441,7 @@ class RapidOCREngine:
             max_capacity=max_cap,
         ) as active_engine:
             output = active_engine(img_arr, use_det=True, use_cls=use_cls_flag)
-
-            if cancellation_token is not None and cancellation_token.is_cancelled:
-                cancellation_token.check_cancelled()
+            check_cancelled(cancellation_token)
 
             if target_lang in DEV_LANGS and (custom_options is None or "english_numbers_only" not in custom_options):
                 filter_opt = False
@@ -345,91 +456,27 @@ class RapidOCREngine:
                 _parse_rapidocr_output(output, filter_opt=filter_opt)
             )
 
-            # Page-orientation detection and retry (O12)
-            # Note: When rotation is applied, bounding box coordinates are in the rotated frame.
-            mean_conf = float(np.mean(conf_scores)) if conf_scores else 0.0
-            ratios: list[float] = []
-            for s in spans:
-                if s.bounding_box:
-                    w_box = max(1e-6, float(s.bounding_box[2] - s.bounding_box[0]))
-                    h_box = max(1e-6, float(s.bounding_box[3] - s.bounding_box[1]))
-                    ratios.append(h_box / w_box)
-            median_ratio = float(np.median(ratios)) if ratios else 0.0
-
-            rotation_applied = 0
-            orientation_enabled = bool(custom_options.get("orientation_detection", True)) if custom_options else True
-            conf_thresh = float(custom_options.get("orientation_confidence_threshold", 0.6)) if custom_options else 0.6
-
-            if orientation_enabled and (mean_conf < conf_thresh or median_ratio > 1.5):
-                candidate_angles = [90, 270] if median_ratio > 1.5 else [180, 90, 270]
-                candidates = [
-                    RotationCandidate(
-                        rotation=0,
-                        mean_confidence=mean_conf,
-                        char_count=sum(len(s.text) for s in spans),
-                        output=output,
-                        spans=tuple(spans),
-                        lines=tuple(lines),
-                        conf_scores=tuple(conf_scores),
-                        warnings=tuple(parse_warnings),
-                    )
-                ]
-
-                rot_cv_map = {}
-                try:
-                    import cv2
-
-                    rot_cv_map = {
-                        90: cv2.ROTATE_90_CLOCKWISE,
-                        180: cv2.ROTATE_180,
-                        270: cv2.ROTATE_90_COUNTERCLOCKWISE,
-                    }
-                except ImportError:
-                    cv2 = None
-
-                for deg in candidate_angles:
-                    if cancellation_token is not None and cancellation_token.is_cancelled:
-                        cancellation_token.check_cancelled()
-
-                    if cv2 is not None and deg in rot_cv_map:
-                        rotated_arr = cv2.rotate(img_arr, rot_cv_map[deg])
-                    else:
-                        k = deg // 90
-                        rotated_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
-
-                    rot_output = active_engine(rotated_arr, use_det=True, use_cls=use_cls_flag)
-                    r_lines, r_spans, r_confs, r_warns, _, _ = _parse_rapidocr_output(
-                        rot_output, filter_opt=filter_opt
-                    )
-                    r_mean = float(np.mean(r_confs)) if r_confs else 0.0
-                    r_chars = sum(len(s.text) for s in r_spans)
-                    candidates.append(
-                        RotationCandidate(
-                            rotation=deg,
-                            mean_confidence=r_mean,
-                            char_count=r_chars,
-                            output=rot_output,
-                            spans=tuple(r_spans),
-                            lines=tuple(r_lines),
-                            conf_scores=tuple(r_confs),
-                            warnings=tuple(r_warns),
-                        )
-                    )
-
-                best_deg = choose_page_rotation(candidates)
-                if best_deg != 0:
-                    best_cand = next(c for c in candidates if c.rotation == best_deg)
-                    rotation_applied = best_deg
-                    spans = list(best_cand.spans)
-                    lines = list(best_cand.lines)
-                    conf_scores = list(best_cand.conf_scores)
-                    parse_warnings = best_cand.warnings
-                    output = best_cand.output
-                    if cv2 is not None and best_deg in rot_cv_map:
-                        img_arr = cv2.rotate(img_arr, rot_cv_map[best_deg])
-                    else:
-                        k = best_deg // 90
-                        img_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
+            (
+                img_arr,
+                output,
+                lines,
+                spans,
+                conf_scores,
+                parse_warnings,
+                rotation_applied,
+            ) = _evaluate_page_orientation(
+                img_arr=img_arr,
+                output=output,
+                lines=lines,
+                spans=spans,
+                conf_scores=conf_scores,
+                parse_warnings=parse_warnings,
+                custom_options=custom_options,
+                active_engine=active_engine,
+                use_cls_flag=use_cls_flag,
+                filter_opt=filter_opt,
+                cancellation_token=cancellation_token,
+            )
 
             warnings: list[WarningRecord] = list(parse_warnings)
             if rotation_applied > 0:

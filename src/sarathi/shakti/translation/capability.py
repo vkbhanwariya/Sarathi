@@ -26,6 +26,7 @@ from sarathi.sankalpa import (
     Result,
     TableData,
     WarningRecord,
+    check_cancelled,
 )
 from sarathi.sankalpa.document import normalize_canonical_documents, transform_canonical_document
 from sarathi.shakti.docx_exporter import (
@@ -56,6 +57,88 @@ _STRUCTURAL_SPLIT_RE: re.Pattern[str] = re.compile(
     r"(\{\{[A-Z_]+:[^}]+\}\}|<!--\s*[A-Z_]+:[^>]+-->|\[[A-Z_]+:[^\]]+\]|---\s*Page\s*\d+\s*---)",
     re.IGNORECASE,
 )
+
+
+def _collect_document_texts(doc: CanonicalDocument) -> list[str]:
+    """Pre-collect all unique non-empty text strings across document structure."""
+    unique_texts: list[str] = []
+    seen_texts: set[str] = set()
+
+    def _collect(s: str | None) -> None:
+        if not s or not s.strip():
+            return
+        if _is_structural_placeholder(s):
+            return
+        if "{{" in s and ("{{TABLE:" in s or "{{PAGE:" in s):
+            for chunk in _STRUCTURAL_SPLIT_RE.split(s):
+                if chunk.strip() and not _is_structural_placeholder(chunk) and chunk not in seen_texts:
+                    seen_texts.add(chunk)
+                    unique_texts.append(chunk)
+        elif s not in seen_texts:
+            seen_texts.add(s)
+            unique_texts.append(s)
+
+    if not doc.pages:
+        _collect(doc.text)
+    for t in doc.tables:
+        if t.headers:
+            for h in t.headers:
+                _collect(cell_text(h))
+        for r in t.rows:
+            for c in r:
+                _collect(cell_text(c))
+    for p in doc.pages:
+        _collect(p.text)
+        for s in p.spans:
+            _collect(s.text)
+        for t in p.tables:
+            if t.headers:
+                for h in t.headers:
+                    _collect(cell_text(h))
+            for r in t.rows:
+                for c in r:
+                    _collect(cell_text(c))
+    return unique_texts
+
+
+def _check_translation_handoffs(
+    docs: Sequence[CanonicalDocument],
+    prior_result: Result,
+    detector: LanguageDetector,
+) -> Result | None:
+    """Evaluate whether inputs require OCR fallback or legacy font conversion handoff."""
+    if any(
+        not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs
+    ):
+        return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
+
+    for doc in docs:
+        full_text = doc.text
+        if not full_text.strip() and doc.tables:
+            table_lines = []
+            for t in doc.tables:
+                if t.headers:
+                    table_lines.append(" ".join(cell_text(c) for c in t.headers if cell_text(c)))
+                for r in t.rows:
+                    table_lines.append(" ".join(cell_text(c) for c in r if cell_text(c)))
+            full_text = "\n".join(table_lines)
+        if not full_text.strip() and doc.pages:
+            full_text = "\n".join(p.text for p in doc.pages if p.text)
+
+        if detector.is_legacy_font(full_text):
+            return Result(
+                data=prior_result.data,
+                next_requirement="font_conversion",
+                resume_self=True,
+                warnings=(
+                    WarningRecord(
+                        code="LEGACY_FONT_DETECTED",
+                        message="Legacy font encoding detected in input. Escalating to font_conversion.",
+                        stage="translation",
+                    ),
+                ),
+            )
+    return None
 
 
 def _is_structural_placeholder(text: str | None) -> bool:
@@ -256,39 +339,9 @@ class TranslationCapability:
                 message="TranslationCapability requires a prior Result containing a CanonicalDocument or sequence of CanonicalDocuments.",
             )
 
-        # If any document text, pages, and tables are completely empty, request OCR continuation through Pravaha
-        if any(
-            not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs
-        ):
-            return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
-
-        # Check if text contains legacy non-Unicode font encoding -> hand off to font_conversion
-        for doc in docs:
-            full_text = doc.text
-            if not full_text.strip() and doc.tables:
-                table_lines = []
-                for t in doc.tables:
-                    if t.headers:
-                        table_lines.append(" ".join(cell_text(c) for c in t.headers if cell_text(c)))
-                    for r in t.rows:
-                        table_lines.append(" ".join(cell_text(c) for c in r if cell_text(c)))
-                full_text = "\n".join(table_lines)
-            if not full_text.strip() and doc.pages:
-                full_text = "\n".join(p.text for p in doc.pages if p.text)
-
-            if self._detector.is_legacy_font(full_text):
-                return Result(
-                    data=prior_result.data,
-                    next_requirement="font_conversion",
-                    resume_self=True,
-                    warnings=(
-                        WarningRecord(
-                            code="LEGACY_FONT_DETECTED",
-                            message="Legacy font encoding detected in input. Escalating to font_conversion.",
-                            stage="translation",
-                        ),
-                    ),
-                )
+        handoff = _check_translation_handoffs(docs, prior_result, self._detector)
+        if handoff is not None:
+            return handoff
 
         translated_docs: list[CanonicalDocument] = []
         payloads: list[ArtifactPayload] = []
@@ -305,8 +358,7 @@ class TranslationCapability:
             idx: int,
             doc: CanonicalDocument,
         ) -> tuple[CanonicalDocument, ProvenanceRecord, list[ArtifactPayload]]:
-            if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-                context.cancellation_token.check_cancelled()
+            check_cancelled(context)
 
             if progress_cb is not None:
                 dev_str = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
@@ -409,44 +461,7 @@ class TranslationCapability:
                 t_trans_start = time.perf_counter_ns()
                 translation_cache: dict[str, TranslationResult] = {}
 
-                # 1. Pre-collect all unique non-empty text strings across document
-                unique_texts: list[str] = []
-                seen_texts: set[str] = set()
-
-                def _collect(s: str | None) -> None:
-                    if not s or not s.strip():
-                        return
-                    if _is_structural_placeholder(s):
-                        return
-                    if "{{" in s and ("{{TABLE:" in s or "{{PAGE:" in s):
-                        for chunk in _STRUCTURAL_SPLIT_RE.split(s):
-                            if chunk.strip() and not _is_structural_placeholder(chunk) and chunk not in seen_texts:
-                                seen_texts.add(chunk)
-                                unique_texts.append(chunk)
-                    elif s not in seen_texts:
-                        seen_texts.add(s)
-                        unique_texts.append(s)
-
-                if not doc.pages:
-                    _collect(doc.text)
-                for t in doc.tables:
-                    if t.headers:
-                        for h in t.headers:
-                            _collect(cell_text(h))
-                    for r in t.rows:
-                        for c in r:
-                            _collect(cell_text(c))
-                for p in doc.pages:
-                    _collect(p.text)
-                    for s in p.spans:
-                        _collect(s.text)
-                    for t in p.tables:
-                        if t.headers:
-                            for h in t.headers:
-                                _collect(cell_text(h))
-                        for r in t.rows:
-                            for c in r:
-                                _collect(cell_text(c))
+                unique_texts = _collect_document_texts(doc)
 
                 # 2. Batch-translate all unique texts in a single pass to saturate all CPU P-cores
                 if unique_texts:

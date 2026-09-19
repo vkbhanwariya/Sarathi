@@ -14,7 +14,7 @@ This package defines the small common data language used by the entire system:
 from __future__ import annotations
 
 from sarathi.sankalpa.artifact import ArtifactIntent, ArtifactPayload, ArtifactRef, InputRef
-from sarathi.sankalpa.cancellation import CancellationToken
+from sarathi.sankalpa.cancellation import CancellationToken, check_cancelled
 from sarathi.sankalpa.capability import (
     Capability,
     CapabilityDeclaration,
@@ -56,6 +56,7 @@ __all__ = [
     "ArtifactPayload",
     "ArtifactRef",
     "CancellationToken",
+    "check_cancelled",
     "CanonicalDocument",
     "Capability",
     "CapabilityDeclaration",

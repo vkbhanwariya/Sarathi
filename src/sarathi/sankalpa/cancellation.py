@@ -37,3 +37,20 @@ class CancellationToken:
 
     def __repr__(self) -> str:
         return f"CancellationToken(cancelled={self.is_cancelled})"
+
+
+def check_cancelled(target: object) -> None:
+    """Raise DoshError(FailureCode.OPERATION_CANCELLED) if target or its cancellation_token is cancelled."""
+    if target is None:
+        return
+    token = getattr(target, "cancellation_token", target)
+    if isinstance(token, CancellationToken):
+        token.check_cancelled()
+    elif token is not None and getattr(token, "is_cancelled", False):
+        from sarathi.dosh import DoshError, FailureCode
+
+        raise DoshError(
+            code=FailureCode.OPERATION_CANCELLED,
+            message="Execution was cancelled.",
+            context={"cancelled": True},
+        )

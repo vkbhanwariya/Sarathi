@@ -25,6 +25,7 @@ from sarathi.sankalpa import (
     Request,
     Result,
     WarningRecord,
+    check_cancelled,
 )
 from sarathi.shakti.artifact_naming import format_artifact_filename
 from sarathi.shakti.docx_exporter import build_docx_payload
@@ -219,6 +220,88 @@ class OCRCapability:
             worker_id=worker_id,
         )
 
+    def _process_page_image(
+        self,
+        img: Any,
+        page_idx: int,
+        inp_ref: InputRef,
+        tot_pages: int,
+        request: Request,
+        context: ExecutionContext,
+        worker_id: str,
+        progress_cb: Any,
+        use_checkpoints: bool,
+        doc_hashes: dict[str, str],
+        dpi: int,
+        target_lang: str,
+    ) -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
+        """Shared page processing routine used by both sequential and parallel OCR paths."""
+        check_cancelled(context)
+        if progress_cb is not None:
+            dev_str = (
+                context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
+            )
+            progress_cb(
+                file_display_name=inp_ref.display_name,
+                page_number=page_idx,
+                total_pages=tot_pages,
+                worker_id=worker_id,
+                stage="Optical Character Recognition (OCR)",
+                device_type=dev_str,
+                input_id=inp_ref.input_id,
+            )
+
+        ocr_kwargs: dict[str, Any] = {
+            "profile": request.profile,
+            "custom_options": request.custom_options,
+            "execution_binding": context.execution_binding,
+        }
+        if context.cancellation_token is not None:
+            ocr_kwargs["cancellation_token"] = context.cancellation_token
+
+        t0 = time.perf_counter_ns()
+        try:
+            p_data, p_prov, _, p_warns = self._engine.ocr_page(
+                img,
+                page_idx,
+                inp_ref.input_id,
+                **ocr_kwargs,
+            )
+        finally:
+            del img
+
+        dur = max(0, time.perf_counter_ns() - t0)
+        self._record_page_telemetry(
+            context=context,
+            inp_ref=inp_ref,
+            page_idx=page_idx,
+            page_data=p_data,
+            dur_ns=dur,
+            binding=context.execution_binding,
+            worker_id=worker_id,
+        )
+        if use_checkpoints:
+            p_hash = compute_params_hash(
+                page_number=page_idx,
+                profile=request.profile,
+                dpi=dpi,
+                lang=target_lang,
+                custom_options=request.custom_options,
+                model_version=getattr(self._engine, "model_version", "v5_v6"),
+                asset_version=self.asset_version,
+            )
+            save_page_checkpoint(
+                doc_hash=doc_hashes[inp_ref.input_id],
+                page_number=page_idx,
+                params_hash=p_hash,
+                page_data=p_data,
+                provenance=p_prov,
+                warnings=p_warns,
+                cache_dir=self._cache_dir,
+            )
+        warn_list = list(p_warns) if isinstance(p_warns, (list, tuple)) else ([p_warns] if p_warns else [])
+        return p_data, p_prov, warn_list
+
     def execute(
         self,
         request: Request,
@@ -309,8 +392,7 @@ class OCRCapability:
         existing_native_pages_by_input: dict[str, dict[int, PageData]] = {}
 
         for inp in request.inputs:
-            if context.cancellation_token is not None:
-                context.cancellation_token.check_cancelled()
+            check_cancelled(context)
 
             if (usable_doc := prior_docs.get(inp.input_id)) and _is_usable_document(usable_doc):
                 empty_or_usable_docs[inp.input_id] = usable_doc
@@ -330,8 +412,7 @@ class OCRCapability:
                     message="Failed to read source input file.",
                 ) from exc
 
-            if context.cancellation_token is not None:
-                context.cancellation_token.check_cancelled()
+            check_cancelled(context)
 
             force_ocr = bool(request.custom_options and request.custom_options.get("force_ocr"))
             if (
@@ -525,9 +606,7 @@ class OCRCapability:
                 inp_ref: InputRef, p_idx: int, tot_pages: int
             ) -> Callable[[], tuple[PageData, ProvenanceRecord, list[WarningRecord]]]:
                 def _task() -> tuple[PageData, ProvenanceRecord, list[WarningRecord]]:
-                    if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-                        context.cancellation_token.check_cancelled()
-
+                    check_cancelled(context)
                     p_img = rasterizers[inp_ref.input_id].get_page(p_idx)
                     if p_img is None:
                         raise DoshError(
@@ -535,69 +614,20 @@ class OCRCapability:
                             message=f"Failed to rasterize page {p_idx} for OCR.",
                         )
                     w_id = str(threading.get_ident() % 1000)
-                    if progress_cb is not None:
-                        dev_str = (
-                            context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
-                        )
-                        progress_cb(
-                            file_display_name=inp_ref.display_name,
-                            page_number=p_idx,
-                            total_pages=tot_pages,
-                            worker_id=w_id,
-                            stage="Optical Character Recognition (OCR)",
-                            device_type=dev_str,
-                            input_id=inp_ref.input_id,
-                        )
-
-                    ocr_kwargs: dict[str, Any] = {
-                        "profile": request.profile,
-                        "custom_options": request.custom_options,
-                        "execution_binding": context.execution_binding,
-                    }
-                    if context.cancellation_token is not None:
-                        ocr_kwargs["cancellation_token"] = context.cancellation_token
-
-                    t0 = time.perf_counter_ns()
-                    try:
-                        p_data, p_prov, _, p_warns = self._engine.ocr_page(
-                            p_img,
-                            p_idx,
-                            inp_ref.input_id,
-                            **ocr_kwargs,
-                        )
-                    finally:
-                        del p_img
-
-                    dur = max(0, time.perf_counter_ns() - t0)
-                    self._record_page_telemetry(
-                        context=context,
-                        inp_ref=inp_ref,
+                    return self._process_page_image(
+                        img=p_img,
                         page_idx=p_idx,
-                        page_data=p_data,
-                        dur_ns=dur,
-                        binding=context.execution_binding,
+                        inp_ref=inp_ref,
+                        tot_pages=tot_pages,
+                        request=request,
+                        context=context,
                         worker_id=w_id,
+                        progress_cb=progress_cb,
+                        use_checkpoints=use_checkpoints,
+                        doc_hashes=doc_hashes,
+                        dpi=dpi,
+                        target_lang=target_lang,
                     )
-                    if use_checkpoints:
-                        p_hash = compute_params_hash(
-                            page_number=p_idx,
-                            profile=request.profile,
-                            dpi=dpi,
-                            lang=target_lang,
-                            custom_options=request.custom_options,
-                            model_version=getattr(self._engine, "model_version", "v5_v6"),
-                            asset_version=self.asset_version,
-                        )
-                        save_page_checkpoint(
-                            doc_hash=doc_hashes[inp_ref.input_id],
-                            page_number=p_idx,
-                            params_hash=p_hash,
-                            page_data=p_data,
-                            provenance=p_prov,
-                            warnings=p_warns,
-                            cache_dir=self._cache_dir,
-                        )
-                    return p_data, p_prov, p_warns
 
                 return _task
 
@@ -623,68 +653,20 @@ class OCRCapability:
                 for page_idx, img in page_iter:
                     if img is None or page_idx not in needed_indices:
                         continue
-                    if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-                        context.cancellation_token.check_cancelled()
-
-                    if progress_cb is not None:
-                        dev_str = context.execution_binding.device_type.value if context.execution_binding else "CPU"
-                        progress_cb(
-                            file_display_name=inp.display_name,
-                            page_number=page_idx,
-                            total_pages=tot_pages,
-                            worker_id="1",
-                            stage="Optical Character Recognition (OCR)",
-                            device_type=dev_str,
-                            input_id=inp.input_id,
-                        )
-
-                    seq_kwargs: dict[str, Any] = {
-                        "profile": request.profile,
-                        "custom_options": request.custom_options,
-                        "execution_binding": context.execution_binding,
-                    }
-                    if context.cancellation_token is not None:
-                        seq_kwargs["cancellation_token"] = context.cancellation_token
-
-                    t0 = time.perf_counter_ns()
-                    try:
-                        page_data, prov, _, page_warnings = self._engine.ocr_page(
-                            img,
-                            page_idx,
-                            inp.input_id,
-                            **seq_kwargs,
-                        )
-                    finally:
-                        del img
-                    dur = max(0, time.perf_counter_ns() - t0)
-                    self._record_page_telemetry(
-                        context=context,
-                        inp_ref=inp,
+                    page_data, prov, page_warnings = self._process_page_image(
+                        img=img,
                         page_idx=page_idx,
-                        page_data=page_data,
-                        dur_ns=dur,
-                        binding=context.execution_binding,
+                        inp_ref=inp,
+                        tot_pages=tot_pages,
+                        request=request,
+                        context=context,
                         worker_id="1",
+                        progress_cb=progress_cb,
+                        use_checkpoints=use_checkpoints,
+                        doc_hashes=doc_hashes,
+                        dpi=dpi,
+                        target_lang=target_lang,
                     )
-                    if use_checkpoints:
-                        p_hash = compute_params_hash(
-                            page_number=page_idx,
-                            profile=request.profile,
-                            dpi=dpi,
-                            lang=target_lang,
-                            custom_options=request.custom_options,
-                            model_version=getattr(self._engine, "model_version", "v5_v6"),
-                            asset_version=self.asset_version,
-                        )
-                        save_page_checkpoint(
-                            doc_hash=doc_hashes[inp.input_id],
-                            page_number=page_idx,
-                            params_hash=p_hash,
-                            page_data=page_data,
-                            provenance=prov,
-                            warnings=page_warnings,
-                            cache_dir=self._cache_dir,
-                        )
                     doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
 
         # 3. Assemble CanonicalDocuments preserving exact request input order
