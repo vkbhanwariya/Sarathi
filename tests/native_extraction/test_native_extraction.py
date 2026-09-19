@@ -1238,3 +1238,56 @@ def test_pdf_reader_computes_image_coverage_and_scanned_flag(
     p = doc.pages[0]
     assert p.metadata.get("image_coverage", 0.0) >= 0.80
     assert p.metadata.get("is_scanned_image") is True
+
+
+def test_bug_O4_native_pdf_redundant_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O4: Page.find_tables must be called 0 times on scanned/image-heavy pages and still work for vector tables."""
+    from sarathi.shakti.native_extraction.readers.pdf import read_pdf
+
+    # 1. Build a scanned image page
+    scanned_doc = pymupdf.open()
+    page1 = scanned_doc.new_page(width=600, height=800)
+    img = Image.new("RGB", (580, 780), color=(240, 240, 240))
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format="PNG")
+    page1.insert_image(pymupdf.Rect(0, 0, 580, 780), stream=img_bytes.getvalue())
+    page1.insert_text((50, 50), "Scanned doc")
+    scanned_bytes = scanned_doc.tobytes()
+    scanned_doc.close()
+
+    # 2. Spy on pymupdf.Page.find_tables
+    orig_find_tables = pymupdf.Page.find_tables
+    find_tables_calls = []
+
+    def spy_find_tables(self, *args, **kwargs):
+        find_tables_calls.append((self.number, args, kwargs))
+        return orig_find_tables(self, *args, **kwargs)
+
+    monkeypatch.setattr(pymupdf.Page, "find_tables", spy_find_tables)
+
+    # 3. Read scanned PDF -> must call find_tables 0 times!
+    canon_doc, _, _ = read_pdf(scanned_bytes, input_id="inp-scanned")
+    assert canon_doc.pages[0].metadata.get("is_scanned_image") is True
+    assert len(find_tables_calls) == 0, f"find_tables was called {len(find_tables_calls)} times on a scanned page!"
+
+    # 4. Build a vector table page
+    find_tables_calls.clear()
+    vec_doc = pymupdf.open()
+    page2 = vec_doc.new_page(width=500, height=500)
+    # Draw simple table lines
+    page2.draw_line(pymupdf.Point(50, 50), pymupdf.Point(250, 50))
+    page2.draw_line(pymupdf.Point(50, 100), pymupdf.Point(250, 100))
+    page2.draw_line(pymupdf.Point(50, 150), pymupdf.Point(250, 150))
+    page2.draw_line(pymupdf.Point(50, 50), pymupdf.Point(50, 150))
+    page2.draw_line(pymupdf.Point(150, 50), pymupdf.Point(150, 150))
+    page2.draw_line(pymupdf.Point(250, 50), pymupdf.Point(250, 150))
+    page2.insert_text((60, 75), "H1")
+    page2.insert_text((160, 75), "H2")
+    page2.insert_text((60, 125), "D1")
+    page2.insert_text((160, 125), "D2")
+    vec_bytes = vec_doc.tobytes()
+    vec_doc.close()
+
+    canon_vec, _, _ = read_pdf(vec_bytes, input_id="inp-vec")
+    assert len(find_tables_calls) >= 1
+    assert len(canon_vec.pages[0].tables) >= 1

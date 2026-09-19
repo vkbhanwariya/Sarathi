@@ -393,7 +393,7 @@ def read_pdf(
         doc_font_map = _resolve_pdf_font_names(doc)
 
         # Pre-extract stream-order page data to avoid spatial jumbling
-        cached_pages: list[tuple[list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str]]] = []
+        cached_pages: list[tuple[pymupdf.TextPage, list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str]]] = []
         all_page_blocks: list[list[tuple[str, tuple[float, float, float, float]]]] = []
 
         for page_idx in range(total_pages):
@@ -415,7 +415,7 @@ def read_pdf(
             # Fallback to standard blocks if span extraction returned nothing
             if not p_blocks:
                 try:
-                    raw_blocks = page.get_text("blocks")
+                    raw_blocks = text_page.extractBLOCKS()
                     for b in raw_blocks:
                         if len(b) >= 5:
                             x0, y0, x1, y1, b_text = b[0], b[1], b[2], b[3], b[4]
@@ -424,7 +424,7 @@ def read_pdf(
                 except Exception:
                     pass
 
-            cached_pages.append((p_spans, p_blocks, p_lines))
+            cached_pages.append((text_page, p_spans, p_blocks, p_lines))
             all_page_blocks.append(p_blocks)
 
         header_templates, footer_templates = (
@@ -435,7 +435,7 @@ def read_pdf(
             page_num = page_idx + 1
             page = doc[page_idx]
             p_height = page_heights[page_idx]
-            spans, p_blocks, p_lines = cached_pages[page_idx]
+            text_page, spans, p_blocks, p_lines = cached_pages[page_idx]
 
             body_lines, header_lines, footer_lines = classify_page_lines(
                 p_blocks, p_height, header_templates, footer_templates
@@ -446,7 +446,7 @@ def read_pdf(
             elif p_lines:
                 page_text = normalize_text_spacing("\n\n".join(p_lines))
             else:
-                raw_text = page.get_text("text").strip()
+                raw_text = text_page.extractTEXT().strip()
                 page_text = normalize_text_spacing(raw_text)
 
             if page_text:
@@ -476,7 +476,7 @@ def read_pdf(
                 page_meta["is_scanned_image"] = True
 
             if not spans:
-                blocks = page.get_text("blocks")
+                blocks = text_page.extractBLOCKS()
                 for b in blocks:
                     if len(b) >= 5:
                         x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
@@ -488,80 +488,82 @@ def read_pdf(
                                 )
                             )
 
-            # Extract native vector tables if present
+            # Extract native vector tables if present (skip for scanned pages)
             page_tables: list[TableData] = []
-            tabs = None
-            try:
-                tabs = page.find_tables(
-                    vertical_strategy="lines",
-                    horizontal_strategy="lines",
-                    snap_tolerance=3.0,
-                    join_tolerance=3.0,
-                    min_words_vertical=1,
-                )
-            except Exception:
+            if not page_meta.get("is_scanned_image"):
+                tabs = None
                 try:
-                    tabs = page.find_tables()
-                except (pymupdf.FileDataError, ValueError):
-                    warnings.append(
-                        WarningRecord(
-                            code="PDF_TABLE_DETECTION_SKIPPED",
-                            message="Vector table extraction skipped for page.",
-                            stage=STAGE_NAME,
-                        )
+                    tabs = page.find_tables(
+                        vertical_strategy="lines",
+                        horizontal_strategy="lines",
+                        snap_tolerance=3.0,
+                        join_tolerance=3.0,
+                        min_words_vertical=1,
                     )
-
-            if tabs and len(tabs.tables) > 0:
-                for t_idx, tab in enumerate(tabs.tables, 1):
-                    extracted_rows = tab.extract()
-                    if extracted_rows and len(extracted_rows) > 0:
-                        header_obj = getattr(tab, "header", None)
-                        header_names = getattr(header_obj, "names", None) if header_obj is not None else None
-                        is_external = bool(getattr(header_obj, "external", False)) if header_obj is not None else False
-
-                        if is_external and header_names:
-                            headers = tuple(cell_text(h) for h in header_names)
-                            data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows)
-                        else:
-                            candidate_headers = header_names if header_names else extracted_rows[0]
-                            headers = tuple(cell_text(h) for h in candidate_headers)
-                            data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows[1:])
-
-                        if all_converted_profiles and fc_tools:
-                            converter = fc_tools["converter"]
-                            is_leg = fc_tools["is_legacy_text"]
-                            norm_m = fc_tools["normalize_macroman"]
-                            first_prof = next(iter(all_converted_profiles))
-
-                            def _conv_cell(cell_val: Any) -> Any:
-                                if not isinstance(cell_val, str) or not cell_val.strip():
-                                    return cell_val
-                                c_norm = norm_m(cell_val)
-                                if is_leg(c_norm):
-                                    return converter.convert(c_norm, profile_id=first_prof)
-                                return cell_val
-
-                            headers = tuple(cell_text(_conv_cell(h)) for h in headers)
-                            data_rows = tuple(tuple(cell_text(_conv_cell(val)) for val in row) for row in data_rows)
-
-                        t_meta = {}
-                        if getattr(tab, "bbox", None) is not None:
-                            t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
-                        t_obj = TableData(
-                            name=f"Page_{page_num}_Table_{t_idx}",
-                            headers=headers,
-                            rows=data_rows,
-                            metadata=t_meta,
+                except Exception:
+                    try:
+                        tabs = page.find_tables()
+                    except (pymupdf.FileDataError, ValueError):
+                        warnings.append(
+                            WarningRecord(
+                                code="PDF_TABLE_DETECTION_SKIPPED",
+                                message="Vector table extraction skipped for page.",
+                                stage=STAGE_NAME,
+                            )
                         )
-                        page_tables.append(t_obj)
-                        all_doc_tables.append(t_obj)
 
-            # Vector Stroke Fallback Clustering if find_tables found no tables
-            if not page_tables:
-                vector_tables = _extract_vector_stroke_tables(page, spans, page_num)
-                for v_tab in vector_tables:
-                    page_tables.append(v_tab)
-                    all_doc_tables.append(v_tab)
+                if tabs and len(tabs.tables) > 0:
+                    for t_idx, tab in enumerate(tabs.tables, 1):
+                        extracted_rows = tab.extract()
+                        if extracted_rows and len(extracted_rows) > 0:
+                            header_obj = getattr(tab, "header", None)
+                            header_names = getattr(header_obj, "names", None) if header_obj is not None else None
+                            is_external = bool(getattr(header_obj, "external", False)) if header_obj is not None else False
+
+                            if is_external and header_names:
+                                headers = tuple(cell_text(h) for h in header_names)
+                                data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows)
+                            else:
+                                candidate_headers = header_names if header_names else extracted_rows[0]
+                                headers = tuple(cell_text(h) for h in candidate_headers)
+                                data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows[1:])
+
+                            if all_converted_profiles and fc_tools:
+                                converter = fc_tools["converter"]
+                                is_leg = fc_tools["is_legacy_text"]
+                                norm_m = fc_tools["normalize_macroman"]
+                                first_prof = next(iter(all_converted_profiles))
+
+                                def _conv_cell(cell_val: Any) -> Any:
+                                    if not isinstance(cell_val, str) or not cell_val.strip():
+                                        return cell_val
+                                    c_norm = norm_m(cell_val)
+                                    if is_leg(c_norm):
+                                        return converter.convert(c_norm, profile_id=first_prof)
+                                    return cell_val
+
+                                headers = tuple(cell_text(_conv_cell(h)) for h in headers)
+                                data_rows = tuple(tuple(cell_text(_conv_cell(val)) for val in row) for row in data_rows)
+
+                            t_meta = {}
+                            if getattr(tab, "bbox", None) is not None:
+                                t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
+                            t_obj = TableData(
+                                name=f"Page_{page_num}_Table_{t_idx}",
+                                headers=headers,
+                                rows=data_rows,
+                                metadata=t_meta,
+                            )
+                            page_tables.append(t_obj)
+                            all_doc_tables.append(t_obj)
+
+                # Vector Stroke Fallback Clustering if find_tables found no tables
+                if not page_tables:
+                    vector_tables = _extract_vector_stroke_tables(page, spans, page_num)
+                    for v_tab in vector_tables:
+                        page_tables.append(v_tab)
+                        all_doc_tables.append(v_tab)
+
 
             pages.append(
                 PageData(
