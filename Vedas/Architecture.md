@@ -499,7 +499,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`common.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/common.py): Shared execution types and state tracking.
   - [`engine.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/engine.py): Step-level execution dispatcher.
   - [`lifecycle.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/lifecycle.py): Step execution lifecycle, telemetry timing, and failure management.
-  - [`pipeline.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/pipeline.py): End-to-end plan coordinator managing sequential execution, retries, and handoffs.
+  - [`pipeline.py`](file:///e:/Sarathi/src/sarathi/nabhi/pravaha/pipeline.py): End-to-end plan coordinator managing sequential execution, retries, handoffs, and high-throughput concurrent stage pipeline overlap (`execute_pipelined_stage_handoff`).
 
 ### 11. Shakti — Document Intelligence Capabilities (`src/sarathi/shakti/`)
 - [`artifact_naming.py`](file:///e:/Sarathi/src/sarathi/shakti/artifact_naming.py): Canonical filename formatting for exported artifacts.
@@ -520,7 +520,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
     - [`delimited.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/delimited.py): Delimited text reader (CSV, TSV, semicolon, pipe) via Polars.
     - [`docx.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/docx.py): OpenXML DOCX paragraph, table, and style parser.
     - [`html.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/html.py): HTML table extractor.
-    - [`pdf.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/pdf.py): PyMuPDF vector text and layout parser.
+    - [`pdf.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/pdf.py): PyMuPDF vector text, vector drawing stroke table extractor (`_extract_vector_stroke_tables`), embedded TrueType font extraction, and stream-order legacy conversion parser.
     - [`pdf_layout.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/pdf_layout.py): GNN-based deep layout analysis and reading order recovery leveraging PyMuPDF-layout.
     - [`spreadsheet.py`](file:///e:/Sarathi/src/sarathi/shakti/native_extraction/readers/spreadsheet.py): Spreadsheet readers for XLSX (calamine/openpyxl), legacy XLS (calamine/xlrd), and SpreadsheetML.
 - **`ocr/`** (Optical Character Recognition):
@@ -549,17 +549,21 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`legal_context.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/legal_context.py): Domain legal context injection and dynamic statutory glossary matching (PMLA, Banking).
   - [`models.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/models.py): Translation data structures.
   - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/provider.py): Plugin declaration and provider factory with multi-model readiness audit.
+  - [`proper_noun_guard.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/proper_noun_guard.py): Kinship and honorific proper-noun protector applying opaque SentencePiece tokens and ISO 15919 phonetic transliteration.
   - [`protector.py`](file:///e:/Sarathi/src/sarathi/shakti/translation/protector.py): Masks non-translatable entities (numbers, dates, URLs, statutory IDs).
 - **`font_conversion/`** (Legacy Indian Font Conversion):
   - [`akshara.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/akshara.py): 14 precompiled Akshara synthesis regexes, decomposed vowel synthesis, and typewriter slip deduplication.
+  - [`byte_normalizer.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/byte_normalizer.py): MacRoman to Windows-1252 byte stream inverter repairing high-bit corrupted spans.
   - [`capability.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/capability.py): Font conversion capability coordinator.
-  - [`converter.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/converter.py): Direct-indexing bidirectional glyph mapping engine.
+  - [`converter.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/converter.py): Declarative 7-pass Akshara transduction engine with Pramana telemetry.
   - [`detector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/detector.py): Multi-modal font detector via TrueType SFNT metadata (PyMuPDF/DOCX) or text signatures with token sampling.
+  - [`font_inspector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/font_inspector.py): Binary FontTools TTF/OTF metadata parsing, GSUB modern font guard, normalized cmap signatures, and RecordingPen outline hashing.
   - [`models.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/models.py): Font conversion candidates and decision models.
   - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/provider.py): Plugin declaration and provider factory.
   - [`protector.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/protector.py): Protects Latin, numeric, valid Unicode, and statutory/legal acronyms (FIR, PMLA, CrPC, etc.).
   - [`telemetry.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/telemetry.py): Quality telemetry for converted font spans.
   - [`validator.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/validator.py): Validates Devanagari syntactic coherence in converted output.
+  - [`visual_resolver.py`](file:///e:/Sarathi/src/sarathi/shakti/font_conversion/visual_resolver.py): OpenVINO metric visual prototype fallback with open-set rejection and patch majority voting.
 - **`bank_statements/`** (Financial Document Processing):
   - [`capability.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/capability.py): Bank statement processing capability coordinator.
   - [`consolidator.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/consolidator.py): Stitches multi-page statement tables into unified transactions.
@@ -571,6 +575,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`plugin.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/plugin.py), [`provider.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/provider.py): Plugin declaration and provider factory.
   - [`row_classifier.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/row_classifier.py): Classifies table rows (header, transaction, summary, noise).
   - [`table_locator.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/table_locator.py): Finds statement transaction tables within multi-page documents.
+  - [`utr_repair.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/utr_repair.py): RBI syntax verification for UTR and IFSC, heuristic OCR confusion repair, and running balance reconciliation.
   - [`validator.py`](file:///e:/Sarathi/src/sarathi/shakti/bank_statements/validator.py): Reconciles running balances against debit and credit arithmetic.
 - **`statutory/`** (Statutory & Legal Intelligence):
   - [`capability.py`](file:///e:/Sarathi/src/sarathi/shakti/statutory/capability.py): Statutory extraction capability coordinator.
