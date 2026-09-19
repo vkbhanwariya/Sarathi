@@ -537,3 +537,63 @@ def test_bug_T7_anubhava_word_boundary() -> None:
     assert "कार्य" in captured_sentences[0], f"Expected 'कार्य' to remain untouched, got {captured_sentences[0]}"
     assert captured_sentences[0] == "कार्य X परिणाम", f"Expected 'कार्य X परिणाम', got {captured_sentences[0]}"
 
+
+def test_bug_T8_model_cache_deduplication(monkeypatch: Any) -> None:
+    """T8: Two translate_sentences calls with different approved_concurrency must construct one translator."""
+    from types import SimpleNamespace
+
+    import ctranslate2
+    import sentencepiece
+
+    from sarathi.sankalpa import DeviceType, ExecutionBinding
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    translator_construct_count = 0
+
+    class CountingTranslator:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            nonlocal translator_construct_count
+            translator_construct_count += 1
+
+        def translate_batch(self, tokenized: Any, **kwargs: Any) -> Any:
+            return [SimpleNamespace(hypotheses=[["tok"]])]
+
+    class FakeSPM:
+        def load(self, path: str) -> None:
+            pass
+
+        def encode_as_pieces(self, text: str) -> list[str]:
+            return ["tok"]
+
+        def decode_pieces(self, pieces: list[str]) -> str:
+            return "out"
+
+    monkeypatch.setattr(ctranslate2, "Translator", CountingTranslator)
+    monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", FakeSPM)
+
+    engine = CTranslate2TranslationEngine()
+    backend = engine._ensure_backend()
+
+    binding1 = ExecutionBinding(
+        "cpu-0",
+        DeviceType.CPU,
+        "ctranslate2",
+        "cpu",
+        approved_concurrency=1,
+    )
+    backend.translate_sentences(["पहला वाक्य।"], direction=TranslationDirection.HI_TO_EN, execution_binding=binding1)
+
+    binding2 = ExecutionBinding(
+        "cpu-0",
+        DeviceType.CPU,
+        "ctranslate2",
+        "cpu",
+        approved_concurrency=4,
+    )
+    backend.translate_sentences(["दूसरा वाक्य।"], direction=TranslationDirection.HI_TO_EN, execution_binding=binding2)
+
+    assert translator_construct_count == 1, (
+        f"Expected exactly 1 Translator construction, got {translator_construct_count}"
+    )
+
