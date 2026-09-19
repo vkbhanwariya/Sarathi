@@ -27,9 +27,11 @@ Sarathi Runtime (Agni / Manthan / Pravaha)
 
 ## 2. Security & Boundaries
 
+- **Session Token Authentication**: At server bootstrap, a 256-bit cryptographically secure session token is generated (`secrets.token_urlsafe(32)`). The initial browser shell URL launched via desktop integration contains `/?t=<token>`. Accessing this sets an `HttpOnly; SameSite=Strict; Path=/` session cookie and redirects to `/`. All `/api/**` endpoints strictly validate this cookie using constant-time comparison (`hmac.compare_digest`), rejecting unauthenticated requests with `401 Unauthorized` or `403 Forbidden`.
 - **Loopback Enforcement**: The web server binds exclusively to `127.0.0.1`. Inbound requests with non-loopback Host or Origin headers are rejected with `403 Forbidden`.
 - **Response Headers**: Enforces Content Security Policy (`CSP`), `X-Content-Type-Options: nosniff`, frame restrictions (`DENY`), and strict caching policies on API routes. Header names are evaluated case-insensitively.
-- **Filesystem Containment**: Download and preview endpoints (`/api/inputs/<id>/preview`, `/api/artifacts/<run_id>/<filename>`) resolve only through verified run workspaces. Arbitrary filesystem path traversal is blocked fail-closed.
+- **Filesystem Containment & Preview Security**: Download and preview endpoints (`/api/inputs/<id>/preview`, `/api/preview/*`, `/api/artifacts/<run_id>/<filename>`) resolve strictly through Kavacha's path containment service. Paths must reside within configured storage roots (`input_root`, `output_root`, `runtime_root`) or registered intake directories. Symlink escapes pointing outside allowed roots are rejected fail-closed.
+- **Run-Level Warning Aggregation**: Non-fatal system warnings lacking an explicit `input_id` association are accounted strictly at the run level, preventing duplicate warning inflation across multiple input items.
 
 ---
 

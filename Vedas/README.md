@@ -16,7 +16,6 @@
 | [`Development.md`](Development.md) | Environment setup (`tools/scripts/update_sarathi.ps1`), CI gates, and planning rules |
 | [`Mukha_Transport.md`](Mukha_Transport.md) | Local ASGI web transport, SSE streaming, and security boundary |
 | [`Decisions.md`](Decisions.md) | Canonical UI/UX progressive Home task hierarchy and capability mapping |
-| [`Upgrades.md`](Upgrades.md) | Authoritative specifications for planned high-ROI architectural capabilities |
 | [`architecture.manifest.json`](architecture.manifest.json) | Machine-readable production package and component topology |
 | [`architecture.manifest.schema.json`](architecture.manifest.schema.json) | JSON schema defining production manifest rules |
 

@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import inspect
 import io
-import json
 import re
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Mapping
 from xml.sax.saxutils import quoteattr
 
@@ -536,24 +533,14 @@ def _merge_adjacent_compatible_runs(container: ET.Element) -> None:
         i += 1
 
 
-_DEFAULT_PROFILE_RESOLVER: Callable[..., tuple[str | None, str | None]] | None = None
-
-
-def register_default_profile_resolver(resolver: Callable[..., tuple[str | None, str | None]]) -> None:
-    """Register a provider for default profile resolution via Dependency Injection."""
-    global _DEFAULT_PROFILE_RESOLVER
-    _DEFAULT_PROFILE_RESOLVER = resolver
-
-
 def _classify_run_font(
     font_name: str | None,
     profiles: Mapping[str, Any] | None = None,
     profile_resolver: Callable[..., tuple[str | None, str | None]] | None = None,
 ) -> tuple[str | None, str | None]:
     """Classify run font as modern, legacy profile, or unknown."""
-    resolver = profile_resolver or _DEFAULT_PROFILE_RESOLVER
-    if resolver is not None:
-        return resolver(font_name, profiles)
+    if profile_resolver is not None:
+        return profile_resolver(font_name, profiles)
 
     if not font_name or not font_name.strip():
         return None, None
@@ -587,68 +574,11 @@ def _classify_run_font(
     return None, "unknown"
 
 
-_DEFAULT_PROFILES_LOADER: Callable[[], Mapping[str, Any]] | None = None
-_CACHED_NEUTRAL_PROFILES: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NeutralFontProfile:
-    """Lightweight metadata for font profile symbols and aliases."""
-
-    profile_id: str
-    family: str
-    name: str
-    aliases: tuple[str, ...] = ()
-    symbols: Mapping[str, str] = field(default_factory=dict)
-
-
-def register_default_profiles_loader(loader: Callable[[], Mapping[str, Any]]) -> None:
-    """Register a provider/loader for default font profiles via Dependency Injection."""
-    global _DEFAULT_PROFILES_LOADER
-    _DEFAULT_PROFILES_LOADER = loader
-
-
-def _load_neutral_font_profiles() -> dict[str, NeutralFontProfile]:
-    global _CACHED_NEUTRAL_PROFILES
-    if _CACHED_NEUTRAL_PROFILES is not None:
-        return _CACHED_NEUTRAL_PROFILES
-
-    fonts_dir = Path(__file__).resolve().parents[4] / "data" / "fonts"
-    profiles: dict[str, NeutralFontProfile] = {}
-    if fonts_dir.exists():
-        for json_file in fonts_dir.glob("*.json"):
-            try:
-                data = json.loads(json_file.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    pid = str(data.get("profile_id", "")).strip()
-                    if pid:
-                        profiles[pid] = NeutralFontProfile(
-                            profile_id=pid,
-                            family=str(data.get("family", "legacy")),
-                            name=str(data.get("name", pid)),
-                            aliases=tuple(str(a) for a in data.get("aliases", ())),
-                            symbols=dict(data.get("symbols", {})),
-                        )
-            except Exception:
-                continue
-
-    _CACHED_NEUTRAL_PROFILES = profiles
-    return profiles
-
-
 def get_default_profiles() -> Mapping[str, Any]:
-    """Retrieve default font profiles, falling back to neutral data/fonts profiles."""
-    if _DEFAULT_PROFILES_LOADER is not None:
-        try:
-            return _DEFAULT_PROFILES_LOADER()
-        except Exception:
-            pass
+    """Retrieve canonical default font profiles."""
     from sarathi.shakti.text.legacy_fonts import load_font_profiles
 
-    try:
-        return load_font_profiles()
-    except Exception:
-        return _load_neutral_font_profiles()
+    return load_font_profiles()
 
 
 def _transform_xml_tree(

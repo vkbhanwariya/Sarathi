@@ -37,10 +37,13 @@ Defines Kavacha authorization rules and network boundaries.
 
 | Key | Type | Code Default | Config Default | Description |
 | --- | --- | --- | --- | --- |
-| `allow_pii_access` | `bool` | `true` | `true` | Permits capabilities to access Personally Identifiable Information. |
-| `allow_network_access` | `bool` | `false` | `true` | **(Enables External/Cloud)** Permits outbound network socket and HTTP communication. |
-| `allow_external_processing` | `bool` | `false` | `true` | **(Enables External/Cloud)** Permits transmitting document data to third-party cloud APIs. |
+| `allow_pii_access` | `bool` | `false` | `false` | Permits capabilities to access Personally Identifiable Information. Shipped disabled for privacy hardening. |
+| `allow_network_access` | `bool` | `false` | `false` | **(Enables External/Cloud)** Permits outbound network socket and HTTP communication. Shipped disabled for offline privacy. |
+| `allow_external_processing` | `bool` | `false` | `false` | **(Enables External/Cloud)** Permits transmitting document data to third-party cloud APIs. Shipped disabled. |
 | `allowed_secrets` | `list[str]` | `()` | See below | List of environment variable names containing secrets that Kavacha authorizes capabilities to access. |
+
+> [!TIP]
+> For cloud-enabled environments where external AI processing is explicitly authorized, consult `config/settings.cloud.example.toml`.
 
 Default `allowed_secrets` in `config/settings.toml`:
 ```toml
@@ -96,6 +99,19 @@ Configures Smriti deterministic result caching.
 
 ---
 
+### `[limits]`
+
+Defines resource limits and defensive caps for archive and XML parsing (S3 security).
+
+| Key | Type | Code Default | Config Default | Description |
+| --- | --- | --- | --- | --- |
+| `max_input_bytes` | `int` | `524288000` | `524288000` | Maximum intake file size (500 MB). Larger inputs are rejected fail-closed. |
+| `max_uncompressed_bytes` | `int` | `1073741824` | `1073741824` | Maximum uncompressed extracted archive size (1 GiB) to prevent zip bombs. |
+| `max_compression_ratio` | `float` | `200.0` | `200.0` | Maximum allowable compression ratio before aborting decompression. |
+| `max_zip_members` | `int` | `10000` | `10000` | Maximum number of files permitted in an ingested ZIP/DOCX/XLSX archive. |
+
+---
+
 ### `[plugins]`
 
 Controls plugin registration during bootstrap.
@@ -144,3 +160,4 @@ The following sections configure external cloud adapters. These settings are con
 | `api_version` | `str` | `"2024-11-30"` | Azure Document Intelligence API version. |
 | `model_translation` | `str` | `"azure-translator-v3"` | Model name for Azure translation. |
 | `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |
+| `poll_timeout_seconds` | `float` | `600.0` | Separate timeout in seconds for asynchronous Azure layout polling. |

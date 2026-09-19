@@ -15,8 +15,10 @@ Sarathi extracts, processes, and normalizes documents across modern and legacy f
 ## 2. DOCX (WordprocessingML)
 
 - **Input**: Microsoft Word OpenXML `.docx` files (ECMA-376).
+- **Archive & XML Security**: All incoming DOCX packages are opened via `SafeZipFile` enforcing strict decompression ratios and member limits to prevent zip bombs. XML content streams are parsed with `defusedxml` to block entity expansion.
 - **Extraction**: Reads `word/document.xml`, extracting paragraph text (`w:p`), individual runs (`w:r`), visual styling (bold, italic), embedded tables (`w:tbl`), and document heading hierarchies.
 - **Output & Transformation**: Sarathi's `docx_exporter` generates standardized DOCX documents and transforms existing packages with high-fidelity layout preservation:
+  - **XML 1.0 Sanitization**: `sanitize_xml_text()` automatically strips illegal XML 1.0 control characters (`[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]`), maps form feed `\x0c` to genuine `<w:br w:type="page"/>` page breaks, and safely escapes attribute values.
   - **Script-Aware Typography**:
     - **Devanagari (Hindi)**: Styled with Nirmala UI, 12 pt (`w:sz=24`).
     - **Latin / Numeric (English)**: Styled with Times New Roman, 12 pt (`w:sz=24`).

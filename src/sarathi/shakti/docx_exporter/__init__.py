@@ -44,8 +44,6 @@ from sarathi.shakti.docx_exporter.transformer import (
     _transform_xml_tree,
     get_default_profiles,
     normalize_font_family,
-    register_default_profile_resolver,
-    register_default_profiles_loader,
     transform_docx_artifact,
     transform_docx_translation_artifact,
 )
@@ -75,8 +73,6 @@ __all__ = [
     "normalize_font_family",
     "normalize_font_name",
     "normalize_font_size",
-    "register_default_profile_resolver",
-    "register_default_profiles_loader",
     "resolve_neutral_ooxml_font",
     "sanitize_xml_text",
     "segment_text_by_script",
