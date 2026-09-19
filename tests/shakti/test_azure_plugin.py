@@ -320,3 +320,43 @@ class TestAzureTranslationCapability:
             mock_httpx.return_value.__enter__.return_value = mock_client_inst
             res = client.translate_batch(["नमस्ते", "दुनिया"], "Hindi", "English")
             assert res == ["Hello", "World"]
+
+    def test_bug_O8_azure_429_retry_and_poll_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """O8: Azure client retries 429 with Retry-After and uses separate poll_timeout_seconds."""
+        import httpx
+
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append((request.method, str(request.url)))
+            if request.method == "POST":
+                post_count = sum(1 for m, _ in calls if m == "POST")
+                if post_count == 1:
+                    return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": "rate limited"})
+                return httpx.Response(202, headers={"Operation-Location": "https://dummy.azure.com/op/1"})
+            elif request.method == "GET":
+                get_count = sum(1 for m, _ in calls if m == "GET")
+                if get_count < 3:
+                    return httpx.Response(200, json={"status": "running"})
+                return httpx.Response(200, json={"status": "succeeded", "analyzeResult": {"content": "Extracted"}})
+            return httpx.Response(400)
+
+        transport = httpx.MockTransport(handler)
+
+        orig_client_init = httpx.Client.__init__
+
+        def mock_client_init(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            orig_client_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.Client, "__init__", mock_client_init)
+
+        client = AzureClient(
+            api_key="test_key",
+            endpoint="https://dummy.cognitiveservices.azure.com",
+            timeout_seconds=0.2,
+            poll_timeout_seconds=5.0,
+        )
+
+        result = client.analyze_layout(b"pdf data")
+        assert result.get("content") == "Extracted"

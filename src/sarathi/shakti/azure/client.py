@@ -25,6 +25,7 @@ class AzureClient:
         translator_region: str | None = None,
         translator_endpoint: str = _DEFAULT_TRANSLATOR_URL,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+        poll_timeout_seconds: float = 600.0,
     ) -> None:
         self._api_key = api_key or os.environ.get("AZURE_API_KEY") or os.environ.get("AZURE_VISION_KEY")
         self._endpoint = (
@@ -34,6 +35,7 @@ class AzureClient:
         self._translator_region = translator_region or os.environ.get("AZURE_TRANSLATOR_REGION")
         self._translator_endpoint = (translator_endpoint or _DEFAULT_TRANSLATOR_URL).rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._poll_timeout_seconds = poll_timeout_seconds
 
     @property
     def is_configured(self) -> bool:
@@ -69,6 +71,7 @@ class AzureClient:
         content_bytes: bytes,
         media_type: str = "application/pdf",
         api_version: str = _DEFAULT_API_VERSION,
+        cancellation_token: Any | None = None,
     ) -> dict[str, Any]:
         """Analyze document layout using Azure Document Intelligence REST API."""
         if not content_bytes:
@@ -85,57 +88,118 @@ class AzureClient:
             "User-Agent": "Sarathi/2.0",
         }
 
+        def _sleep_interruptible(seconds: float) -> None:
+            end_t = time.monotonic() + seconds
+            while True:
+                if cancellation_token is not None and cancellation_token.is_cancelled:
+                    cancellation_token.check_cancelled()
+                remaining = end_t - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(remaining, 0.1))
+
         try:
             import httpx
 
-            with httpx.Client(timeout=self._timeout_seconds) as client:
-                resp = client.post(url, headers=headers, content=content_bytes)
+            max_post_attempts = 5
+            resp = None
 
-                if resp.status_code in (401, 403):
-                    raise DoshError(
-                        code=FailureCode.SECURITY_DENIED,
-                        message="Azure authentication failed. Verify AZURE_API_KEY and AZURE_ENDPOINT.",
-                    )
-                if resp.status_code == 429:
-                    raise DoshError(
-                        code=FailureCode.RESOURCE_UNAVAILABLE,
-                        message="Azure API rate limit exceeded.",
-                    )
-                if resp.status_code >= 400:
-                    raise DoshError(
-                        code=FailureCode.EXECUTION_FAILED,
-                        message=f"Azure Document Intelligence returned error status {resp.status_code}.",
-                    )
+            for attempt in range(max_post_attempts):
+                if cancellation_token is not None and cancellation_token.is_cancelled:
+                    cancellation_token.check_cancelled()
 
-                # Azure returns 202 Accepted with Operation-Location for async analysis
-                if resp.status_code == 202:
-                    op_url = resp.headers.get("Operation-Location")
-                    if not op_url:
+                with httpx.Client(timeout=self._timeout_seconds) as client:
+                    resp = client.post(url, headers=headers, content=content_bytes)
+
+                    resp_headers = getattr(resp, "headers", {}) or {}
+                    if resp.status_code in (429, 503):
+                        if attempt < max_post_attempts - 1:
+                            retry_after_str = resp_headers.get("Retry-After") if hasattr(resp_headers, "get") else None
+                            delay = None
+                            if retry_after_str:
+                                try:
+                                    delay = float(retry_after_str)
+                                except (ValueError, TypeError):
+                                    delay = None
+                            if delay is None:
+                                delay = min(30.0, 0.5 * (2**attempt))
+                            _sleep_interruptible(delay)
+                            continue
+                        raise DoshError(
+                            code=FailureCode.RESOURCE_UNAVAILABLE,
+                            message="Azure API rate limit exceeded.",
+                        )
+
+                    if resp.status_code in (401, 403):
+                        raise DoshError(
+                            code=FailureCode.SECURITY_DENIED,
+                            message="Azure authentication failed. Verify AZURE_API_KEY and AZURE_ENDPOINT.",
+                        )
+                    if resp.status_code >= 400:
                         raise DoshError(
                             code=FailureCode.EXECUTION_FAILED,
-                            message="Azure returned 202 Accepted without Operation-Location header.",
+                            message=f"Azure Document Intelligence returned error status {resp.status_code}.",
                         )
-                    poll_headers = {"Ocp-Apim-Subscription-Key": api_key, "User-Agent": "Sarathi/2.0"}
-                    start_time = time.monotonic()
-                    while time.monotonic() - start_time < self._timeout_seconds:
-                        time.sleep(0.5)
-                        poll_resp = client.get(op_url, headers=poll_headers)
-                        if poll_resp.status_code == 200:
-                            poll_data = poll_resp.json()
-                            status = poll_data.get("status")
-                            if status == "succeeded":
-                                return poll_data.get("analyzeResult", poll_data)
-                            if status in ("failed", "canceled"):
+
+                    # Azure returns 202 Accepted with Operation-Location for async analysis
+                    if resp.status_code == 202:
+                        op_url = resp_headers.get("Operation-Location") if hasattr(resp_headers, "get") else None
+                        if not op_url:
+                            raise DoshError(
+                                code=FailureCode.EXECUTION_FAILED,
+                                message="Azure returned 202 Accepted without Operation-Location header.",
+                            )
+                        poll_headers = {"Ocp-Apim-Subscription-Key": api_key, "User-Agent": "Sarathi/2.0"}
+                        start_time = time.monotonic()
+                        while time.monotonic() - start_time < self._poll_timeout_seconds:
+                            if cancellation_token is not None and cancellation_token.is_cancelled:
+                                cancellation_token.check_cancelled()
+
+                            poll_resp = client.get(op_url, headers=poll_headers)
+                            p_headers = getattr(poll_resp, "headers", {}) or {}
+                            if poll_resp.status_code in (429, 503):
+                                p_retry_after = p_headers.get("Retry-After") if hasattr(p_headers, "get") else None
+                                p_delay = 1.0
+                                if p_retry_after:
+                                    try:
+                                        p_delay = float(p_retry_after)
+                                    except (ValueError, TypeError):
+                                        pass
+                                _sleep_interruptible(p_delay)
+                                continue
+
+                            if poll_resp.status_code == 200:
+                                poll_data = poll_resp.json()
+                                status = poll_data.get("status")
+                                if status == "succeeded":
+                                    return poll_data.get("analyzeResult", poll_data)
+                                if status in ("failed", "canceled"):
+                                    raise DoshError(
+                                        code=FailureCode.EXECUTION_FAILED,
+                                        message=f"Azure Document Intelligence operation {status}.",
+                                    )
+                                wait_s = 0.5
+                                p_retry_after = p_headers.get("Retry-After") if hasattr(p_headers, "get") else None
+                                if p_retry_after:
+                                    try:
+                                        wait_s = max(0.1, float(p_retry_after))
+                                    except (ValueError, TypeError):
+                                        pass
+                                _sleep_interruptible(wait_s)
+                            elif poll_resp.status_code >= 400:
                                 raise DoshError(
                                     code=FailureCode.EXECUTION_FAILED,
-                                    message=f"Azure Document Intelligence operation {status}.",
+                                    message=f"Azure poll returned error status {poll_resp.status_code}.",
                                 )
-                    raise DoshError(
-                        code=FailureCode.RESOURCE_UNAVAILABLE,
-                        message="Azure Document Intelligence layout analysis timed out.",
-                    )
+                            else:
+                                _sleep_interruptible(0.5)
 
-                return resp.json().get("analyzeResult", resp.json())
+                        raise DoshError(
+                            code=FailureCode.RESOURCE_UNAVAILABLE,
+                            message="Azure Document Intelligence layout analysis timed out.",
+                        )
+
+                    return resp.json().get("analyzeResult", resp.json())
 
         except DoshError:
             raise

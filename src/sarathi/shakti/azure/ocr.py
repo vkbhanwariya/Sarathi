@@ -111,6 +111,7 @@ class AzureOCRCapability:
             analyze_result = self._client.analyze_layout(
                 content_bytes=content_bytes,
                 media_type=media_type,
+                cancellation_token=context.cancellation_token,
             )
 
             raw_pages = analyze_result.get("pages", [])
