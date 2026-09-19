@@ -143,3 +143,68 @@ def test_ocr_page_profile_preprocessing_logic() -> None:
         _, kwargs = mock_prep.call_args
         assert kwargs["remove_stamps"] is True
         assert any(w.code == "EXPERIMENTAL_STAMP_REMOVAL" for w in warns)
+
+
+def test_bug_O10_deskew_angle_estimation() -> None:
+    """O10: Verify deskew estimates text line angle, not bounding box of asymmetric ink or borders."""
+    cv2 = pytest.importorskip("cv2")
+
+    # 1. Text lines rotated by +3 degrees
+    img_p3 = np.full((800, 600, 3), 255, dtype=np.uint8)
+    for y in range(100, 700, 50):
+        cv2.putText(
+            img_p3,
+            "The quick brown fox jumps over the lazy dog 12345",
+            (50, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 0),
+            2,
+        )
+    m_p3 = cv2.getRotationMatrix2D((300, 400), 3.0, 1.0)
+    img_p3 = cv2.warpAffine(img_p3, m_p3, (600, 800), borderValue=(255, 255, 255))
+    _, angle_p3 = deskew_image(img_p3)
+    assert abs(abs(angle_p3) - 3.0) <= 0.5
+
+    # 2. Text lines rotated by -3 degrees
+    img_m3 = np.full((800, 600, 3), 255, dtype=np.uint8)
+    for y in range(100, 700, 50):
+        cv2.putText(
+            img_m3,
+            "The quick brown fox jumps over the lazy dog 12345",
+            (50, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 0),
+            2,
+        )
+    m_m3 = cv2.getRotationMatrix2D((300, 400), -3.0, 1.0)
+    img_m3 = cv2.warpAffine(img_m3, m_m3, (600, 800), borderValue=(255, 255, 255))
+    _, angle_m3 = deskew_image(img_m3)
+    assert abs(abs(angle_m3) - 3.0) <= 0.5
+
+    # 3. 0 deg skew page with full-page border and horizontal table rows
+    img_border = np.full((800, 600, 3), 255, dtype=np.uint8)
+    cv2.rectangle(img_border, (20, 20), (580, 780), (0, 0, 0), 2)
+    for y in range(100, 700, 60):
+        cv2.putText(
+            img_border,
+            "Regular horizontal text row inside table",
+            (50, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 0),
+            1,
+        )
+    out_b, angle_b = deskew_image(img_border)
+    assert angle_b == 0.0
+    assert np.array_equal(out_b, img_border)
+
+    # 4. 0 deg skew page with asymmetric layout (title top-left, signature bottom-right)
+    # On unpatched code, minAreaRect over ink bounding box computes ~ -24.8 deg and rotates!
+    img_asym = np.full((800, 600, 3), 255, dtype=np.uint8)
+    cv2.putText(img_asym, "OFFICIAL NOTICE", (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+    cv2.putText(img_asym, "Authorized Signatory", (350, 750), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+    out_asym, angle_asym = deskew_image(img_asym)
+    assert angle_asym == 0.0
+    assert np.array_equal(out_asym, img_asym)

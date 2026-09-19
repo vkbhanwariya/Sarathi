@@ -15,24 +15,58 @@ def deskew_image(image_arr: Any) -> tuple[Any, float]:
             return image_arr, 0.0
 
         gray = cv2.cvtColor(image_arr, cv2.COLOR_RGB2GRAY) if len(image_arr.shape) == 3 else image_arr.copy()
-        thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-        coords = np.column_stack(np.where(thresh > 0))
-
-        if len(coords) < 100:
+        if float(np.std(gray)) < 2.0:
             return image_arr, 0.0
 
-        angle = cv2.minAreaRect(coords)[-1]
-        if angle < -45:
-            angle = -(90 + angle)
-        elif angle > 45:
-            angle = 90 - angle
-        else:
-            angle = -angle
+        thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+        ink_count = cv2.countNonZero(thresh)
+        if ink_count < 100 or ink_count > thresh.size * 0.95:
+            return image_arr, 0.0
 
-        if 0.5 < abs(angle) < 45.0:
-            (h, w) = image_arr.shape[:2]
-            center = (w // 2, h // 2)
-            m_rot = cv2.getRotationMatrix2D(center, angle, 1.0)
+        (h, w) = image_arr.shape[:2]
+        # Downscale for fast projection-profile search across candidate angles
+        scale = min(1.0, 350.0 / max(h, w))
+        if scale < 1.0:
+            small = cv2.resize(thresh, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_NEAREST)
+        else:
+            small = thresh
+
+        sh, sw = small.shape[:2]
+        center = (sw // 2, sh // 2)
+
+        def score_angle(ang: float) -> float:
+            m_tmp = cv2.getRotationMatrix2D(center, ang, 1.0)
+            rot = cv2.warpAffine(
+                small,
+                m_tmp,
+                (sw, sh),
+                flags=cv2.INTER_NEAREST,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+            proj = np.sum(rot, axis=1)
+            return float(np.var(proj))
+
+        # Coarse search from -15 to +15 in 0.5 degree steps
+        coarse_angles = np.arange(-15.0, 15.001, 0.5)
+        coarse_vars = [score_angle(float(a)) for a in coarse_angles]
+        best_coarse_idx = int(np.argmax(coarse_vars))
+        best_coarse_angle = float(coarse_angles[best_coarse_idx])
+
+        # Fine search in 0.1 degree steps around peak
+        fine_angles = np.arange(best_coarse_angle - 0.6, best_coarse_angle + 0.601, 0.1)
+        fine_vars = [score_angle(float(a)) for a in fine_angles]
+        best_fine_idx = int(np.argmax(fine_vars))
+        angle = float(fine_angles[best_fine_idx])
+
+        peak_var = fine_vars[best_fine_idx]
+        median_var = float(np.median(coarse_vars))
+        conf = (peak_var - median_var) / (peak_var + 1e-6)
+
+        # Require reasonable confidence and meaningful skew (|angle| > 0.5)
+        if conf >= 0.20 and 0.5 < abs(angle) < 45.0:
+            orig_center = (w // 2, h // 2)
+            m_rot = cv2.getRotationMatrix2D(orig_center, angle, 1.0)
             rotated = cv2.warpAffine(
                 image_arr,
                 m_rot,
