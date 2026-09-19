@@ -460,3 +460,56 @@ def test_bug_T5_redundant_translation() -> None:
     assert out_doc.pages[0].text == "TRANS_पहला वाक्य।"
     assert out_doc.pages[1].text == "TRANS_दूसरा वाक्य।"
 
+
+def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
+    """T6: translate_batch must pass explicit beam_size and max_decoding_length, and warn on truncation."""
+    from types import SimpleNamespace
+
+    import ctranslate2
+    import sentencepiece
+
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    captured_kwargs: dict[str, Any] = {}
+
+    class FakeTranslator:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def translate_batch(self, tokenized: Any, **kwargs: Any) -> Any:
+            nonlocal captured_kwargs
+            captured_kwargs.update(kwargs)
+            max_len = kwargs.get("max_decoding_length", 256)
+            # Simulate hypothesis reaching the max decoding limit
+            return [SimpleNamespace(hypotheses=[["tok"] * max_len])]
+
+    class FakeSPM:
+        def load(self, path: str) -> None:
+            pass
+
+        def encode_as_pieces(self, text: str) -> list[str]:
+            return ["tok1", "tok2"]
+
+        def decode_pieces(self, pieces: list[str]) -> str:
+            return "अनुवादित पाठ"
+
+    monkeypatch.setattr(ctranslate2, "Translator", FakeTranslator)
+    monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", FakeSPM)
+
+    engine = CTranslate2TranslationEngine()
+    result = engine.translate("परीक्षण वाक्य।", direction=TranslationDirection.HI_TO_EN)
+
+    # 1. Assert kwargs include explicit beam_size and max_decoding_length
+    assert "beam_size" in captured_kwargs, f"Expected explicit 'beam_size' in kwargs, got {captured_kwargs}"
+    assert "max_decoding_length" in captured_kwargs, f"Expected explicit 'max_decoding_length' in kwargs, got {captured_kwargs}"
+
+    # 2. Assert TRANSLATION_TRUNCATION_SUSPECTED is emitted in span_protection_issues or metadata
+    span_issues = result.metadata.get("span_protection_issues", ())
+    warnings = result.metadata.get("warnings", ())
+    assert (
+        "TRANSLATION_TRUNCATION_SUSPECTED" in span_issues
+        or "TRANSLATION_TRUNCATION_SUSPECTED" in warnings
+        or result.metadata.get("truncation_suspected") is True
+    ), f"Expected TRANSLATION_TRUNCATION_SUSPECTED warning in metadata, got {result.metadata}"
+

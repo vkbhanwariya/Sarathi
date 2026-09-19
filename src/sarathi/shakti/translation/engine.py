@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import tomllib
 from pathlib import Path
@@ -21,6 +22,10 @@ from sarathi.shakti.translation.protector import TranslationProtector
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_TRANSLATION_DATA_DIR = get_canonical_data_root() / "translation"
+
+DEFAULT_BEAM_SIZE: int = 4
+DEFAULT_MAX_DECODING_LENGTH: int = 512
+MAX_SENTENCE_TOKENS: int = 256
 
 _ABBREVIATIONS: frozenset[str] = frozenset({
     "mr", "mrs", "ms", "dr", "prof", "sec", "no", "nos", "hon",
@@ -418,12 +423,34 @@ class CTranslate2TranslationEngine:
                         spm_src = self._spms[spm_src_key]
                         spm_tgt = self._spms[spm_tgt_key]
 
+                    # Split sentences longer than MAX_SENTENCE_TOKENS tokens at ;, ,, or : boundaries
+                    sentence_chunks: list[list[tuple[str, str]]] = []
+                    flat_pieces: list[str] = []
+                    for s in sentences:
+                        raw_pieces = spm_src.encode_as_pieces(s)
+                        if len(raw_pieces) > MAX_SENTENCE_TOKENS:
+                            sub_parts = re.split(r"([;,:])\s*", s)
+                            parts_list: list[tuple[str, str]] = []
+                            for i in range(0, len(sub_parts), 2):
+                                sub_txt = sub_parts[i].strip()
+                                sub_sep = (sub_parts[i + 1] + " ") if i + 1 < len(sub_parts) else ""
+                                if sub_txt:
+                                    parts_list.append((sub_txt, sub_sep))
+                                    flat_pieces.append(sub_txt)
+                            if not parts_list:
+                                parts_list = [(s, "")]
+                                flat_pieces.append(s)
+                            sentence_chunks.append(parts_list)
+                        else:
+                            sentence_chunks.append([(s, "")])
+                            flat_pieces.append(s)
+
                     if norm_engine == "indictrans2":
                         src_tag = model_info.get("source_lang", "hin_Deva" if dir_key == "hi-en" else "eng_Latn")
                         tgt_tag = model_info.get("target_lang", "eng_Latn" if dir_key == "hi-en" else "hin_Deva")
-                        tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(s) for s in sentences]
+                        tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(p) for p in flat_pieces]
                     else:
-                        tokenized = [spm_src.encode_as_pieces(s) for s in sentences]
+                        tokenized = [spm_src.encode_as_pieces(p) for p in flat_pieces]
 
                     # Token-based batching bounds token count per forward pass, eliminating tail latency
                     # on uneven sentence lengths while distributing work across worker threads.
@@ -431,19 +458,39 @@ class CTranslate2TranslationEngine:
                         tokenized,
                         batch_type="tokens",
                         max_batch_size=1024,
+                        beam_size=DEFAULT_BEAM_SIZE,
+                        max_decoding_length=DEFAULT_MAX_DECODING_LENGTH,
                     )
 
-                    decoded_sentences: list[str] = []
+                    decoded_pieces: list[str] = []
+                    piece_truncations: list[bool] = []
                     for r in results:
-                        text = spm_tgt.decode_pieces(r.hypotheses[0])
+                        hyp = r.hypotheses[0] if getattr(r, "hypotheses", None) else []
+                        is_trunc = len(hyp) >= DEFAULT_MAX_DECODING_LENGTH
+                        piece_truncations.append(is_trunc)
+                        text = spm_tgt.decode_pieces(hyp)
                         if norm_engine == "indictrans2":
                             for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>", "\u2047", "Â"):
                                 text = text.replace(tag, "")
                         text = text.replace("\u2581", " ")
                         text = " ".join(text.split())
-                        decoded_sentences.append(text.strip())
+                        decoded_pieces.append(text.strip())
 
-                    return decoded_sentences, device
+                    decoded_sentences: list[str] = []
+                    sentence_truncations: list[bool] = []
+                    p_idx = 0
+                    for chunks in sentence_chunks:
+                        s_text_parts: list[str] = []
+                        s_has_trunc = False
+                        for _, sep in chunks:
+                            s_text_parts.append(decoded_pieces[p_idx] + sep)
+                            if piece_truncations[p_idx]:
+                                s_has_trunc = True
+                            p_idx += 1
+                        decoded_sentences.append("".join(s_text_parts).strip())
+                        sentence_truncations.append(s_has_trunc)
+
+                    return decoded_sentences, device, sentence_truncations
 
             self._initialized_backend = _CTranslate2NativeBackend(self._data_root, manifest_dict)
             return self._initialized_backend
@@ -510,8 +557,12 @@ class CTranslate2TranslationEngine:
             prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
         )
 
-        if isinstance(backend_res, tuple) and len(backend_res) == 2:
-            translated_sentences, factual_device = backend_res
+        truncation_suspected = False
+        if isinstance(backend_res, tuple) and len(backend_res) >= 2:
+            translated_sentences = backend_res[0]
+            factual_device = backend_res[1]
+            if len(backend_res) > 2 and any(backend_res[2]):
+                truncation_suspected = True
         else:
             translated_sentences = backend_res
             factual_device = target_device
@@ -527,6 +578,10 @@ class CTranslate2TranslationEngine:
             "backend": "ctranslate2",
             "engine": norm_engine,
         }
+        if truncation_suspected:
+            span_issues.append("TRANSLATION_TRUNCATION_SUSPECTED")
+            metadata["truncation_suspected"] = True
+            metadata["warnings"] = ("TRANSLATION_TRUNCATION_SUSPECTED",)
         if span_issues:
             metadata["span_protection_issues"] = tuple(span_issues)
 
@@ -599,8 +654,12 @@ class CTranslate2TranslationEngine:
                 all_prepared_sentences, direction, execution_binding=execution_binding, engine=norm_engine
             )
 
-            if isinstance(backend_res, tuple) and len(backend_res) == 2:
-                all_translated_sentences, factual_device = backend_res
+            truncation_flags: list[bool] = []
+            if isinstance(backend_res, tuple) and len(backend_res) >= 2:
+                all_translated_sentences = backend_res[0]
+                factual_device = backend_res[1]
+                if len(backend_res) > 2:
+                    truncation_flags = list(backend_res[2])
             else:
                 all_translated_sentences = backend_res
 
@@ -621,6 +680,8 @@ class CTranslate2TranslationEngine:
                 continue
 
             sents = all_translated_sentences[start_idx : start_idx + sent_count]
+            item_truncations = truncation_flags[start_idx : start_idx + sent_count] if truncation_flags else []
+            truncation_suspected = any(item_truncations)
             translated_body = "".join(ts + sep for ts, sep in zip(sents, separators))
             final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
 
@@ -630,6 +691,10 @@ class CTranslate2TranslationEngine:
                 "backend": "ctranslate2",
                 "engine": norm_engine,
             }
+            if truncation_suspected:
+                span_issues.append("TRANSLATION_TRUNCATION_SUSPECTED")
+                metadata["truncation_suspected"] = True
+                metadata["warnings"] = ("TRANSLATION_TRUNCATION_SUSPECTED",)
             if span_issues:
                 metadata["span_protection_issues"] = tuple(span_issues)
 
