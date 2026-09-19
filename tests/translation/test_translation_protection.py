@@ -185,3 +185,41 @@ def test_local_translation_engine_preserves_statutory_citations_and_glossaries(t
     assert "Supreme Court" in translated
     assert "Petitioner" in translated
     assert "Prosecution" in translated
+
+
+def test_bug_T1_number_regex_whitespace() -> None:
+    """T1: Number regex eats whitespace and beats the date regex."""
+    protector = TranslationProtector()
+    text = "Sec. 3 of the Act dated 12.03.2024, Rs. 5.50 lakh"
+    protected_text, spans = protector.protect(text)
+
+    # 1. Assert the date is exactly one date span
+    date_spans = [s for s in spans if s.span_type == "date"]
+    assert len(date_spans) == 1, f"Expected exactly 1 date span, got {date_spans}"
+    assert date_spans[0].original_text == "12.03.2024"
+
+    # 2. Assert no span text starts or ends with whitespace
+    for s in spans:
+        assert s.original_text == s.original_text.strip(), (
+            f"Span '{s.original_text}' has leading/trailing whitespace"
+        )
+
+    # 3. Assert the protected text still has a space before and after each placeholder
+    for s in spans:
+        p = s.placeholder
+        idx = protected_text.find(p)
+        assert idx != -1
+        if idx > 0 and text[0:1] != p:
+            assert protected_text[idx - 1] == " ", (
+                f"Expected space before {p} in '{protected_text}'"
+            )
+        after_char = protected_text[idx + len(p)] if idx + len(p) < len(protected_text) else ""
+        assert after_char in (" ", ",", "."), (
+            f"Expected space or punctuation after {p}, got '{after_char}' in '{protected_text}'"
+        )
+
+    # 4. Assert restore_with_validation returns the original string exactly (identity round trip)
+    restored, issues = protector.restore_with_validation(protected_text, spans)
+    assert issues == []
+    assert restored == text
+

@@ -82,7 +82,7 @@ class TranslationProtector(BaseSpanProtector):
 
         # 5. Currency Amounts / Numbers (Priority 50)
         for m in _NUM_RE.finditer(text):
-            val = m.group(0).strip()
+            val = m.group(0)
             if val:
                 raw_matches.append((m.start(), m.end(), val, "number", 50))
 
