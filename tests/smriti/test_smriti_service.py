@@ -506,3 +506,34 @@ def test_sqlite_store_evicts_entry_on_corrupt_artifact_blob(tmp_path: Path) -> N
         row = conn.execute("SELECT 1 FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)).fetchone()
         assert row is None
     store.close()
+
+
+def test_sqlite_cache_store_reclaims_unreferenced_artifact_blobs(tmp_path: Path) -> None:
+    """Verify SQLiteCacheStore deletes orphaned .bin artifact blobs when cache entries are invalidated."""
+    from sarathi.sankalpa import ArtifactIntent, ArtifactPayload, CanonicalDocument, Result
+    from sarathi.smriti.key import CacheKey
+    from sarathi.smriti.store import SQLiteCacheStore
+
+    store = SQLiteCacheStore(db_path=tmp_path / "cache_reclaim.db")
+    doc = CanonicalDocument(document_id="doc_reclaim", text="Artifact cleanup test")
+    large_bytes = b"large_blob_payload_to_trigger_out_of_band_storage" * 500
+    payload = ArtifactPayload(
+        intent=ArtifactIntent(name="output.bin", role="document_export", media_type="application/octet-stream"),
+        content=large_bytes,
+    )
+    result = Result(data=doc, artifact_payloads=(payload,))
+    key = CacheKey(capability_id="test", fingerprint="fp_reclaim", profile="instant", key_hash="reclaim_hash_001")
+
+    store.put(key, result)
+
+    artifacts_dir = tmp_path / "artifacts"
+    bin_files = list(artifacts_dir.glob("*.bin"))
+    assert len(bin_files) == 1, "Artifact blob must be saved to artifacts dir"
+
+    # Invalidate the cache entry
+    store.invalidate(key)
+
+    # Blob must be reclaimed because no entries reference it
+    bin_files_after = list(artifacts_dir.glob("*.bin"))
+    assert len(bin_files_after) == 0, "Orphaned artifact blob must be unlinked"
+    store.close()

@@ -57,6 +57,33 @@ class SQLiteCacheStore:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_smriti_accessed ON smriti_entries(accessed_at);
             """)
+    def _reclaim_unreferenced_artifacts(self, conn: sqlite3.Connection, deleted_data_jsons: list[str]) -> None:
+        """Remove artifact blob files that are no longer referenced by any remaining cache entries."""
+        if not self._artifacts_dir or not self._artifacts_dir.is_dir():
+            return
+        candidate_hashes: set[str] = set()
+        for dj in deleted_data_jsons:
+            try:
+                data = json.loads(dj)
+                for p in data.get("artifact_payloads", []):
+                    ch = p.get("content_hash")
+                    if ch:
+                        candidate_hashes.add(ch)
+            except Exception:
+                continue
+
+        for ch in candidate_hashes:
+            pattern = f'%"{ch}"%'
+            ref_count = conn.execute(
+                "SELECT COUNT(*) FROM smriti_entries WHERE data_json LIKE ?",
+                (pattern,),
+            ).fetchone()[0]
+            if ref_count == 0:
+                bin_path = self._artifacts_dir / f"{ch}.bin"
+                try:
+                    bin_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def get_with_created_at(self, key: CacheKey) -> tuple[Result | None, float | None]:
         """Retrieve serialized result and created_at from SQLite store if valid."""
@@ -73,6 +100,7 @@ class SQLiteCacheStore:
             now = time.time()
             if not self._policy.is_valid(created_at, now):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
+                self._reclaim_unreferenced_artifacts(conn, [data_json])
                 return None, None
 
             conn.execute(
@@ -84,6 +112,7 @@ class SQLiteCacheStore:
                 return res, float(created_at)
             except (json.JSONDecodeError, ValueError, KeyError, TypeError):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
+                self._reclaim_unreferenced_artifacts(conn, [data_json])
                 return None, None
 
     def get(self, key: CacheKey) -> Result | None:
@@ -116,25 +145,34 @@ class SQLiteCacheStore:
             count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
             if count > self._policy.max_entries_l2:
                 evict_count = count - self._policy.max_entries_l2
-                conn.execute(
-                    """
-                    DELETE FROM smriti_entries WHERE key_hash IN (
-                        SELECT key_hash FROM smriti_entries ORDER BY accessed_at ASC LIMIT ?
-                    )
-                """,
+                evicted_rows = conn.execute(
+                    "SELECT key_hash, data_json FROM smriti_entries ORDER BY accessed_at ASC LIMIT ?",
                     (evict_count,),
-                )
+                ).fetchall()
+                if evicted_rows:
+                    evicted_keys = [r[0] for r in evicted_rows]
+                    evicted_jsons = [r[1] for r in evicted_rows]
+                    placeholders = ",".join("?" for _ in evicted_keys)
+                    conn.execute(f"DELETE FROM smriti_entries WHERE key_hash IN ({placeholders})", evicted_keys)
+                    self._reclaim_unreferenced_artifacts(conn, evicted_jsons)
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
-        """Invalidate entries from persistent SQLite store."""
+        """Invalidate entries from persistent SQLite store and clean up orphaned artifact blobs."""
         with self._lock, self._get_connection() as conn:
             if key is not None:
+                row = conn.execute("SELECT data_json FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)).fetchone()
                 cur = conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
+                if row:
+                    self._reclaim_unreferenced_artifacts(conn, [row[0]])
                 return cur.rowcount
             if capability_id is not None:
+                rows = conn.execute("SELECT data_json FROM smriti_entries WHERE capability_id = ?", (capability_id,)).fetchall()
                 cur = conn.execute("DELETE FROM smriti_entries WHERE capability_id = ?", (capability_id,))
+                self._reclaim_unreferenced_artifacts(conn, [r[0] for r in rows])
                 return cur.rowcount
+            rows = conn.execute("SELECT data_json FROM smriti_entries").fetchall()
             cur = conn.execute("DELETE FROM smriti_entries")
+            self._reclaim_unreferenced_artifacts(conn, [r[0] for r in rows])
             return cur.rowcount
 
     def close(self) -> None:

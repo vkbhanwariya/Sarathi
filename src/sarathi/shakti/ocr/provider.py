@@ -32,9 +32,10 @@ class OCRProvider(PluginProvider):
         from sarathi.shakti.ocr.capability import OCRCapability
 
         ocr_data_root = (services.data_root / "ocr") if services.data_root else None
-        runtime_root = None
-        if services.settings and hasattr(services.settings, "storage_runtime_root"):
+        runtime_root = services.runtime_root
+        if runtime_root is None and services.settings and hasattr(services.settings, "storage_runtime_root"):
             runtime_root = services.settings.storage_runtime_root
+
         return {
             "ocr": OCRCapability(
                 yantra=services.yantra,

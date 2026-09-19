@@ -353,7 +353,7 @@ class Agni:
                 pass
 
     def close(self) -> None:
-        """Close started components in reverse order, preserving the first close error."""
+        """Close started and registered components in reverse order, preserving the first close error."""
         if self._is_closed:
             return
         self._is_closed = True
@@ -367,9 +367,23 @@ class Agni:
             except BaseException as exc:
                 if first_error is None:
                     first_error = exc
+
+        # Close all remaining registered components that were created but not in started_component_ids
+        for component_id, component in reversed(list(self._components.items())):
+            if component_id in self._closed_component_ids:
+                continue
+            self._closed_component_ids.add(component_id)
+            if hasattr(component, "close") and callable(component.close):
+                try:
+                    component.close()
+                except BaseException as exc:
+                    if first_error is None:
+                        first_error = exc
+
         self._is_started = False
         if first_error is not None:
             raise first_error
+
 
     def stop(self) -> None:
         self.close()

@@ -90,6 +90,7 @@ class PluginServices:
     kavacha: Any | None = None
     settings: Any | None = None
     data_root: Path | None = None
+    runtime_root: Path | None = None
 
 
 @runtime_checkable

@@ -77,7 +77,9 @@ def assemble_platform_services(
             kavacha=kavacha,
             settings=settings,
             data_root=get_canonical_data_root(),
+            runtime_root=runtime_root,
         )
+
         active_capabilities: dict[str, Capability] = {}
         for provider in active_providers:
             for cap_id, capability in provider.create_capabilities(plugin_services).items():

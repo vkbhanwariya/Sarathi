@@ -315,3 +315,17 @@ def test_operator_disabled_plugin_is_excluded_from_runtime(tmp_path: Path) -> No
         assert exc_info.value.code in (FailureCode.UNSUPPORTED, FailureCode.VALIDATION_FAILED)
     finally:
         agni.close()
+
+
+def test_unstarted_agni_close_closes_registered_components(tmp_path: Path) -> None:
+    """Verify Agni.close() closes registered components even if start() was never called."""
+    from unittest.mock import MagicMock
+
+    mock_comp = MagicMock()
+    agni = Agni(runtime_root=tmp_path / "rt_unstarted")
+    agni._components["custom_test_comp"] = mock_comp
+
+    # Close directly without calling start()
+    agni.close()
+
+    assert mock_comp.close.call_count == 1
