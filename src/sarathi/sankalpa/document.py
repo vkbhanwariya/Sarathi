@@ -235,6 +235,8 @@ def transform_canonical_document(
 
     if reconstruct_text_from_spans and any(p.spans for p in converted_pages):
         new_text = "\n".join(p.text for p in converted_pages if p.text)
+    elif converted_pages and any(p.text for p in converted_pages):
+        new_text = "\n\n".join(p.text for p in converted_pages if p.text)
     elif doc.text and doc.text.strip():
         new_text = text_transform_fn(doc.text)
     elif converted_tables:

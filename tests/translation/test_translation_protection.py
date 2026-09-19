@@ -402,3 +402,61 @@ def test_bug_T4_glossary_matching_performance() -> None:
 
     assert avg_ms < 10.0, f"Average protect() call took {avg_ms:.2f} ms (expected < 10.0 ms)"
 
+
+def test_bug_T5_redundant_translation() -> None:
+    """T5: For a 2-page doc where doc.text == '\\n\\n'.join(page.text), every unique sentence reaches backend exactly once."""
+    from pathlib import Path
+    from typing import Sequence
+
+    from sarathi.sankalpa import (
+        CanonicalDocument,
+        ExecutionContext,
+        ExecutionProfile,
+        InputRef,
+        PageData,
+        Request,
+        Result,
+        TextSpan,
+    )
+    from sarathi.shakti.translation.capability import TranslationCapability
+
+    received_sentences: list[str] = []
+
+    class CountingBackend:
+        def translate_sentences(self, sentences: Sequence[str], direction: Any = None, **kwargs: Any) -> list[str]:
+            for s in sentences:
+                received_sentences.append(s)
+            return [f"TRANS_{s}" for s in sentences]
+
+    p1 = PageData(page_number=1, text="पहला वाक्य।", spans=(TextSpan(text="पहला वाक्य।"),))
+    p2 = PageData(page_number=2, text="दूसरा वाक्य।", spans=(TextSpan(text="दूसरा वाक्य।"),))
+    doc = CanonicalDocument(
+        document_id="doc-t5",
+        text=f"{p1.text}\n\n{p2.text}",
+        pages=(p1, p2),
+    )
+
+    cap = TranslationCapability(backend=CountingBackend())
+    req = Request(
+        request_id="req-t5",
+        requirement="translation",
+        inputs=(InputRef(input_id="in-t5", source_path=Path("doc.txt"), display_name="doc.txt", size_bytes=10),),
+        profile=ExecutionProfile.INSTANT,
+    )
+    ctx = ExecutionContext(request_id="req-t5", run_id="run-t5", trace_id="trace-t5", span_id="span-t5")
+
+    res = cap.execute(req, context=ctx, prior_result=Result(data=doc))
+    out_doc = res.data
+    assert isinstance(out_doc, CanonicalDocument)
+
+    # 1. Assert every unique sentence reaches the backend exactly once
+    assert len(received_sentences) == 2, f"Expected 2 sentence translations, got {len(received_sentences)}: {received_sentences}"
+    assert received_sentences == ["पहला वाक्य।", "दूसरा वाक्य।"]
+
+    # 2. Assert translated doc.text, page.text and spans are consistent with each other
+    assert out_doc.text == f"{out_doc.pages[0].text}\n\n{out_doc.pages[1].text}"
+    assert out_doc.pages[0].text == out_doc.pages[0].spans[0].text
+    assert out_doc.pages[1].text == out_doc.pages[1].spans[0].text
+    assert out_doc.pages[0].text == "TRANS_पहला वाक्य।"
+    assert out_doc.pages[1].text == "TRANS_दूसरा वाक्य।"
+

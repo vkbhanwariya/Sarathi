@@ -213,7 +213,8 @@ def execute_cloud_translation(
                     texts_to_batch.append(cleaned)
 
             if isinstance(doc_or_str, CanonicalDocument):
-                _collect_for_batch(doc_or_str.text)
+                if not doc_or_str.pages:
+                    _collect_for_batch(doc_or_str.text)
                 for p in doc_or_str.pages:
                     _collect_for_batch(p.text)
                     for s in p.spans:

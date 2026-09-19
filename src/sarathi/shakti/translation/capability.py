@@ -426,7 +426,8 @@ class TranslationCapability:
                         seen_texts.add(s)
                         unique_texts.append(s)
 
-                _collect(doc.text)
+                if not doc.pages:
+                    _collect(doc.text)
                 for t in doc.tables:
                     if t.headers:
                         for h in t.headers:
