@@ -32,6 +32,7 @@ from sarathi.shakti.docx_exporter import (
     build_docx_payload,
     transform_docx_translation_artifact,
 )
+from sarathi.shakti.text import cell_text
 from sarathi.shakti.text.typography import (
     contains_devanagari,
     normalize_size,
@@ -70,10 +71,10 @@ def _format_table_as_markdown(table: TableData) -> str:
     if table.name and not table.name.startswith("Table_") and not table.name.startswith("Page_"):
         lines.append(f"### {table.name}\n")
     if table.headers:
-        lines.append("| " + " | ".join(str(c).strip() for c in table.headers) + " |")
+        lines.append("| " + " | ".join(cell_text(c) for c in table.headers) + " |")
         lines.append("| " + " | ".join("---" for _ in table.headers) + " |")
     for row in table.rows:
-        lines.append("| " + " | ".join(str(c).strip() for c in row) + " |")
+        lines.append("| " + " | ".join(cell_text(c) for c in row) + " |")
     return "\n".join(lines)
 
 
@@ -268,9 +269,9 @@ class TranslationCapability:
                 table_lines = []
                 for t in doc.tables:
                     if t.headers:
-                        table_lines.append(" ".join(str(c) for c in t.headers))
+                        table_lines.append(" ".join(cell_text(c) for c in t.headers if cell_text(c)))
                     for r in t.rows:
-                        table_lines.append(" ".join(str(c) for c in r))
+                        table_lines.append(" ".join(cell_text(c) for c in r if cell_text(c)))
                 full_text = "\n".join(table_lines)
             if not full_text.strip() and doc.pages:
                 full_text = "\n".join(p.text for p in doc.pages if p.text)
@@ -324,9 +325,9 @@ class TranslationCapability:
             if doc.tables:
                 for t in doc.tables:
                     if t.headers:
-                        sample_parts.append(" ".join(str(c) for c in t.headers))
+                        sample_parts.append(" ".join(cell_text(c) for c in t.headers if cell_text(c)))
                     for r in t.rows:
-                        sample_parts.append(" ".join(str(c) for c in r))
+                        sample_parts.append(" ".join(cell_text(c) for c in r if cell_text(c)))
             if doc.pages:
                 for p in doc.pages:
                     if p.text:
@@ -336,9 +337,9 @@ class TranslationCapability:
                             sample_parts.append(s.text)
                     for t in p.tables:
                         if t.headers:
-                            sample_parts.append(" ".join(str(c) for c in t.headers))
+                            sample_parts.append(" ".join(cell_text(c) for c in t.headers if cell_text(c)))
                         for r in t.rows:
-                            sample_parts.append(" ".join(str(c) for c in r))
+                            sample_parts.append(" ".join(cell_text(c) for c in r if cell_text(c)))
             combined_text = "\n".join(sample_parts) if sample_parts else doc.text
 
             req_direction = (
@@ -431,10 +432,10 @@ class TranslationCapability:
                 for t in doc.tables:
                     if t.headers:
                         for h in t.headers:
-                            _collect(str(h))
+                            _collect(cell_text(h))
                     for r in t.rows:
                         for c in r:
-                            _collect(str(c))
+                            _collect(cell_text(c))
                 for p in doc.pages:
                     _collect(p.text)
                     for s in p.spans:
@@ -442,10 +443,10 @@ class TranslationCapability:
                     for t in p.tables:
                         if t.headers:
                             for h in t.headers:
-                                _collect(str(h))
+                                _collect(cell_text(h))
                         for r in t.rows:
                             for c in r:
-                                _collect(str(c))
+                                _collect(cell_text(c))
 
                 # 2. Batch-translate all unique texts in a single pass to saturate all CPU P-cores
                 if unique_texts:

@@ -62,11 +62,15 @@ class TableData:
 
     def __post_init__(self) -> None:
         if isinstance(self.headers, (list, tuple)):
-            object.__setattr__(self, "headers", tuple(str(h) for h in self.headers))
+            object.__setattr__(self, "headers", tuple("" if h is None else str(h) for h in self.headers))
         else:
             raise TypeError(f"headers must be a sequence of strings, got {type(self.headers)}.")
         if isinstance(self.rows, (list, tuple)):
-            object.__setattr__(self, "rows", tuple(tuple(row) for row in self.rows))
+            object.__setattr__(
+                self,
+                "rows",
+                tuple(tuple("" if c is None else c for c in row) for row in self.rows),
+            )
         else:
             raise TypeError(f"rows must be a sequence of row tuples, got {type(self.rows)}.")
         if isinstance(self.metadata, Mapping):
@@ -177,18 +181,21 @@ def transform_canonical_document(
     - Aggregates tables across ALL pages when document-level tables were originally empty.
     - When reconstruct_text_from_spans is True, page.text and doc.text are composed directly from transformed spans.
     """
+    def _cell_val(val: Any) -> str:
+        return "" if val is None else str(val).strip()
+
     converted_tables: list[TableData] = []
     for t in doc.tables:
-        t_rows = [tuple(text_transform_fn(str(c)) for c in r) for r in t.rows]
-        t_headers = tuple(text_transform_fn(str(h)) for h in t.headers) if t.headers else ()
+        t_rows = [tuple(text_transform_fn(_cell_val(c)) for c in r) for r in t.rows]
+        t_headers = tuple(text_transform_fn(_cell_val(h)) for h in t.headers) if t.headers else ()
         converted_tables.append(replace(t, headers=t_headers, rows=tuple(t_rows)))
 
     converted_pages: list[PageData] = []
     for p in doc.pages:
         p_page_tables: list[TableData] = []
         for t in p.tables:
-            t_rows = [tuple(text_transform_fn(str(c)) for c in r) for r in t.rows]
-            t_headers = tuple(text_transform_fn(str(h)) for h in t.headers) if t.headers else ()
+            t_rows = [tuple(text_transform_fn(_cell_val(c)) for c in r) for r in t.rows]
+            t_headers = tuple(text_transform_fn(_cell_val(h)) for h in t.headers) if t.headers else ()
             p_page_tables.append(replace(t, headers=t_headers, rows=tuple(t_rows)))
 
         p_spans: list[TextSpan] = []
@@ -211,6 +218,7 @@ def transform_canonical_document(
                 )
             )
 
+        # Derive page text from spans if requested, otherwise transform p.text directly
         if reconstruct_text_from_spans and p_spans:
             has_p_idx = any(s.metadata and "paragraph_index" in s.metadata for s in p_spans)
             if has_p_idx:
@@ -233,6 +241,9 @@ def transform_canonical_document(
             )
         )
 
+    # Compute overall document text:
+    # If spans were transformed and reconstruct_text_from_spans is True, derive directly from pages.
+    # Otherwise, transform doc.text directly (preserving existing behavior for non-span pipelines).
     if reconstruct_text_from_spans and any(p.spans for p in converted_pages):
         new_text = "\n".join(p.text for p in converted_pages if p.text)
     elif converted_pages and any(p.text for p in converted_pages):
@@ -243,9 +254,9 @@ def transform_canonical_document(
         table_lines = []
         for t in converted_tables:
             if t.headers:
-                table_lines.append(" ".join(str(c) for c in t.headers))
+                table_lines.append(" ".join(_cell_val(c) for c in t.headers if _cell_val(c)))
             for r in t.rows:
-                table_lines.append(" ".join(str(c) for c in r))
+                table_lines.append(" ".join(_cell_val(c) for c in r if _cell_val(c)))
         new_text = "\n".join(table_lines)
     elif converted_pages:
         new_text = "\n".join(p.text for p in converted_pages if p.text)

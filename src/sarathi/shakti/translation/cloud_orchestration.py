@@ -31,6 +31,7 @@ from sarathi.shakti.docx_exporter import (
     build_docx_payload,
     transform_docx_translation_artifact,
 )
+from sarathi.shakti.text import cell_text
 from sarathi.shakti.text.direction import normalize_translation_direction
 from sarathi.shakti.translation.harmonizer import GlossaryHarmonizer
 from sarathi.shakti.translation.legal_context import LegalContextBuilder
@@ -166,9 +167,9 @@ def execute_cloud_translation(
                 doc_sample_parts.append(doc_or_str.text)
             for t in doc_or_str.tables:
                 if t.headers:
-                    doc_sample_parts.append(" ".join(str(c) for c in t.headers))
+                    doc_sample_parts.append(" ".join(cell_text(c) for c in t.headers if cell_text(c)))
                 for r in t.rows:
-                    doc_sample_parts.append(" ".join(str(c) for c in r))
+                    doc_sample_parts.append(" ".join(cell_text(c) for c in r if cell_text(c)))
             if doc_or_str.pages:
                 doc_sample_parts.extend(p.text for p in doc_or_str.pages if p.text)
         else:
@@ -221,16 +222,16 @@ def execute_cloud_translation(
                         _collect_for_batch(s.text)
                     for tbl in p.tables:
                         for h in tbl.headers:
-                            _collect_for_batch(str(h))
+                            _collect_for_batch(cell_text(h))
                         for r in tbl.rows:
                             for c in r:
-                                _collect_for_batch(str(c))
+                                _collect_for_batch(cell_text(c))
                 for tbl in doc_or_str.tables:
                     for h in tbl.headers:
-                        _collect_for_batch(str(h))
+                        _collect_for_batch(cell_text(h))
                     for r in tbl.rows:
                         for c in r:
-                            _collect_for_batch(str(c))
+                            _collect_for_batch(cell_text(c))
             else:
                 _collect_for_batch(str(doc_or_str))
 

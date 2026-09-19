@@ -5,6 +5,7 @@ from __future__ import annotations
 from sarathi.shakti.text.direction import NormalizedDirection, normalize_translation_direction
 from sarathi.shakti.text.legacy_detection import LegacyFontDetector, is_legacy_text
 from sarathi.shakti.text.span_protection import BaseSpanProtector
+from sarathi.shakti.text.table import cell_text
 from sarathi.shakti.text.transliteration import (
     is_romanized_hindi,
     transliterate_romanized_hindi,
@@ -28,6 +29,7 @@ __all__ = [
     "ENGLISH_FONT",
     "LegacyFontDetector",
     "NormalizedDirection",
+    "cell_text",
     "contains_devanagari",
     "is_legacy_text",
     "is_romanized_hindi",

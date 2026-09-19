@@ -893,3 +893,68 @@ def test_build_docx_payload_preserves_multiple_tables_with_same_name() -> None:
     w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     docx_tables = list(tree.iter(f"{{{w_ns}}}tbl"))
     assert len(docx_tables) == 2, "Both tables must be rendered, none dropped due to duplicate generic name"
+
+
+def test_bug_O5_literal_none_in_tables() -> None:
+    """O5: TableData with None cells must produce no 'None' in plaintext or docx document.xml."""
+    import io
+    import zipfile
+    from unittest.mock import MagicMock, patch
+
+    import pymupdf
+
+    from sarathi.sankalpa import CanonicalDocument, PageData, TableData
+    from sarathi.shakti.docx_exporter.builder import build_docx_payload
+    from sarathi.shakti.native_extraction.readers.pdf import read_pdf
+    from sarathi.shakti.ocr.capability import _format_page_text_with_tables
+
+    tbl = TableData(headers=("Header", None), rows=(("a", None), (None, "b")))
+    page = PageData(page_number=1, text="", tables=(tbl,))
+    doc = CanonicalDocument(document_id="doc_none_test", pages=(page,), tables=(tbl,))
+
+    # 1. Plaintext formatting must contain no "None"
+    txt = _format_page_text_with_tables(page)
+    assert "None" not in txt, f"Expected no 'None' in formatted page text, got:\n{txt}"
+
+    from sarathi.sankalpa.document import transform_canonical_document
+    from sarathi.shakti.translation.capability import _format_table_as_markdown
+
+    md_tbl = _format_table_as_markdown(tbl)
+    assert "None" not in md_tbl, f"Expected no 'None' in markdown table, got:\n{md_tbl}"
+
+    transformed_doc = transform_canonical_document(doc, lambda s: s.upper(), detected_type="transformed")
+    assert transformed_doc.tables[0].headers == ("HEADER", "")
+    assert transformed_doc.tables[0].rows == (("A", ""), ("", "B"))
+
+    # 2. DOCX document.xml must contain no "None"
+    payload = build_docx_payload(doc, "table_none.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+    assert "None" not in doc_xml, f"Expected no 'None' in docx XML, got:\n{doc_xml}"
+
+    # 3. Mocked PyMuPDF table with None cells produces "" cells
+    pdf_doc = pymupdf.open()
+    pdf_page = pdf_doc.new_page()
+    pdf_page.insert_text((50, 50), "Sample text")
+    pdf_bytes = pdf_doc.tobytes()
+    pdf_doc.close()
+
+    mock_tab = MagicMock()
+    mock_tab.extract.return_value = [["Col1", "Col2"], ["a", None], [None, "b"]]
+    mock_tab.header = None
+
+    mock_tabs = MagicMock()
+    mock_tabs.tables = [mock_tab]
+
+    def mock_find_tables(*_args, **_kwargs):
+        return mock_tabs
+
+    with patch.object(pymupdf.Page, "find_tables", mock_find_tables):
+        parsed_doc, _, _ = read_pdf(pdf_bytes, input_id="mock_pdf")
+        assert len(parsed_doc.tables) == 1
+        extracted_tbl = parsed_doc.tables[0]
+        for row in extracted_tbl.rows:
+            for cell in row:
+                assert cell is not None, f"Expected cell to not be None, got {row}"
+                assert cell != "None", f"Expected cell to not be 'None', got {row}"
+        assert extracted_tbl.rows == (("a", ""), ("", "b"))

@@ -19,6 +19,7 @@ from sarathi.shakti.native_extraction.readers.common import (
     PLUGIN_ID,
     STAGE_NAME,
 )
+from sarathi.shakti.text import cell_text
 from sarathi.shakti.text.typography import (
     classify_page_lines,
     detect_running_headers_footers,
@@ -519,12 +520,12 @@ def read_pdf(
                         is_external = bool(getattr(header_obj, "external", False)) if header_obj is not None else False
 
                         if is_external and header_names:
-                            headers = tuple(str(h or "") for h in header_names)
-                            data_rows = tuple(tuple(val for val in row) for row in extracted_rows)
+                            headers = tuple(cell_text(h) for h in header_names)
+                            data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows)
                         else:
                             candidate_headers = header_names if header_names else extracted_rows[0]
-                            headers = tuple(str(h or "") for h in candidate_headers)
-                            data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
+                            headers = tuple(cell_text(h) for h in candidate_headers)
+                            data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows[1:])
 
                         if all_converted_profiles and fc_tools:
                             converter = fc_tools["converter"]
@@ -540,8 +541,8 @@ def read_pdf(
                                     return converter.convert(c_norm, profile_id=first_prof)
                                 return cell_val
 
-                            headers = tuple(str(_conv_cell(h)) for h in headers)
-                            data_rows = tuple(tuple(_conv_cell(val) for val in row) for row in data_rows)
+                            headers = tuple(cell_text(_conv_cell(h)) for h in headers)
+                            data_rows = tuple(tuple(cell_text(_conv_cell(val)) for val in row) for row in data_rows)
 
                         t_meta = {}
                         if getattr(tab, "bbox", None) is not None:

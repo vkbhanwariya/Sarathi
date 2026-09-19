@@ -42,6 +42,7 @@ from sarathi.shakti.ocr.engine.rasterize import (
     iter_images_from_bytes,
 )
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
+from sarathi.shakti.text import cell_text
 from sarathi.shakti.text.typography import (
     classify_page_lines,
     contains_devanagari,
@@ -95,10 +96,10 @@ def _format_page_text_with_tables(page: PageData) -> str:
             if tbl.name and not tbl.name.startswith("Page_") and not tbl.name.startswith("Table_"):
                 tbl_lines.append(f"[{tbl.name}]")
             if tbl.headers:
-                tbl_lines.append(" | ".join(str(c).strip() for c in tbl.headers))
+                tbl_lines.append(" | ".join(cell_text(c) for c in tbl.headers))
                 tbl_lines.append(" | ".join("---" for _ in tbl.headers))
             for row in tbl.rows:
-                tbl_lines.append(" | ".join(str(c).strip() for c in row))
+                tbl_lines.append(" | ".join(cell_text(c) for c in row))
             if tbl_lines:
                 tbl_str = "\n".join(tbl_lines)
                 if not page.text or tbl_str not in page.text:

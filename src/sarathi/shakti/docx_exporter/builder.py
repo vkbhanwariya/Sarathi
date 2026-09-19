@@ -22,6 +22,7 @@ from sarathi.shakti.docx_exporter.constants import (
     _HINDI_FONT,
 )
 from sarathi.shakti.docx_exporter.scripts import segment_text_by_script
+from sarathi.shakti.text import cell_text
 
 
 def _format_run_xml(
@@ -151,11 +152,11 @@ def _calculate_proportional_column_widths(
     col_scores: list[float] = [5.0] * num_cols
     for c_idx in range(num_cols):
         if c_idx < len(table.headers):
-            h_len = len(str(table.headers[c_idx]).strip())
+            h_len = len(cell_text(table.headers[c_idx]))
             col_scores[c_idx] = max(col_scores[c_idx], float(h_len))
         for row in table.rows:
             if c_idx < len(row):
-                cell_str = str(row[c_idx]).strip()
+                cell_str = cell_text(row[c_idx])
                 max_line_len = max((len(line) for line in cell_str.splitlines()), default=0)
                 col_scores[c_idx] = max(col_scores[c_idx], float(max_line_len))
 
@@ -256,7 +257,7 @@ def _format_table_xml(
     if table.headers:
         parts.append("<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>")
         for c_idx in range(num_cols):
-            h_text = str(table.headers[c_idx]) if c_idx < len(table.headers) else ""
+            h_text = cell_text(table.headers[c_idx]) if c_idx < len(table.headers) else ""
             c_w = col_widths[c_idx]
             p_xml = _format_cell_content_xml(
                 h_text,
@@ -279,7 +280,7 @@ def _format_table_xml(
     for row in table.rows:
         parts.append("<w:tr><w:trPr><w:cantSplit/></w:trPr>")
         for c_idx in range(num_cols):
-            cell_val = str(row[c_idx]) if c_idx < len(row) else ""
+            cell_val = cell_text(row[c_idx]) if c_idx < len(row) else ""
             c_w = col_widths[c_idx]
             p_xml = _format_cell_content_xml(
                 cell_val,
@@ -360,11 +361,11 @@ def build_docx_payload(
                     page_tables_by_name[f"table_{t_idx}"] = tbl
                     page_tables_by_name[f"table {t_idx}"] = tbl
                     if tbl.headers:
-                        table_row_signatures.add(" | ".join(str(c).strip() for c in tbl.headers))
-                        table_row_signatures.add("\t".join(str(c).strip() for c in tbl.headers))
+                        table_row_signatures.add(" | ".join(cell_text(c) for c in tbl.headers))
+                        table_row_signatures.add("\t".join(cell_text(c) for c in tbl.headers))
                     for row in tbl.rows:
-                        table_row_signatures.add(" | ".join(str(c).strip() for c in row))
-                        table_row_signatures.add("\t".join(str(c).strip() for c in row))
+                        table_row_signatures.add(" | ".join(cell_text(c) for c in row))
+                        table_row_signatures.add("\t".join(cell_text(c) for c in row))
 
             if p.text:
                 for line in p.text.splitlines():
@@ -490,11 +491,11 @@ def build_docx_payload(
                 doc_tables_by_name[f"table_{t_idx}"] = tbl
                 doc_tables_by_name[f"table {t_idx}"] = tbl
                 if tbl.headers:
-                    table_row_signatures.add(" | ".join(str(c).strip() for c in tbl.headers))
-                    table_row_signatures.add("\t".join(str(c).strip() for c in tbl.headers))
+                    table_row_signatures.add(" | ".join(cell_text(c) for c in tbl.headers))
+                    table_row_signatures.add("\t".join(cell_text(c) for c in tbl.headers))
                 for row in tbl.rows:
-                    table_row_signatures.add(" | ".join(str(c).strip() for c in row))
-                    table_row_signatures.add("\t".join(str(c).strip() for c in row))
+                    table_row_signatures.add(" | ".join(cell_text(c) for c in row))
+                    table_row_signatures.add("\t".join(cell_text(c) for c in row))
 
         for line in doc.text.splitlines():
             trimmed = line.strip()
