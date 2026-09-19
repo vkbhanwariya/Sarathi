@@ -1003,3 +1003,132 @@ def test_execution_context_copy_helpers_preserve_unmodified_state() -> None:
     assert retry.profile is ExecutionProfile.ACCURATE
     assert retry.quarantine_attempt == 1
     assert retry.is_retry is True
+
+
+def test_check_cancelled_helper() -> None:
+    """Verify check_cancelled behaves uniformly across targets."""
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.sankalpa import CancellationToken
+    from sarathi.sankalpa.cancellation import check_cancelled
+
+    # 1. None target -> no error
+    check_cancelled(None)
+
+    # 2. Uncancelled token -> no error
+    token = CancellationToken()
+    check_cancelled(token)
+
+    # 3. Cancelled token -> raises DoshError(OPERATION_CANCELLED)
+    token.cancel()
+    with pytest.raises(DoshError) as exc_info:
+        check_cancelled(token)
+    assert exc_info.value.code == FailureCode.OPERATION_CANCELLED
+
+    # 4. Request with cancelled token
+    inp = InputRef(
+        input_id="in-1",
+        source_path=Path("doc.pdf"),
+        display_name="doc.pdf",
+        size_bytes=100,
+    )
+    req = Request(
+        request_id="r1",
+        requirement="read_native",
+        inputs=(inp,),
+        cancellation_token=token,
+    )
+    with pytest.raises(DoshError) as exc_info2:
+        check_cancelled(req)
+    assert exc_info2.value.code == FailureCode.OPERATION_CANCELLED
+
+    # 5. ExecutionContext with cancelled token
+    ctx = ExecutionContext(
+        run_id="run1",
+        request_id="r1",
+        trace_id="tr1",
+        span_id="sp1",
+        cancellation_token=token,
+    )
+    with pytest.raises(DoshError) as exc_info3:
+        check_cancelled(ctx)
+    assert exc_info3.value.code == FailureCode.OPERATION_CANCELLED
+
+
+def test_characterization_result_structure() -> None:
+    """Pin the Result contract properties and behavior."""
+    conf = ConfidenceValue(score=1.0, method="exact", evidence={"count": 1})
+    res = Result(
+        data=None,
+        artifacts=(),
+        confidence=conf,
+        warnings=(),
+        metadata={"run_id": "run-test", "request_id": "req-test"},
+    )
+    assert res.data is None
+    assert res.artifacts == ()
+    assert res.confidence == conf
+    assert res.metadata["run_id"] == "run-test"
+    assert res.metadata["request_id"] == "req-test"
+
+
+class TestTruthfulContracts:
+    """Invariant tests for confidence and accuracy contracts."""
+
+    def test_accuracy_requires_factual_evidence(self) -> None:
+        """AccuracyValue must reject empty evidence or missing method."""
+        from sarathi.darpana import AccuracyValue
+
+        with pytest.raises(ValueError, match="evidence must be a non-empty mapping"):
+            AccuracyValue(score=0.95, method="char_error_rate", evidence={})
+
+        with pytest.raises(ValueError, match="method must be a non-empty string"):
+            AccuracyValue(score=0.95, method="", evidence={"ground_truth_id": "test-gt"})
+
+    def test_accuracy_is_distinct_from_confidence(self) -> None:
+        """AccuracyValue and ConfidenceValue are separate types; PramanaRecord handles both independently."""
+        from sarathi.darpana import AccuracyValue, PramanaRecord
+
+        conf = ConfidenceValue(
+            score=0.92,
+            method="rapidocr_line",
+            evidence={"score_kind": "raw_engine", "calibrated": False},
+        )
+        acc = AccuracyValue(
+            score=0.98,
+            method="word_error_rate",
+            evidence={"ground_truth": "test_corpus_v1", "sample_count": 50},
+        )
+
+        rec = PramanaRecord(
+            run_id="run-acc",
+            request_id="req-acc",
+            trace_id="t-1",
+            span_id="s-1",
+            capability_id="test",
+            stage="test",
+            timestamp_utc="2026-09-08T00:00:00Z",
+            confidence=conf,
+            accuracy=acc,
+        )
+
+        assert rec.confidence.score == 0.92
+        assert rec.accuracy.score == 0.98
+        assert rec.confidence is not rec.accuracy
+
+    def test_pramana_truthfully_allows_none_for_both_confidence_and_accuracy(self) -> None:
+        """PramanaRecord allows confidence=None and accuracy=None without inventing values."""
+        from sarathi.darpana import PramanaRecord
+
+        rec = PramanaRecord(
+            run_id="run-none",
+            request_id="req-none",
+            trace_id="t-1",
+            span_id="s-1",
+            capability_id="test",
+            stage="test",
+            timestamp_utc="2026-09-08T00:00:00Z",
+            confidence=None,
+            accuracy=None,
+        )
+        assert rec.confidence is None
+        assert rec.accuracy is None

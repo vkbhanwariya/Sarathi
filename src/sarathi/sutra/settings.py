@@ -90,91 +90,108 @@ class Settings:
         """Return the entire immutable root mapping."""
         return self._data
 
+    # --- Internal Validation Helpers ---
+
+    def _raw_value(self, section: str, key: str, default: Any) -> Any:
+        sec = self.get_section(section)
+        return sec.get(key, default) if sec is not None else default
+
+    def _get_path(self, section: str, key: str, default: str | Path) -> Path:
+        raw = self._raw_value(section, key, default)
+        if not isinstance(raw, (str, Path)) or not str(raw).strip():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"{section}.{key} must be a non-empty string or Path.",
+            )
+        return Path(raw)
+
+    def _get_optional_path(self, section: str, key: str, default: str | Path | None = None) -> Path | None:
+        raw = self._raw_value(section, key, default)
+        if raw is None:
+            return None
+        if not isinstance(raw, (str, Path)) or not str(raw).strip():
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"{section}.{key} must be a non-empty string or Path if specified.",
+            )
+        return Path(raw)
+
+    def _get_bool(self, section: str, key: str, default: bool) -> bool:
+        raw = self._raw_value(section, key, default)
+        if not isinstance(raw, bool):
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"{section}.{key} must be a boolean.",
+            )
+        return raw
+
+    def _get_int(self, section: str, key: str, default: int, *, min_val: int = 1) -> int:
+        raw = self._raw_value(section, key, default)
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < min_val:
+            msg = (
+                f"{section}.{key} must be a non-negative integer, got {raw!r}."
+                if min_val == 0
+                else f"{section}.{key} must be a positive integer, got {raw!r}."
+            )
+            raise DoshError(code=FailureCode.INVALID_CONFIGURATION, message=msg)
+        return raw
+
+    def _get_optional_int(self, section: str, key: str, default: int | None = None, *, min_val: int = 1) -> int | None:
+        raw = self._raw_value(section, key, default)
+        if raw is None:
+            return None
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < min_val:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"{section}.{key} must be a positive integer or None, got {raw!r}.",
+            )
+        return raw
+
+    def _get_float(self, section: str, key: str, default: float, *, min_val: float = 0.0) -> float:
+        raw = self._raw_value(section, key, default)
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool) or raw <= min_val:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"{section}.{key} must be a positive number, got {raw!r}.",
+            )
+        return float(raw)
+
     # --- Typed Sutra accessors with canonical defaults ---
 
     @property
     def storage_runtime_root(self) -> Path:
         """Return validated runtime root Path, defaulting to 'Runtime'."""
-        sec = self.get_section("storage")
-        raw = sec.get("runtime_root", "Runtime") if sec is not None else "Runtime"
-        if not isinstance(raw, (str, Path)) or not str(raw).strip():
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="storage.runtime_root must be a non-empty string or Path.",
-            )
-        return Path(raw)
+        return self._get_path("storage", "runtime_root", "Runtime")
 
     @property
     def storage_output_root(self) -> Path:
         """Return validated output root Path, defaulting to 'Output'."""
-        sec = self.get_section("storage")
-        raw = sec.get("output_root", "Output") if sec is not None else "Output"
-        if not isinstance(raw, (str, Path)) or not str(raw).strip():
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="storage.output_root must be a non-empty string or Path.",
-            )
-        return Path(raw)
+        return self._get_path("storage", "output_root", "Output")
 
     @property
     def storage_input_root(self) -> Path:
         """Return validated input root Path, defaulting to 'Input'."""
-        sec = self.get_section("storage")
-        raw = sec.get("input_root", "Input") if sec is not None else "Input"
-        if not isinstance(raw, (str, Path)) or not str(raw).strip():
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="storage.input_root must be a non-empty string or Path.",
-            )
-        return Path(raw)
+        return self._get_path("storage", "input_root", "Input")
 
     @property
     def pipeline_max_retries(self) -> int:
         """Return validated pipeline max_retries count, defaulting to 0."""
-        sec = self.get_section("pipeline")
-        raw = sec.get("max_retries", 0) if sec is not None else 0
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw < 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"pipeline.max_retries must be a non-negative integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("pipeline", "max_retries", 0, min_val=0)
 
     @property
     def allow_pii_access(self) -> bool:
         """Return validated allow_pii_access boolean, defaulting to True."""
-        sec = self.get_section("security")
-        raw = sec.get("allow_pii_access", True) if sec is not None else True
-        if not isinstance(raw, bool):
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="security.allow_pii_access must be a boolean.",
-            )
-        return raw
+        return self._get_bool("security", "allow_pii_access", True)
 
     @property
     def allow_network_access(self) -> bool:
         """Return validated allow_network_access boolean, defaulting to False."""
-        sec = self.get_section("security")
-        raw = sec.get("allow_network_access", False) if sec is not None else False
-        if not isinstance(raw, bool):
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="security.allow_network_access must be a boolean.",
-            )
-        return raw
+        return self._get_bool("security", "allow_network_access", False)
 
     @property
     def allow_external_processing(self) -> bool:
         """Return validated allow_external_processing boolean, defaulting to False."""
-        sec = self.get_section("security")
-        raw = sec.get("allow_external_processing", False) if sec is not None else False
-        if not isinstance(raw, bool):
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="security.allow_external_processing must be a boolean.",
-            )
-        return raw
+        return self._get_bool("security", "allow_external_processing", False)
 
     @property
     def allowed_secrets(self) -> tuple[str, ...]:
@@ -191,28 +208,12 @@ class Settings:
     @property
     def telemetry_history_enabled(self) -> bool:
         """Return validated telemetry_history_enabled boolean, defaulting to False."""
-        sec = self.get_section("telemetry")
-        raw = sec.get("history_enabled", False) if sec is not None else False
-        if not isinstance(raw, bool):
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="telemetry.history_enabled must be a boolean.",
-            )
-        return raw
+        return self._get_bool("telemetry", "history_enabled", False)
 
     @property
     def telemetry_history_path(self) -> Path | None:
         """Return validated telemetry history path, defaulting to None."""
-        sec = self.get_section("telemetry")
-        raw = sec.get("history_path", None) if sec is not None else None
-        if raw is None:
-            return None
-        if not isinstance(raw, (str, Path)) or not str(raw).strip():
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="telemetry.history_path must be a non-empty string or Path if specified.",
-            )
-        return Path(raw)
+        return self._get_optional_path("telemetry", "history_path", None)
 
     @property
     def telemetry_history_format(self) -> str:
@@ -229,152 +230,62 @@ class Settings:
     @property
     def telemetry_live_buffer_capacity(self) -> int:
         """Return validated telemetry live buffer capacity, defaulting to 1000."""
-        sec = self.get_section("telemetry")
-        raw = sec.get("live_buffer_capacity", 1000) if sec is not None else 1000
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"telemetry.live_buffer_capacity must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("telemetry", "live_buffer_capacity", 1000)
 
     @property
     def telemetry_history_max_records(self) -> int:
         """Return validated telemetry history maximum records, defaulting to 1000."""
-        sec = self.get_section("telemetry")
-        raw = sec.get("history_max_records", 1000) if sec is not None else 1000
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"telemetry.history_max_records must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("telemetry", "history_max_records", 1000)
 
     @property
     def hardware_detect_accelerators(self) -> bool:
         """Return validated hardware.detect_accelerators boolean, defaulting to False."""
-        sec = self.get_section("hardware")
-        raw = sec.get("detect_accelerators", False) if sec is not None else False
-        if not isinstance(raw, bool):
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="hardware.detect_accelerators must be a boolean.",
-            )
-        return raw
+        return self._get_bool("hardware", "detect_accelerators", False)
 
     @property
     def hardware_cpu_capacity(self) -> int | None:
         """Return validated hardware.cpu_capacity if specified, or None."""
-        sec = self.get_section("hardware")
-        raw = sec.get("cpu_capacity") if sec is not None else None
-        if raw is None:
-            return None
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"hardware.cpu_capacity must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_optional_int("hardware", "cpu_capacity", None)
 
     @property
     def hardware_gpu_capacity_per_device(self) -> int:
         """Return validated hardware.gpu_capacity_per_device, defaulting to 4."""
-        sec = self.get_section("hardware")
-        raw = sec.get("gpu_capacity_per_device", 4) if sec is not None else 4
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"hardware.gpu_capacity_per_device must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("hardware", "gpu_capacity_per_device", 4)
 
     @property
     def hardware_npu_capacity_per_device(self) -> int:
         """Return validated hardware.npu_capacity_per_device, defaulting to 2."""
-        sec = self.get_section("hardware")
-        raw = sec.get("npu_capacity_per_device", 2) if sec is not None else 2
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"hardware.npu_capacity_per_device must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("hardware", "npu_capacity_per_device", 2)
 
     @property
     def hardware_max_queue_depth(self) -> int:
         """Return validated hardware.max_queue_depth, defaulting to 64."""
-        sec = self.get_section("hardware")
-        raw = sec.get("max_queue_depth", 64) if sec is not None else 64
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"hardware.max_queue_depth must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("hardware", "max_queue_depth", 64)
 
     @property
     def cache_enabled(self) -> bool:
         """Return validated cache.enabled boolean, defaulting to True."""
-        sec = self.get_section("cache")
-        raw = sec.get("enabled", True) if sec is not None else True
-        if not isinstance(raw, bool):
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="cache.enabled must be a boolean.",
-            )
-        return raw
+        return self._get_bool("cache", "enabled", True)
 
     @property
     def cache_dir(self) -> Path | None:
         """Return validated cache directory path, defaulting to None."""
-        sec = self.get_section("cache")
-        raw = sec.get("dir", None) if sec is not None else None
-        if raw is None:
-            return None
-        if not isinstance(raw, (str, Path)) or not str(raw).strip():
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message="cache.dir must be a non-empty string or Path if specified.",
-            )
-        return Path(raw)
+        return self._get_optional_path("cache", "dir", None)
 
     @property
     def cache_ttl_seconds(self) -> int | None:
         """Return validated cache TTL in seconds, defaulting to 86400 (None disables TTL)."""
-        sec = self.get_section("cache")
-        raw = sec.get("ttl_seconds", 86400) if sec is not None else 86400
-        if raw is None:
-            return None
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"cache.ttl_seconds must be a positive integer or None, got {raw!r}.",
-            )
-        return raw
+        return self._get_optional_int("cache", "ttl_seconds", 86400)
 
     @property
     def cache_max_entries_l1(self) -> int:
         """Return validated cache max entries for L1 memory, defaulting to 200."""
-        sec = self.get_section("cache")
-        raw = sec.get("max_entries_l1", 200) if sec is not None else 200
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"cache.max_entries_l1 must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("cache", "max_entries_l1", 200)
 
     @property
     def cache_max_entries_l2(self) -> int:
         """Return validated cache max entries for L2 persistent store, defaulting to 2000."""
-        sec = self.get_section("cache")
-        raw = sec.get("max_entries_l2", 2000) if sec is not None else 2000
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"cache.max_entries_l2 must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("cache", "max_entries_l2", 2000)
 
     @property
     def plugins_disabled(self) -> tuple[str, ...]:
@@ -400,47 +311,19 @@ class Settings:
     @property
     def limits_max_input_bytes(self) -> int:
         """Return maximum allowed input file size in bytes, defaulting to 500 MB."""
-        sec = self.get_section("limits")
-        raw = sec.get("max_input_bytes", 524_288_000) if sec is not None else 524_288_000
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"limits.max_input_bytes must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("limits", "max_input_bytes", 524_288_000)
 
     @property
     def limits_max_uncompressed_bytes(self) -> int:
         """Return maximum allowed total uncompressed ZIP bytes, defaulting to 1 GiB."""
-        sec = self.get_section("limits")
-        raw = sec.get("max_uncompressed_bytes", 1_073_741_824) if sec is not None else 1_073_741_824
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"limits.max_uncompressed_bytes must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("limits", "max_uncompressed_bytes", 1_073_741_824)
 
     @property
     def limits_max_compression_ratio(self) -> float:
         """Return maximum allowed ZIP compression ratio, defaulting to 200.0."""
-        sec = self.get_section("limits")
-        raw = sec.get("max_compression_ratio", 200.0) if sec is not None else 200.0
-        if not isinstance(raw, (int, float)) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"limits.max_compression_ratio must be a positive number, got {raw!r}.",
-            )
-        return float(raw)
+        return self._get_float("limits", "max_compression_ratio", 200.0)
 
     @property
     def limits_max_zip_members(self) -> int:
         """Return maximum allowed member files in a ZIP archive, defaulting to 10000."""
-        sec = self.get_section("limits")
-        raw = sec.get("max_zip_members", 10_000) if sec is not None else 10_000
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise DoshError(
-                code=FailureCode.INVALID_CONFIGURATION,
-                message=f"limits.max_zip_members must be a positive integer, got {raw!r}.",
-            )
-        return raw
+        return self._get_int("limits", "max_zip_members", 10_000)

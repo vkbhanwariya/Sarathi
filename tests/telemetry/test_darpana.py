@@ -763,3 +763,26 @@ class TestDarpanaGlobalWiring:
             assert not hasattr(inst, "timer")
             assert not hasattr(inst, "recorder")
             assert not hasattr(inst, "telemetry")
+
+    def test_record_maruti_helper(self) -> None:
+        """Verify record_maruti gracefully handles None and valid Darpana."""
+        from sarathi.darpana import MarutiRecord, record_maruti
+        assert record_maruti(None, phase_name="test") is None
+
+        darpana = Darpana()
+        ctx = ExecutionContext(run_id="run-1", request_id="req-1", trace_id="tr-1", span_id="sp-1")
+        rec = record_maruti(
+            darpana=darpana,
+            context=ctx,
+            phase_name="test_phase",
+            component="test_comp",
+            duration_ns=1000,
+            outcome="success",
+            attributes={"k": "v"},
+        )
+        assert isinstance(rec, MarutiRecord)
+        assert rec.run_id == "run-1"
+        assert rec.phase_name == "test_phase"
+        assert rec.component == "test_comp"
+        assert rec.attributes == {"k": "v"}
+        assert len(darpana.maruti_records()) == 1

@@ -72,7 +72,10 @@ class TestMukhaWebServerSecurityAndStatic:
             assert status in (400, 413)
         except AssertionError as exc:
             # On Windows, early server socket closure on 413 aborts client send
-            assert any(term in str(exc) for term in ("10053", "ConnectionAbortedError", "ConnectionResetError"))
+            assert isinstance(exc.__cause__, (ConnectionResetError, ConnectionAbortedError)) or any(
+                term in str(exc)
+                for term in ("10053", "10054", "ConnectionAbortedError", "ConnectionResetError", "forcibly closed")
+            )
 
 
 class TestMukhaWebServerAPI:

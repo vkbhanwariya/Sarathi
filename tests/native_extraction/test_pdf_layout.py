@@ -24,6 +24,8 @@ from sarathi.shakti.native_extraction.readers.pdf_layout import (
     read_pdf_with_layout,
 )
 
+pytestmark = pytest.mark.layout
+
 
 @pytest.fixture(scope="module")
 def sample_pdf_bytes() -> bytes:

@@ -165,3 +165,103 @@ def test_numeric_preservation_guard_rejects_corrupted_retry() -> None:
     assert page_data.spans[0].confidence == 0.50
     assert not page_data.spans[0].metadata.get("retry_applied", False)
     assert not provenance.evidence.get("retry_applied", False)
+
+
+def test_weak_crop_retry_devanagari_digit_guard() -> None:
+    """Verify weak-crop retry rejects number-corrupting replacements and accepts digit-preserving ones."""
+    from types import SimpleNamespace
+
+    engine = RapidOCREngine(default_lang="hi")
+    img = Image.new("RGB", (200, 200), color="white")
+
+    def mock_corrupt(arr, **kwargs):
+        if kwargs.get("use_det") is False:
+            return SimpleNamespace(txts=["रकम 999"], scores=[0.95])
+        return SimpleNamespace(
+            txts=["रकम 100"],
+            boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
+            scores=[0.50],
+        )
+
+    engine._engine = mock_corrupt
+    p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
+    assert p_data.spans[0].text == "रकम 100"
+    assert p_data.spans[0].confidence == 0.50
+
+    def mock_preserve(arr, **kwargs):
+        if kwargs.get("use_det") is False:
+            return SimpleNamespace(txts=["रकम १००"], scores=[0.95])
+        return SimpleNamespace(
+            txts=["रकम 100"],
+            boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
+            scores=[0.50],
+        )
+
+    engine._engine = mock_preserve
+    p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
+    assert p_data.spans[0].text == "रकम १००"
+    assert p_data.spans[0].confidence == 0.95
+    assert p_data.spans[0].metadata.get("retry_applied") is True
+
+
+def test_weak_crop_retry_concurrency_guards_infer_request() -> None:
+    """Verify weak-crop retry stays protected under inference lock/pool without Infer Request is busy."""
+    import threading
+    import time
+    from unittest.mock import MagicMock
+
+    coordinator = RapidOCREngine()
+
+    active_calls = 0
+    max_concurrent_seen = 0
+    call_lock = threading.Lock()
+
+    def mock_engine(img: Any, use_det: bool = True, use_cls: bool = True, **_kwargs: Any) -> MagicMock:
+        nonlocal active_calls, max_concurrent_seen
+        with call_lock:
+            active_calls += 1
+            if active_calls > max_concurrent_seen:
+                max_concurrent_seen = active_calls
+            if active_calls > 1:
+                raise RuntimeError("Infer Request is busy")
+
+        time.sleep(0.01)
+
+        with call_lock:
+            active_calls -= 1
+
+        res = MagicMock()
+        res.boxes = np.array([[[10, 10], [50, 10], [50, 20], [10, 20]]])
+        res.txts = ["Test"]
+        res.scores = [0.40]
+        return res
+
+    coordinator._engine = mock_engine
+
+    num_threads = 4
+    errors: list[Exception] = []
+    results = [None] * num_threads
+
+    def worker(idx: int) -> None:
+        img = Image.new("RGB", (100, 100), color="white")
+        try:
+            p_data, p_prov, conf, warns = coordinator.ocr_page(
+                img,
+                page_number=idx + 1,
+                input_id=f"inp-{idx}",
+                profile=ExecutionProfile.ACCURATE,
+                custom_options={"retry_enabled": True},
+            )
+            results[idx] = p_data
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(num_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Concurrent OCR with retry threw errors: {errors}"
+    assert max_concurrent_seen == 1, f"Expected strictly 1 concurrent inference call, got {max_concurrent_seen}"
+    assert all(r is not None for r in results)

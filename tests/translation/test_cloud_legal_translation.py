@@ -440,7 +440,6 @@ class TestBugO9CloudTransportAndOrchestration:
     def test_bug_O9_cloud_batch_concurrency_and_rate_pacing(self) -> None:
         """O9: fake provider with 8 batches, max_concurrency=4, rpm=600 -> peak in-flight calls is 4 and request spacing respects limit."""
         import threading
-        import time
 
         from sarathi.shakti.gemini.plugin import GEMINI_TRANSLATION_DECLARATION
         from sarathi.shakti.translation.cloud_orchestration import execute_cloud_translation
@@ -448,14 +447,21 @@ class TestBugO9CloudTransportAndOrchestration:
         in_flight = 0
         max_in_flight = 0
         flight_lock = threading.Lock()
+        barrier = threading.Barrier(4)
+        barrier_passed = False
 
         def mock_concurrent_batch(texts: list[str], **kwargs: Any) -> list[str]:
-            nonlocal in_flight, max_in_flight
+            nonlocal in_flight, max_in_flight, barrier_passed
             with flight_lock:
                 in_flight += 1
                 if in_flight > max_in_flight:
                     max_in_flight = in_flight
-            time.sleep(0.08)
+            if not barrier_passed:
+                try:
+                    barrier.wait(timeout=2.0)
+                    barrier_passed = True
+                except Exception:
+                    pass
             with flight_lock:
                 in_flight -= 1
             return [f"Tr: {t}" for t in texts]

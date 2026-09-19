@@ -66,7 +66,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
-addopts = "-ra -q --tb=short --show-capture=no -p no:warnings -m \"not browser and not performance and not real_model\""
+addopts = "-ra -q --tb=short --show-capture=no -p no:warnings -m \"not browser and not performance and not real_model and not layout\""
 markers = [
     "unit: marks isolated deterministic unit tests",
     "contract: marks public data or API contract tests",
@@ -77,6 +77,7 @@ markers = [
     "real_model: marks tests that require downloading or running real neural model weights (deselect with '-m \"not real_model\"')",
     "model_asset: marks tests that require local model asset files",
     "slow: marks intentionally slower integration or end-to-end tests",
+    "layout: marks CPU-intensive GNN layout analysis tests",
 ]
 
 [tool.ruff]

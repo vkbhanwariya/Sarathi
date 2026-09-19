@@ -17,6 +17,7 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     CapabilityDeclaration,
     DeviceType,
+    ExecutionBinding,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
@@ -25,6 +26,7 @@ from sarathi.sankalpa import (
     Request,
     Result,
     TableData,
+    TextSpan,
 )
 from sarathi.shakti.native_extraction import (
     CAPABILITY_DECLARATION as NATIVE_DECLARATION,
@@ -59,6 +61,13 @@ if not _OCR_AVAILABLE:
         "OCR optional dependencies (rapidocr, openvino, pillow, numpy) not installed. Run with --extra ocr to enable.",
         allow_module_level=True,
     )
+
+
+class DummyOutput:
+    def __init__(self, txts=None, boxes=None, scores=None):
+        self.txts = txts or []
+        self.boxes = boxes or []
+        self.scores = scores or []
 
 
 @pytest.fixture
@@ -1591,3 +1600,639 @@ def test_ocr_scanned_pdf_avoids_duplicate_native_provenance(tmp_path: Path) -> N
         caps = [pr.capability_id for pr in res.provenance]
         assert "read_native" not in caps
         assert "ocr" in caps
+
+
+def test_ocr_missing_confidence_remains_none_without_085_fallback() -> None:
+    """Proves record_ocr_page_telemetry does not substitute 0.85 when spans have no confidence."""
+    from sarathi.darpana import Darpana
+    from sarathi.shakti.ocr.telemetry import record_ocr_page_telemetry
+
+    darpana = Darpana(capacity=50)
+    ctx = ExecutionContext("run-ocr-truth", "req-ocr-truth", "t-ocr", "s-ocr")
+    inp = InputRef("inp-ocr-1", Path("page.png"), "page.png", 1024)
+
+    page_data = PageData(
+        page_number=1,
+        text="unmeasured text line",
+        spans=(
+            TextSpan(text="unmeasured", confidence=None),
+            TextSpan(text="text", confidence=None),
+        ),
+    )
+
+    record_ocr_page_telemetry(
+        darpana=darpana,
+        context=ctx,
+        inp_ref=inp,
+        page_idx=1,
+        page_data=page_data,
+        dur_ns=25_000_000,
+        binding=None,
+        worker_id="cpu-worker-0",
+    )
+
+    pramana_recs = [r for r in darpana.pramana_records() if r.run_id == ctx.run_id]
+    assert len(pramana_recs) > 0
+
+    page_rec = next(r for r in pramana_recs if r.attributes.get("level") == "page")
+    assert page_rec.confidence is None, f"Expected page confidence=None but got {page_rec.confidence}"
+    assert page_rec.attributes.get("min_confidence") is None
+    assert page_rec.attributes.get("max_confidence") is None
+
+    region_recs = [r for r in pramana_recs if r.attributes.get("level") == "region"]
+    for rrec in region_recs:
+        assert rrec.confidence is None, f"Expected region confidence=None but got {rrec.confidence}"
+
+
+def test_ocr_valid_confidence_propagates_faithfully() -> None:
+    """Proves valid measured scores propagate accurately with score_kind='raw_engine'."""
+    from sarathi.darpana import Darpana
+    from sarathi.shakti.ocr.telemetry import record_ocr_page_telemetry
+
+    darpana = Darpana(capacity=50)
+    ctx = ExecutionContext("run-ocr-valid", "req-ocr-valid", "t-ocr", "s-ocr")
+    inp = InputRef("inp-ocr-2", Path("page2.png"), "page2.png", 1024)
+
+    page_data = PageData(
+        page_number=1,
+        text="first line\nsecond line",
+        spans=(
+            TextSpan(text="first line", confidence=0.92),
+            TextSpan(text="second line", confidence=0.88),
+        ),
+    )
+
+    record_ocr_page_telemetry(
+        darpana=darpana,
+        context=ctx,
+        inp_ref=inp,
+        page_idx=1,
+        page_data=page_data,
+        dur_ns=30_000_000,
+        binding=None,
+        worker_id="cpu-worker-0",
+    )
+
+    pramana_recs = [r for r in darpana.pramana_records() if r.run_id == ctx.run_id]
+    page_rec = next(r for r in pramana_recs if r.attributes.get("level") == "page")
+    assert page_rec.confidence is not None
+    assert page_rec.confidence.score == 0.9
+    assert page_rec.confidence.evidence.get("score_kind") == "raw_engine"
+    assert page_rec.confidence.evidence.get("calibrated") is False
+    assert page_rec.attributes.get("min_confidence") == 0.88
+    assert page_rec.attributes.get("max_confidence") == 0.92
+
+
+def test_ne_ocr_fallback_preserves_independent_scores_and_raw_delta() -> None:
+    """Proves fallback telemetry records raw_confidence_score_delta and preserves source/replacement scores."""
+    from sarathi.darpana import Darpana
+    from sarathi.shakti.ocr.telemetry import record_ocr_page_telemetry
+
+    darpana = Darpana(capacity=50)
+    ctx = ExecutionContext("run-ocr-fb", "req-ocr-fb", "t-ocr", "s-ocr")
+    inp = InputRef("inp-ocr-3", Path("page3.png"), "page3.png", 1024)
+
+    fallback_span = TextSpan(
+        text="recovered text",
+        confidence=0.89,
+        metadata={
+            "fallback_applied": True,
+            "fallback_engine": "ne_ocr",
+            "original_confidence": 0.42,
+            "replacement_confidence": 0.89,
+            "raw_confidence_score_delta": 0.47,
+            "confidence_gain": 0.47,
+        },
+    )
+
+    page_data = PageData(
+        page_number=1,
+        text="recovered text",
+        spans=(fallback_span,),
+        metadata={
+            "fallback_applied": True,
+            "fallback_engine": "ne_ocr",
+            "fallback_improved_count": 1,
+            "raw_confidence_score_delta": 0.47,
+            "fallback_total_gain": 0.47,
+        },
+    )
+
+    record_ocr_page_telemetry(
+        darpana=darpana,
+        context=ctx,
+        inp_ref=inp,
+        page_idx=1,
+        page_data=page_data,
+        dur_ns=40_000_000,
+        binding=None,
+        worker_id="cpu-worker-0",
+    )
+
+    pramana_recs = [r for r in darpana.pramana_records() if r.run_id == ctx.run_id]
+    reg_rec = next(r for r in pramana_recs if r.attributes.get("level") == "region")
+
+    assert reg_rec.attributes.get("original_confidence") == 0.42
+    assert reg_rec.attributes.get("replacement_confidence") == 0.89
+    assert reg_rec.attributes.get("raw_confidence_score_delta") == 0.47
+    assert reg_rec.confidence is not None
+    assert reg_rec.confidence.evidence.get("original_confidence") == 0.42
+    assert reg_rec.confidence.evidence.get("replacement_confidence") == 0.89
+    assert reg_rec.confidence.evidence.get("raw_confidence_score_delta") == 0.47
+
+
+def test_instant_profile_never_invokes_fallback() -> None:
+    """Instant profile must never invoke retry, even for low-confidence spans."""
+    import io
+
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine import RapidOCREngine
+
+    engine = RapidOCREngine(default_lang="hi")
+    retry_invoked = False
+
+    def mock_call(arr, **kwargs):
+        nonlocal retry_invoked
+        if kwargs.get("use_det") is False:
+            retry_invoked = True
+            return DummyOutput(txts=["FALLBACK"], boxes=[], scores=[0.99])
+        return DummyOutput(
+            txts=["राज"],
+            boxes=[[(10, 10), (80, 10), (80, 30), (10, 30)]],
+            scores=[0.40],
+        )
+
+    engine._engine = mock_call
+    cap = OCRCapability(engine=engine)
+    img = Image.new("RGB", (200, 100), color=(255, 255, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
+    inp = InputRef("inp-1", Path("test.png"), "test.png", len(buf.getvalue()))
+    req = Request("req-1", "ocr", inputs=(inp,), profile=ExecutionProfile.INSTANT)
+
+    orig_open = Path.open
+
+    def fake_open(p_self, *args, **kwargs):
+        if str(p_self).endswith("test.png"):
+            return io.BytesIO(buf.getvalue())
+        return orig_open(p_self, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "open", fake_open)
+        res = cap.execute(req, ctx)
+
+    doc = res.data if isinstance(res.data, CanonicalDocument) else res.data[0]
+    page = doc.pages[0]
+    assert not retry_invoked
+    assert page.text == "राज"
+    assert page.metadata["validation_outcome"] != "retry_improved"
+
+
+def test_instant_page_does_not_materialize_unused_fallback_image() -> None:
+    """Instant OCR must not allocate a PIL fallback crop image that cannot be used."""
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine import RapidOCREngine
+
+    engine = RapidOCREngine()
+    engine._engine = lambda _arr, **_kwargs: DummyOutput(
+        txts=["FAST_PATH"],
+        boxes=[[(10, 10), (80, 10), (80, 30), (10, 30)]],
+        scores=[0.99],
+    )
+    image = Image.new("RGB", (200, 100), color=(255, 255, 255))
+
+    with patch.object(Image, "fromarray", side_effect=AssertionError("unused PIL copy created")):
+        page, _, _, _ = engine.ocr_page(
+            image,
+            page_number=1,
+            input_id="instant-no-pil-copy",
+            profile=ExecutionProfile.INSTANT,
+            custom_options={"preprocess": False},
+        )
+    assert page.text == "FAST_PATH"
+
+
+def test_instant_profile_bypasses_preprocessing_when_requested() -> None:
+    """Instant profile with preprocess=False does not execute any PIL/OpenCV filtering."""
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine import RapidOCREngine
+
+    engine = RapidOCREngine()
+    engine._engine = lambda _arr, **_kwargs: DummyOutput(
+        txts=["FAST_PATH"],
+        boxes=[[(5, 5), (60, 5), (60, 20), (5, 20)]],
+        scores=[0.90],
+    )
+
+    image = Image.new("RGB", (100, 50), color="white")
+
+    with patch("sarathi.shakti.ocr.engine.preprocess_ocr_image") as mock_prep:
+        page, prov, conf, warns = engine.ocr_page(
+            image,
+            page_number=1,
+            input_id="instant-fast-path",
+            profile=ExecutionProfile.INSTANT,
+            custom_options={"preprocess": False},
+        )
+
+    assert page.text == "FAST_PATH"
+    mock_prep.assert_not_called()
+
+
+def test_accurate_weak_crop_retry_from_preprocessed_image_space() -> None:
+    """Accurate mode weak-crop retry must crop from preprocessed image space matching RapidOCR bounding boxes."""
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine import RapidOCREngine
+
+    engine = RapidOCREngine(default_lang="hi")
+    crops_seen: list[Any] = []
+
+    def mock_engine(arr, **kwargs):
+        if kwargs.get("use_det") is False:
+            crops_seen.append(arr)
+            return DummyOutput(txts=["राजस्थान"], boxes=[], scores=[0.92])
+        return DummyOutput(
+            txts=["राज"],
+            boxes=[[(50, 40), (150, 40), (150, 80), (50, 80)]],
+            scores=[0.55],
+        )
+
+    engine._engine = mock_engine
+    img = Image.new("RGB", (300, 150), color=(255, 255, 255))
+    page_data, prov, conf, warns = engine.ocr_page(
+        image=img,
+        page_number=1,
+        input_id="inp-1",
+        profile=ExecutionProfile.ACCURATE,
+        custom_options={"deskew": True, "clahe": False},
+    )
+
+    assert len(crops_seen) == 1
+    assert crops_seen[0].shape[1] == 106
+    assert crops_seen[0].shape[0] == 46
+    assert prov.evidence["validation_outcome"] == "retry_improved"
+    assert prov.evidence["retry_applied"] is True
+
+
+def test_custom_profile_rebuilds_all_evidence_on_binarize_pass() -> None:
+    """When Custom binarize runs, text, spans, boxes, confidence, warnings, and evidence are rebuilt together."""
+    import numpy as np
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine import RapidOCREngine
+
+    engine = RapidOCREngine()
+
+    def fake_rapidocr(arr, **_kwargs):
+        unique_vals = np.unique(arr)
+        if len(unique_vals) <= 2:
+            return DummyOutput(
+                txts=["BINARIZED_TEXT"],
+                boxes=[[(10, 10), (120, 10), (120, 30), (10, 30)]],
+                scores=[0.98],
+            )
+        return DummyOutput(
+            txts=["ORIGINAL_TEXT"],
+            boxes=[[(5, 5), (100, 5), (100, 25), (5, 25)]],
+            scores=[0.70],
+        )
+
+    engine._engine = fake_rapidocr
+
+    img = Image.new("RGB", (200, 100), color=(200, 200, 200))
+    page_data, prov, conf, warns = engine.ocr_page(
+        image=img,
+        page_number=1,
+        input_id="inp-custom",
+        profile=ExecutionProfile.CUSTOM,
+        custom_options={"binarize": True},
+    )
+
+    assert page_data.text == "BINARIZED_TEXT"
+    assert len(page_data.spans) == 1
+    assert page_data.spans[0].text == "BINARIZED_TEXT"
+    assert page_data.spans[0].confidence == 0.98
+    assert conf is not None
+    assert conf.score == 0.98
+    assert prov.evidence["binarized"] is True
+    assert prov.evidence["box_count"] == 1
+
+
+def test_custom_profile_validation_rejects_unsupported_options() -> None:
+    """Custom profile must reject unrecognized options with DoshError(VALIDATION_FAILED)."""
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.shakti.ocr.engine import RapidOCREngine
+
+    engine = RapidOCREngine()
+    cap = OCRCapability(engine=engine)
+    ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
+    inp = InputRef("inp-1", Path("dummy.png"), "dummy.png", 10)
+
+    req_bad = Request(
+        "req-1",
+        "ocr",
+        inputs=(inp,),
+        profile=ExecutionProfile.CUSTOM,
+        custom_options={"unknown_neural_net": True},
+    )
+    with pytest.raises(DoshError) as exc:
+        cap.execute(req_bad, ctx)
+    assert exc.value.code == FailureCode.VALIDATION_FAILED
+    assert "unknown_neural_net" in exc.value.message
+
+
+def test_check_ocr_readiness_validates_truthfully() -> None:
+    """check_ocr_readiness must verify dependencies, manifest, and model checksums safely."""
+    from sarathi.shakti.ocr import check_ocr_readiness
+
+    is_ready, msg = check_ocr_readiness()
+    assert is_ready is True
+    assert "Ready" in msg
+    assert "RapidOCR" in msg
+
+    is_ready_fake, msg_fake = check_ocr_readiness(data_root=Path("non_existent_data_dir"))
+    assert is_ready_fake is False
+    assert "Unavailable" in msg_fake
+    assert "non_existent_data_dir" not in msg_fake
+
+
+def test_ocr_cross_input_concurrency_with_bounded_subtasks(tmp_path: Path) -> None:
+    """Verify that multiple single-page input files run concurrently through Yantra with bounded concurrency."""
+    import threading
+    import time
+
+    from PIL import Image
+
+    from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
+
+    inv = DeviceInventory([DeviceInfo("cpu-0", DeviceType.CPU, capacity=8)])
+    yantra = Yantra(inventory=inv)
+
+    active_count = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def mock_ocr_page(img, page_idx, input_id, profile=None, custom_options=None, execution_binding=None):
+        nonlocal active_count, max_active
+        with lock:
+            active_count += 1
+            if active_count > max_active:
+                max_active = active_count
+
+        time.sleep(0.02)
+
+        with lock:
+            active_count -= 1
+
+        p_data = PageData(page_number=page_idx, text=f"Text for {input_id}")
+        p_prov = ProvenanceRecord(source_input_id=input_id, capability_id="ocr", stage="ocr")
+        return p_data, p_prov, 0.95, []
+
+    mock_engine = MagicMock()
+    mock_engine.ocr_page.side_effect = mock_ocr_page
+
+    cap = OCRCapability(engine=mock_engine, yantra=yantra)
+
+    inputs = []
+    for idx in range(4):
+        p = tmp_path / f"img_{idx + 1}.png"
+        img = Image.new("RGB", (30, 30), color="white")
+        img.save(p)
+        inputs.append(
+            InputRef(
+                input_id=f"i-{idx + 1}", source_path=p, display_name=f"img_{idx + 1}.png", size_bytes=p.stat().st_size
+            )
+        )
+
+    binding = ExecutionBinding("cpu-0", DeviceType.CPU, "cpu", "CPU", approved_concurrency=2)
+    ctx = ExecutionContext("run-c", "req-c", "t-c", "s-c", execution_binding=binding)
+    req = Request("req-c", "ocr", inputs=tuple(inputs))
+
+    res = cap.execute(req, ctx)
+
+    assert isinstance(res.data, tuple)
+    assert len(res.data) == 4
+    for idx, doc in enumerate(res.data):
+        assert doc.source_input_id == f"i-{idx + 1}"
+        assert f"Text for i-{idx + 1}" in doc.text
+
+    assert max_active > 1, f"Expected concurrency > 1, got {max_active}"
+    assert max_active <= 2, f"Expected concurrency <= 2, got {max_active}"
+
+
+def test_ocr_page_validation_enabled_option() -> None:
+    """Verify validation_enabled=False sets validation_outcome to 'skipped'."""
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine import RapidOCREngine
+
+    engine = RapidOCREngine()
+    mock_rapidocr = MagicMock()
+    mock_rapidocr.return_value = (None, None)
+
+    with patch.object(engine, "_get_engine", return_value=mock_rapidocr):
+        img = Image.new("RGB", (30, 30), color="white")
+        p_def, prov_def, _, _ = engine.ocr_page(img, 1, "in-1")
+        assert p_def.metadata.get("validation_outcome") == "empty"
+        assert prov_def.evidence.get("validation_outcome") == "empty"
+
+        p_skip, prov_skip, _, _ = engine.ocr_page(img, 1, "in-1", custom_options={"validation_enabled": False})
+        assert p_skip.metadata.get("validation_outcome") == "skipped"
+        assert prov_skip.evidence.get("validation_outcome") == "skipped"
+
+
+def test_custom_options_extended_validation() -> None:
+    """Verify extended custom options (fallback_threshold, review_threshold, use_angle_cls, preserve_layout)."""
+    import io
+
+    from sarathi.dosh import DoshError, FailureCode
+
+    mock_engine = MagicMock()
+    mock_p = PageData(page_number=1, text="ok")
+    mock_engine.ocr_page.return_value = (mock_p, None, None, ())
+    cap = OCRCapability(engine=mock_engine)
+
+    valid_req = Request(
+        "req-1",
+        "ocr",
+        inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
+        profile=ExecutionProfile.CUSTOM,
+        custom_options={
+            "fallback_threshold": 0.85,
+            "review_threshold": 0.70,
+            "use_angle_cls": True,
+            "preserve_layout": True,
+        },
+    )
+    ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
+
+    with patch.object(Path, "open", return_value=io.BytesIO(b"fake_image_bytes")):
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock()]):
+            with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=1):
+                res = cap.execute(valid_req, ctx)
+                assert res is not None
+
+    invalid_req_high = Request(
+        "req-2",
+        "ocr",
+        inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
+        profile=ExecutionProfile.CUSTOM,
+        custom_options={"fallback_threshold": 1.5},
+    )
+    with pytest.raises(DoshError) as exc_high:
+        cap.execute(invalid_req_high, ctx)
+    assert exc_high.value.code is FailureCode.VALIDATION_FAILED
+
+
+def test_json_export_preserves_metadata_and_tables() -> None:
+    """Verify JSON export artifact preserves span metadata, language, script, and tables."""
+    import json
+
+    table = TableData(
+        name="test_table",
+        headers=("ColA", "ColB"),
+        rows=(("1", "2"), ("3", "4")),
+        metadata={"source": "test"},
+    )
+    span = TextSpan(
+        text="Sample text",
+        confidence=0.92,
+        bounding_box=(10.0, 20.0, 100.0, 40.0),
+        language="hi",
+        script="Devanagari",
+        metadata={"span_id": "sp-1", "custom": "meta"},
+    )
+    p = PageData(
+        page_number=1,
+        text="Sample text",
+        spans=(span,),
+        tables=(table,),
+        metadata={"page_height": 500.0, "page_width": 400.0},
+    )
+
+    req = Request(
+        "req-1",
+        "ocr",
+        inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
+        profile=ExecutionProfile.INSTANT,
+        custom_options={"export_json": True},
+    )
+    ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
+
+    mock_engine = MagicMock()
+    mock_engine.ocr_page.return_value = (p, None, None, ())
+    cap = OCRCapability(engine=mock_engine)
+
+    with patch.object(Path, "read_bytes", return_value=b"fake_image_bytes"):
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock()]):
+            with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=1):
+                res = cap.execute(req, ctx)
+            json_payload = [pl for pl in res.artifact_payloads if pl.intent.media_type == "application/json"][0]
+            data = json.loads(json_payload.content.decode("utf-8"))
+
+            page_json = data["pages"][0]
+            assert len(page_json["tables"]) == 1
+            assert page_json["tables"][0]["name"] == "test_table"
+            assert page_json["tables"][0]["headers"] == ["ColA", "ColB"]
+
+            span_json = page_json["spans"][0]
+            assert span_json["text"] == "Sample text"
+            assert span_json["language"] == "hi"
+            assert span_json["script"] == "Devanagari"
+            assert span_json["metadata"]["span_id"] == "sp-1"
+            assert span_json["metadata"]["custom"] == "meta"
+
+
+def test_default_ocr_omits_json_artifact_for_clean_output() -> None:
+    """Verify default OCR execution omits ocr.json, leaving clean .docx and .txt outputs."""
+    p = PageData(page_number=1, text="Simple OCR line", spans=(), tables=())
+    req = Request(
+        "req-clean",
+        "ocr",
+        inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
+        profile=ExecutionProfile.INSTANT,
+    )
+    ctx = ExecutionContext("run-clean", "req-clean", "t1", "s1")
+
+    mock_engine = MagicMock()
+    mock_engine.ocr_page.return_value = (p, None, None, ())
+    cap = OCRCapability(engine=mock_engine)
+
+    with patch.object(Path, "read_bytes", return_value=b"fake_image_bytes"):
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock()]):
+            with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=1):
+                res = cap.execute(req, ctx)
+
+    payload_names = [pl.intent.name for pl in res.artifact_payloads]
+    assert any(n.endswith(".docx") for n in payload_names)
+    assert any(n.endswith(".txt") for n in payload_names)
+    assert not any(n.endswith(".json") for n in payload_names)
+
+
+def test_factory_sets_rec_text_score_zero(tmp_path: Path) -> None:
+    """Verify that build_rapidocr_instance configures Rec.text_score to 0.0."""
+    from sarathi.shakti.ocr.engine.factory import build_rapidocr_instance
+
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(
+        '{"models": {"det": {"filename": "det.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"cls": {"filename": "cls.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_devanagari": {"filename": "rec_devanagari.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}, '
+        '"rec_v6_en": {"filename": "rec_v6_en.onnx", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}',
+        encoding="utf-8",
+    )
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "det.onnx").write_bytes(b"")
+    (models_dir / "cls.onnx").write_bytes(b"")
+    (models_dir / "rec_devanagari.onnx").write_bytes(b"")
+    (models_dir / "rec_v6_en.onnx").write_bytes(b"")
+
+    captured_params = {}
+
+    def mock_init(params=None):
+        nonlocal captured_params
+        captured_params = params or {}
+        return MagicMock()
+
+    with patch("rapidocr.RapidOCR", side_effect=mock_init):
+        inst, _, _, _ = build_rapidocr_instance(
+            data_root=tmp_path,
+            lang="en",
+            target_device="CPU",
+            verified_model_paths={},
+        )
+        assert inst is not None
+        assert captured_params.get("Rec.text_score") == 0.0
+
+
+def test_bug_T3_type_error_cascades_ocr() -> None:
+    """T3: Fake OCR engine raising TypeError in __call__ must not be called a second time."""
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
+
+    call_count = 0
+
+    def buggy_call(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        raise TypeError("internal engine failure")
+
+    mock_runner = MagicMock()
+    mock_runner.side_effect = buggy_call
+
+    engine = RapidOCREngine()
+    engine._get_engine = MagicMock(return_value=mock_runner)
+
+    img = Image.new("RGB", (100, 100), color="white")
+    with pytest.raises(TypeError, match="internal engine failure"):
+        engine.ocr_page(img, page_number=1, input_id="in-1")
+
+    assert call_count == 1, f"Expected active_engine to be called exactly once, but was called {call_count} times"

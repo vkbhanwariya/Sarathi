@@ -484,3 +484,24 @@ def test_bug_O13_stamp_removal_performance_a4() -> None:
     remove_stamp_artifacts(img)
     dt_ms = (time.perf_counter() - t0) * 1000
     assert dt_ms < 100.0, f"A4 stamp removal took {dt_ms:.1f}ms, expected < 100ms"
+
+
+def test_extract_images_multipage_tiff() -> None:
+    """Verify extract_images_from_bytes reads all frames of a multipage TIFF."""
+    import io
+
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine import extract_images_from_bytes
+
+    frames = [
+        Image.new("RGB", (20, 20), color="red"),
+        Image.new("RGB", (20, 20), color="green"),
+        Image.new("RGB", (20, 20), color="blue"),
+    ]
+    buf = io.BytesIO()
+    frames[0].save(buf, format="TIFF", save_all=True, append_images=frames[1:])
+    tiff_bytes = buf.getvalue()
+
+    images = extract_images_from_bytes(tiff_bytes)
+    assert len(images) == 3

@@ -133,7 +133,7 @@ class TestAzureClient:
             status_code = 429
             text = '{"error": "Too Many Requests"}'
 
-        with patch("httpx.Client.post", return_value=MockResponse()):
+        with patch("httpx.Client.post", return_value=MockResponse()), patch("time.sleep"):
             with pytest.raises(DoshError) as exc_info:
                 client.analyze_layout(b"data")
             assert exc_info.value.code == FailureCode.RESOURCE_UNAVAILABLE
@@ -350,6 +350,7 @@ class TestAzureTranslationCapability:
             orig_client_init(self, *args, **kwargs)
 
         monkeypatch.setattr(httpx.Client, "__init__", mock_client_init)
+        monkeypatch.setattr("time.sleep", lambda _: None)
 
         client = AzureClient(
             api_key="test_key",

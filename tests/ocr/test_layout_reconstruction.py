@@ -684,3 +684,84 @@ def test_detect_column_count_rejects_bottom_signature_as_multicolumn() -> None:
 
     col_count = detect_column_count(spans)
     assert col_count == 1, "Page with narrative text and bottom-right signature must be classified as 1 column"
+
+
+def test_footer_removal_preserves_lower_body_content() -> None:
+    """Verify footer detection uses actual page canvas height, preserving lower body amounts."""
+    from unittest.mock import MagicMock, patch
+
+    from sarathi.sankalpa import (
+        ExecutionContext,
+        ExecutionProfile,
+        InputRef,
+        PageData,
+        Request,
+        Result,
+        TextSpan,
+    )
+    from sarathi.shakti.ocr.capability import OCRCapability
+
+    p1 = PageData(
+        page_number=1,
+        text="Header Text\nBody Line 1\nAmount: 100",
+        spans=(
+            TextSpan("Header Text", 0.9, (50.0, 50.0, 200.0, 70.0)),
+            TextSpan("Body Line 1", 0.9, (50.0, 200.0, 200.0, 220.0)),
+            TextSpan("Amount: 100", 0.9, (50.0, 380.0, 200.0, 400.0)),
+        ),
+        metadata={"page_height": 800.0, "page_width": 600.0},
+    )
+    p2 = PageData(
+        page_number=2,
+        text="Header Text\nBody Line 2\nAmount: 200",
+        spans=(
+            TextSpan("Header Text", 0.9, (50.0, 50.0, 200.0, 70.0)),
+            TextSpan("Body Line 2", 0.9, (50.0, 200.0, 200.0, 220.0)),
+            TextSpan("Amount: 200", 0.9, (50.0, 380.0, 200.0, 400.0)),
+        ),
+        metadata={"page_height": 800.0, "page_width": 600.0},
+    )
+
+    req = Request(
+        "req-1",
+        "ocr",
+        inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
+        profile=ExecutionProfile.INSTANT,
+    )
+    ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
+
+    mock_engine = MagicMock()
+    mock_engine.ocr_page.side_effect = [
+        (p1, None, None, ()),
+        (p2, None, None, ()),
+    ]
+    cap = OCRCapability(engine=mock_engine)
+
+    with patch.object(Path, "read_bytes", return_value=b"fake_image_bytes"):
+        with patch("sarathi.shakti.ocr.capability.iter_images_from_bytes", return_value=[MagicMock(), MagicMock()]):
+            with patch("sarathi.shakti.ocr.capability.get_page_count_from_bytes", return_value=2):
+                res = cap.execute(req, ctx)
+                assert isinstance(res, Result)
+                final_doc = res.data
+                assert "Amount: 100" in final_doc.pages[0].text
+                assert "Amount: 200" in final_doc.pages[1].text
+
+
+def test_xycut_prevents_column_interleaving() -> None:
+    """Verify XY-Cut sorts two distinct columns sequentially instead of interleaving rows."""
+    from sarathi.sankalpa import TextSpan
+    from sarathi.shakti.ocr.engine.parser import sort_reading_order_xycut
+
+    c1_1 = TextSpan("Col 1 Line 1", 0.9, (50.0, 100.0, 200.0, 120.0))
+    c1_2 = TextSpan("Col 1 Line 2", 0.9, (50.0, 140.0, 200.0, 160.0))
+    c1_3 = TextSpan("Col 1 Line 3", 0.9, (50.0, 180.0, 200.0, 200.0))
+
+    c2_1 = TextSpan("Col 2 Line 1", 0.9, (350.0, 100.0, 500.0, 120.0))
+    c2_2 = TextSpan("Col 2 Line 2", 0.9, (350.0, 140.0, 500.0, 160.0))
+    c2_3 = TextSpan("Col 2 Line 3", 0.9, (350.0, 180.0, 500.0, 200.0))
+
+    input_spans = [c1_1, c2_1, c1_2, c2_2, c1_3, c2_3]
+    ordered = sort_reading_order_xycut(input_spans)
+
+    expected_order = [c1_1, c1_2, c1_3, c2_1, c2_2, c2_3]
+    assert [s.text for s in ordered] == [s.text for s in expected_order]
