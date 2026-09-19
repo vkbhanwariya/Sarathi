@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 from sarathi.agni import Agni
 from sarathi.dosh import DoshError
@@ -40,6 +41,26 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default="read_native",
         help="Target processing requirement (e.g. 'read_native', 'ocr')",
+    )
+    parser.add_argument(
+        "--direction",
+        type=str,
+        default=None,
+        help="Translation language direction (e.g. 'en-hi', 'hi-en')",
+    )
+    parser.add_argument(
+        "--engine",
+        type=str,
+        default=None,
+        help="Target processing engine (e.g. 'indictrans2', 'ctranslate2', 'rapidocr')",
+    )
+    parser.add_argument(
+        "--param",
+        "-P",
+        action="append",
+        dest="params",
+        metavar="KEY=VALUE",
+        help="Custom processing parameter in KEY=VALUE format (can be specified multiple times)",
     )
     parser.add_argument(
         "--recursive",
@@ -208,11 +229,37 @@ def main(argv: list[str] | None = None) -> int:
         first_display = input_refs[0].display_name
         req_id = args.request_id or f"req-{Path(first_display).stem or 'unnamed'}"
 
+        custom_opts: dict[str, Any] = {}
+        if args.direction:
+            custom_opts["direction"] = args.direction
+        if args.engine:
+            custom_opts["engine"] = args.engine
+        if args.params:
+            for p in args.params:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    k_str = k.strip()
+                    v_str = v.strip()
+                    if v_str.lower() == "true":
+                        custom_opts[k_str] = True
+                    elif v_str.lower() == "false":
+                        custom_opts[k_str] = False
+                    elif v_str.isdigit():
+                        custom_opts[k_str] = int(v_str)
+                    else:
+                        try:
+                            custom_opts[k_str] = float(v_str)
+                        except ValueError:
+                            custom_opts[k_str] = v_str
+                else:
+                    custom_opts[p.strip()] = True
+
         req = Request(
             request_id=req_id,
             requirement=args.requirement,
             inputs=input_refs,
             profile=prof,
+            custom_options=custom_opts,
             output_root=agni.output_root,
         )
 

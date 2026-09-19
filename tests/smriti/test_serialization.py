@@ -361,3 +361,50 @@ def test_missing_or_corrupted_cached_artifact_raises_value_error(tmp_path: Path)
     bin_path.write_bytes(b"tampered content")
     with pytest.raises(ValueError, match="Cached artifact blob"):
         deserialize_result(serialized_json, artifacts_dir=artifacts_dir)
+
+
+def test_canonical_document_with_rich_table_cells_roundtrips_losslessly() -> None:
+    """Verify that TableData with Decimal, date, Path, and numeric types roundtrips losslessly."""
+    today = datetime.date(2026, 9, 19)
+    balance = Decimal("154200.75")
+    sample_path = Path("documents/statement.pdf")
+
+    table = TableData(
+        name="AccountStatementTable",
+        headers=("Date", "Description", "Amount", "ReferencePath", "LineNo"),
+        rows=(
+            (today, "Opening Balance", balance, sample_path, 1),
+            (today, "Credit Interest", Decimal("250.00"), None, 2),
+        ),
+    )
+    page = PageData(page_number=1, text="Statement Page 1", tables=(table,))
+    doc = CanonicalDocument(
+        document_id="doc-table-decimal",
+        source_input_id="inp-table-01",
+        text="Statement Summary",
+        pages=(page,),
+        tables=(table,),
+    )
+    res = Result(data=doc)
+
+    assert is_cacheable_result(res) is True
+
+    serialized = serialize_result(res)
+    assert '"Decimal"' in serialized
+    assert '"154200.75"' in serialized
+    assert '"2026-09-19"' in serialized
+
+    restored = deserialize_result(serialized)
+    assert isinstance(restored.data, CanonicalDocument)
+    assert len(restored.data.tables) == 1
+    t = restored.data.tables[0]
+    assert t.rows[0][0] == today
+    assert isinstance(t.rows[0][0], datetime.date)
+    assert t.rows[0][1] == "Opening Balance"
+    assert t.rows[0][2] == balance
+    assert isinstance(t.rows[0][2], Decimal)
+    assert t.rows[0][3] == sample_path
+    assert isinstance(t.rows[0][3], Path)
+    assert t.rows[0][4] == 1
+    assert t.rows[1][2] == Decimal("250.00")
+    assert t.rows[1][3] == ""

@@ -249,8 +249,13 @@ class Settings:
 
     @property
     def hardware_gpu_capacity_per_device(self) -> int:
-        """Return validated hardware.gpu_capacity_per_device, defaulting to 4."""
+        """Return validated hardware.gpu_capacity_per_device, defaulting to 4.
+
+        Note: On Intel Arc iGPU (Meteor Lake), OpenVINO clamps effective streams to 2
+        (via driver RANGE_FOR_STREAMS) to prevent context thrashing.
+        """
         return self._get_int("hardware", "gpu_capacity_per_device", 4)
+
 
     @property
     def hardware_npu_capacity_per_device(self) -> int:

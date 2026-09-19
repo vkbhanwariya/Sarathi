@@ -324,6 +324,61 @@ class TestMukhaInputAndIntakeTruth:
         )
         assert exit_code == 2
 
+    def test_cli_passes_direction_engine_and_param_options(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sarathi.__main__ import main
+        from sarathi.agni import Agni
+        from sarathi.sankalpa import Result
+
+        input_doc = tmp_path / "sample.txt"
+        input_doc.write_text("Hello world", encoding="utf-8")
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+
+        captured_requests = []
+
+        def mock_execute(self_agni, request):
+            captured_requests.append(request)
+            return Result(data=None)
+
+        monkeypatch.setattr(Agni, "execute", mock_execute)
+
+        exit_code = main(
+            [
+                "--input",
+                str(input_doc),
+                "--runtime-root",
+                str(runtime_root),
+                "--output-root",
+                str(output_root),
+                "--requirement",
+                "read_native",
+                "--direction",
+                "hi-en",
+                "--engine",
+                "ctranslate2",
+                "-P",
+                "binarize=true",
+                "-P",
+                "dpi=300",
+                "-P",
+                "threshold=0.75",
+                "-P",
+                "mode=fast",
+            ]
+        )
+        assert exit_code == 0
+        assert len(captured_requests) == 1
+        req = captured_requests[0]
+        assert req.custom_options["direction"] == "hi-en"
+        assert req.custom_options["engine"] == "ctranslate2"
+        assert req.custom_options["binarize"] is True
+        assert req.custom_options["dpi"] == 300
+        assert req.custom_options["threshold"] == 0.75
+        assert req.custom_options["mode"] == "fast"
+
+
     def test_run_coordinator_auto_discovers_input_root(self, tmp_path: Path) -> None:
         from sarathi.agni import Agni
         from sarathi.mukha.web.runner import RunCoordinator

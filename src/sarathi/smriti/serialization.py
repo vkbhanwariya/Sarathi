@@ -125,7 +125,7 @@ def _serialize_canonical_doc(doc: CanonicalDocument) -> dict[str, Any]:
                     {
                         "name": t.name,
                         "headers": list(t.headers),
-                        "rows": [list(r) for r in t.rows],
+                        "rows": [[_serialize_metadata_value(cell) for cell in r] for r in t.rows],
                         "metadata": _serialize_metadata(t.metadata),
                     }
                     for t in p.tables
@@ -137,7 +137,7 @@ def _serialize_canonical_doc(doc: CanonicalDocument) -> dict[str, Any]:
             {
                 "name": t.name,
                 "headers": list(t.headers),
-                "rows": [list(r) for r in t.rows],
+                "rows": [[_serialize_metadata_value(cell) for cell in r] for r in t.rows],
                 "metadata": _serialize_metadata(t.metadata),
             }
             for t in doc.tables
@@ -153,8 +153,14 @@ def _validate_doc_metadata(doc: CanonicalDocument) -> None:
             _serialize_metadata(s.metadata)
         for t in p.tables:
             _serialize_metadata(t.metadata)
+            for r in t.rows:
+                for cell in r:
+                    _serialize_metadata_value(cell)
     for t in doc.tables:
         _serialize_metadata(t.metadata)
+        for r in t.rows:
+            for cell in r:
+                _serialize_metadata_value(cell)
 
 
 def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
@@ -176,7 +182,7 @@ def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
             TableData(
                 name=t["name"],
                 headers=tuple(t["headers"]),
-                rows=tuple(tuple(r) for r in t["rows"]),
+                rows=tuple(tuple(_deserialize_metadata_value(cell) for cell in r) for r in t["rows"]),
                 metadata=MappingProxyType(_deserialize_metadata(t.get("metadata", {}))),
             )
             for t in p.get("tables", [])
@@ -195,7 +201,7 @@ def _deserialize_canonical_doc(d: dict[str, Any]) -> CanonicalDocument:
         TableData(
             name=t["name"],
             headers=tuple(t["headers"]),
-            rows=tuple(tuple(r) for r in t["rows"]),
+            rows=tuple(tuple(_deserialize_metadata_value(cell) for cell in r) for r in t["rows"]),
             metadata=MappingProxyType(_deserialize_metadata(t.get("metadata", {}))),
         )
         for t in d.get("tables", [])

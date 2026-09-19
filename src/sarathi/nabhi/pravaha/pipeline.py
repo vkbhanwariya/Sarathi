@@ -219,6 +219,27 @@ def _safe_cache_put(
                     attributes={"error_type": type(cache_err).__name__},
                 )
             )
+        return
+
+    from sarathi.smriti.serialization import is_cacheable_result
+
+    if not is_cacheable_result(result) and darpana is not None:
+        from sarathi.darpana import MarutiRecord
+
+        darpana.record_maruti(
+            MarutiRecord(
+                run_id=context.run_id,
+                request_id=context.request_id,
+                trace_id=context.trace_id,
+                span_id=context.span_id,
+                phase_name="cache.unsupported_type",
+                component="smriti",
+                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                duration_ns=0,
+                outcome="success",
+                attributes={"data_type": type(result.data).__name__},
+            )
+        )
 
 
 def _handle_stage_failure(
