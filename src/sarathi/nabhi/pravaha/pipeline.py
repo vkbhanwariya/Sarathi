@@ -411,8 +411,8 @@ def execute_pipeline(
             return replace(res, warnings=tuple(accumulated_warnings))
         return res
 
+    stage_fingerprint = compute_input_fingerprint(current_request.inputs)
     while True:
-        stage_fingerprint = compute_input_fingerprint(current_request.inputs)
         validated_capabilities = _validate_and_authorize_stage_capabilities(
             current_plan, registry, capabilities, kavacha
         )

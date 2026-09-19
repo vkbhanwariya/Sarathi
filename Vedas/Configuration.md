@@ -79,7 +79,7 @@ Configures Yantra hardware resource detection and execution concurrency.
 | --- | --- | --- | --- | --- |
 | `detect_accelerators` | `bool` | `false` | `true` | Enables OpenVINO probing for local GPU and NPU devices. |
 | `gpu_capacity_per_device` | `int` | `4` | `2` | Scheduler concurrency slot budget allocated per GPU (tuned for dual hardware streams on Intel Arc iGPU). |
-| `cpu_capacity` | `int \| None` | `None` | `6` | Scheduler concurrency slot budget for CPU worker pool (tuned for 6 P-cores on Meteor Lake). |
+| `cpu_capacity` | `int \| None` | `None` | `6` | Scheduler concurrency slot budget for CPU worker pool (tuned for 4 P-cores + 2 E-cores on reference Meteor Lake Ultra 5 125H). |
 | `npu_capacity_per_device` | `int` | `2` | `2` | Scheduler concurrency slot budget allocated per NPU. |
 | `max_queue_depth` | `int` | `64` | `64` | Maximum pending subtask queue depth for accelerator dispatch. |
 

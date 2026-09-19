@@ -91,7 +91,6 @@ class _ResourceAllocator:
         self._lock: threading.Lock = threading.Lock()
         self._cv: threading.Condition = threading.Condition(self._lock)
         self._used_units: dict[str, int] = {dev.device_id: 0 for dev in inventory.devices}
-        self._used_slots: dict[str, int] = self._used_units
         self._active_device_permits: dict[str, int] = {dev.device_id: 0 for dev in inventory.devices}
         self._active_allocations: dict[str, Allocation] = {}
         self._waiting_queue: list[_WaitEntry] = []
@@ -168,7 +167,7 @@ class _ResourceAllocator:
             dev = self._inventory.get_device(device_id)
             if dev is None:
                 return 0
-            used = self._used_slots.get(device_id, 0)
+            used = self._used_units.get(device_id, 0)
             return max(0, dev.capacity - used)
 
     def allocate(

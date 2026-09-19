@@ -95,13 +95,13 @@ The Home screen user-facing processing choices will be limited to the following 
 2. **Auto detect to Devlys**
    - Reverses Unicode Devanagari text into legacy DevLys 010 typewriter encoding using precompiled reverse transducers.
    - Backend mapping: `requirement="font_conversion"`, `custom_options={"font_mode": "to_devlys"}`.
-3. **Auto detect to Kurtidev**
+3. **Auto detect to Krutidev**
    - Reverses Unicode Devanagari text into legacy KrutiDev 010 typewriter encoding using precompiled reverse transducers.
    - Backend mapping: `requirement="font_conversion"`, `custom_options={"font_mode": "to_krutidev"}`.
 
 ## Translation — Second-Level Tasks
 
-**Translation** is a parent task. Selecting it first detects the source document language automatically, then presents exactly these six translation-engine choices, in this order:
+**Translation** is a parent task. Selecting it first detects the source document language automatically, then presents exactly these five translation-engine choices, in this order:
 
 1. **IndicTrans2**
    - On-device/local translation engine.

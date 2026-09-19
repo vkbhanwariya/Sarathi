@@ -45,7 +45,7 @@ def test_allocator_cancellation_after_dispatch_cleans_active_and_dispatches_next
     req_gpu = DeviceRequirement(preferred_devices=(DeviceType.GPU,), supported_devices=(DeviceType.GPU,))
     alloc1 = allocator.allocate(req_gpu)
     assert alloc1.device_id == "gpu-0"
-    assert allocator._used_slots["gpu-0"] == 1
+    assert allocator._used_units["gpu-0"] == 1
 
     token_waiter1 = CancellationToken()
     ctx_waiter1 = ExecutionContext("r1", "req1", "t1", "s1", cancellation_token=token_waiter1)
@@ -105,12 +105,12 @@ def test_allocator_cancellation_after_dispatch_cleans_active_and_dispatches_next
     with allocator._lock:
         assert len(allocator._active_allocations) == 1
         assert waiter2_result[0].allocation_id in allocator._active_allocations
-        assert allocator._used_slots["gpu-0"] == 1
+        assert allocator._used_units["gpu-0"] == 1
 
     allocator.release(waiter2_result[0])
     with allocator._lock:
         assert len(allocator._active_allocations) == 0
-        assert allocator._used_slots["gpu-0"] == 0
+        assert allocator._used_units["gpu-0"] == 0
 
 
 def test_yantra_lifecycle_is_terminal_and_rejects_restart() -> None:

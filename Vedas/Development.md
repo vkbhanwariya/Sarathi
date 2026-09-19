@@ -133,7 +133,7 @@ uv run sarathi --input "path/to/document.pdf" --requirement "read_native" --prof
 Before committing or pushing, execute the compound fast gate to validate compilation, linting, and whitespace/git diff integrity in a single command:
 
 ```powershell
-uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check
+uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check; git diff --cached --check
 ```
 
 To automatically format or fix safe lint violations:
@@ -170,7 +170,7 @@ cd ..
 
 ## 6. Unit & Integration Tests (CI Gate 4)
 
-Sarathi features an optimized deterministic test suite that executes across all subsystems in **~25 seconds** (slashed from ~108 seconds, >75% wall-clock reduction).
+Sarathi features an optimized deterministic test suite that executes across all subsystems in **~25 seconds** excluding architecture tests (>75% wall-clock reduction), or **~44 seconds** for the full suite including architecture tests.
 
 ### Deterministic CI Gate Execution
 ```powershell
@@ -185,7 +185,7 @@ Run scoped tests during development; full suite only at milestones:
 | **Focused fix / unit** | `uv run --group dev pytest <path> -x -q` (fail fast on first error) | < 1s |
 | **Subsystem / Capability** | `uv run --group dev pytest tests/<subsystem>/ -q` | 1–3s |
 | **Architecture Gate** | `uv run --group dev pytest -q -m architecture` | ~2.3s |
-| **Milestone / Full Suite** | `uv run --all-extras --group dev pytest -q -m "not browser and not performance and not real_model"` | ~25s |
+| **Milestone / Full Suite** | `uv run --all-extras --group dev pytest -q -m "not browser and not performance and not real_model"` | ~44s (~25s without architecture) |
 | **Heavy Model Pipelines** | `uv run --all-extras --group dev pytest -m real_model` | On neural model changes |
 
 ### Optimization & Efficiency Patterns

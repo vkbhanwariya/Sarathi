@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping
 
 from sarathi.dosh import DoshError, FailureCode
@@ -70,7 +71,7 @@ class Pravaha:
         self._manthan: Manthan = manthan
         self._registry: Kosh = manthan.registry
         self._yantra: Yantra = yantra
-        self._capabilities: Mapping[str, Capability] = dict(capabilities)
+        self._capabilities: Mapping[str, Capability] = MappingProxyType(dict(capabilities))
         self._quarantine_store: QuarantineStore | None = quarantine_store
         self._retry_policy: RetryPolicy = retry_policy if retry_policy is not None else RetryPolicy(max_retries=0)
         self._darpana: Darpana | None = darpana
@@ -98,7 +99,7 @@ class Pravaha:
     @property
     def capabilities(self) -> Mapping[str, Capability]:
         """Return an immutable view of configured executable capabilities."""
-        return dict(self._capabilities)
+        return self._capabilities
 
     @property
     def quarantine_store(self) -> QuarantineStore | None:

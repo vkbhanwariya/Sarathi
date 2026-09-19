@@ -25,6 +25,7 @@ from sarathi.nabhi.quarantine import (
     RetryPolicy,
 )
 from sarathi.sankalpa import Capability, ExecutionContext, Request, Result
+from sarathi.sankalpa.cancellation import check_cancelled
 from sarathi.yantra import Yantra
 
 if TYPE_CHECKING:
@@ -70,18 +71,8 @@ def execute_retry_attempt(
 
     authorize_capability(kavacha, registry, cap)
 
-    if request.cancellation_token is not None and request.cancellation_token.is_cancelled:
-        raise DoshError(
-            code=FailureCode.OPERATION_CANCELLED,
-            message="Execution was cancelled before retry attempt.",
-            context={"cancelled": True},
-        )
-    if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
-        raise DoshError(
-            code=FailureCode.OPERATION_CANCELLED,
-            message="Execution was cancelled before retry attempt.",
-            context={"cancelled": True},
-        )
+    check_cancelled(request)
+    check_cancelled(context)
 
     new_attempt = record.attempt_count + 1
 

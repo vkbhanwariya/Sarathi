@@ -91,10 +91,10 @@ Sarathi enforces strict modularity and zero-overengineering rules declared in [`
 Before every commit, execute the single-turn compound pre-commit gate:
 
 ```powershell
-uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check
+uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check; git diff --cached --check
 ```
 
-The optimized test suite runs deterministically in **~25 seconds** (>75% wall-clock reduction):
+The optimized test suite runs deterministically in **~25 seconds** excluding architecture tests (>75% wall-clock reduction), or **~44 seconds** including full architecture validation:
 
 ```powershell
 uv run --all-extras --group dev pytest -q -m "not browser and not performance and not real_model and not architecture"

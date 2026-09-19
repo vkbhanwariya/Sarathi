@@ -76,7 +76,7 @@ Sarathi's authoritative reference hardware deployment profile is pinned below.
 ### 1. Compound Pre-Commit Fast Gate
 Before every commit, execute the compound check to validate compilation, lint, and formatting in a single tool turn:
 ```powershell
-uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check
+uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check; git diff --cached --check
 ```
 
 ### 2. Test Execution Ladder ("Test Impact, Not Anxiety")
@@ -87,7 +87,7 @@ Run scoped tests during development; full suite only at milestones:
 | **Focused fix / unit** | `uv run --group dev pytest <path> -x -q` (fail fast on first error) |
 | **Subsystem / Capability** | `uv run --group dev pytest tests/<subsystem>/ -q` |
 | **Architecture Gate** | `uv run --group dev pytest -q -m architecture` (instant ~1.4s) |
-| **Milestone / Full Suite** | `uv run --group dev pytest` (fast deterministic suite, ~44s) |
+| **Milestone / Full Suite** | `uv run --group dev pytest` (fast deterministic suite, ~44s; or ~25s excluding architecture) |
 | **Heavy Model Pipelines** | `uv run --group dev pytest -m real_model` (run only when changing neural OCR/models) |
 
 - **On failure:** Fix defect → re-run failing test with `-x` → run file → run subsystem → full suite at milestone.

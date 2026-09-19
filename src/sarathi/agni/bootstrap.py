@@ -7,7 +7,9 @@ execution to Pravaha. It intentionally avoids a separate lifecycle-manager layer
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from sarathi.agni.dispatcher import execute_request
@@ -23,7 +25,7 @@ from sarathi.agni.preflight import (
 )
 from sarathi.agni.readiness import ReadinessAuditor
 from sarathi.agni.wiring import assemble_platform_services
-from sarathi.darpana import Darpana
+from sarathi.darpana import Darpana, MarutiRecord
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha import Kavacha
 from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Pravaha, QuarantineStore, RetryPolicy
@@ -206,7 +208,7 @@ class Agni:
 
     @property
     def capabilities(self) -> Mapping[str, Capability]:
-        return dict(self._capabilities)
+        return MappingProxyType(self._capabilities)
 
     @property
     def plugin_providers(self) -> tuple[PluginProvider, ...]:
@@ -215,10 +217,6 @@ class Agni:
     @property
     def disabled_plugins(self) -> tuple[str, ...]:
         return self._disabled_plugins
-
-    @staticmethod
-    def _validate_bootstrap_consistency(kosh: Kosh, capabilities: Mapping[str, Capability]) -> None:
-        validate_bootstrap_consistency(kosh=kosh, capabilities=capabilities)
 
     def audit_readiness(self, force_refresh: bool = False) -> Mapping[str, CapabilityReadiness]:
         return self._readiness_auditor.audit(force_refresh=force_refresh)
@@ -260,8 +258,25 @@ class Agni:
                 if hasattr(cap, "warmup") and callable(cap.warmup):
                     try:
                         cap.warmup(execution_binding=preferred_binding)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        if self._darpana is not None:
+                            self._darpana.record_maruti(
+                                MarutiRecord(
+                                    run_id="prewarm",
+                                    request_id="prewarm",
+                                    trace_id="tr-prewarm",
+                                    span_id=f"sp-prewarm-{cap.declaration.capability_id[:8]}",
+                                    phase_name="prewarm.failure",
+                                    component="agni.bootstrap",
+                                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                    duration_ns=0,
+                                    outcome="failure",
+                                    attributes={
+                                        "capability_id": cap.declaration.capability_id,
+                                        "error_type": type(exc).__name__,
+                                    },
+                                )
+                            )
 
         if async_mode:
             thread = threading.Thread(
