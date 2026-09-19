@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from contextlib import nullcontext
 from dataclasses import replace
@@ -389,14 +390,24 @@ def execute_pipeline(
     seen_requirements: set[str] = {request.requirement}
     completed_capability_ids: set[str] = set()
     accumulated_warnings: list[WarningRecord] = []
+    seen_warning_keys: set[tuple[str, str | None, str, str]] = set()
 
     def _sync_warnings(res: Result | None) -> Result | None:
         if res is None:
             return None
+        added = False
         for w in res.warnings:
-            if w not in accumulated_warnings:
+            k = (
+                w.code,
+                w.stage,
+                w.message,
+                json.dumps(w.context, sort_keys=True, default=str) if w.context else "",
+            )
+            if k not in seen_warning_keys:
+                seen_warning_keys.add(k)
                 accumulated_warnings.append(w)
-        if res.warnings != tuple(accumulated_warnings):
+                added = True
+        if added or res.warnings != tuple(accumulated_warnings):
             return replace(res, warnings=tuple(accumulated_warnings))
         return res
 

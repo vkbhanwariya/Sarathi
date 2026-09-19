@@ -2110,3 +2110,95 @@ class TestPravahaFailureLifecycleAndQuarantine:
         assert len(write_failures) >= 1
         assert write_failures[0].outcome == "failure"
         assert write_failures[0].attributes.get("error_type") == "RuntimeError"
+
+
+def test_bug_O2_warning_dedup_complexity(tmp_path: Path) -> None:
+    """O2: Warning de-duplication in pravaha pipeline must be O(N) using stable key set, not O(N^2) list equality scans."""
+    from unittest.mock import patch
+
+    from sarathi.nabhi.kosh import Kosh
+    from sarathi.nabhi.manthan import CapabilityPlan, Manthan
+    from sarathi.nabhi.pravaha import Pravaha
+    from sarathi.nabhi.quarantine import QuarantineStore
+    from sarathi.sankalpa import (
+        Capability,
+        CapabilityDeclaration,
+        ExecutionContext,
+        ExecutionProfile,
+        InputRef,
+        PluginInfo,
+        Request,
+        Result,
+        SecurityDeclaration,
+        WarningRecord,
+    )
+    from sarathi.yantra import DeviceInventory, Yantra
+
+    # Count calls to WarningRecord.__eq__
+    eq_call_count = [0]
+    orig_eq = WarningRecord.__eq__
+
+    def counting_eq(self: Any, other: Any) -> bool:
+        eq_call_count[0] += 1
+        return orig_eq(self, other)
+
+    # 5,000 distinct + 5,000 duplicate warnings (10,000 total)
+    distinct_warns = [
+        WarningRecord(code=f"WARN_{i}", message=f"Message {i}", stage="test_stage", context={"idx": i})
+        for i in range(5000)
+    ]
+    duplicate_warns = [
+        WarningRecord(
+            code=f"WARN_{i % 5000}",
+            message=f"Message {i % 5000}",
+            stage="test_stage",
+            context={"idx": i % 5000},
+        )
+        for i in range(5000)
+    ]
+    all_warns = tuple(distinct_warns + duplicate_warns)
+
+    plugin = PluginInfo(
+        plugin_id="p_warn",
+        name="PWarn",
+        version="1.0.0",
+        security=SecurityDeclaration(),
+        capabilities=("warn_stage",),
+    )
+    decl = CapabilityDeclaration("warn_stage", "p_warn", "1.0.0", (ExecutionProfile.INSTANT,))
+    kosh = Kosh()
+    kosh.register_plugin(plugin)
+    kosh.register_capability(decl)
+    manthan = Manthan(kosh)
+    yantra = Yantra(DeviceInventory.default_inventory())
+    qstore = QuarantineStore(tmp_path / "quarantine")
+
+    class WarningCap(Capability):
+        @property
+        def declaration(self) -> CapabilityDeclaration:
+            return decl
+
+        def execute(self, request: Request, context: ExecutionContext, prior_result: Result | None = None) -> Result:
+            return Result(data="ok", warnings=all_warns)
+
+    pravaha = Pravaha(
+        manthan=manthan,
+        yantra=yantra,
+        capabilities={"warn_stage": WarningCap()},
+        quarantine_store=qstore,
+    )
+
+    req = Request("req-warn", "warn_stage", (InputRef("i1", Path("f.txt"), "f.txt", 10),))
+    ctx = ExecutionContext("run-warn", "req-warn", "t1", "s1")
+    plan = CapabilityPlan("req-warn", ("warn_stage",))
+
+    with patch.object(WarningRecord, "__eq__", counting_eq):
+        res = pravaha.execute(plan, req, ctx)
+
+    # Must preserve order and contain exactly the 5000 distinct warnings
+    assert len(res.warnings) == 5000
+    assert res.warnings == tuple(distinct_warns)
+
+    # O(N^2) list scanning causes millions of __eq__ calls (> 37,000,000).
+    # O(N) set key deduplication calls __eq__ fewer than 50,000 times.
+    assert eq_call_count[0] < 50000, f"Expected < 50,000 __eq__ calls, but got {eq_call_count[0]}"
