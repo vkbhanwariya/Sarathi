@@ -26,7 +26,13 @@ param (
     [switch]$BumpPins,
 
     [Parameter()]
-    [switch]$SkipTests
+    [switch]$SkipTests,
+
+    [Parameter()]
+    [switch]$UpdateAssets,
+
+    [Parameter()]
+    [switch]$CheckAssets
 )
 
 $ErrorActionPreference = 'Continue'
@@ -53,6 +59,18 @@ function Resolve-SarathiRoot {
 
 $ProjectRoot = Resolve-SarathiRoot -Root $ProjectRoot
 Set-Location -Path $ProjectRoot
+
+if ($CheckAssets) {
+    Write-Host "[*] Auditing all external assets (100% offline)..." -ForegroundColor Cyan
+    & uv run --project $ProjectRoot python tools/update_assets.py --check
+    exit $LASTEXITCODE
+}
+
+if ($UpdateAssets) {
+    Write-Host "[*] Updating all external assets (SIL maps, OCR models, translation models)..." -ForegroundColor Cyan
+    & uv run --project $ProjectRoot python tools/update_assets.py --all
+    exit $LASTEXITCODE
+}
 
 Write-Host ""
 Write-Host "=====================================================" -ForegroundColor Blue
@@ -183,31 +201,14 @@ foreach ($pkg in $pinnedPackages) {
 Write-Host ""
 
 # -----------------------------------------------------------------------------
-# 7. Verify Declared OCR and Translation Model Assets
+# 7. Verify External Assets & Data Sources (OCR, Translation, SIL Maps)
 # -----------------------------------------------------------------------------
-Write-Host "[4/4] Verifying declared neural model assets (OCR & Translation)..." -ForegroundColor Cyan
-$setupScript = Join-Path $PSScriptRoot "Setup-OCRModels.ps1"
-if (Test-Path -LiteralPath $setupScript -PathType Leaf) {
-    try {
-        & $setupScript -ProjectRoot $ProjectRoot -VerifyOnly
-    } catch {
-        Write-Host "       [WARNING] OCR model assets are missing or incomplete." -ForegroundColor Yellow
-        Write-Host "       Run 'powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-OCRModels.ps1' to provision them." -ForegroundColor DarkYellow
-    }
+Write-Host "[4/4] Verifying external assets and data sources (100% offline)..." -ForegroundColor Cyan
+$updateAssetsTool = Join-Path $ProjectRoot "tools\update_assets.py"
+if (Test-Path -LiteralPath $updateAssetsTool -PathType Leaf) {
+    & uv run --project $ProjectRoot python tools/update_assets.py --check
 } else {
-    Write-Host "       [SKIP] Setup-OCRModels.ps1 not found at '$setupScript'." -ForegroundColor DarkGray
-}
-
-$transSetupScript = Join-Path $PSScriptRoot "Setup-TranslationModels.ps1"
-if (Test-Path -LiteralPath $transSetupScript -PathType Leaf) {
-    try {
-        & $transSetupScript -ProjectRoot $ProjectRoot -VerifyOnly
-    } catch {
-        Write-Host "       [WARNING] Translation model assets are missing or incomplete." -ForegroundColor Yellow
-        Write-Host "       Run 'powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1' to provision them." -ForegroundColor DarkYellow
-    }
-} else {
-    Write-Host "       [SKIP] Setup-TranslationModels.ps1 not found at '$transSetupScript'." -ForegroundColor DarkGray
+    Write-Host "       [SKIP] update_assets.py not found at '$updateAssetsTool'." -ForegroundColor DarkGray
 }
 Write-Host ""
 
@@ -222,12 +223,13 @@ if ($CheckOnly) {
 if (-not $BumpPins) {
     Write-Host "-----------------------------------------------------" -ForegroundColor DarkGray
     Write-Host "Choose what you would like to do:" -ForegroundColor Yellow
-    Write-Host "  [1] Read-Only Finish  (Keep current versions, exit without changes)" -ForegroundColor White
-    Write-Host "  [2] Update Lockfile   (Upgrade uv.lock within current pyproject.toml bounds + test)" -ForegroundColor White
-    Write-Host "  [3] Full Update       (Bump exact pins in pyproject.toml + upgrade uv.lock + test)" -ForegroundColor White
-    Write-Host "  [4] Exit" -ForegroundColor DarkGray
+    Write-Host "  [1] Read-Only Finish       (Keep current versions, exit without changes)" -ForegroundColor White
+    Write-Host "  [2] Update Lockfile        (Upgrade uv.lock within current pyproject.toml bounds + test)" -ForegroundColor White
+    Write-Host "  [3] Full Dependency Update (Bump exact pins in pyproject.toml + upgrade uv.lock + test)" -ForegroundColor White
+    Write-Host "  [4] Update External Assets (Download/update SIL maps, OCR models, translation models)" -ForegroundColor White
+    Write-Host "  [5] Exit" -ForegroundColor DarkGray
     Write-Host ""
-    $choice = Read-Host "Select option [1-4] (Default: 1)"
+    $choice = Read-Host "Select option [1-5] (Default: 1)"
     if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
 
     switch ($choice) {
@@ -246,6 +248,14 @@ if (-not $BumpPins) {
             $BumpPins = $true
         }
         "4" {
+            Write-Host ""
+            Write-Host "[*] Updating external assets from declared upstream sources..." -ForegroundColor Cyan
+            & uv run --project $ProjectRoot python tools/update_assets.py --all
+            Write-Host ""
+            Write-Host "[INFO] External assets update completed." -ForegroundColor Green
+            exit 0
+        }
+        "5" {
             Write-Host ""
             Write-Host "Exiting." -ForegroundColor Green
             exit 0

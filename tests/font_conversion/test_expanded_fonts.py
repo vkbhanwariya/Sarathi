@@ -48,8 +48,8 @@ def test_chanakya_word_conversion() -> None:
 def test_shusha_word_conversion() -> None:
     """Verify Shusha legacy mapping converts to valid Unicode."""
     converter = FontConverter()
-    # Shusha: 'a' -> 'क', 'A' -> 'ा', '1' -> 'र'
-    raw_sample = "aA1"  # कार
+    # Authentic Shusha: 'k' -> 'क', 'a' -> 'ा', 'r' -> 'र'
+    raw_sample = "kar"  # कार
     conv = converter.convert(raw_sample, profile_id="shusha010")
     assert conv == "कार"
 

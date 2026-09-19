@@ -1,0 +1,31 @@
+{
+  "profile_id": "krutidev011",
+  "extends": "krutidev_base",
+  "family": "krutidev",
+  "name": "Kruti Dev 011",
+  "aliases": [
+    "kruti dev 011",
+    "krutidev011",
+    "kruti_dev_011",
+    "kruti 011",
+    "kdev011"
+  ],
+  "mappings": {
+    "‘": "श्",
+    "’": "श्",
+    "": "श्",
+    "": "श्",
+    "“": "श्र्",
+    "”": "श्र्",
+    "": "श्र्",
+    "": "श्र्",
+    "‘k": "श",
+    "’k": "श",
+    "k": "श",
+    "k": "श",
+    "“k": "श्र",
+    "”k": "श्र",
+    "k": "श्र",
+    "k": "श्र"
+  }
+}

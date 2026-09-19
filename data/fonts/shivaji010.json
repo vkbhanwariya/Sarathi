@@ -12,6 +12,8 @@
   },
   "postfix_reph": "R",
   "reph_unicode": "र्",
+  "preserve_ascii_digits": true,
+  "cluster_pattern": "[a-z0-9]",
   "mappings": {
     "A": "ा",
     "B": "ी",

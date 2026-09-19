@@ -6,7 +6,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
@@ -522,3 +522,92 @@ def execute_pipeline(
             completed_capability_ids=completed_capability_ids,
             remaining_capability_ids=remaining_stages,
         )
+
+
+def execute_pipelined_stage_handoff(
+    requests: Sequence[Request],
+    stage1_cap: Capability,
+    stage2_cap: Capability,
+    context: ExecutionContext,
+    yantra: Yantra,
+    darpana: Darpana | None = None,
+    max_queue_size: int = 4,
+) -> list[Result]:
+    """Execute multi-document 2-stage pipeline with asynchronous producer-consumer stage overlap.
+
+    Stage 1 (e.g. OCR on Arc iGPU) processes document i+1 concurrently while
+    Stage 2 (e.g. Translation on Core Ultra CPU) processes document i.
+    """
+    if not requests:
+        return []
+
+    import queue
+    from concurrent.futures import ThreadPoolExecutor
+
+    handoff_queue: queue.Queue[tuple[int, Request, Result] | object] = queue.Queue(maxsize=max_queue_size)
+    _sentinel = object()
+    stage1_error: list[BaseException] = []
+    stage2_results: dict[int, Result] = {}
+    stage2_error: list[BaseException] = []
+
+    def _producer() -> None:
+        try:
+            for idx, req in enumerate(requests):
+                _check_cancellation(context, darpana)
+                res1 = yantra.execute(
+                    capability=stage1_cap,
+                    request=req,
+                    context=context,
+                    prior_result=None,
+                )
+                handoff_queue.put((idx, req, res1))
+        except BaseException as exc:
+            stage1_error.append(exc)
+        finally:
+            handoff_queue.put(_sentinel)
+
+    def _consumer() -> None:
+        try:
+            while True:
+                item = handoff_queue.get()
+                if item is _sentinel:
+                    handoff_queue.task_done()
+                    break
+                idx, req, res1 = item  # type: ignore[misc]
+                _check_cancellation(context, darpana)
+                res2 = yantra.execute(
+                    capability=stage2_cap,
+                    request=req,
+                    context=context,
+                    prior_result=res1,
+                )
+                stage2_results[idx] = res2
+                handoff_queue.task_done()
+        except BaseException as exc:
+            stage2_error.append(exc)
+
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="pravaha_pipeline_overlap") as executor:
+        f1 = executor.submit(_producer)
+        f2 = executor.submit(_consumer)
+        f1.result()
+        f2.result()
+
+    if stage1_error:
+        exc = stage1_error[0]
+        if isinstance(exc, DoshError):
+            raise exc
+        raise DoshError(
+            code=FailureCode.EXECUTION_FAILED,
+            message=f"Pipeline Stage 1 failed: {exc}",
+        ) from exc
+
+    if stage2_error:
+        exc = stage2_error[0]
+        if isinstance(exc, DoshError):
+            raise exc
+        raise DoshError(
+            code=FailureCode.EXECUTION_FAILED,
+            message=f"Pipeline Stage 2 failed: {exc}",
+        ) from exc
+
+    return [stage2_results[i] for i in range(len(requests))]

@@ -35,11 +35,18 @@ def read_pdf(
     input_id: str,
     use_layout: bool = False,
     skip_header_footer: bool = False,
+    convert_legacy_fonts: bool = True,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Load the PDF reader only when a PDF is actually processed."""
     from sarathi.shakti.native_extraction.readers.pdf import read_pdf as _read_pdf
 
-    return _read_pdf(data, input_id, use_layout=use_layout, skip_header_footer=skip_header_footer)
+    return _read_pdf(
+        data,
+        input_id,
+        use_layout=use_layout,
+        skip_header_footer=skip_header_footer,
+        convert_legacy_fonts=convert_legacy_fonts,
+    )
 
 
 def _get_reader(
@@ -240,6 +247,18 @@ class NativeExtractionCapability:
         if request.custom_options and callable(request.custom_options.get("progress_callback")):
             progress_cb = request.custom_options["progress_callback"]
 
+        skip_header_footer = (
+            bool(request.custom_options.get("skip_header_footer"))
+            if (request.custom_options and "skip_header_footer" in request.custom_options)
+            else True
+        )
+
+        convert_legacy = (
+            bool(request.custom_options["convert_legacy_fonts"])
+            if (request.custom_options is not None and "convert_legacy_fonts" in request.custom_options)
+            else True
+        )
+
         for inp in request.inputs:
             if progress_cb is not None:
                 progress_cb(
@@ -300,11 +319,6 @@ class NativeExtractionCapability:
                 request.profile == ExecutionProfile.LAYOUT_PRESERVING
                 or (request.custom_options and request.custom_options.get("layout_analysis"))
             )
-            skip_header_footer = (
-                bool(request.custom_options.get("skip_header_footer"))
-                if (request.custom_options and "skip_header_footer" in request.custom_options)
-                else True
-            )
 
             # Route to concrete native readers with honest parse error handling
             try:
@@ -315,6 +329,7 @@ class NativeExtractionCapability:
                         inp.input_id,
                         use_layout=use_layout,
                         skip_header_footer=skip_header_footer,
+                        convert_legacy_fonts=convert_legacy,
                     )
                 else:
                     doc, provs, warns = reader(data, inp.input_id)
@@ -373,11 +388,7 @@ class NativeExtractionCapability:
                 )
                 extracted_docs.append(corrupt_doc)
 
-        # Convert legacy Indian font encodings to Unicode Devanagari if enabled
-        convert_legacy = True
-        if request.custom_options is not None and "convert_legacy_fonts" in request.custom_options:
-            convert_legacy = bool(request.custom_options["convert_legacy_fonts"])
-
+        # Convert legacy Indian font encodings to Unicode Devanagari if enabled and not already converted
         if convert_legacy and not needs_ocr and extracted_docs:
             font_hint = None
             if request.custom_options:
@@ -391,6 +402,17 @@ class NativeExtractionCapability:
             converted_docs: list[CanonicalDocument] = []
             for doc in extracted_docs:
                 try:
+                    # If document already underwent stream-order legacy font conversion during PDF extraction
+                    has_stream_conv = any(
+                        p.capability_id == "font_conversion"
+                        and p.stage == "convert_legacy_fonts"
+                        and p.source_input_id == doc.source_input_id
+                        for p in all_provenance
+                    )
+                    if has_stream_conv:
+                        converted_docs.append(doc)
+                        continue
+
                     conv_res = self._font_converter.convert_document(doc, font_hint=font_hint)
                     if (
                         conv_res.detected_profile is not None

@@ -34,13 +34,16 @@ echo.
 echo   [4] Full Setup (Run All: 1, 2, and 3)
 echo       Sequential complete environment and model assets provisioning.
 echo.
-echo   [5] Quick Verification Audit
-echo       Fast integrity verification for all OCR and Translation models.
+echo   [5] Quick Verification Audit (100%% Offline)
+echo       Fast integrity verification for OCR, Translation, and SIL font maps.
 echo.
-echo   [6] Exit
+echo   [6] Update All External Assets
+echo       Download/update SIL maps, RapidOCR models, and translation assets from upstream.
+echo.
+echo   [7] Exit
 echo.
 echo ========================================================================
-set /p "CHOICE=Select an option [1-6] (Default: 1): "
+set /p "CHOICE=Select an option [1-7] (Default: 1): "
 if "%CHOICE%"=="" set "CHOICE=1"
 
 if "%CHOICE%"=="1" goto RUN_DEPS
@@ -48,7 +51,8 @@ if "%CHOICE%"=="2" goto RUN_OCR
 if "%CHOICE%"=="3" goto RUN_TRANS
 if "%CHOICE%"=="4" goto RUN_ALL
 if "%CHOICE%"=="5" goto RUN_VERIFY
-if "%CHOICE%"=="6" goto EXIT_SCRIPT
+if "%CHOICE%"=="6" goto RUN_ASSETS
+if "%CHOICE%"=="7" goto EXIT_SCRIPT
 
 echo.
 echo [!] Invalid option selected. Please try again.
@@ -128,15 +132,17 @@ goto AFTER_OP
 :RUN_VERIFY
 echo.
 echo ========================================================================
-echo [*] Verifying OCR Models Integrity...
+echo [*] Verifying All External Assets Integrity (100%% Offline)...
 echo ========================================================================
-"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-OCRModels.ps1" -VerifyOnly
+uv run python "%~dp0..\update_assets.py" --check
+goto AFTER_OP
 
+:RUN_ASSETS
 echo.
 echo ========================================================================
-echo [*] Verifying Translation Models Integrity...
+echo [*] Updating All Declared External Assets from Upstream...
 echo ========================================================================
-"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-TranslationModels.ps1" -VerifyOnly
+uv run python "%~dp0..\update_assets.py" --all
 goto AFTER_OP
 
 :AFTER_OP

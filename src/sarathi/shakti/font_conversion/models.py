@@ -124,6 +124,10 @@ class LegacyFontProfile:
     family_corrections: tuple[tuple[str, str], ...] = ()
     detection_signatures: tuple[str, ...] = ()
     negative_signatures: tuple[str, ...] = ()
+    canonicalization_rules: tuple[tuple[str, str], ...] = ()
+    context_rules: tuple[tuple[str, str], ...] = ()
+    preserve_ascii_digits: bool = True
+    cluster_pattern: str = ""
     # Precompiled transducers
     compiled_forward_regex: re.Pattern | None = None
     compiled_reverse_regex: re.Pattern | None = None
@@ -140,6 +144,10 @@ class FontConversionResult:
     confidence: float
     protected_spans_count: int
     provenance: tuple[ProvenanceRecord, ...] = ()
+    mapped_chars_count: int = 0
+    replacement_operations: int = 0
+    reorder_operations: int = 0
+    unmapped_symbols_histogram: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

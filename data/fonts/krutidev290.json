@@ -1,0 +1,16 @@
+{
+  "profile_id": "krutidev290",
+  "extends": "krutidev_base",
+  "family": "krutidev",
+  "name": "Kruti Dev 290",
+  "aliases": [
+    "kruti dev 290",
+    "krutidev290",
+    "kruti_dev_290",
+    "kruti 290",
+    "kdev290"
+  ],
+  "mappings": {
+    "¤": "़"
+  }
+}

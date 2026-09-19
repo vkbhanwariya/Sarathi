@@ -77,10 +77,10 @@ def test_profile_isolation_no_kruti_assumptions_on_other_fonts() -> None:
     """Verify that KrutiDev pre-base rules do NOT corrupt other font families like Shusha or Chanakya."""
     converter = FontConverter()
 
-    # In Shusha, 'f' is 'च', 'a' is 'क'
-    # If Kruti regex was applied, 'fa' would get reordered to 'af' ('कच' instead of 'चक')
+    # In Shusha, 'f' is 'फ' and 'a' is 'ा' -> 'फा'
+    # If Kruti regex was applied, 'fa' would get reordered to 'af'
     shusha_fa = converter.convert("fa", profile_id="shusha010")
-    assert shusha_fa == "चक"
+    assert shusha_fa == "फा"
 
     # In Shivaji, 'C' is 'ि' prefix
     shivaji_ca = converter.convert("Ca", profile_id="shivaji010")
@@ -181,10 +181,12 @@ def test_chanakya_reph_and_prefixes() -> None:
 
 
 def test_shusha_prefixes_and_matras() -> None:
-    """Verify Shusha 'D' and 'C' prefixes reorder and convert correctly."""
+    """Verify Shusha 'i' prefix and matras reorder and convert correctly."""
     converter = FontConverter()
-    conv = converter.convert("aA", profile_id="shusha010")
-    assert conv == "का"
+    conv_aa = converter.convert("ka", profile_id="shusha010")
+    assert conv_aa == "का"
+    conv_i = converter.convert("ik", profile_id="shusha010")
+    assert conv_i == "कि"
 
 
 def test_shivaji_word_conversion() -> None:

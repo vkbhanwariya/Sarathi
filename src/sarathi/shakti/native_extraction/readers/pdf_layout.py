@@ -317,6 +317,7 @@ def read_pdf_with_layout(
     data: bytes,
     input_id: str,
     skip_header_footer: bool = False,
+    convert_legacy_fonts: bool = True,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract structured document content using GNN page layout analysis.
 

@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "description": "Centralized registry of upstream external asset origins for Sarathi. Used only by maintenance tools when an explicit update is requested. Core runtime operates 100% offline from local files.",
+  "sources": {
+    "sil_legacy_maps": {
+      "provider": "SIL NRSI (Writing Systems Technology)",
+      "upstream_repo": "https://github.com/silnrsi/wsresources",
+      "license": "MIT",
+      "local_fixtures_dir": "tests/font_conversion/fixtures/sil",
+      "maps": {
+        "krutidev010": {
+          "url": "https://raw.githubusercontent.com/silnrsi/wsresources/master/scripts/Deva/legacy/kruti-dev-010/mappings/KrutiDev010.map",
+          "local_fixture": "tests/font_conversion/fixtures/sil/krutidev010_sil_vectors.json"
+        },
+        "shusha010": {
+          "url": "https://raw.githubusercontent.com/silnrsi/wsresources/master/scripts/Deva/legacy/shusha/mappings/Shusha.map",
+          "local_fixture": "tests/font_conversion/fixtures/sil/shusha010_sil_vectors.json"
+        }
+      }
+    },
+    "rapidocr_models": {
+      "provider": "PaddleOCR via RapidOCR",
+      "manifest": "data/ocr/manifest.json",
+      "upstream_mirrors": [
+        "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2",
+        "https://huggingface.co/RapidAI/RapidOCR/resolve/v3.9.2"
+      ],
+      "local_dir": "data/ocr/models"
+    },
+    "translation_models": {
+      "provider": "Hugging Face (Helsinki-NLP & AI4Bharat IndicTrans2)",
+      "manifest": "data/translation/manifest.json",
+      "upstream_mirror": "https://huggingface.co",
+      "local_dir": "data/translation/models"
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "source": "SIL Shusha.map",
+  "profile_id": "shusha010",
+  "description": "Deterministic differential test vectors derived from SIL NRSI Shusha.map",
+  "vectors": [
+    {
+      "id": "shusha_ascii_date",
+      "input": "19/09/2026",
+      "expected": "19/09/2026",
+      "category": "ascii_digits",
+      "description": "ASCII dates preserved in Shusha"
+    },
+    {
+      "id": "shusha_word_kar",
+      "input": "kar",
+      "expected": "कार",
+      "category": "basic_words",
+      "description": "k + a + r -> कार"
+    },
+    {
+      "id": "shusha_word_kamal",
+      "input": "kmala",
+      "expected": "कमल",
+      "category": "basic_words",
+      "description": "k + m + a + l + a -> कमल"
+    },
+    {
+      "id": "shusha_word_naam",
+      "input": "naama",
+      "expected": "नाम",
+      "category": "basic_words",
+      "description": "n + aa + m + a -> नाम"
+    },
+    {
+      "id": "shusha_prebase_ki",
+      "input": "ik",
+      "expected": "कि",
+      "category": "pre_base_matra",
+      "description": "Pre-base ikar moving after 'k'"
+    },
+    {
+      "id": "shusha_prebase_kavi",
+      "input": "kiva",
+      "expected": "कवि",
+      "category": "pre_base_matra",
+      "description": "Word 'कवि' with pre-base ikar"
+    },
+    {
+      "id": "shusha_reph_karya",
+      "input": "ka-ya",
+      "expected": "कार्य",
+      "category": "postfix_reph",
+      "description": "Reph '-' reordered to initial 'र्' without colliding with 'R'"
+    },
+    {
+      "id": "shusha_conj_gyan",
+      "input": "&ana",
+      "expected": "ज्ञान",
+      "category": "conjuncts",
+      "description": "Gyana conjunct '&'"
+    },
+    {
+      "id": "shusha_conj_ksha",
+      "input": "xa",
+      "expected": "क्ष",
+      "category": "conjuncts",
+      "description": "Ksha conjunct 'xa'"
+    },
+    {
+      "id": "shusha_conj_tra",
+      "input": "~",
+      "expected": "त्र",
+      "category": "conjuncts",
+      "description": "Tra conjunct '~'"
+    }
+  ]
+}

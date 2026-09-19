@@ -72,11 +72,275 @@ def _resolve_pdf_font_names(doc: pymupdf.Document) -> dict[str, str]:
     return font_map
 
 
+def _get_font_conversion_tools() -> dict[str, Any]:
+    from sarathi.shakti.font_conversion.byte_normalizer import has_macroman_signatures, normalize_macroman_bytes
+    from sarathi.shakti.font_conversion.converter import FontConverter
+    from sarathi.shakti.font_conversion.detector import (
+        decide_run_profile,
+        load_font_profiles,
+        resolve_profile_from_font_name,
+    )
+    from sarathi.shakti.text.legacy_detection import is_legacy_text
+
+    return {
+        "converter": FontConverter(),
+        "profiles": load_font_profiles(),
+        "resolve": resolve_profile_from_font_name,
+        "decide": decide_run_profile,
+        "normalize_macroman": normalize_macroman_bytes,
+        "has_macroman": has_macroman_signatures,
+        "is_legacy_text": is_legacy_text,
+    }
+
+
+def _process_page_stream_spans(
+    text_page: pymupdf.TextPage,
+    doc_font_map: dict[str, str],
+    convert_legacy_fonts: bool,
+    fc_tools: dict[str, Any] | None,
+    warnings: list[WarningRecord],
+    page_num: int,
+) -> tuple[list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str], set[str]]:
+    """Extract and transduce text spans in logical stream order before spatial line reconstruction."""
+    page_spans: list[TextSpan] = []
+    page_blocks: list[tuple[str, tuple[float, float, float, float]]] = []
+    all_line_texts: list[str] = []
+    converted_profiles: set[str] = set()
+
+    page_dict = text_page.extractDICT()
+
+    for block in page_dict.get("blocks", []):
+        if "lines" not in block:
+            continue
+        block_line_texts: list[str] = []
+        for line in block["lines"]:
+            raw_spans = line.get("spans", [])
+            if not raw_spans:
+                continue
+
+            spans_data: list[dict[str, Any]] = []
+            for s in raw_spans:
+                s_text = s.get("text", "")
+                if not isinstance(s_text, str) or not s_text:
+                    continue
+                s_font = str(s.get("font", ""))
+                resolved_font = doc_font_map.get(s_font) or s_font
+                if fc_tools and fc_tools["has_macroman"](s_text):
+                    s_text = fc_tools["normalize_macroman"](s_text)
+                spans_data.append(
+                    {
+                        "text": s_text,
+                        "font": resolved_font,
+                        "size": float(s.get("size", 12.0)),
+                        "bbox": tuple(float(v) for v in s.get("bbox", (0.0, 0.0, 0.0, 0.0))),
+                    }
+                )
+
+            if not spans_data:
+                continue
+
+            converted_spans: list[dict[str, Any]] = []
+            if convert_legacy_fonts and fc_tools is not None:
+                converter = fc_tools["converter"]
+                profiles = fc_tools["profiles"]
+                resolve = fc_tools["resolve"]
+                decide = fc_tools["decide"]
+
+                i = 0
+                while i < len(spans_data):
+                    cur = spans_data[i]
+                    p_id, fam = resolve(cur["font"], profiles)
+
+                    if fam in ("modern", "latin"):
+                        converted_spans.append(cur)
+                        i += 1
+                        continue
+                    if fam == "unsupported_legacy":
+                        warnings.append(
+                            WarningRecord(
+                                code="UNSUPPORTED_LEGACY_FONT",
+                                message=f"Unsupported legacy font '{cur['font']}' preserved without conversion on page {page_num}.",
+                                stage=CAPABILITY_ID,
+                            )
+                        )
+                        converted_spans.append(cur)
+                        i += 1
+                        continue
+                    if p_id is None:
+                        decision = decide(cur["font"], cur["text"], profiles=profiles)
+                        if decision.decision == "convert" and decision.profile:
+                            p_id = decision.profile
+                        elif decision.decision == "preserve" and decision.reason == "unsupported_legacy_font":
+                            warnings.append(
+                                WarningRecord(
+                                    code="UNSUPPORTED_LEGACY_FONT",
+                                    message=f"Unsupported legacy font '{cur['font']}' preserved without conversion on page {page_num}.",
+                                    stage=CAPABILITY_ID,
+                                )
+                            )
+                            converted_spans.append(cur)
+                            i += 1
+                            continue
+                        else:
+                            converted_spans.append(cur)
+                            i += 1
+                            continue
+
+                    # Group adjacent spans in line sharing this legacy profile to preserve keystroke sequence
+                    j = i + 1
+                    group_text = cur["text"]
+                    group_bbox = list(cur["bbox"])
+                    while j < len(spans_data):
+                        nxt = spans_data[j]
+                        nxt_pid, _ = resolve(nxt["font"], profiles)
+                        if nxt_pid == p_id:
+                            group_text += nxt["text"]
+                            group_bbox[2] = max(group_bbox[2], nxt["bbox"][2])
+                            group_bbox[3] = max(group_bbox[3], nxt["bbox"][3])
+                            j += 1
+                        else:
+                            break
+
+                    converted_text = converter.convert(group_text, profile_id=p_id)
+                    converted_profiles.add(p_id)
+                    converted_spans.append(
+                        {
+                            "text": converted_text,
+                            "font": "Mangal",
+                            "original_font": cur["font"],
+                            "size": cur["size"],
+                            "bbox": tuple(group_bbox),
+                            "is_converted": True,
+                        }
+                    )
+                    i = j
+            else:
+                converted_spans = spans_data
+
+            line_str = "".join(s["text"] for s in converted_spans)
+            if line_str.strip():
+                block_line_texts.append(line_str)
+                for s in converted_spans:
+                    if s["text"].strip():
+                        meta: dict[str, Any] = {
+                            "font_name": s["font"],
+                            "font_size_pt": round(s["size"], 1),
+                            "is_heading": s["size"] >= 14.0,
+                        }
+                        if s.get("original_font"):
+                            meta["original_font"] = s["original_font"]
+                        page_spans.append(
+                            TextSpan(
+                                text=s["text"].strip(),
+                                bounding_box=s["bbox"],
+                                metadata=meta,
+                            )
+                        )
+
+        if block_line_texts:
+            b_bbox = tuple(float(v) for v in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+            page_blocks.append(("\n".join(block_line_texts), b_bbox))
+            all_line_texts.extend(block_line_texts)
+
+    return page_spans, page_blocks, all_line_texts, converted_profiles
+
+
+def _extract_vector_stroke_tables(
+    page: pymupdf.Page,
+    spans: list[TextSpan],
+    page_num: int,
+) -> list[TableData]:
+    """Cluster intersecting horizontal and vertical vector drawing paths into structured tables."""
+    try:
+        drawings = page.get_drawings()
+    except Exception:
+        return []
+    if not drawings:
+        return []
+
+    h_lines: list[tuple[float, float, float]] = []
+    v_lines: list[tuple[float, float, float]] = []
+
+    for d in drawings:
+        items = d.get("items", [])
+        for item in items:
+            cmd = item[0]
+            if cmd == "l":
+                p1, p2 = item[1], item[2]
+                x0, y0, x1, y1 = float(p1.x), float(p1.y), float(p2.x), float(p2.y)
+                if abs(y1 - y0) <= 2.0 and abs(x1 - x0) >= 15.0:
+                    h_lines.append((round(y0, 1), min(x0, x1), max(x0, x1)))
+                elif abs(x1 - x0) <= 2.0 and abs(y1 - y0) >= 15.0:
+                    v_lines.append((round(x0, 1), min(y0, y1), max(y0, y1)))
+            elif cmd == "re":
+                r = item[1]
+                rx0, ry0, rx1, ry1 = float(r.x0), float(r.y0), float(r.x1), float(r.y1)
+                if abs(ry1 - ry0) >= 15.0 and abs(rx1 - rx0) >= 15.0:
+                    h_lines.append((round(ry0, 1), rx0, rx1))
+                    h_lines.append((round(ry1, 1), rx0, rx1))
+                    v_lines.append((round(rx0, 1), ry0, ry1))
+                    v_lines.append((round(rx1, 1), ry0, ry1))
+
+    if len(h_lines) < 3 or len(v_lines) < 3:
+        return []
+
+    h_lines.sort(key=lambda item: item[0])
+    y_coords: list[float] = []
+    for y, _, _ in h_lines:
+        if not y_coords or (y - y_coords[-1]) >= 8.0:
+            y_coords.append(y)
+
+    v_lines.sort(key=lambda item: item[0])
+    x_coords: list[float] = []
+    for x, _, _ in v_lines:
+        if not x_coords or (x - x_coords[-1]) >= 15.0:
+            x_coords.append(x)
+
+    if len(y_coords) < 3 or len(x_coords) < 3:
+        return []
+
+    grid_rows: list[list[str]] = []
+    for r in range(len(y_coords) - 1):
+        row_cells: list[str] = []
+        top_y, bot_y = y_coords[r], y_coords[r + 1]
+        for c in range(len(x_coords) - 1):
+            left_x, right_x = x_coords[c], x_coords[c + 1]
+            cell_texts = []
+            for s in spans:
+                if not s.bounding_box or not s.text:
+                    continue
+                sx0, sy0, sx1, sy1 = s.bounding_box
+                mid_x = (sx0 + sx1) / 2.0
+                mid_y = (sy0 + sy1) / 2.0
+                if left_x - 3.0 <= mid_x <= right_x + 3.0 and top_y - 3.0 <= mid_y <= bot_y + 3.0:
+                    cell_texts.append(s.text.strip())
+            row_cells.append(" ".join(cell_texts))
+        grid_rows.append(row_cells)
+
+    has_text = any(any(cell.strip() for cell in row) for row in grid_rows)
+    if not has_text:
+        return []
+
+    headers = tuple(grid_rows[0])
+    rows = tuple(tuple(row) for row in grid_rows[1:])
+    table_bbox = (float(x_coords[0]), float(y_coords[0]), float(x_coords[-1]), float(y_coords[-1]))
+
+    return [
+        TableData(
+            name=f"Page_{page_num}_VectorTable_1",
+            headers=headers,
+            rows=rows,
+            metadata={"bounding_box": table_bbox, "extraction_method": "vector_drawings"},
+        )
+    ]
+
+
 def read_pdf(
     data: bytes,
     input_id: str,
     skip_header_footer: bool = False,
     use_layout: bool = False,
+    convert_legacy_fonts: bool = True,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract full text, pages, rich text spans, and tables from a native PDF document."""
     fallback_warning: WarningRecord | None = None
@@ -88,7 +352,12 @@ def read_pdf(
             )
 
             if is_layout_package_available():
-                return read_pdf_with_layout(data, input_id, skip_header_footer=skip_header_footer)
+                return read_pdf_with_layout(
+                    data,
+                    input_id,
+                    skip_header_footer=skip_header_footer,
+                    convert_legacy_fonts=convert_legacy_fonts,
+                )
 
             fallback_warning = WarningRecord(
                 code="LAYOUT_PACKAGE_UNAVAILABLE",
@@ -108,27 +377,53 @@ def read_pdf(
     warnings: list[WarningRecord] = [fallback_warning] if fallback_warning else []
     full_text_parts: list[str] = []
     all_doc_tables: list[TableData] = []
+    all_converted_profiles: set[str] = set()
+
+    fc_tools: dict[str, Any] | None = None
+    if convert_legacy_fonts:
+        try:
+            fc_tools = _get_font_conversion_tools()
+        except Exception:
+            fc_tools = None
 
     try:
         total_pages = len(doc)
-        all_page_blocks: list[list[tuple[str, tuple[float, float, float, float]]]] = []
         page_heights: list[float] = []
         doc_font_map = _resolve_pdf_font_names(doc)
 
-        # Pass 1: Collect spatial text blocks for cross-page recurring header/footer analysis
+        # Pre-extract stream-order page data to avoid spatial jumbling
+        cached_pages: list[tuple[list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str]]] = []
+        all_page_blocks: list[list[tuple[str, tuple[float, float, float, float]]]] = []
+
         for page_idx in range(total_pages):
             page = doc[page_idx]
+            page_num = page_idx + 1
             page_heights.append(float(page.rect.height))
-            p_blocks: list[tuple[str, tuple[float, float, float, float]]] = []
-            try:
-                raw_blocks = page.get_text("blocks")
-                for b in raw_blocks:
-                    if len(b) >= 5:
-                        x0, y0, x1, y1, b_text = b[0], b[1], b[2], b[3], b[4]
-                        if isinstance(b_text, str) and b_text.strip():
-                            p_blocks.append((b_text.strip(), (float(x0), float(y0), float(x1), float(y1))))
-            except Exception:
-                pass
+            text_page = page.get_textpage(flags=_PDF_TEXT_FLAGS)
+
+            p_spans, p_blocks, p_lines, p_conv_profs = _process_page_stream_spans(
+                text_page=text_page,
+                doc_font_map=doc_font_map,
+                convert_legacy_fonts=convert_legacy_fonts,
+                fc_tools=fc_tools,
+                warnings=warnings,
+                page_num=page_num,
+            )
+            all_converted_profiles.update(p_conv_profs)
+
+            # Fallback to standard blocks if span extraction returned nothing
+            if not p_blocks:
+                try:
+                    raw_blocks = page.get_text("blocks")
+                    for b in raw_blocks:
+                        if len(b) >= 5:
+                            x0, y0, x1, y1, b_text = b[0], b[1], b[2], b[3], b[4]
+                            if isinstance(b_text, str) and b_text.strip():
+                                p_blocks.append((b_text.strip(), (float(x0), float(y0), float(x1), float(y1))))
+                except Exception:
+                    pass
+
+            cached_pages.append((p_spans, p_blocks, p_lines))
             all_page_blocks.append(p_blocks)
 
         header_templates, footer_templates = (
@@ -138,20 +433,19 @@ def read_pdf(
         for page_idx in range(total_pages):
             page_num = page_idx + 1
             page = doc[page_idx]
-            p_blocks = all_page_blocks[page_idx]
             p_height = page_heights[page_idx]
+            spans, p_blocks, p_lines = cached_pages[page_idx]
 
             body_lines, header_lines, footer_lines = classify_page_lines(
                 p_blocks, p_height, header_templates, footer_templates
             )
 
-            # Pre-compute TextPage once per page to avoid redundant display-list re-parsing
-            text_page = page.get_textpage(flags=_PDF_TEXT_FLAGS)
-
             if skip_header_footer and (header_lines or footer_lines):
                 page_text = normalize_text_spacing("\n\n".join(body_lines))
+            elif p_lines:
+                page_text = normalize_text_spacing("\n\n".join(p_lines))
             else:
-                raw_text = text_page.extractTEXT().strip()
+                raw_text = page.get_text("text").strip()
                 page_text = normalize_text_spacing(raw_text)
 
             if page_text:
@@ -163,60 +457,25 @@ def read_pdf(
             if footer_lines:
                 page_meta["footer"] = "\n\n".join(footer_lines)
 
-            # Extract text spans with font size and formatting evidence
-            spans: list[TextSpan] = []
+            # Compute image area vs page area to arbitrate hybrid scanned pages
+            page_rect = page.rect
+            page_area = max(1.0, float(page_rect.width * page_rect.height))
+            image_area = 0.0
             try:
-                page_dict = text_page.extractDICT()
+                for img_info in page.get_image_info():
+                    bbox = img_info.get("bbox")
+                    if bbox:
+                        image_area += max(0.0, float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])))
+            except Exception:
+                pass
 
-                # Compute image area vs page area to arbitrate hybrid scanned pages
-                page_rect = page.rect
-                page_area = max(1.0, float(page_rect.width * page_rect.height))
-                image_area = 0.0
-                try:
-                    for img_info in page.get_image_info():
-                        bbox = img_info.get("bbox")
-                        if bbox:
-                            image_area += max(0.0, float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])))
-                except Exception:
-                    pass
-
-                image_coverage = min(1.0, image_area / page_area)
-                page_meta["image_coverage"] = round(image_coverage, 3)
-                if image_coverage >= 0.80 and len(page_text.strip()) < 30:
-                    page_meta["is_scanned_image"] = True
-
-                for block in page_dict.get("blocks", []):
-                    if "lines" in block:
-                        for line in block["lines"]:
-                            for s in line.get("spans", []):
-                                s_text = s.get("text", "")
-                                if isinstance(s_text, str) and s_text.strip():
-                                    s_bbox = tuple(float(v) for v in s.get("bbox", (0.0, 0.0, 0.0, 0.0)))
-                                    s_size = float(s.get("size", 12.0))
-                                    s_font = str(s.get("font", ""))
-                                    resolved_font = doc_font_map.get(s_font) or s_font
-                                    spans.append(
-                                        TextSpan(
-                                            text=s_text.strip(),
-                                            bounding_box=s_bbox,
-                                            metadata={
-                                                "font_name": resolved_font,
-                                                "font_size_pt": round(s_size, 1),
-                                                "is_heading": s_size >= 14.0,
-                                            },
-                                        )
-                                    )
-            except (ValueError, KeyError, TypeError, RuntimeError):
-                warnings.append(
-                    WarningRecord(
-                        code="PDF_RICH_SPAN_EXTRACTION_DEGRADED",
-                        message=f"Rich span formatting extraction degraded on page {page_num}; falling back to text blocks.",
-                        stage=CAPABILITY_ID,
-                    )
-                )
+            image_coverage = min(1.0, image_area / page_area)
+            page_meta["image_coverage"] = round(image_coverage, 3)
+            if image_coverage >= 0.80 and len(page_text.strip()) < 30:
+                page_meta["is_scanned_image"] = True
 
             if not spans:
-                blocks = text_page.extractBLOCKS()
+                blocks = page.get_text("blocks")
                 for b in blocks:
                     if len(b) >= 5:
                         x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
@@ -232,15 +491,24 @@ def read_pdf(
             page_tables: list[TableData] = []
             tabs = None
             try:
-                tabs = page.find_tables()
-            except (pymupdf.FileDataError, ValueError):
-                warnings.append(
-                    WarningRecord(
-                        code="PDF_TABLE_DETECTION_SKIPPED",
-                        message="Vector table extraction skipped for page.",
-                        stage=STAGE_NAME,
-                    )
+                tabs = page.find_tables(
+                    vertical_strategy="lines",
+                    horizontal_strategy="lines",
+                    snap_tolerance=3.0,
+                    join_tolerance=3.0,
+                    min_words_vertical=1,
                 )
+            except Exception:
+                try:
+                    tabs = page.find_tables()
+                except (pymupdf.FileDataError, ValueError):
+                    warnings.append(
+                        WarningRecord(
+                            code="PDF_TABLE_DETECTION_SKIPPED",
+                            message="Vector table extraction skipped for page.",
+                            stage=STAGE_NAME,
+                        )
+                    )
 
             if tabs and len(tabs.tables) > 0:
                 for t_idx, tab in enumerate(tabs.tables, 1):
@@ -258,6 +526,23 @@ def read_pdf(
                             headers = tuple(str(h or "") for h in candidate_headers)
                             data_rows = tuple(tuple(val for val in row) for row in extracted_rows[1:])
 
+                        if all_converted_profiles and fc_tools:
+                            converter = fc_tools["converter"]
+                            is_leg = fc_tools["is_legacy_text"]
+                            norm_m = fc_tools["normalize_macroman"]
+                            first_prof = next(iter(all_converted_profiles))
+
+                            def _conv_cell(cell_val: Any) -> Any:
+                                if not isinstance(cell_val, str) or not cell_val.strip():
+                                    return cell_val
+                                c_norm = norm_m(cell_val)
+                                if is_leg(c_norm):
+                                    return converter.convert(c_norm, profile_id=first_prof)
+                                return cell_val
+
+                            headers = tuple(str(_conv_cell(h)) for h in headers)
+                            data_rows = tuple(tuple(_conv_cell(val) for val in row) for row in data_rows)
+
                         t_meta = {}
                         if getattr(tab, "bbox", None) is not None:
                             t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
@@ -269,6 +554,13 @@ def read_pdf(
                         )
                         page_tables.append(t_obj)
                         all_doc_tables.append(t_obj)
+
+            # Vector Stroke Fallback Clustering if find_tables found no tables
+            if not page_tables:
+                vector_tables = _extract_vector_stroke_tables(page, spans, page_num)
+                for v_tab in vector_tables:
+                    page_tables.append(v_tab)
+                    all_doc_tables.append(v_tab)
 
             pages.append(
                 PageData(
@@ -293,6 +585,16 @@ def read_pdf(
                         "has_native_text": bool(page_text),
                         "table_count": len(page_tables),
                     },
+                )
+            )
+
+        if all_converted_profiles:
+            provenances.append(
+                ProvenanceRecord(
+                    source_input_id=input_id,
+                    stage="convert_legacy_fonts",
+                    capability_id="font_conversion",
+                    evidence={"profile": sorted(all_converted_profiles)},
                 )
             )
     finally:

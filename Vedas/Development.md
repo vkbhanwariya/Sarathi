@@ -70,6 +70,27 @@ Required models provisioned:
 - `indictrans2`: `indictrans2-indic-en-dist-200M` (`hi` → `en`) and `indictrans2-en-indic-dist-200M` (`en` → `hi`) with dual SentencePiece tokenizers.
 - `opus_mt`: `opus-mt-hi-en` and `opus-mt-en-hi` with SentencePiece models.
 
+### Unified External Asset Inspection & Updates (`tools/update_assets.py`)
+
+Centralized asset management, integrity auditing, and optional upstream synchronization declared in `data/external_sources.json`:
+
+```powershell
+# 100% offline integrity and checksum check
+uv run python tools/update_assets.py --check
+
+# Or via update_sarathi script
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\update_sarathi.ps1 -CheckAssets
+
+# Update SIL font fixtures from canonical upstream definitions
+uv run python tools/update_assets.py --update-sil
+
+# Update/provision RapidOCR models with SHA-256 verification
+uv run python tools/update_assets.py --update-ocr
+
+# Provision/verify all external assets on demand
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\update_sarathi.ps1 -UpdateAssets
+```
+
 ### Manual Setup via `uv`
 
 ```powershell

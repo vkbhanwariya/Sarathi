@@ -1,0 +1,112 @@
+{
+  "source": "SIL KrutiDev010.map",
+  "profile_id": "krutidev010",
+  "description": "Deterministic differential test vectors derived from SIL NRSI KrutiDev010.map",
+  "vectors": [
+    {
+      "id": "kruti_ascii_date",
+      "input": "19/09/2026",
+      "expected": "19/09/2026",
+      "category": "ascii_digits",
+      "description": "Date format with ASCII digits and slashes"
+    },
+    {
+      "id": "kruti_ascii_section",
+      "input": "138",
+      "expected": "138",
+      "category": "ascii_digits",
+      "description": "Legal statute section digits preserved as Latin numerals"
+    },
+    {
+      "id": "kruti_ascii_bank_account",
+      "input": "9876543210",
+      "expected": "9876543210",
+      "category": "ascii_digits",
+      "description": "Bank account number preserved as Latin digits"
+    },
+    {
+      "id": "kruti_alt_digits_all",
+      "input": "",
+      "expected": "१२३४५६७८९०",
+      "category": "devanagari_numerals",
+      "description": "Alt-code bytes 131..140 convert to Devanagari digits 1..9, 0"
+    },
+    {
+      "id": "kruti_context_ratio",
+      "input": "50%50",
+      "expected": "50:50",
+      "category": "context_rules",
+      "description": "Percent sign after digit used as colon/ratio"
+    },
+    {
+      "id": "kruti_context_visarga",
+      "input": "vr%",
+      "expected": "अतः",
+      "category": "context_rules",
+      "description": "Percent sign after Hindi consonant acts as visarga"
+    },
+    {
+      "id": "kruti_typewriter_comma",
+      "input": "50]000",
+      "expected": "50,000",
+      "category": "typewriter_artifacts",
+      "description": "Right square bracket used as numeric thousands comma"
+    },
+    {
+      "id": "kruti_word_bharat",
+      "input": "Hkkjr",
+      "expected": "भारत",
+      "category": "basic_words",
+      "description": "Standard word 'भारत'"
+    },
+    {
+      "id": "kruti_word_sarkar",
+      "input": "ljdkj",
+      "expected": "सरकार",
+      "category": "basic_words",
+      "description": "Standard word 'सरकार'"
+    },
+    {
+      "id": "kruti_prebase_ki",
+      "input": "fd",
+      "expected": "कि",
+      "category": "pre_base_matra",
+      "description": "Single consonant with chhoti-i matra"
+    },
+    {
+      "id": "kruti_prebase_sthi",
+      "input": "fLFk",
+      "expected": "स्थि",
+      "category": "pre_base_matra",
+      "description": "Half consonant cluster with chhoti-i matra"
+    },
+    {
+      "id": "kruti_prebase_dilli",
+      "input": "fnYyh",
+      "expected": "दिल्ली",
+      "category": "pre_base_matra",
+      "description": "Chhoti-i moving past first consonant, not second"
+    },
+    {
+      "id": "kruti_reph_karya",
+      "input": "dk;Z",
+      "expected": "कार्य",
+      "category": "postfix_reph",
+      "description": "Standard reph syllable"
+    },
+    {
+      "id": "kruti_reph_karyon",
+      "input": "dk;ks±",
+      "expected": "कार्यों",
+      "category": "postfix_reph",
+      "description": "Reph combined with matra and anusvara"
+    },
+    {
+      "id": "kruti_dup_quotes_sh",
+      "input": "k",
+      "expected": "श",
+      "category": "canonicalization",
+      "description": "SH_1 (147) canonicalized to sh- (39)"
+    }
+  ]
+}

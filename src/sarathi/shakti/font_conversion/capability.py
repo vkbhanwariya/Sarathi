@@ -242,10 +242,14 @@ class FontConversionCapability:
             resolved_font_id: str | None = font_name
             if font_name:
                 p_id, fam = resolve_profile_from_font_name(font_name, self._profiles)
-                if fam == "modern":
+                if fam in ("modern", "latin"):
                     return raw
                 if p_id is not None:
                     resolved_font_id = p_id
+
+            from sarathi.shakti.font_conversion.byte_normalizer import normalize_macroman_bytes
+
+            raw = normalize_macroman_bytes(raw)
 
             cache_key = (raw, resolved_font_id)
             if cache_key in text_conv_cache:
@@ -287,6 +291,14 @@ class FontConversionCapability:
 
             if decision.decision == "preserve":
                 metrics.runs_preserved += 1
+                if decision.reason == "unsupported_legacy_font":
+                    doc_warnings.append(
+                        WarningRecord(
+                            code="UNSUPPORTED_LEGACY_FONT",
+                            message=f"Unsupported legacy font '{font_name}' preserved without conversion.",
+                            stage="font_conversion",
+                        )
+                    )
                 return raw
             if decision.decision == "ambiguous":
                 metrics.runs_ambiguous += 1

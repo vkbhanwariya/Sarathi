@@ -8,13 +8,15 @@ All changes are validated directly on `main` against the 5 permanent CI gates.
 
 ## Supported Capabilities
 
-- **Native Document Extraction**: High-performance text, table, and structure extraction from PDF via PyMuPDF (`pymupdf`), DOCX, XLSX, legacy XLS (BIFF8 via Calamine/xlrd), HTML tables, XML Spreadsheet 2003, and delimited text (CSV, TSV, semicolon, pipe).
-- **Local Optical Character Recognition (OCR)**: RapidOCR with OpenVINO acceleration (Intel Arc iGPU and CPU) and selective same-engine weak-crop retry with CLAHE enhancement.
-- **Neural Translation**: Bidirectional Hindi <-> English translation via local CTranslate2 and SentencePiece models (IndicTrans2 and OPUS-MT). Features domain legal context, dynamic statutory glossary matching (PMLA, Banking), statutory identifier harmonization, and rate-paced cloud seeding.
-- **Legacy Hindi Font Conversion**: Automatic detection and conversion of legacy non-Unicode font encodings (Kruti Dev, Devlys, Chanakya, Shusha, Shivaji) to standard Unicode Devanagari. Features embedded TrueType SFNT inspection via PyMuPDF, 14 precompiled Akshara synthesis regexes with AVX2 SIMD acceleration (`rapidfuzz`, `regex`), typewriter mechanical error correction, and statutory acronym protection.
-- **Bank Statement Processing**: Tabular statement parsing, header mapping, transaction normalization, and running balance reconciliation for HDFC, ICICI, SBI, and standard financial formats.
+- **Native Document Extraction**: High-performance text, table, and structure extraction from PDF via PyMuPDF (`pymupdf`), vector drawing stroke table extraction for borderless and ruled grids, stream-order legacy font conversion, DOCX, XLSX, legacy XLS (BIFF8 via Calamine/xlrd), HTML tables, XML Spreadsheet 2003, and delimited text (CSV, TSV, semicolon, pipe).
+- **Local Optical Character Recognition (OCR)**: RapidOCR with OpenVINO acceleration (Intel Arc iGPU and CPU), selective same-engine weak-crop retry with CLAHE enhancement, and self-grounded empirical benchmarking with median glyph height adaptive DPI selection (`tools/benchmark_ocr_legacy_gold.py`).
+- **Neural Translation**: Bidirectional Hindi <-> English translation via local CTranslate2 and SentencePiece models (IndicTrans2 and OPUS-MT). Features domain legal context, dynamic statutory glossary matching (PMLA, Banking), proper-noun legal transliteration guard (`proper_noun_guard.py`) protecting personal names and administrative entities with ISO 15919 phonetic rules, and rate-paced cloud seeding.
+- **Legacy Hindi Font Conversion**: Automatic detection and conversion of legacy non-Unicode font encodings (Kruti Dev, Devlys, Chanakya, Shusha, Shivaji) to standard Unicode Devanagari. Features binary TTF/OTF metadata parsing (`font_inspector.py` via `fontTools`), profile inheritance hierarchy, declarative 7-pass Akshara transduction (`converter.py`), OpenVINO metric visual prototype fallback (`visual_resolver.py`), MacRoman byte inversion, typewriter mechanical repair, and SIL differential validation.
+- **In-Place Multi-Part DOCX Transcoder**: Traverses OpenXML document body, headers, footers, footnotes, endnotes, and tables in-place, converting legacy fonts to Unicode while strictly preserving all run styling, font sizes, colors, and paragraph geometry (`transformer.py`).
+- **Bank Statement Processing**: Tabular statement parsing, header mapping, transaction normalization, double-entry running balance reconciliation, and automated UTR/IFSC syntax verification with heuristic OCR confusion auto-repair (`utr_repair.py`).
+- **High-Throughput Stage Pipeline Overlap**: Producer-consumer concurrent stage handoff (`execute_pipelined_stage_handoff`), overlapping Intel Arc iGPU (OCR) and Core Ultra CPU (Translation) across multi-document batches for up to 2x throughput.
 - **Statutory & Legal Extraction**: Algorithmic extraction and mathematical checksum validation for PAN, TAN, GSTIN, CIN, CNR (eCourts), DIN, and IRN.
-- **OpenXML Output Generation**: Standardized DOCX generation and transformation with script-aware bilingual typography.
+- **Unified External Asset Management**: 100% offline, air-gapped asset auditing and optional upstream synchronization for RapidOCR models, translation models, and SIL font fixtures (`tools/update_assets.py`, `data/external_sources.json`).
 - **Optional Cloud Providers**: Cloud adapters for Mistral AI, Google Gemini, and Microsoft Azure with proactive 2.0s rate pacing, Retry-After header parsing, exponential backoff, and per-document legal isolation.
 
 ---
@@ -27,7 +29,7 @@ All changes are validated directly on `main` against the 5 permanent CI gates.
 - **Optional Capabilities**:
   - `ocr`: `rapidocr`, `openvino`, `opencv-python-headless`, `pillow`
   - `translation`: `ctranslate2`, `sentencepiece`
-  - `font_conversion`: `rapidfuzz`, `regex`
+  - `font_conversion`: `fonttools`, `rapidfuzz`, `regex`
   - `layout`: `pymupdf-layout`
   - `cloud`: `httpx`
 

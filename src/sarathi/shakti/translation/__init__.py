@@ -25,10 +25,16 @@ __all__ = [
     "TranslationDirection",
     "TranslationResult",
     "execute_cloud_translation",
+    "ProperNounGuard",
+    "transliterate_devanagari_to_latin",
 ]
 
 
 def __getattr__(name: str) -> Any:
+    if name in ("ProperNounGuard", "transliterate_devanagari_to_latin"):
+        from sarathi.shakti.translation import proper_noun_guard
+
+        return getattr(proper_noun_guard, name)
     if name == "TranslationCapability":
         from sarathi.shakti.translation.capability import TranslationCapability
 

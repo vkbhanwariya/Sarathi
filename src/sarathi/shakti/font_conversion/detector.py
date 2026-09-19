@@ -16,6 +16,7 @@ except ImportError:
 import json
 import struct
 from pathlib import Path
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.font_conversion.models import (
@@ -184,6 +185,15 @@ def _validate_and_compile_profile(
     sorted_uni = sorted(reverse_map.keys(), key=len, reverse=True)
     reverse_re = re.compile("|".join(re.escape(u) for u in sorted_uni)) if sorted_uni else None
 
+    canonicalization_rules = tuple(
+        tuple(c) for c in data.get("canonicalization_rules", ()) if isinstance(c, (list, tuple)) and len(c) == 2
+    )
+    context_rules = tuple(
+        tuple(c) for c in data.get("context_rules", ()) if isinstance(c, (list, tuple)) and len(c) == 2
+    )
+    preserve_ascii_digits = bool(data.get("preserve_ascii_digits", True))
+    cluster_pattern = str(data.get("cluster_pattern", ""))
+
     return LegacyFontProfile(
         profile_id=pid,
         family=family,
@@ -200,22 +210,88 @@ def _validate_and_compile_profile(
         family_corrections=family_corrections,
         detection_signatures=det_sigs,
         negative_signatures=neg_sigs,
+        canonicalization_rules=canonicalization_rules,
+        context_rules=context_rules,
+        preserve_ascii_digits=preserve_ascii_digits,
+        cluster_pattern=cluster_pattern,
         compiled_forward_regex=forward_re,
         compiled_reverse_regex=reverse_re,
         compiled_reverse_map=reverse_map,
     )
 
 
+def _merge_profile_data(base: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge a base profile dictionary with a child delta profile."""
+    merged = dict(base)
+    merged["abstract"] = child.get("abstract", False)
+    for key, val in child.items():
+        if key in ("extends", "abstract"):
+            continue
+        if key in ("mappings", "symbols", "reverse_preferred", "prefixes"):
+            base_dict = dict(merged.get(key, {}))
+            base_dict.update(val)
+            merged[key] = base_dict
+        elif key in ("post_corrections", "family_corrections", "canonicalization_rules", "context_rules"):
+            base_list = list(merged.get(key, []))
+            existing = {tuple(x) if isinstance(x, (list, tuple)) else x for x in base_list}
+            for item in val:
+                t_item = tuple(item) if isinstance(item, (list, tuple)) else item
+                if t_item not in existing:
+                    base_list.append(item)
+                    existing.add(t_item)
+            merged[key] = base_list
+        elif key in ("aliases", "detection_signatures", "negative_signatures"):
+            base_list = list(merged.get(key, []))
+            for item in val:
+                if item not in base_list:
+                    base_list.append(item)
+            merged[key] = base_list
+        else:
+            merged[key] = val
+    return merged
+
+
+def _resolve_profile_inheritance(
+    pid: str,
+    raw_profiles: dict[str, tuple[dict[str, Any], str]],
+    resolved: dict[str, dict[str, Any]],
+    visiting: set[str],
+) -> dict[str, Any]:
+    """Recursively resolve 'extends' profile inheritance."""
+    if pid in resolved:
+        return resolved[pid]
+    if pid in visiting:
+        raise DoshError(
+            code=FailureCode.INVALID_CONFIGURATION,
+            message=f"Cyclic font profile inheritance detected: {pid}",
+        )
+    visiting.add(pid)
+    data, fname = raw_profiles[pid]
+    parent_id = data.get("extends")
+    if parent_id:
+        if parent_id not in raw_profiles:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Font profile '{pid}' in '{fname}' extends unknown base profile '{parent_id}'.",
+            )
+        parent_data = _resolve_profile_inheritance(parent_id, raw_profiles, resolved, visiting)
+        final_data = _merge_profile_data(parent_data, data)
+    else:
+        final_data = dict(data)
+
+    visiting.remove(pid)
+    resolved[pid] = final_data
+    return final_data
+
+
 def load_font_profiles(fonts_dir: Path | None = None) -> dict[str, LegacyFontProfile]:
-    """Load and strictly validate all font mapping profiles from data/fonts/."""
+    """Load, inherit, and strictly validate all font mapping profiles from data/fonts/."""
     target_dir = fonts_dir.resolve() if fonts_dir is not None else _CANONICAL_FONTS_DIR
     profiles: dict[str, LegacyFontProfile] = {}
     if not target_dir.exists():
         return profiles
 
-    seen_ids: set[str] = set()
-    seen_aliases: dict[str, str] = {}
-
+    raw_profiles: dict[str, tuple[dict[str, Any], str]] = {}
     for json_file in sorted(target_dir.glob("*.json")):
         try:
             raw_text = json_file.read_text(encoding="utf-8")
@@ -232,11 +308,109 @@ def load_font_profiles(fonts_dir: Path | None = None) -> dict[str, LegacyFontPro
                 message=f"Font profile JSON in '{json_file.name}' must be an object.",
             )
 
-        prof = _validate_and_compile_profile(data, json_file.name, seen_ids, seen_aliases)
+        pid = str(data.get("profile_id", "")).strip().lower()
+        if not pid:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Missing required 'profile_id' in font profile JSON: {json_file.name}",
+            )
+        raw_profiles[pid] = (data, json_file.name)
+
+    # Resolve inheritance
+    resolved_profiles: dict[str, dict[str, Any]] = {}
+    for pid in raw_profiles:
+        _resolve_profile_inheritance(pid, raw_profiles, resolved_profiles, set())
+
+    seen_ids: set[str] = set()
+    seen_aliases: dict[str, str] = {}
+
+    for pid in sorted(resolved_profiles.keys()):
+        data = resolved_profiles[pid]
+        if data.get("abstract", False):
+            continue  # Abstract base template, do not register as active runtime profile
+        fname = raw_profiles[pid][1]
+        prof = _validate_and_compile_profile(data, fname, seen_ids, seen_aliases)
         profiles[prof.profile_id] = prof
 
     return profiles
 
+
+_KNOWN_LATIN_FONTS: frozenset[str] = frozenset(
+    {
+        "arial",
+        "calibri",
+        "timesnewroman",
+        "times",
+        "cambria",
+        "georgia",
+        "verdana",
+        "tahoma",
+        "couriernew",
+        "courier",
+        "segoeui",
+        "segoe",
+        "helvetica",
+        "trebuchetms",
+        "trebuchet",
+        "bookmanoldstyle",
+        "bookman",
+        "garamond",
+        "centurygothic",
+        "poppins",
+        "inter",
+        "roboto",
+        "opensans",
+        "dejavusans",
+        "dejavuserif",
+        "freesans",
+        "liberationsans",
+        "liberationserif",
+    }
+)
+
+_KNOWN_MODERN_INDIC_FONTS: frozenset[str] = frozenset(
+    {
+        "mangal",
+        "nirmalaui",
+        "nirmala",
+        "aparajita",
+        "kokila",
+        "utsaah",
+        "gautami",
+        "latha",
+        "shruti",
+        "notosansdevanagari",
+        "notosans",
+        "notoserifdevanagari",
+        "notoserif",
+        "lohitdevanagari",
+        "lohit",
+        "kalimati",
+        "raghu",
+    }
+)
+
+_KNOWN_UNSUPPORTED_LEGACY_FONTS: frozenset[str] = frozenset(
+    {
+        "akruti",
+        "ajanta",
+        "walkmanchanakya",
+        "shree",
+        "shreelipi",
+        "aps",
+        "dvb",
+        "sulekh",
+        "kanak",
+        "hemraj",
+        "jagran",
+        "bhaskar",
+        "panbilingual",
+        "agra",
+        "alolika",
+        "anand",
+        "amrit",
+    }
+)
 
 _DEFAULT_PROFILES: dict[str, LegacyFontProfile] | None = None
 
@@ -249,9 +423,14 @@ def resolve_profile_from_font_name(
 
     Returns:
         (profile_id, family) if matched to a validated legacy font profile.
-        (None, "modern") if recognized as a modern Unicode font.
+        (None, "modern") if recognized as a modern Unicode Indic font.
+        (None, "latin") if recognized as a standard Latin font.
+        (None, "unsupported_legacy") if recognized as a legacy Indic font without a mapped profile.
         (None, "unknown") if unrecognized.
     """
+    if not font_name or not font_name.strip():
+        return None, None
+
     raw_name = font_name.strip()
     if "+" in raw_name:
         parts = raw_name.split("+", 1)
@@ -266,7 +445,15 @@ def resolve_profile_from_font_name(
 
     cleaned_base = re.sub(r"(normal|regular|bold|italic|oblique|medium|truetype|opentype|type1|tt)$", "", cleaned)
 
-    if cleaned in _KNOWN_MODERN_FONTS or (cleaned_base and cleaned_base in _KNOWN_MODERN_FONTS):
+    # 1. Check known modern Unicode Indic and Latin fonts
+    if (
+        cleaned in _KNOWN_MODERN_INDIC_FONTS
+        or (cleaned_base and cleaned_base in _KNOWN_MODERN_INDIC_FONTS)
+        or cleaned in _KNOWN_LATIN_FONTS
+        or (cleaned_base and cleaned_base in _KNOWN_LATIN_FONTS)
+        or cleaned in _KNOWN_MODERN_FONTS
+        or (cleaned_base and cleaned_base in _KNOWN_MODERN_FONTS)
+    ):
         return None, "modern"
 
     if profiles is None:
@@ -275,7 +462,7 @@ def resolve_profile_from_font_name(
             _DEFAULT_PROFILES = load_font_profiles()
         profiles = _DEFAULT_PROFILES
 
-    # Check against registered profiles
+    # 4. Check against registered profiles
     for prof in profiles.values():
         cand_keys = [prof.profile_id, prof.name] + list(prof.aliases)
         for cand in cand_keys:
@@ -283,7 +470,12 @@ def resolve_profile_from_font_name(
             if cleaned == cand_clean or (cleaned_base and cleaned_base == cand_clean):
                 return prof.profile_id, prof.family
 
-    # Fuzzy matching for noisy Word font names (e.g. "Shusha02_Normal", "KrutiDev-010-Rev")
+    # 5. Check known unsupported legacy Indic fonts (fail-closed before fuzzy matching)
+    for unsupp in _KNOWN_UNSUPPORTED_LEGACY_FONTS:
+        if cleaned.startswith(unsupp) or (cleaned_base and cleaned_base.startswith(unsupp)):
+            return None, "unsupported_legacy"
+
+    # 6. Fuzzy matching for noisy Word font names (e.g. "Shusha02_Normal", "KrutiDev-010-Rev")
     if _HAS_RAPIDFUZZ and len(cleaned) >= 5:
         best_match = None
         best_score = 0.0
@@ -419,14 +611,22 @@ def decide_run_profile(
     # 1. Direct font evidence
     if run_font:
         resolved_prof, fam = resolve_profile_from_font_name(run_font, profiles)
-        if fam == "modern":
+        if fam in ("modern", "latin"):
             return ConversionDecision(
                 decision="preserve",
                 reason="known_modern_unicode_font",
             )
+        if fam == "unsupported_legacy":
+            return ConversionDecision(
+                decision="preserve",
+                reason="unsupported_legacy_font",
+            )
         if resolved_prof is not None:
             if run_text and run_text.strip():
-                cands = rank_profiles_from_text(run_text, profiles, candidate_profiles=[resolved_prof])
+                from sarathi.shakti.font_conversion.byte_normalizer import normalize_macroman_bytes
+
+                eval_text = normalize_macroman_bytes(run_text)
+                cands = rank_profiles_from_text(eval_text, profiles, candidate_profiles=[resolved_prof])
                 cand = cands[0] if cands else None
                 if cand is not None:
                     if cand.negative_signatures or (
@@ -436,7 +636,7 @@ def decide_run_profile(
                             decision="preserve",
                             reason="conflicting_profile_evidence",
                         )
-                    if len(run_text.strip()) >= 8 and not cand.positive_signatures and cand.mapped_token_count == 0:
+                    if len(eval_text.strip()) >= 8 and not cand.positive_signatures and cand.mapped_token_count == 0:
                         return ConversionDecision(
                             decision="preserve",
                             reason="insufficient_evidence",
@@ -451,7 +651,10 @@ def decide_run_profile(
     if not run_text or not run_text.strip():
         return ConversionDecision(decision="preserve", reason="insufficient_evidence")
 
-    candidates = rank_profiles_from_text(run_text, profiles)
+    from sarathi.shakti.font_conversion.byte_normalizer import normalize_macroman_bytes
+
+    norm_text = normalize_macroman_bytes(run_text)
+    candidates = rank_profiles_from_text(norm_text, profiles)
     if not candidates or candidates[0].score <= 0 or not candidates[0].positive_signatures:
         return ConversionDecision(decision="preserve", reason="insufficient_evidence")
 

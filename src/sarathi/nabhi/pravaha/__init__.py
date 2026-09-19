@@ -20,7 +20,10 @@ from sarathi.nabhi.pravaha.lifecycle import (
     execute_manual_retry,
     execute_retry_attempt,
 )
-from sarathi.nabhi.pravaha.pipeline import execute_pipeline
+from sarathi.nabhi.pravaha.pipeline import (
+    execute_pipeline,
+    execute_pipelined_stage_handoff,
+)
 
 __all__ = [
     "Pravaha",
@@ -30,6 +33,7 @@ __all__ = [
     "compute_input_hash",
     "execute_manual_retry",
     "execute_pipeline",
+    "execute_pipelined_stage_handoff",
     "execute_retry_attempt",
     "quarantine_transition_scope",
     "record_pramana_if_available",
