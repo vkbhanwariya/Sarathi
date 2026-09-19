@@ -237,6 +237,70 @@ def test_capability_zero_recomputation_on_checkpoint_hit(tmp_path: Path, monkeyp
     assert engine.ocr_page.call_count == 2
 
 
+def test_checkpoint_restore_rebinds_source_input_id(tmp_path: Path) -> None:
+    """Verify load_page_checkpoint hit rebinds source_input_id in provenance and page metadata."""
+    from unittest.mock import MagicMock
+
+    from PIL import Image
+
+    from sarathi.sankalpa import ExecutionContext, ExecutionProfile, InputRef, PageData, ProvenanceRecord, Request
+    from sarathi.shakti.ocr.capability import OCRCapability
+
+    # Setup dummy image file
+    img_file = tmp_path / "page_rebinding.png"
+    dummy_img = Image.new("RGB", (100, 100), color="white")
+    dummy_img.save(img_file, format="PNG")
+
+    engine = MagicMock()
+    engine.ocr_page.return_value = (
+        PageData(
+            page_number=1,
+            text="Checkpoint Rebound Text",
+            metadata={"confidence": 0.95, "source_input_id": "inp-orig"},
+        ),
+        ProvenanceRecord(source_input_id="inp-orig", stage="ocr"),
+        None,
+        (),
+    )
+
+    engine.default_lang = "hi"
+    engine.model_version = "v5_v6"
+
+    cap = OCRCapability(engine=engine, cache_dir=tmp_path / "checkpoints")
+
+    # Pass 1: Run with original input id
+    inp1 = InputRef(
+        input_id="inp-orig",
+        source_path=img_file,
+        display_name="page_rebinding.png",
+        size_bytes=img_file.stat().st_size,
+    )
+    req1 = Request(request_id="req-1", requirement="ocr", inputs=(inp1,), profile=ExecutionProfile.ACCURATE)
+    ctx1 = ExecutionContext("run-1", "req-1", "t-1", "s-1")
+    res1 = cap.execute(req1, ctx1)
+    assert res1.provenance[0].source_input_id == "inp-orig"
+    assert engine.ocr_page.call_count == 1
+
+    # Pass 2: Re-run with different input id on identical file (hits checkpoint cache)
+    inp2 = InputRef(
+        input_id="inp-rebound",
+        source_path=img_file,
+        display_name="page_rebinding.png",
+        size_bytes=img_file.stat().st_size,
+    )
+    req2 = Request(request_id="req-2", requirement="ocr", inputs=(inp2,), profile=ExecutionProfile.ACCURATE)
+    ctx2 = ExecutionContext("run-2", "req-2", "t-2", "s-2")
+    res2 = cap.execute(req2, ctx2)
+
+    # Engine was not called again (checkpoint hit)
+    assert engine.ocr_page.call_count == 1
+
+    # Provenance and page metadata must reflect the current input_id, not the checkpoint run's input_id
+    assert res2.provenance[0].source_input_id == "inp-rebound"
+    assert res2.data.source_input_id == "inp-rebound"
+    assert res2.data.pages[0].metadata.get("source_input_id") == "inp-rebound"
+
+
 def test_bug_O1_checkpoint_robustness(tmp_path: Path, monkeypatch: Any) -> None:
     """O1: Checkpoints must avoid CWD-relative paths, hash all relevant options, survive transient OSError, and evict."""
     from unittest.mock import patch

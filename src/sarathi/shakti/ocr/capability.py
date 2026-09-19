@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import threading
@@ -404,7 +405,6 @@ class OCRCapability:
                     for p in pdf_doc.pages:
                         if _is_usable_page(p):
                             p_meta = dict(p.metadata)
-                            p_meta.setdefault("confidence", 1.0)
                             p_meta["extraction_method"] = "native_fastpath"
                             native_pages[p.page_number] = PageData(
                                 page_number=p.page_number,
@@ -526,6 +526,12 @@ class OCRCapability:
                     cached = load_page_checkpoint(d_hash, p_idx, p_hash, cache_dir=self._cache_dir)
                     if cached is not None:
                         c_pdata, c_prov, c_warns = cached
+                        if c_prov is not None and c_prov.source_input_id != inp.input_id:
+                            c_prov = dataclasses.replace(c_prov, source_input_id=inp.input_id)
+                        if "source_input_id" in c_pdata.metadata and c_pdata.metadata["source_input_id"] != inp.input_id:
+                            c_pdata_meta = dict(c_pdata.metadata)
+                            c_pdata_meta["source_input_id"] = inp.input_id
+                            c_pdata = dataclasses.replace(c_pdata, metadata=c_pdata_meta)
                         doc_page_results[inp.input_id].append((p_idx, c_pdata, c_prov, c_warns))
                         skip_pages.add(p_idx)
                         if progress_cb is not None:
@@ -766,8 +772,12 @@ class OCRCapability:
             if inp.input_id not in prior_docs or not _is_usable_document(prior_docs[inp.input_id]):
                 ocr_pages.extend(doc.pages)
 
+        actual_ocr_pages = [p for p in ocr_pages if p.metadata.get("extraction_method") != "native_fastpath"]
+
         scores: list[float] = [
-            float(p.metadata["confidence"]) for p in ocr_pages if isinstance(p.metadata.get("confidence"), (int, float))
+            float(p.metadata["confidence"])
+            for p in actual_ocr_pages
+            if isinstance(p.metadata.get("confidence"), (int, float))
         ]
 
         page_models = {
@@ -787,15 +797,29 @@ class OCRCapability:
         elif page_models:
             evidence_dict["models"] = sorted(str(m) for m in page_models)
 
-        overall_confidence: ConfidenceValue | None = (
-            ConfidenceValue(
-                score=round(sum(scores) / len(scores), 4),
-                method="rapidocr_mean",
-                evidence=evidence_dict,
+        if actual_ocr_pages:
+            overall_confidence: ConfidenceValue | None = (
+                ConfidenceValue(
+                    score=round(sum(scores) / len(scores), 4),
+                    method="rapidocr_mean",
+                    evidence=evidence_dict,
+                )
+                if (scores and len(scores) == len(actual_ocr_pages))
+                else None
             )
-            if (scores and ocr_pages and len(scores) == len(ocr_pages))
-            else None
-        )
+        elif ocr_pages:
+            overall_confidence = ConfidenceValue(
+                score=1.0,
+                method="native_passthrough",
+                evidence={
+                    "score_kind": "deterministic",
+                    "calibrated": True,
+                    "engine": "native_extraction",
+                    "page_count": len(ocr_pages),
+                },
+            )
+        else:
+            overall_confidence = None
 
         metadata: dict[str, Any] = {
             "ocr_coverage": {

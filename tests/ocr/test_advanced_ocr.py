@@ -394,6 +394,10 @@ def test_digital_pdf_auto_triage_fast_path(tmp_path: Path) -> None:
     assert "Government of Rajasthan" in doc.pages[0].text
     assert "Finance Department Circular" in doc.pages[0].text
     assert doc.pages[0].metadata.get("extraction_method") == "native_fastpath"
+    assert "confidence" not in doc.pages[0].metadata
+    assert res.confidence is not None
+    assert res.confidence.method == "native_passthrough"
+    assert res.confidence.evidence["engine"] == "native_extraction"
     assert len(engine_calls) == 0  # Zero neural inference calls!
 
     # 3. Verify force_ocr bypasses fast-path
