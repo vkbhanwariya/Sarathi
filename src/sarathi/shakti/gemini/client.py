@@ -229,6 +229,7 @@ class GeminiClient:
             ],
             "generationConfig": {
                 "temperature": 0.0,
+                "responseLogprobs": True,
             },
         }
 

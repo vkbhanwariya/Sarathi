@@ -111,114 +111,150 @@ class GeminiOCRCapability:
                 request.custom_options.get("prompt") if request.custom_options else None
             )
 
-            response_json = self._client.process_ocr(
-                content_bytes=content_bytes,
-                media_type=media_type,
-                model=model,
-                prompt_text=prompt_override,
+            is_pdf = (
+                media_type == "application/pdf"
+                or inp.source_path.suffix.lower() == ".pdf"
+                or content_bytes.startswith(b"%PDF-")
+                or b"%PDF-" in content_bytes[:1024]
             )
 
-            candidates = response_json.get("candidates", [])
-            extracted_text = ""
-            confidence_score: float | None = None
+            page_items: list[tuple[int, bytes, str]] = []
+            if is_pdf:
+                try:
+                    import pymupdf
 
-            if candidates:
-                cand = candidates[0]
-                finish_reason = cand.get("finishReason")
-                if finish_reason and finish_reason not in ("STOP", ""):
+                    pdf_doc = pymupdf.open(stream=content_bytes, filetype="pdf")
+                    num_pages = len(pdf_doc)
+                    for page_idx in range(num_pages):
+                        single_doc = pymupdf.open()
+                        single_doc.insert_pdf(pdf_doc, from_page=page_idx, to_page=page_idx)
+                        page_items.append((page_idx + 1, single_doc.tobytes(), "application/pdf"))
+                        single_doc.close()
+                    pdf_doc.close()
+                except Exception:
+                    page_items = [(1, content_bytes, media_type)]
+            else:
+                page_items = [(1, content_bytes, media_type)]
+
+            doc_pages: list[PageData] = []
+            for p_num, p_bytes, p_media_type in page_items:
+                if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                    context.cancellation_token.check_cancelled()
+
+                response_json = self._client.process_ocr(
+                    content_bytes=p_bytes,
+                    media_type=p_media_type,
+                    model=model,
+                    prompt_text=prompt_override,
+                )
+
+                candidates = response_json.get("candidates", [])
+                extracted_text = ""
+                confidence_score: float | None = None
+
+                if candidates:
+                    cand = candidates[0]
+                    finish_reason = cand.get("finishReason")
+                    if finish_reason and finish_reason not in ("STOP", ""):
+                        all_warnings.append(
+                            WarningRecord(
+                                stage="gemini_ocr",
+                                code="INCOMPLETE_GENERATION",
+                                message=f"Gemini OCR response completed with status '{finish_reason}' on page {p_num}.",
+                            )
+                        )
+                    content = cand.get("content", {})
+                    parts = content.get("parts", [])
+                    raw_extracted = "".join(p.get("text", "") for p in parts)
+                    extracted_text = _clean_ocr_text(raw_extracted)
+
+                    # Derive confidence if avgLogprobs is available from Gemini
+                    avg_logprob = cand.get("avgLogprobs")
+                    if isinstance(avg_logprob, (int, float)) and not isinstance(avg_logprob, bool) and avg_logprob <= 0.0:
+                        confidence_score = round(min(1.0, math.exp(float(avg_logprob))), 4)
+
+                if not extracted_text:
                     all_warnings.append(
                         WarningRecord(
                             stage="gemini_ocr",
-                            code="INCOMPLETE_GENERATION",
-                            message=f"Gemini OCR response completed with status '{finish_reason}'.",
+                            code="EMPTY_OCR_RESULT",
+                            message=f"Gemini OCR returned no extracted text for input '{inp.display_name}' page {p_num}.",
                         )
                     )
-                content = cand.get("content", {})
-                parts = content.get("parts", [])
-                raw_extracted = "".join(p.get("text", "") for p in parts)
-                extracted_text = _clean_ocr_text(raw_extracted)
 
-                # Derive confidence if avgLogprobs is available from Gemini
-                avg_logprob = cand.get("avgLogprobs")
-                if isinstance(avg_logprob, (int, float)) and not isinstance(avg_logprob, bool) and avg_logprob <= 0.0:
-                    confidence_score = round(min(1.0, math.exp(float(avg_logprob))), 4)
-
-            if not extracted_text:
-                all_warnings.append(
-                    WarningRecord(
-                        stage="gemini_ocr",
-                        code="EMPTY_OCR_RESULT",
-                        message=f"Gemini OCR returned no extracted text for input '{inp.display_name}'.",
-                    )
+                # If non-PDF returned form feed delimiters, preserve split
+                sub_pages = (
+                    [p for p in extracted_text.split("\x0c")]
+                    if (len(page_items) == 1 and "\x0c" in extracted_text)
+                    else [extracted_text]
                 )
-
-            raw_pages = [p for p in extracted_text.split("\x0c")] if "\x0c" in extracted_text else [extracted_text]
-            doc_pages: list[PageData] = []
-            for p_num, p_text in enumerate(raw_pages, start=1):
-                p_text_clean = p_text.strip()
-                paragraphs = [p.strip() for p in p_text_clean.split("\n\n") if p.strip()]
-                spans: list[TextSpan] = [TextSpan(text=p, confidence=confidence_score) for p in paragraphs]
-                tables = extract_markdown_tables(p_text_clean)
-                page_meta: dict[str, Any] = {
-                    "confidence": confidence_score,
-                    "min_confidence": confidence_score,
-                    "max_confidence": confidence_score,
-                    "confidence_count": len(spans) if confidence_score is not None else 0,
-                }
-                page_data = PageData(
-                    page_number=p_num,
-                    text=p_text_clean,
-                    spans=tuple(spans),
-                    tables=tuple(tables),
-                    metadata=page_meta,
-                )
-                doc_pages.append(page_data)
-
-                # Telemetry to Darpana
-                if self._darpana is not None:
-                    from datetime import datetime, timezone
-
-                    from sarathi.darpana import PramanaRecord
-
-                    now_iso = datetime.now(timezone.utc).isoformat()
-                    page_evidence = {
-                        "score_kind": "raw_engine",
-                        "calibrated": False,
-                        "model": model,
-                        "provider": "gemini",
+                for sub_idx, p_text in enumerate(sub_pages):
+                    effective_p_num = p_num if len(sub_pages) == 1 else (p_num + sub_idx)
+                    p_text_clean = p_text.strip()
+                    paragraphs = [p.strip() for p in p_text_clean.split("\n\n") if p.strip()]
+                    spans: list[TextSpan] = [TextSpan(text=p, confidence=confidence_score) for p in paragraphs]
+                    tables = extract_markdown_tables(p_text_clean)
+                    page_meta: dict[str, Any] = {
+                        "confidence": confidence_score,
+                        "min_confidence": confidence_score,
+                        "max_confidence": confidence_score,
+                        "confidence_count": len(spans) if confidence_score is not None else 0,
                     }
-                    self._darpana.record_pramana(
-                        PramanaRecord(
-                            run_id=context.run_id,
-                            request_id=context.request_id,
-                            trace_id=context.trace_id,
-                            span_id=context.span_id,
-                            capability_id="gemini_ocr",
-                            stage="ocr",
-                            timestamp_utc=now_iso,
-                            subject_id=f"{inp.input_id}:p{p_num}",
-                            confidence=ConfidenceValue(
-                                score=confidence_score,
-                                method="gemini_logprob",
-                                evidence=page_evidence,
-                            )
-                            if confidence_score is not None
-                            else None,
-                            attributes={
-                                "level": "page",
-                                "page_number": p_num,
-                                "file_display_name": inp.display_name,
-                                "region_count": len(spans),
-                                "min_confidence": confidence_score,
-                                "max_confidence": confidence_score,
-                            },
-                        )
+                    page_data = PageData(
+                        page_number=effective_p_num,
+                        text=p_text_clean,
+                        spans=tuple(spans),
+                        tables=tuple(tables),
+                        metadata=page_meta,
                     )
+                    doc_pages.append(page_data)
 
+                    # Telemetry to Darpana
+                    if self._darpana is not None:
+                        from datetime import datetime, timezone
+
+                        from sarathi.darpana import PramanaRecord
+
+                        now_iso = datetime.now(timezone.utc).isoformat()
+                        page_evidence = {
+                            "score_kind": "raw_engine",
+                            "calibrated": False,
+                            "model": model,
+                            "provider": "gemini",
+                        }
+                        self._darpana.record_pramana(
+                            PramanaRecord(
+                                run_id=context.run_id,
+                                request_id=context.request_id,
+                                trace_id=context.trace_id,
+                                span_id=context.span_id,
+                                capability_id="gemini_ocr",
+                                stage="ocr",
+                                timestamp_utc=now_iso,
+                                subject_id=f"{inp.input_id}:p{effective_p_num}",
+                                confidence=ConfidenceValue(
+                                    score=confidence_score,
+                                    method="gemini_logprob",
+                                    evidence=page_evidence,
+                                )
+                                if confidence_score is not None
+                                else None,
+                                attributes={
+                                    "level": "page",
+                                    "page_number": effective_p_num,
+                                    "file_display_name": inp.display_name,
+                                    "region_count": len(spans),
+                                    "min_confidence": confidence_score,
+                                    "max_confidence": confidence_score,
+                                },
+                            )
+                        )
+
+            doc_text = "\n\n".join(p.text for p in doc_pages if p.text)
             doc = CanonicalDocument(
                 document_id=f"doc-gemini-{inp.input_id}",
                 source_input_id=inp.input_id,
-                text=extracted_text,
+                text=doc_text,
                 pages=tuple(doc_pages),
                 metadata={"model": model, "provider": "google_gemini"},
             )
@@ -230,7 +266,7 @@ class GeminiOCRCapability:
             all_payloads.append(
                 ArtifactPayload(
                     intent=ArtifactIntent(name=txt_name, role="ocr_text", media_type="text/plain"),
-                    content=extracted_text.encode("utf-8"),
+                    content=doc_text.encode("utf-8"),
                 )
             )
             all_payloads.append(

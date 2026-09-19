@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -211,6 +212,86 @@ class TestGeminiOCRCapability:
         with pytest.raises(DoshError) as exc_info:
             cap.execute(req, ctx)
         assert exc_info.value.code == FailureCode.OPERATION_CANCELLED
+
+    def test_bug_O7_gemini_ocr_page_splitting(self, tmp_path: Path) -> None:
+        """O7: PDF input must be split into single-page requests so pages 1, 2, 3 are preserved and tables attach correctly."""
+        import pymupdf
+
+        pdf_path = tmp_path / "three_page.pdf"
+        doc_pdf = pymupdf.open()
+        p1 = doc_pdf.new_page(width=300, height=300)
+        p1.insert_text((50, 50), "Page 1 intro")
+        p2 = doc_pdf.new_page(width=300, height=300)
+        p2.insert_text((50, 50), "Page 2 table")
+        p3 = doc_pdf.new_page(width=300, height=300)
+        p3.insert_text((50, 50), "Page 3 conclusion")
+        doc_pdf.save(str(pdf_path))
+        doc_pdf.close()
+
+        page_responses = {
+            1: {"candidates": [{"content": {"parts": [{"text": "Page 1 intro text"}]}, "avgLogprobs": -0.04}]},
+            2: {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": "Page 2 table\n\n| Item | Count |\n|---|---|\n| Pens | 5 |",
+                                }
+                            ]
+                        },
+                        "avgLogprobs": -0.02,
+                    }
+                ]
+            },
+            3: {"candidates": [{"content": {"parts": [{"text": "Page 3 conclusion text"}]}, "avgLogprobs": -0.03}]},
+        }
+
+        call_records = []
+
+        def mock_process_ocr(content_bytes: bytes, media_type: str = "image/jpeg", **kwargs: Any) -> dict[str, Any]:
+            chunk_doc = pymupdf.open(stream=content_bytes, filetype="pdf")
+            page_count = len(chunk_doc)
+            chunk_doc.close()
+            call_records.append((page_count, content_bytes))
+            current_call_idx = len(call_records)
+            return page_responses.get(current_call_idx, {"candidates": []})
+
+        mock_client = MagicMock(spec=GeminiClient)
+        mock_client.process_ocr.side_effect = mock_process_ocr
+
+        cap = GeminiOCRCapability(client=mock_client)
+        req = Request(
+            request_id="req-gem-pages",
+            requirement="gemini_ocr",
+            inputs=(
+                InputRef(
+                    "inp-pdf",
+                    pdf_path,
+                    "three_page.pdf",
+                    pdf_path.stat().st_size,
+                    media_type="application/pdf",
+                ),
+            ),
+        )
+        ctx = ExecutionContext("run-1", "req-gem-pages", "tr-1", "sp-1")
+
+        result = cap.execute(req, ctx)
+        assert isinstance(result.data, CanonicalDocument)
+        canon_doc: CanonicalDocument = result.data
+
+        # Must have exactly 3 pages, sequentially requested, with page_number 1, 2, 3
+        assert len(canon_doc.pages) == 3
+        assert [p.page_number for p in canon_doc.pages] == [1, 2, 3]
+        assert len(call_records) == 3
+        assert all(count == 1 for count, _ in call_records)
+
+        # Tables must attach to page 2 only
+        assert len(canon_doc.pages[0].tables) == 0
+        assert len(canon_doc.pages[1].tables) == 1
+        assert canon_doc.pages[1].tables[0].headers == ("Item", "Count")
+        assert len(canon_doc.pages[2].tables) == 0
+
 
 
 class TestGeminiTranslationCapability:
