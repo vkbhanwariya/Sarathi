@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import unittest.mock as mock
+from typing import Any
 
 import pytest
 
@@ -240,3 +241,95 @@ def test_bug_O11_binarize_and_isolated_state() -> None:
     assert np.all(binarized_arr[0, 0] == [255, 255, 255])
     # Text patch must be black (0)
     assert np.all(binarized_arr[50, 50] == [0, 0, 0])
+
+
+def test_choose_page_rotation() -> None:
+    """Verify choose_page_rotation scores candidates by mean_confidence * char_count."""
+    from sarathi.shakti.ocr.engine.preprocessing import RotationCandidate, choose_page_rotation
+
+    # 1. 0 deg has low score, 90 deg has high score
+    c0 = RotationCandidate(rotation=0, mean_confidence=0.3, char_count=10)
+    c90 = RotationCandidate(rotation=90, mean_confidence=0.95, char_count=50)
+    c180 = RotationCandidate(rotation=180, mean_confidence=0.2, char_count=5)
+    c270 = RotationCandidate(rotation=270, mean_confidence=0.1, char_count=2)
+    assert choose_page_rotation([c0, c90, c180, c270]) == 90
+
+    # 2. 0 deg is already best
+    c0_best = RotationCandidate(rotation=0, mean_confidence=0.98, char_count=100)
+    assert choose_page_rotation([c0_best, c90]) == 0
+
+    # 3. Tuple input support
+    assert choose_page_rotation([(0, 0.4, 20), (180, 0.9, 40)]) == 180
+
+
+def test_bug_O12_page_orientation_detection() -> None:
+    """O12: Verify page orientation detection recovers 90/180/270 rotated scans."""
+    cv2 = pytest.importorskip("cv2")
+
+    class DummyOcrOutput:
+        def __init__(self, txts: list[str], boxes: list[Any], scores: list[float]) -> None:
+            self.txts = txts
+            self.boxes = boxes
+            self.scores = scores
+
+    call_count = 0
+
+    def mock_ocr(arr: np.ndarray, **kwargs: Any) -> DummyOcrOutput:
+        nonlocal call_count
+        call_count += 1
+        # Marker pixel at (y=0, x=0) indicates upright orientation
+        if arr[0, 0, 0] == 42:
+            return DummyOcrOutput(
+                txts=["Upright Text"],
+                boxes=[[[10, 10], [100, 10], [100, 25], [10, 25]]],
+                scores=[0.95],
+            )
+        # If tall boxes (rotated 90 or 270)
+        h, w = arr.shape[:2]
+        if arr[0, w - 1, 0] == 42 or arr[h - 1, 0, 0] == 42:
+            return DummyOcrOutput(
+                txts=["x"],
+                boxes=[[[10, 10], [20, 10], [20, 100], [10, 100]]],
+                scores=[0.3],
+            )
+        # Upside down (180)
+        return DummyOcrOutput(
+            txts=["???"],
+            boxes=[[[10, 10], [100, 10], [100, 25], [10, 25]]],
+            scores=[0.2],
+        )
+
+    engine = RapidOCREngine(engine=mock_ocr)
+
+    # Base upright image: marker at [0, 0] is [42, 42, 42]
+    img_upright = np.full((120, 120, 3), 255, dtype=np.uint8)
+    img_upright[0, 0] = [42, 42, 42]
+
+    # 1. Correctly oriented page: exactly 1 call, no rotation applied, no warning
+    call_count = 0
+    p0, _, _, w0 = engine.ocr_page(img_upright, 1, "in-1", profile=ExecutionProfile.INSTANT)
+    assert p0.text == "Upright Text"
+    assert p0.metadata.get("rotation_applied") == 0
+    assert not any(w.code == "OCR_PAGE_ROTATED" for w in w0)
+    assert call_count == 1
+
+    # 2. Rotated 90 degrees clockwise
+    img_90 = cv2.rotate(img_upright, cv2.ROTATE_90_CLOCKWISE)
+    p90, _, _, w90 = engine.ocr_page(img_90, 1, "in-1", profile=ExecutionProfile.INSTANT)
+    assert p90.text == "Upright Text"
+    assert p90.metadata.get("rotation_applied") in (90, 270)
+    assert any(w.code == "OCR_PAGE_ROTATED" for w in w90)
+
+    # 3. Rotated 180 degrees
+    img_180 = cv2.rotate(img_upright, cv2.ROTATE_180)
+    p180, _, _, w180 = engine.ocr_page(img_180, 1, "in-1", profile=ExecutionProfile.INSTANT)
+    assert p180.text == "Upright Text"
+    assert p180.metadata.get("rotation_applied") == 180
+    assert any(w.code == "OCR_PAGE_ROTATED" for w in w180)
+
+    # 4. Rotated 270 degrees clockwise
+    img_270 = cv2.rotate(img_upright, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    p270, _, _, w270 = engine.ocr_page(img_270, 1, "in-1", profile=ExecutionProfile.INSTANT)
+    assert p270.text == "Upright Text"
+    assert p270.metadata.get("rotation_applied") in (90, 270)
+    assert any(w.code == "OCR_PAGE_ROTATED" for w in w270)

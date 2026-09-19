@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Sequence
 
 
 def deskew_image(image_arr: Any) -> tuple[Any, float]:
@@ -169,3 +170,52 @@ def preprocess_ocr_image(
     if clahe:
         out = apply_clahe(out)
     return out
+
+
+@dataclass(frozen=True)
+class RotationCandidate:
+    """Candidate orientation evaluation result."""
+
+    rotation: int  # 0, 90, 180, 270
+    mean_confidence: float
+    char_count: int
+    output: Any = None
+    spans: tuple[Any, ...] = ()
+    lines: tuple[str, ...] = ()
+    conf_scores: tuple[float, ...] = ()
+    warnings: tuple[Any, ...] = ()
+
+
+def choose_page_rotation(
+    candidates: Sequence[RotationCandidate | dict[str, Any] | tuple[int, float, int]],
+) -> int:
+    """Select the optimal page rotation angle (0, 90, 180, 270) based on confidence * char_count."""
+    if not candidates:
+        return 0
+
+    best_rotation = 0
+    best_score = -1.0
+
+    for cand in candidates:
+        if isinstance(cand, RotationCandidate):
+            rot = cand.rotation
+            mean_conf = cand.mean_confidence
+            chars = cand.char_count
+        elif isinstance(cand, dict):
+            rot = int(cand.get("rotation", 0))
+            mean_conf = float(cand.get("mean_confidence", 0.0))
+            chars = int(cand.get("char_count", 0))
+        elif isinstance(cand, (tuple, list)):
+            rot = int(cand[0])
+            mean_conf = float(cand[1])
+            chars = int(cand[2])
+        else:
+            continue
+
+        score = float(mean_conf * chars)
+        # Prefer higher score, tie-break to 0 if original orientation is tied for best
+        if score > best_score or (score == best_score and rot == 0):
+            best_score = score
+            best_rotation = rot
+
+    return best_rotation

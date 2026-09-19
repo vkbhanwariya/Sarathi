@@ -43,7 +43,9 @@ from sarathi.shakti.ocr.engine.layout import detect_column_count, reconstruct_la
 from sarathi.shakti.ocr.engine.openvino import resolve_target_device
 from sarathi.shakti.ocr.engine.parser import _parse_rapidocr_output
 from sarathi.shakti.ocr.engine.preprocessing import (
+    RotationCandidate,
     apply_clahe,
+    choose_page_rotation,
     is_low_contrast_image,
 )
 from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
@@ -320,7 +322,103 @@ class RapidOCREngine:
             lines, spans, conf_scores, parse_warnings, has_invalid_confidence, has_invalid_geometry = (
                 _parse_rapidocr_output(output, filter_opt=filter_opt)
             )
+
+            # Page-orientation detection and retry (O12)
+            # Note: When rotation is applied, bounding box coordinates are in the rotated frame.
+            mean_conf = float(np.mean(conf_scores)) if conf_scores else 0.0
+            ratios: list[float] = []
+            for s in spans:
+                if s.bounding_box:
+                    w_box = max(1e-6, float(s.bounding_box[2] - s.bounding_box[0]))
+                    h_box = max(1e-6, float(s.bounding_box[3] - s.bounding_box[1]))
+                    ratios.append(h_box / w_box)
+            median_ratio = float(np.median(ratios)) if ratios else 0.0
+
+            rotation_applied = 0
+            orientation_enabled = bool(custom_options.get("orientation_detection", True)) if custom_options else True
+            conf_thresh = float(custom_options.get("orientation_confidence_threshold", 0.6)) if custom_options else 0.6
+
+            if orientation_enabled and (mean_conf < conf_thresh or median_ratio > 1.5):
+                candidate_angles = [90, 270] if median_ratio > 1.5 else [180, 90, 270]
+                candidates = [
+                    RotationCandidate(
+                        rotation=0,
+                        mean_confidence=mean_conf,
+                        char_count=sum(len(s.text) for s in spans),
+                        output=output,
+                        spans=tuple(spans),
+                        lines=tuple(lines),
+                        conf_scores=tuple(conf_scores),
+                        warnings=tuple(parse_warnings),
+                    )
+                ]
+
+                rot_cv_map = {}
+                try:
+                    import cv2
+
+                    rot_cv_map = {
+                        90: cv2.ROTATE_90_CLOCKWISE,
+                        180: cv2.ROTATE_180,
+                        270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+                    }
+                except ImportError:
+                    cv2 = None
+
+                for deg in candidate_angles:
+                    if cancellation_token is not None and cancellation_token.is_cancelled:
+                        cancellation_token.check_cancelled()
+
+                    if cv2 is not None and deg in rot_cv_map:
+                        rotated_arr = cv2.rotate(img_arr, rot_cv_map[deg])
+                    else:
+                        k = deg // 90
+                        rotated_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
+
+                    rot_output = active_engine(rotated_arr, use_det=True, use_cls=use_cls_flag)
+                    r_lines, r_spans, r_confs, r_warns, _, _ = _parse_rapidocr_output(
+                        rot_output, filter_opt=filter_opt
+                    )
+                    r_mean = float(np.mean(r_confs)) if r_confs else 0.0
+                    r_chars = sum(len(s.text) for s in r_spans)
+                    candidates.append(
+                        RotationCandidate(
+                            rotation=deg,
+                            mean_confidence=r_mean,
+                            char_count=r_chars,
+                            output=rot_output,
+                            spans=tuple(r_spans),
+                            lines=tuple(r_lines),
+                            conf_scores=tuple(r_confs),
+                            warnings=tuple(r_warns),
+                        )
+                    )
+
+                best_deg = choose_page_rotation(candidates)
+                if best_deg != 0:
+                    best_cand = next(c for c in candidates if c.rotation == best_deg)
+                    rotation_applied = best_deg
+                    spans = list(best_cand.spans)
+                    lines = list(best_cand.lines)
+                    conf_scores = list(best_cand.conf_scores)
+                    parse_warnings = best_cand.warnings
+                    output = best_cand.output
+                    if cv2 is not None and best_deg in rot_cv_map:
+                        img_arr = cv2.rotate(img_arr, rot_cv_map[best_deg])
+                    else:
+                        k = best_deg // 90
+                        img_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
+
             warnings: list[WarningRecord] = list(parse_warnings)
+            if rotation_applied > 0:
+                warnings.append(
+                    WarningRecord(
+                        code="OCR_PAGE_ROTATED",
+                        message=f"Page orientation corrected by {rotation_applied} degrees.",
+                        stage=STAGE_NAME,
+                        context={"rotation_applied": rotation_applied},
+                    )
+                )
             if applied_stamp_removal:
                 warnings.append(
                     WarningRecord(
@@ -596,6 +694,7 @@ class RapidOCREngine:
             "profile": profile.value,
             "page_height": float(orig_h),
             "page_width": float(orig_w),
+            "rotation_applied": rotation_applied,
             "validation_outcome": validation_outcome,
             "model": model_label,
             "scope": scope,
@@ -623,6 +722,7 @@ class RapidOCREngine:
             "profile": profile.value,
             "use_angle_cls": use_cls_flag,
             "box_count": len(spans),
+            "rotation_applied": rotation_applied,
             "validation_outcome": validation_outcome,
         }
         if is_binarized:
