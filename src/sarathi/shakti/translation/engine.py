@@ -695,6 +695,13 @@ class CTranslate2TranslationEngine:
                 factual_device = backend_res[1]
                 if len(backend_res) > 2:
                     unique_truncations = backend_res[2]
+            elif isinstance(backend_res, (list, tuple)):
+                unique_translated = backend_res
+            elif hasattr(backend, "translate") and not isinstance(backend_res, (list, tuple)):
+                unique_translated = [
+                    getattr(backend.translate(s, direction=direction), "translated_text", str(s))
+                    for s in unique_sentences
+                ]
             else:
                 unique_translated = backend_res
 
