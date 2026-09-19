@@ -1,4 +1,4 @@
-# Sarathi - Canonical Runtime Settings Configuration
+# Sarathi - Example Cloud-Enabled Runtime Settings Configuration
 # Sutra Configuration System
 
 [storage]
@@ -10,9 +10,9 @@ runtime_root = "Runtime"
 max_retries = 0
 
 [security]
-allow_pii_access = false
-allow_network_access = false
-allow_external_processing = false
+allow_pii_access = true
+allow_network_access = true
+allow_external_processing = true
 allowed_secrets = [
     "AZURE_API_KEY",
     "AZURE_ENDPOINT",

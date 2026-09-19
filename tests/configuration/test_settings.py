@@ -247,3 +247,37 @@ def test_get_canonical_data_root_respects_env_var(monkeypatch: pytest.MonkeyPatc
     # Default should resolve to repository or packaged data directory
     default_root = get_canonical_data_root()
     assert default_root.name == "data"
+
+
+def test_bug_S2_shipped_settings_security_defaults() -> None:
+    """S2: Verify shipped config/settings.toml disables PII, network, and external processing by default."""
+    from sarathi.dosh import DoshError, FailureCode
+    from sarathi.kavacha import Kavacha, SecurityPolicy
+    from sarathi.shakti.azure.plugin import AZURE_SECURITY
+    from sarathi.shakti.gemini.plugin import GEMINI_SECURITY
+    from sarathi.shakti.mistral.plugin import PLUGIN_INFO as MISTRAL_PLUGIN_INFO
+
+    settings_path = Path("config/settings.toml")
+    assert settings_path.is_file(), "config/settings.toml must exist"
+
+    settings = load_settings(settings_path)
+    sec = settings.get_section("security")
+    assert sec is not None, "security section must exist in settings.toml"
+
+    assert sec.get("allow_pii_access") is False, "allow_pii_access must default to False"
+    assert sec.get("allow_network_access") is False, "allow_network_access must default to False"
+    assert sec.get("allow_external_processing") is False, "allow_external_processing must default to False"
+
+    # Kavacha must deny cloud OCR capabilities under this default config
+    policy = SecurityPolicy(
+        allow_pii_access=bool(sec.get("allow_pii_access")),
+        allow_network_access=bool(sec.get("allow_network_access")),
+        allow_external_processing=bool(sec.get("allow_external_processing")),
+        allowed_secrets=tuple(sec.get("allowed_secrets", ())),
+    )
+    kavacha = Kavacha(policy)
+
+    for decl in (GEMINI_SECURITY, MISTRAL_PLUGIN_INFO.security, AZURE_SECURITY):
+        with pytest.raises(DoshError) as exc_info:
+            kavacha.authorize(decl)
+        assert exc_info.value.code is FailureCode.SECURITY_DENIED
