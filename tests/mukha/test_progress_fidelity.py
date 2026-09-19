@@ -433,3 +433,46 @@ class TestProgressFidelity:
         unregister()
         web_server.runner.clear_history()
         assert len(notifications) == 2
+
+    def test_bug_R1_unassociated_warnings(self, web_server: MukhaWebServer, tmp_path: Path) -> None:
+        """A 2-input run with 1 unassociated warning must have per-input warning counts = 0 and run total = 1."""
+        f1 = tmp_path / "file1.txt"
+        f2 = tmp_path / "file2.txt"
+        f1.write_text("file 1 content", encoding="utf-8")
+        f2.write_text("file 2 content", encoding="utf-8")
+
+        warn = WarningRecord(
+            code="UNASSOCIATED_GLOBAL_WARNING",
+            message="Global pipeline warning without input_id",
+            stage="Execution",
+            context={},
+        )
+
+        def mock_execute(req: Any) -> Any:
+            docs = [
+                CanonicalDocument(document_id=f"doc-{inp.input_id}", source_input_id=inp.input_id, text="ok")
+                for inp in req.inputs
+            ]
+            return Result(data=docs, warnings=(warn,))
+
+        with patch.object(web_server._agni, "execute", side_effect=mock_execute):
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/runs",
+                data={"paths": [str(f1), str(f2)], "requirement": "read_native"},
+            )
+            assert status == 200
+            _wait_for_idle(web_server)
+
+            _, state_resp = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/state")
+            summary = state_resp["state"]["terminal_summary"]
+            assert summary is not None
+            assert len(summary["warnings"]) == 1
+            assert summary["warnings"][0] == "Global pipeline warning without input_id"
+            assert summary["warning_files"] == 0
+            assert summary["successful_files"] == 2
+
+            files = state_resp["state"]["active_run"]["files"]
+            assert len(files) == 2
+            for f in files:
+                assert f["warning_count"] == 0
+                assert f["status"] == "SUCCESS"

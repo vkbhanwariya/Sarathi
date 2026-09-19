@@ -92,6 +92,7 @@ class RunCoordinator:
         self._live_workers: dict[str, dict[str, Any]] = {}
         self._file_progress: dict[str, dict[str, Any]] = {}
         self._review_intents: dict[str, ReviewIntent] = {}
+        self._unassociated_warning_count: int = 0
         self._state_revision: int = 1
         self._listeners: set[Callable[[], None]] = set()
         self._intake_selection: InputSelectionView | None = None
@@ -140,6 +141,7 @@ class RunCoordinator:
             self._live_workers.clear()
             self._file_progress.clear()
             self._review_intents.clear()
+            self._unassociated_warning_count = 0
             self._bump_revision()
             self._intake_selection = None
             self._intake_preflight = None
@@ -514,6 +516,7 @@ class RunCoordinator:
             self._live_workers = {}
             self._file_progress = {}
             self._review_intents.clear()
+            self._unassociated_warning_count = 0
 
             def _on_progress(
                 file_display_name: str,
@@ -633,9 +636,7 @@ class RunCoordinator:
                             else:
                                 unassociated_warns += 1
 
-                        if unassociated_warns > 0:
-                            for inp_id in input_warn_counts:
-                                input_warn_counts[inp_id] += unassociated_warns
+                        self._unassociated_warning_count = unassociated_warns
 
                         # Map produced document outputs to inputs
                         doc_map: dict[str, Any] = {}
@@ -747,7 +748,7 @@ class RunCoordinator:
                             overall_status = "FAILED"
                         elif failed_cnt > 0:
                             overall_status = "PARTIAL"
-                        elif warning_cnt > 0:
+                        elif warning_cnt > 0 or unassociated_warns > 0:
                             overall_status = "WARNING"
                         else:
                             overall_status = "SUCCESS"
@@ -763,6 +764,7 @@ class RunCoordinator:
                             failed_files=failed_cnt,
                             maruti_records=maruti_recs,
                             pramana_records=pramana_recs,
+                            unassociated_warning_count=unassociated_warns,
                         )
                         self._terminal_status = overall_status
                         self._terminal_summary = summary

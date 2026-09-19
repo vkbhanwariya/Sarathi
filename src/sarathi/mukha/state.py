@@ -252,6 +252,11 @@ class RunSummaryView:
     failures: tuple[str, ...] = ()
     request_id: str | None = None
     cached: bool = False
+    unassociated_warning_count: int = 0
+
+    @property
+    def total_warning_count(self) -> int:
+        return len(self.warnings)
 
 
 @dataclass(frozen=True, slots=True)

@@ -325,6 +325,7 @@ class MukhaPresenter:
         maruti_records: Sequence[MarutiRecord] = (),
         pramana_records: Sequence[PramanaRecord] = (),
         request_id: str | None = None,
+        unassociated_warning_count: int = 0,
     ) -> RunSummaryView:
         """Build Screen 4: Samapti - Run Summary presentation state purely from factual parameters."""
         # Stage timings aggregation from telemetry
@@ -460,6 +461,7 @@ class MukhaPresenter:
             failures=tuple(failures),
             request_id=request.request_id if request else request_id,
             cached=is_cached,
+            unassociated_warning_count=unassociated_warning_count,
         )
 
     @staticmethod

@@ -171,6 +171,8 @@ export interface RunSummaryView {
   failures: readonly string[];
   request_id?: string | null;
   cached?: boolean;
+  unassociated_warning_count?: number;
+  total_warning_count?: number;
 }
 
 export interface WorkerPerformanceView {
