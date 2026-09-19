@@ -513,3 +513,27 @@ def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
         or result.metadata.get("truncation_suspected") is True
     ), f"Expected TRANSLATION_TRUNCATION_SUSPECTED warning in metadata, got {result.metadata}"
 
+
+def test_bug_T7_anubhava_word_boundary() -> None:
+    """T7: Anubhava correction का->X must not alter कार्य, but must apply to standalone word का."""
+    from typing import Sequence
+
+    from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
+    from sarathi.shakti.translation.models import TranslationDirection
+
+    captured_sentences: list[str] = []
+
+    class DummyBackend:
+        def translate_sentences(self, sentences: Sequence[str], direction: Any = None, **kwargs: Any) -> list[str]:
+            captured_sentences.extend(sentences)
+            return list(sentences)
+
+    engine = CTranslate2TranslationEngine(backend=DummyBackend())
+    engine._anubhava_corrections = {"hi-en": {"का": "X"}}
+
+    engine.translate("कार्य का परिणाम", direction=TranslationDirection.HI_TO_EN)
+
+    assert len(captured_sentences) == 1
+    assert "कार्य" in captured_sentences[0], f"Expected 'कार्य' to remain untouched, got {captured_sentences[0]}"
+    assert captured_sentences[0] == "कार्य X परिणाम", f"Expected 'कार्य X परिणाम', got {captured_sentences[0]}"
+

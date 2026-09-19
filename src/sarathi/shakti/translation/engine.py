@@ -7,6 +7,7 @@ import os
 import re
 import threading
 import tomllib
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -147,6 +148,12 @@ def _load_translation_anubhava(data_root: Path) -> dict[str, dict[str, str]]:
     return corrections
 
 
+@lru_cache(maxsize=1024)
+def _compile_anubhava_pattern(src: str) -> re.Pattern[str]:
+    """Compile boundary-aware pattern for Anubhava correction ensuring whole-word Devanagari matching."""
+    return re.compile(rf"(?<![\u0900-\u097F\w]){re.escape(src)}(?![\u0900-\u097F\w])")
+
+
 class TranslatorBackend(Protocol):
     """Protocol for local model inference backend."""
 
@@ -175,6 +182,9 @@ class CTranslate2TranslationEngine:
         self._backend = backend
         self._glossary = glossary or GlossaryStore(glossary_dir=self._data_root)
         self._anubhava_corrections = _load_translation_anubhava(self._data_root)
+        for dir_corrections in self._anubhava_corrections.values():
+            for src in dir_corrections:
+                _compile_anubhava_pattern(src)
         self._protector = protector or TranslationProtector()
         self._initialized_backend: TranslatorBackend | None = None
         self._backend_lock: threading.Lock = threading.Lock()
@@ -220,6 +230,17 @@ class CTranslate2TranslationEngine:
             except OSError:
                 pass
         return hasher.hexdigest()[:16]
+
+    def _apply_anubhava(self, sentence: str, direction: str) -> str:
+        """Apply approved Anubhava overrides with Devanagari-aware word boundaries."""
+        for d in (direction, "both"):
+            corrections = self._anubhava_corrections.get(d, {})
+            if not corrections:
+                continue
+            for src_c, tgt_c in corrections.items():
+                pattern = _compile_anubhava_pattern(src_c)
+                sentence = pattern.sub(tgt_c, sentence)
+        return sentence
 
     @property
     def asset_version(self) -> str:
@@ -543,13 +564,8 @@ class CTranslate2TranslationEngine:
         separators = [sep for _, sep in split_units]
 
         # 4. Pre-process sentences: apply approved Anubhava overrides
-        prepared_sentences: list[str] = []
-        for sent in raw_sentences:
-            dir_key = direction.value
-            for d in (dir_key, "both"):
-                for src_c, tgt_c in self._anubhava_corrections.get(d, {}).items():
-                    sent = sent.replace(src_c, tgt_c)
-            prepared_sentences.append(sent)
+        dir_key = direction.value
+        prepared_sentences = [self._apply_anubhava(sent, dir_key) for sent in raw_sentences]
 
         # 4. Neural translation via CTranslate2 backend (fails with DEPENDENCY_UNAVAILABLE if missing)
         backend = self._ensure_backend()
@@ -639,10 +655,7 @@ class CTranslate2TranslationEngine:
 
             start_idx = len(all_prepared_sentences)
             for sent in raw_sentences:
-                for d in (dir_key, "both"):
-                    for src_c, tgt_c in self._anubhava_corrections.get(d, {}).items():
-                        sent = sent.replace(src_c, tgt_c)
-                all_prepared_sentences.append(sent)
+                all_prepared_sentences.append(self._apply_anubhava(sent, dir_key))
 
             text_slices.append((idx, len(raw_sentences), spans, start_idx, separators))
 
