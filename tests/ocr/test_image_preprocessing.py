@@ -110,9 +110,7 @@ def test_full_pipeline_with_cv2_present() -> None:
 def test_ocr_page_profile_preprocessing_logic() -> None:
     """Findings 22 & 23: Verify ocr_page dispatches non-destructive preprocessing per profile."""
     pytest.importorskip("cv2")
-    engine = RapidOCREngine.__new__(RapidOCREngine)
-    engine._default_lang = "en"
-    engine._model_labels = {}
+    engine = RapidOCREngine(default_lang="en")
     mock_runner = mock.MagicMock(return_value=None)
     engine._get_engine = mock.MagicMock(return_value=mock_runner)
 
@@ -208,3 +206,37 @@ def test_bug_O10_deskew_angle_estimation() -> None:
     out_asym, angle_asym = deskew_image(img_asym)
     assert angle_asym == 0.0
     assert np.array_equal(out_asym, img_asym)
+
+
+def test_bug_O11_binarize_and_isolated_state() -> None:
+    """O11: Verify Otsu binarization preserves gradient/shadowed text and engines have isolated state."""
+    # 1. Verify RapidOCREngine class has no shared locks or pools
+    assert not hasattr(RapidOCREngine, "_infer_lock"), "Class-level _infer_lock must be removed"
+    assert not hasattr(RapidOCREngine, "_gpu_pools"), "Class-level _gpu_pools must be removed"
+    assert not hasattr(RapidOCREngine, "_init_lock"), "Class-level _init_lock must be removed"
+    assert not hasattr(RapidOCREngine, "_gpu_engines"), "Class-level _gpu_engines must be removed"
+
+    e1 = RapidOCREngine()
+    e2 = RapidOCREngine()
+    assert e1._infer_lock is not e2._infer_lock
+    assert e1._gpu_pools is not e2._gpu_pools
+
+    # 2. Verify binarize on gradient/shadowed illumination uses Otsu (not constant 128)
+    # Shadowed document: paper background is 80 (well below 128), text is 10
+    img = np.full((100, 100, 3), 80, dtype=np.uint8)
+    img[40:60, 40:60] = 10  # text patch
+
+    mock_runner = mock.MagicMock(return_value=None)
+    e1._get_engine = mock.MagicMock(return_value=mock_runner)
+
+    e1.ocr_page(img, 1, "in-1", profile=ExecutionProfile.CUSTOM, custom_options={"binarize": True})
+    assert mock_runner.called
+    binarized_arr = mock_runner.call_args[0][0]
+
+    # With constant 128 threshold, all pixels <= 128 would become 0 (mean == 0.0)
+    # With Otsu threshold, background (80) becomes 255 and text (10) becomes 0, so mean > 150
+    assert float(np.mean(binarized_arr)) > 150.0
+    # Background must be white (255)
+    assert np.all(binarized_arr[0, 0] == [255, 255, 255])
+    # Text patch must be black (0)
+    assert np.all(binarized_arr[50, 50] == [0, 0, 0])

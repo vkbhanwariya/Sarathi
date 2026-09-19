@@ -52,19 +52,16 @@ from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
 class RapidOCREngine:
     """Instance-owned RapidOCR + OpenVINO engine adapter."""
 
-    _init_lock: threading.Lock = threading.Lock()
-    _infer_lock: threading.RLock = threading.RLock()
-    _gpu_pools: dict[str, queue.Queue[int]] = {}
-    _gpu_engines: dict[str, list[Any]] = {}
-
     def __init__(
         self,
         data_root: Path | None = None,
         default_lang: str = "devanagari",
+        engine: Any = None,
+        engines: dict[str, Any] | None = None,
     ) -> None:
         self._data_root: Path = data_root.resolve() if data_root is not None else CANONICAL_DATA_ROOT
-        self._engine: Any = None
-        self._engines: dict[str, Any] = {}
+        self._engine: Any = engine
+        self._engines: dict[str, Any] = dict(engines) if engines is not None else {}
         self._model_labels: dict[str, str] = {}
         self._default_lang: str = default_lang
         self._init_lock: threading.Lock = threading.Lock()
@@ -113,7 +110,6 @@ class RapidOCREngine:
         """Lazily initialize the underlying RapidOCR engine instance for the requested language."""
         if self._engine is not None:
             return self._engine
-
         engine_key, _ = resolve_engine_keys(lang, default_lang=self._default_lang)
         target_device = resolve_target_device(execution_binding)
         cache_key = f"{engine_key}:{target_device}"
@@ -148,14 +144,12 @@ class RapidOCREngine:
     ):
         """Acquire an elastic inference engine slot bounded by capacity without global locks."""
         # 1. Honor manually injected test gpu_pools if present
-        gpu_pools = getattr(self, "_gpu_pools", None)
-        gpu_engines = getattr(self, "_gpu_engines", None)
-        if gpu_pools is not None and gpu_engines is not None and cache_key in gpu_pools:
-            slot_idx = gpu_pools[cache_key].get()
+        if cache_key in self._gpu_pools and cache_key in self._gpu_engines:
+            slot_idx = self._gpu_pools[cache_key].get()
             try:
-                yield gpu_engines[cache_key][slot_idx]
+                yield self._gpu_engines[cache_key][slot_idx]
             finally:
-                gpu_pools[cache_key].put(slot_idx)
+                self._gpu_pools[cache_key].put(slot_idx)
             return
 
         # 2. Sequential execution or single-engine path (protects single InferRequest from concurrent corruption)
@@ -165,10 +159,6 @@ class RapidOCREngine:
             return
 
         # 3. Elastic engine pool matching capacity
-        if not hasattr(self, "_engine_pools"):
-            self._engine_pools: dict[str, queue.LifoQueue[Any]] = {}
-            self._engine_counts: dict[str, int] = {}
-
         if cache_key not in self._engine_pools:
             with self._init_lock:
                 if cache_key not in self._engine_pools:
@@ -271,12 +261,19 @@ class RapidOCREngine:
 
         is_binarized = False
         if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
-            from PIL import Image
-
             is_binarized = True
-            gray_pil = Image.fromarray(img_arr).convert("L")
-            threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
-            img_arr = np.array(threshold_img.convert("RGB"))
+            try:
+                import cv2
+
+                gray = cv2.cvtColor(img_arr, cv2.COLOR_RGB2GRAY) if len(img_arr.shape) == 3 else img_arr
+                thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+                img_arr = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
+            except ImportError:
+                from PIL import Image
+
+                gray_pil = Image.fromarray(img_arr).convert("L")
+                threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
+                img_arr = np.array(threshold_img.convert("RGB"))
 
         if cancellation_token is not None and cancellation_token.is_cancelled:
             cancellation_token.check_cancelled()
