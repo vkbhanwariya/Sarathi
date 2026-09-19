@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sarathi.shakti.text.direction import NormalizedDirection, normalize_translation_direction
+from sarathi.shakti.text.lazy import lazy_exports
 from sarathi.shakti.text.legacy_detection import LegacyFontDetector, is_legacy_text
 from sarathi.shakti.text.legacy_fonts import (
     LegacyFontProfile,
@@ -41,6 +42,7 @@ __all__ = [
     "contains_devanagari",
     "is_legacy_text",
     "is_romanized_hindi",
+    "lazy_exports",
     "load_font_profiles",
     "normalize_size",
     "normalize_translation_direction",

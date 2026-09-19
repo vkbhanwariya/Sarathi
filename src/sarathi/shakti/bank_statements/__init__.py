@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from sarathi.shakti.bank_statements.models import (
     AccountIdentity,
     BankStatement,
@@ -36,19 +34,16 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:
-    if name in (
-        "repair_ifsc",
-        "is_valid_ifsc",
-        "repair_utr",
-        "verify_mathematical_double_entry_balance",
-        "BalanceDiscrepancy",
-    ):
-        from sarathi.shakti.bank_statements import utr_repair
+from sarathi.shakti.text.lazy import lazy_exports
 
-        return getattr(utr_repair, name)
-    if name == "BankStatementCapability":
-        from sarathi.shakti.bank_statements.capability import BankStatementCapability
-
-        return BankStatementCapability
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+lazy_exports(
+    globals(),
+    {
+        "repair_ifsc": ".utr_repair:repair_ifsc",
+        "is_valid_ifsc": ".utr_repair:is_valid_ifsc",
+        "repair_utr": ".utr_repair:repair_utr",
+        "verify_mathematical_double_entry_balance": ".utr_repair:verify_mathematical_double_entry_balance",
+        "BalanceDiscrepancy": ".utr_repair:BalanceDiscrepancy",
+        "BankStatementCapability": ".capability:BankStatementCapability",
+    },
+)

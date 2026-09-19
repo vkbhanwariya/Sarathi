@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from sarathi.shakti.translation.models import (
     Language,
     TranslationDirection,
@@ -30,25 +28,17 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:
-    if name in ("ProperNounGuard", "transliterate_devanagari_to_latin"):
-        from sarathi.shakti.translation import proper_noun_guard
+from sarathi.shakti.text.lazy import lazy_exports
 
-        return getattr(proper_noun_guard, name)
-    if name == "TranslationCapability":
-        from sarathi.shakti.translation.capability import TranslationCapability
-
-        return TranslationCapability
-    if name == "CTranslate2TranslationEngine":
-        from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
-
-        return CTranslate2TranslationEngine
-    if name in ("LegalContextBuilder", "LegalDocumentContext"):
-        from sarathi.shakti.translation.legal_context import LegalContextBuilder, LegalDocumentContext
-
-        return LegalContextBuilder if name == "LegalContextBuilder" else LegalDocumentContext
-    if name == "execute_cloud_translation":
-        from sarathi.shakti.translation.cloud_orchestration import execute_cloud_translation
-
-        return execute_cloud_translation
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+lazy_exports(
+    globals(),
+    {
+        "ProperNounGuard": ".proper_noun_guard:ProperNounGuard",
+        "transliterate_devanagari_to_latin": ".proper_noun_guard:transliterate_devanagari_to_latin",
+        "TranslationCapability": ".capability:TranslationCapability",
+        "CTranslate2TranslationEngine": ".engine:CTranslate2TranslationEngine",
+        "LegalContextBuilder": ".legal_context:LegalContextBuilder",
+        "LegalDocumentContext": ".legal_context:LegalDocumentContext",
+        "execute_cloud_translation": ".cloud_orchestration:execute_cloud_translation",
+    },
+)

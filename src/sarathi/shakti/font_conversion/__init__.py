@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from sarathi.shakti.font_conversion.models import (
     ConversionCandidate,
     ConversionDecision,
@@ -45,60 +43,28 @@ __all__ = [
     "VisualFontResolver",
     "VisualFontCandidate",
     "VisualFontEvidence",
+    "has_macroman_signatures",
 ]
 
+from sarathi.shakti.text.lazy import lazy_exports
 
-def __getattr__(name: str) -> Any:
-    if name in ("VisualFontResolver", "VisualFontCandidate", "VisualFontEvidence"):
-        from sarathi.shakti.font_conversion import visual_resolver
-
-        return getattr(visual_resolver, name)
-    if name == "BinaryFontMetadata":
-        from sarathi.shakti.font_conversion.font_inspector import BinaryFontMetadata
-
-        return BinaryFontMetadata
-    if name == "inspect_font_bytes":
-        from sarathi.shakti.font_conversion.font_inspector import inspect_font_bytes
-
-        return inspect_font_bytes
-    if name == "compute_cmap_signature":
-        from sarathi.shakti.font_conversion.font_inspector import compute_cmap_signature
-
-        return compute_cmap_signature
-    if name == "compute_anchor_outline_hashes":
-        from sarathi.shakti.font_conversion.font_inspector import compute_anchor_outline_hashes
-
-        return compute_anchor_outline_hashes
-    if name == "DEFAULT_ANCHOR_SYMBOLS":
-        from sarathi.shakti.font_conversion.font_inspector import DEFAULT_ANCHOR_SYMBOLS
-
-        return DEFAULT_ANCHOR_SYMBOLS
-    if name == "normalize_macroman_bytes":
-        from sarathi.shakti.font_conversion.byte_normalizer import normalize_macroman_bytes
-
-        return normalize_macroman_bytes
-    if name == "has_macroman_signatures":
-        from sarathi.shakti.font_conversion.byte_normalizer import has_macroman_signatures
-
-        return has_macroman_signatures
-    if name == "FontConversionCapability":
-        from sarathi.shakti.font_conversion.capability import FontConversionCapability
-
-        return FontConversionCapability
-    if name == "FontConverter":
-        from sarathi.shakti.font_conversion.converter import FontConverter
-
-        return FontConverter
-    if name == "LegacyFontDetector":
-        from sarathi.shakti.font_conversion.detector import LegacyFontDetector
-
-        return LegacyFontDetector
-    if name == "TextProtector":
-        from sarathi.shakti.font_conversion.protector import TextProtector
-
-        return TextProtector
-    if name == "FontConversionValidator":
-        from sarathi.shakti.font_conversion.validator import FontConversionValidator
-
-        return FontConversionValidator
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+lazy_exports(
+    globals(),
+    {
+        "VisualFontResolver": ".visual_resolver:VisualFontResolver",
+        "VisualFontCandidate": ".visual_resolver:VisualFontCandidate",
+        "VisualFontEvidence": ".visual_resolver:VisualFontEvidence",
+        "BinaryFontMetadata": ".font_inspector:BinaryFontMetadata",
+        "inspect_font_bytes": ".font_inspector:inspect_font_bytes",
+        "compute_cmap_signature": ".font_inspector:compute_cmap_signature",
+        "compute_anchor_outline_hashes": ".font_inspector:compute_anchor_outline_hashes",
+        "DEFAULT_ANCHOR_SYMBOLS": ".font_inspector:DEFAULT_ANCHOR_SYMBOLS",
+        "normalize_macroman_bytes": ".byte_normalizer:normalize_macroman_bytes",
+        "has_macroman_signatures": ".byte_normalizer:has_macroman_signatures",
+        "FontConversionCapability": ".capability:FontConversionCapability",
+        "FontConverter": ".converter:FontConverter",
+        "LegacyFontDetector": ".detector:LegacyFontDetector",
+        "TextProtector": ".protector:TextProtector",
+        "FontConversionValidator": ".validator:FontConversionValidator",
+    },
+)
