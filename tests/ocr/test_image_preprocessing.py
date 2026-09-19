@@ -110,7 +110,7 @@ def test_full_pipeline_with_cv2_present() -> None:
 
 def test_ocr_page_profile_preprocessing_logic() -> None:
     """Findings 22 & 23: Verify ocr_page dispatches non-destructive preprocessing per profile."""
-    pytest.importorskip("cv2")
+    cv2 = pytest.importorskip("cv2")
     engine = RapidOCREngine(default_lang="en")
     mock_runner = mock.MagicMock(return_value=None)
     engine._get_engine = mock.MagicMock(return_value=mock_runner)
@@ -133,15 +133,13 @@ def test_ocr_page_profile_preprocessing_logic() -> None:
         assert kwargs["remove_stamps"] is False
         assert kwargs["clahe"] is True
 
-    # 3. Explicit remove_stamps=True in custom_options: enables remove_stamps and records warning
-    with mock.patch("sarathi.shakti.ocr.engine.preprocess_ocr_image", wraps=preprocess_ocr_image) as mock_prep:
-        _, _, _, warns = engine.ocr_page(
-            img, 1, "in-1", profile=ExecutionProfile.INSTANT, custom_options={"remove_stamps": True}
-        )
-        mock_prep.assert_called_once()
-        _, kwargs = mock_prep.call_args
-        assert kwargs["remove_stamps"] is True
-        assert any(w.code == "EXPERIMENTAL_STAMP_REMOVAL" for w in warns)
+    # 3. Explicit remove_stamps=True in custom_options: applies removal and records warning on stamped image
+    img_stamped = np.full((100, 100, 3), 255, dtype=np.uint8)
+    cv2.circle(img_stamped, (50, 50), 30, (220, 30, 30), 4)
+    _, _, _, warns = engine.ocr_page(
+        img_stamped, 1, "in-1", profile=ExecutionProfile.INSTANT, custom_options={"remove_stamps": True}
+    )
+    assert any(w.code == "STAMP_REMOVAL_APPLIED" for w in warns)
 
 
 def test_bug_O10_deskew_angle_estimation() -> None:
@@ -333,3 +331,161 @@ def test_bug_O12_page_orientation_detection() -> None:
     assert p270.text == "Upright Text"
     assert p270.metadata.get("rotation_applied") in (90, 270)
     assert any(w.code == "OCR_PAGE_ROTATED" for w in w270)
+
+
+def make_stamped_page() -> tuple[np.ndarray, list[tuple[int, int, int, tuple[int, int, int]]], list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
+    """Generate synthetic document with 5 colored stamps, red heading, small red blob, and black text."""
+    cv2 = pytest.importorskip("cv2")
+    # Synthetic page 800x600, white background
+    img = np.full((800, 600, 3), 255, dtype=np.uint8)
+
+    # Legitimate red heading
+    cv2.putText(
+        img,
+        "CONFIDENTIAL REPORT - URGENT",
+        (40, 50),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (200, 20, 20),
+        2,
+    )
+    heading_mask = (img[:, :, 0] > 150) & (img[:, :, 1] < 50) & (np.arange(800)[:, None] < 70)
+
+    # Small red text blob (under 0.1% area = 480 px)
+    cv2.putText(img, "Ref: 99", (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220, 30, 30), 1)
+    blob_mask = (
+        (img[:, :, 0] > 150)
+        & (img[:, :, 1] < 50)
+        & (np.arange(800)[:, None] >= 70)
+        & (np.arange(800)[:, None] < 100)
+    )
+
+    # Black text lines across the page
+    for y in range(120, 750, 30):
+        cv2.putText(
+            img,
+            f"Line {y}: Standard legal agreement text paragraph with numbers 12345.",
+            (40, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (10, 10, 10),
+            1,
+        )
+
+    gray_clean = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    black_text_mask = gray_clean < 50
+
+    # 5 stamps: red, blue, violet, faded pink, dark navy
+    stamps = [
+        (150, 250, 45, (220, 30, 30)),    # red
+        (450, 250, 45, (30, 80, 220)),    # blue
+        (150, 450, 45, (150, 40, 200)),   # violet
+        (450, 450, 45, (230, 140, 160)),  # faded pink
+        (300, 650, 45, (15, 30, 100)),    # dark navy
+    ]
+
+    stamp_masks = []
+    for cx, cy, r, rgb in stamps:
+        s_layer = np.zeros((800, 600, 3), dtype=np.uint8)
+        s_mask = np.zeros((800, 600), dtype=np.uint8)
+        cv2.circle(s_layer, (cx, cy), r, rgb, 3)
+        cv2.circle(s_mask, (cx, cy), r, 255, 3)
+        cv2.circle(s_layer, (cx, cy), r - 10, rgb, 2)
+        cv2.circle(s_mask, (cx, cy), r - 10, 255, 2)
+        cv2.putText(s_layer, "VERIFIED", (cx - 30, cy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, rgb, 1)
+        s_mask[(s_layer[:, :, 0] > 0) | (s_layer[:, :, 1] > 0) | (s_layer[:, :, 2] > 0)] = 255
+        stamp_masks.append(s_mask)
+
+        # Multiply blend over text
+        for c in range(3):
+            val = rgb[c]
+            mask_bool = s_mask > 0
+            img[mask_bool, c] = np.clip(
+                (img[mask_bool, c].astype(np.float32) * (val / 255.0)), 0, 255
+            ).astype(np.uint8)
+
+    return img, stamps, stamp_masks, heading_mask, blob_mask, black_text_mask
+
+
+def test_bug_O13_stamp_identification_and_removal() -> None:
+    """O13: Verify hue-agnostic stamp detection, stamp-likeness filter, and text preservation."""
+    cv2 = pytest.importorskip("cv2")
+    try:
+        from sarathi.shakti.ocr.engine.preprocessing import detect_stamps
+    except ImportError:
+        detect_stamps = None
+
+    img, stamps, stamp_masks, heading_mask, blob_mask, black_text_mask = make_stamped_page()
+    out = remove_stamp_artifacts(img)
+    gray_out = cv2.cvtColor(out, cv2.COLOR_RGB2GRAY)
+
+    # 1. For each of the 5 stamps, at least 98% of stamp-only pixels are near-white (gray >= 200)
+    for idx, (cx, cy, r, rgb) in enumerate(stamps):
+        s_mask = stamp_masks[idx]
+        stamp_only = (s_mask > 0) & (~black_text_mask)
+        near_white_count = np.count_nonzero((gray_out >= 200) & stamp_only)
+        total_stamp_only = np.count_nonzero(stamp_only)
+        frac = near_white_count / total_stamp_only if total_stamp_only else 1.0
+        assert frac >= 0.98, f"Stamp {idx} ({rgb}) failed: only {frac*100:.1f}% near-white"
+
+    # 2. Legitimate red heading keeps at least 95% of its pixels
+    heading_kept = np.count_nonzero(out[heading_mask, 0] > 150)
+    heading_frac = heading_kept / np.count_nonzero(heading_mask)
+    assert heading_frac >= 0.95, f"Heading destroyed: only {heading_frac*100:.1f}% kept"
+
+    # 3. At least 95% of original black text pixels survive
+    survived_text = (gray_out < 100) & black_text_mask
+    survived_ratio = np.count_nonzero(survived_text) / np.count_nonzero(black_text_mask)
+    assert survived_ratio >= 0.95, f"Text erased: only {survived_ratio*100:.1f}% survived"
+
+    # 4. Small red text blob is unchanged
+    blob_kept = np.count_nonzero(out[blob_mask, 0] > 150)
+    blob_frac = blob_kept / np.count_nonzero(blob_mask)
+    assert blob_frac >= 0.95, f"Small blob altered: only {blob_frac*100:.1f}% kept"
+
+    # 5. Page with no stamps is returned unchanged with removed_ratio == 0
+    clean_page = np.full((100, 100, 3), 255, dtype=np.uint8)
+    clean_out = remove_stamp_artifacts(clean_page)
+    assert np.array_equal(clean_out, clean_page)
+    assert detect_stamps is not None
+    detection_clean = detect_stamps(clean_page)
+    assert detection_clean.removed_ratio == 0.0
+
+    # 7. Coordinator warning verification
+    engine = RapidOCREngine(engine=lambda arr, **kw: mock.MagicMock(txts=[], boxes=[], scores=[]))
+    # Unstamped page must NOT emit EXPERIMENTAL_STAMP_REMOVAL or STAMP_REMOVAL_APPLIED
+    _, _, _, w_clean = engine.ocr_page(
+        clean_page, 1, "in-1", custom_options={"stamp_mode": "remove"}
+    )
+    assert not any(w.code in ("EXPERIMENTAL_STAMP_REMOVAL", "STAMP_REMOVAL_APPLIED") for w in w_clean)
+
+    # Stamped page must emit STAMP_REMOVAL_APPLIED with context
+    _, _, _, w_stamped = engine.ocr_page(img, 1, "in-1", custom_options={"stamp_mode": "remove"})
+    stamp_warns = [w for w in w_stamped if w.code == "STAMP_REMOVAL_APPLIED"]
+    assert len(stamp_warns) == 1
+    assert stamp_warns[0].context.get("stamp_count", 0) >= 4
+    assert stamp_warns[0].context.get("removed_ratio", 0) > 0
+
+
+@pytest.mark.performance
+def test_bug_O13_stamp_removal_performance_a4() -> None:
+    """O13: Benchmark stamp removal on A4 @ 200 DPI under 100 ms."""
+    cv2 = pytest.importorskip("cv2")
+    import time
+
+    # A4 @ 200 DPI: 2338 x 1654
+    h, w = 2338, 1654
+    img = np.full((h, w, 3), 255, dtype=np.uint8)
+    cv2.circle(img, (400, 500), 100, (220, 30, 30), 5)
+    cv2.circle(img, (1200, 500), 100, (30, 80, 220), 5)
+    cv2.circle(img, (400, 1500), 100, (150, 40, 200), 5)
+    cv2.circle(img, (1200, 1500), 100, (230, 140, 160), 5)
+    cv2.circle(img, (800, 2000), 100, (15, 30, 100), 5)
+
+    # Warmup
+    remove_stamp_artifacts(img)
+
+    t0 = time.perf_counter()
+    remove_stamp_artifacts(img)
+    dt_ms = (time.perf_counter() - t0) * 1000
+    assert dt_ms < 100.0, f"A4 stamp removal took {dt_ms:.1f}ms, expected < 100ms"

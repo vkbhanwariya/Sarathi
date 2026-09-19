@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Protocol, Sequence, runtime_checkable
 
 
 def deskew_image(image_arr: Any) -> tuple[Any, float]:
@@ -120,8 +120,166 @@ def apply_clahe(image_arr: Any, clip_limit: float = 2.0, tile_grid_size: tuple[i
         return image_arr
 
 
+@dataclass(frozen=True)
+class StampRegion:
+    """Detected stamp bounding box and dominant RGB color."""
+
+    bbox: list[int]  # [x0, y0, x1, y1]
+    dominant_rgb: list[int]
+
+
+@dataclass(frozen=True)
+class StampDetection:
+    """Outcome of stamp detection."""
+
+    mask: Any  # np.ndarray uint8 (H, W), 255 where stamp should be removed, 0 elsewhere
+    regions: tuple[StampRegion, ...]
+    removed_ratio: float
+
+
+@runtime_checkable
+class StampDetector(Protocol):
+    """Protocol for pluggable stamp detection implementations."""
+
+    def detect_stamps(
+        self,
+        image_rgb: Any,
+        chroma_thr: float = 38.0,
+        min_side_frac: float = 0.045,
+        close_frac: float = 0.018,
+        work_scale: float = 0.5,
+        pad_frac: float = 0.006,
+    ) -> StampDetection: ...
+
+
+def detect_stamps(
+    image_rgb: Any,
+    chroma_thr: float = 38.0,
+    min_side_frac: float = 0.045,
+    close_frac: float = 0.018,
+    work_scale: float = 0.5,
+    pad_frac: float = 0.006,
+) -> StampDetection:
+    """Detect colored stamp artifacts across any hue using chroma and morphological filtering."""
+    try:
+        import cv2
+        import numpy as np
+
+        if not isinstance(image_rgb, np.ndarray) or len(image_rgb.shape) != 3 or image_rgb.size == 0:
+            h, w = (
+                image_rgb.shape[:2]
+                if isinstance(image_rgb, np.ndarray) and len(image_rgb.shape) >= 2
+                else (0, 0)
+            )
+            return StampDetection(mask=np.zeros((h, w), dtype=np.uint8), regions=(), removed_ratio=0.0)
+
+        h, w = image_rgb.shape[:2]
+        empty_mask = np.zeros((h, w), dtype=np.uint8)
+
+        # 1. Downscale image for fast candidate detection
+        work_w = max(1, int(w * work_scale))
+        work_h = max(1, int(h * work_scale))
+        small_img = cv2.resize(image_rgb, (work_w, work_h), interpolation=cv2.INTER_AREA)
+
+        # Chroma = max(R,G,B) - min(R,G,B) on downscaled planes
+        sr, sg, sb = cv2.split(small_img)
+        s_max = cv2.max(cv2.max(sr, sg), sb)
+        s_min = cv2.min(cv2.min(sr, sg), sb)
+        s_chroma = cv2.subtract(s_max, s_min)
+
+        # Make threshold relative to paper background
+        s_gray = cv2.cvtColor(small_img, cv2.COLOR_RGB2GRAY)
+        bright_bg_mask = s_gray > 200
+        if np.count_nonzero(bright_bg_mask) > 100:
+            bg_chroma = float(np.median(s_chroma[bright_bg_mask]))
+        else:
+            bg_chroma = 0.0
+        effective_thr = max(18.0, chroma_thr + bg_chroma)
+        _, s_mask = cv2.threshold(s_chroma, int(effective_thr), 255, cv2.THRESH_BINARY)
+
+        if cv2.countNonZero(s_mask) < 20:
+            return StampDetection(mask=empty_mask, regions=(), removed_ratio=0.0)
+
+        # 2. Morphological closing to fuse stamp letters, rings, and dates
+        close_ksize = max(3, int(close_frac * work_w))
+        if close_ksize % 2 == 0:
+            close_ksize += 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_ksize, close_ksize))
+        closed = cv2.morphologyEx(s_mask, cv2.MORPH_CLOSE, kernel)
+
+        # 3. Connected components on closed downscaled mask
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(closed, connectivity=8)
+
+        min_side_thr = min_side_frac * w
+        pad = max(2, int(pad_frac * w))
+
+        kept_regions: list[StampRegion] = []
+        final_mask = np.zeros((h, w), dtype=np.uint8)
+        dk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+
+        for i in range(1, num_labels):
+            x, y, comp_w, comp_h, area = stats[i]
+            x0 = int(x / work_scale)
+            y0 = int(y / work_scale)
+            x1 = int((x + comp_w) / work_scale)
+            y1 = int((y + comp_h) / work_scale)
+
+            box_w = x1 - x0
+            box_h = y1 - y0
+            min_side = min(box_w, box_h)
+
+            if min_side < min_side_thr:
+                continue
+
+            if box_w * box_h > 0.8 * w * h:
+                continue
+
+            rx0 = max(0, x0 - pad)
+            ry0 = max(0, y0 - pad)
+            rx1 = min(w, x1 + pad)
+            ry1 = min(h, y1 + pad)
+
+            # Refine at full resolution inside stamp candidate region only
+            crop = image_rgb[ry0:ry1, rx0:rx1]
+            cr, cg, cb = cv2.split(crop)
+            c_max = cv2.max(cv2.max(cr, cg), cb)
+            c_min = cv2.min(cv2.min(cr, cg), cb)
+            c_chroma = cv2.subtract(c_max, c_min)
+            _, c_mask = cv2.threshold(c_chroma, int(effective_thr), 255, cv2.THRESH_BINARY)
+
+            c_mask = cv2.dilate(c_mask, dk, iterations=1)
+            c_gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
+            # Protect dark neutral text pixels (low intensity and low chroma)
+            c_mask[(c_gray < 60) & (c_chroma < 15)] = 0
+
+            final_mask[ry0:ry1, rx0:rx1] = np.maximum(final_mask[ry0:ry1, rx0:rx1], c_mask)
+
+            comp_chroma_pixels = c_mask > 0
+            if np.any(comp_chroma_pixels):
+                dom_rgb = [int(v) for v in np.median(crop[comp_chroma_pixels], axis=0)]
+            else:
+                dom_rgb = [0, 0, 0]
+
+            kept_regions.append(StampRegion(bbox=[rx0, ry0, rx1, ry1], dominant_rgb=dom_rgb))
+
+        if not kept_regions:
+            return StampDetection(mask=empty_mask, regions=(), removed_ratio=0.0)
+
+        removed_pixels = cv2.countNonZero(final_mask)
+        removed_ratio = float(removed_pixels) / float(h * w)
+
+        return StampDetection(mask=final_mask, regions=tuple(kept_regions), removed_ratio=removed_ratio)
+    except Exception:
+        h, w = (
+            image_rgb.shape[:2]
+            if isinstance(image_rgb, np.ndarray) and len(image_rgb.shape) >= 2
+            else (0, 0)
+        )
+        return StampDetection(mask=np.zeros((h, w), dtype=np.uint8), regions=(), removed_ratio=0.0)
+
+
 def remove_stamp_artifacts(image_arr: Any) -> Any:
-    """Inpaint colored official rubber stamps that occlude underlying text if cv2 is available."""
+    """Remove colored official rubber stamps using hue-agnostic detection and background fill."""
     try:
         import cv2
         import numpy as np
@@ -129,24 +287,25 @@ def remove_stamp_artifacts(image_arr: Any) -> Any:
         if not isinstance(image_arr, np.ndarray) or len(image_arr.shape) != 3 or image_arr.size == 0:
             return image_arr
 
-        hsv = cv2.cvtColor(image_arr, cv2.COLOR_RGB2HSV)
-        # Mask red and blue official rubber stamp pigments
-        lower_red1 = np.array([0, 70, 50])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([170, 70, 50])
-        upper_red2 = np.array([180, 255, 255])
-        mask_r1 = cv2.inRange(hsv, lower_red1, upper_red1)
-        mask_r2 = cv2.inRange(hsv, lower_red2, upper_red2)
-        stamp_mask = mask_r1 | mask_r2
+        detection = detect_stamps(image_arr)
+        if detection.removed_ratio == 0.0 or cv2.countNonZero(detection.mask) == 0:
+            return image_arr
 
-        if cv2.countNonZero(stamp_mask) > 100:
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            stamp_mask = cv2.dilate(stamp_mask, kernel, iterations=1)
-            return cv2.inpaint(image_arr, stamp_mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+        # Fast background estimation by subsampling document
+        sampled = image_arr[::8, ::8]
+        s_gray = cv2.cvtColor(sampled, cv2.COLOR_RGB2GRAY)
+        bright = s_gray > 180
+        if np.count_nonzero(bright) > 10:
+            bg_color = np.median(sampled[bright], axis=0).astype(np.uint8)
+        else:
+            bg_color = np.array([255, 255, 255], dtype=np.uint8)
 
-        return image_arr
+        out = image_arr.copy()
+        out[detection.mask > 0] = bg_color
+        return out
     except Exception:
         return image_arr
+
 
 
 def preprocess_ocr_image(

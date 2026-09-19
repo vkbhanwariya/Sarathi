@@ -231,7 +231,6 @@ class RapidOCREngine:
         is_lightweight = bool(custom_options.get("lightweight", False)) if custom_options else False
         preprocess_requested = custom_options.get("preprocess") if custom_options else None
         should_preprocess = (preprocess_requested is not False) and not is_lightweight
-        applied_stamp_removal = False
 
         is_instant = profile == ExecutionProfile.INSTANT and not (
             custom_options and custom_options.get("preserve_layout")
@@ -250,16 +249,39 @@ class RapidOCREngine:
                 else:
                     clahe = is_low_contrast_image(img_arr)
 
-            remove_stamps = (
-                bool(custom_options.get("remove_stamps", False) or custom_options.get("inpaint_stamps", False))
-                if custom_options
-                else False
-            )
+            raw_stamp_mode = custom_options.get("stamp_mode") if custom_options else None
+            if raw_stamp_mode is not None:
+                stamp_mode = str(raw_stamp_mode).lower().strip()
+            elif custom_options and (custom_options.get("remove_stamps") or custom_options.get("inpaint_stamps")):
+                stamp_mode = "remove"
+            else:
+                stamp_mode = "off"
 
-            if remove_stamps:
-                applied_stamp_removal = True
+            stamps_detected_regions: tuple[Any, ...] = ()
+            stamp_removal_applied = False
+            stamp_removed_ratio = 0.0
+            stamp_filled_arr: Any = None
 
-            img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=remove_stamps)
+            if stamp_mode in ("tag", "remove", "auto"):
+                from sarathi.shakti.ocr.engine.preprocessing import detect_stamps, remove_stamp_artifacts
+
+                detection = detect_stamps(img_arr)
+                stamps_detected_regions = detection.regions
+                if detection.removed_ratio > 0.0:
+                    stamp_filled_arr = remove_stamp_artifacts(img_arr)
+                    if stamp_mode == "remove":
+                        img_arr = stamp_filled_arr
+                        stamp_removal_applied = True
+                        stamp_removed_ratio = detection.removed_ratio
+
+            img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=False)
+
+        else:
+            stamp_mode = "off"
+            stamps_detected_regions = ()
+            stamp_removal_applied = False
+            stamp_removed_ratio = 0.0
+            stamp_filled_arr = None
 
         is_binarized = False
         if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
@@ -419,12 +441,16 @@ class RapidOCREngine:
                         context={"rotation_applied": rotation_applied},
                     )
                 )
-            if applied_stamp_removal:
+            if stamp_removal_applied:
                 warnings.append(
                     WarningRecord(
-                        code="EXPERIMENTAL_STAMP_REMOVAL",
-                        message="Experimental stamp inpainting applied; visual fidelity altered.",
+                        code="STAMP_REMOVAL_APPLIED",
+                        message=f"Removed official stamp artifacts (coverage: {stamp_removed_ratio*100:.2f}%).",
                         stage=STAGE_NAME,
+                        context={
+                            "stamp_count": len(stamps_detected_regions),
+                            "removed_ratio": round(stamp_removed_ratio, 4),
+                        },
                     )
                 )
 
@@ -478,7 +504,15 @@ class RapidOCREngine:
                                 continue
 
                             retry_count += 1
-                            crop = img_arr[cy0:cy1, cx0:cx1]
+                            if stamp_mode == "auto" and stamp_filled_arr is not None:
+                                overlap_stamp = any(
+                                    not (cx1 < r.bbox[0] or cx0 > r.bbox[2] or cy1 < r.bbox[1] or cy0 > r.bbox[3])
+                                    for r in stamps_detected_regions
+                                )
+                                source_crop_img = stamp_filled_arr if overlap_stamp else img_arr
+                            else:
+                                source_crop_img = img_arr
+                            crop = source_crop_img[cy0:cy1, cx0:cx1]
 
                             # Adaptive enhancement on crop: contrast boost / CLAHE if low contrast
                             if is_low_contrast_image(crop, std_threshold=45.0):
@@ -710,6 +744,11 @@ class RapidOCREngine:
         }
         if page_confidence is not None:
             metadata["confidence"] = page_confidence.score
+        if stamp_mode != "off":
+            metadata["stamps"] = [
+                {"bbox": list(r.bbox), "dominant_rgb": list(r.dominant_rgb)}
+                for r in stamps_detected_regions
+            ]
 
         evidence_dict: dict[str, Any] = {
             "score_kind": "raw_engine",

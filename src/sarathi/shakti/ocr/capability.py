@@ -128,6 +128,7 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
         "english_numbers_only",
         "remove_stamps",
         "inpaint_stamps",
+        "stamp_mode",
         "retry_enabled",
         "retry_threshold",
         "critical_retry_threshold",
