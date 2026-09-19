@@ -40,8 +40,8 @@ from sarathi.shakti.docx_exporter.styles import (
     _is_complex_script_char,
     resolve_neutral_ooxml_font,
 )
-from sarathi.shakti.native_extraction.safe_zip import open_zip_safely, safe_fromstring
 from sarathi.shakti.text.legacy_detection import _KNOWN_MODERN_FONTS
+from sarathi.shakti.text.safe_zip import open_zip_safely, safe_fromstring
 from sarathi.shakti.text.typography import contains_devanagari
 
 
@@ -567,7 +567,7 @@ def _classify_run_font(
         return None, "modern"
 
     try:
-        from sarathi.shakti.font_conversion.detector import resolve_profile_from_font_name
+        from sarathi.shakti.text.legacy_fonts import resolve_profile_from_font_name
 
         return resolve_profile_from_font_name(font_name, profiles)  # type: ignore[arg-type]
     except Exception:
@@ -643,7 +643,12 @@ def get_default_profiles() -> Mapping[str, Any]:
             return _DEFAULT_PROFILES_LOADER()
         except Exception:
             pass
-    return _load_neutral_font_profiles()
+    from sarathi.shakti.text.legacy_fonts import load_font_profiles
+
+    try:
+        return load_font_profiles()
+    except Exception:
+        return _load_neutral_font_profiles()
 
 
 def _transform_xml_tree(

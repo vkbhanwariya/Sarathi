@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from sarathi.sankalpa import CanonicalDocument, ProvenanceRecord, WarningRecord
+from sarathi.shakti.text.legacy_fonts import LegacyFontProfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,35 +106,6 @@ class ConversionPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyFontProfile:
-    """Configuration and mappings for a legacy font encoding profile."""
-
-    profile_id: str
-    family: str
-    name: str
-    aliases: tuple[str, ...]
-    prefixes: Mapping[str, str]
-    postfix_reph: str
-    reph_unicode: str
-    mappings: Mapping[str, str]
-    post_corrections: tuple[tuple[str, str], ...] = ()
-    schema_version: str = "1.0.0"
-    symbols: Mapping[str, str] = field(default_factory=dict)
-    reverse_preferred: Mapping[str, str] = field(default_factory=dict)
-    family_corrections: tuple[tuple[str, str], ...] = ()
-    detection_signatures: tuple[str, ...] = ()
-    negative_signatures: tuple[str, ...] = ()
-    canonicalization_rules: tuple[tuple[str, str], ...] = ()
-    context_rules: tuple[tuple[str, str], ...] = ()
-    preserve_ascii_digits: bool = True
-    cluster_pattern: str = ""
-    # Precompiled transducers
-    compiled_forward_regex: re.Pattern | None = None
-    compiled_reverse_regex: re.Pattern | None = None
-    compiled_reverse_map: Mapping[str, str] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
 class FontConversionResult:
     """Result of converting legacy-encoded text to canonical Unicode."""
 
@@ -163,3 +134,17 @@ class ConvertedDocumentResult:
     protected_spans_count: int
     warnings: tuple[WarningRecord, ...] = ()
     converter_fn: Any | None = None
+
+
+__all__ = [
+    "ConversionCandidate",
+    "ConversionDecision",
+    "ConversionMetrics",
+    "ConversionPlan",
+    "ConvertedDocumentResult",
+    "FontConversionResult",
+    "FontEvidence",
+    "LegacyFontProfile",
+    "LogicalRun",
+    "ProtectedSpan",
+]

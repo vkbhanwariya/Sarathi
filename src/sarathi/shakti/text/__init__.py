@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from sarathi.shakti.text.direction import NormalizedDirection, normalize_translation_direction
 from sarathi.shakti.text.legacy_detection import LegacyFontDetector, is_legacy_text
+from sarathi.shakti.text.legacy_fonts import (
+    LegacyFontProfile,
+    load_font_profiles,
+    resolve_profile_from_font_name,
+)
+from sarathi.shakti.text.safe_zip import SafeZipFile, open_zip_safely, safe_fromstring
 from sarathi.shakti.text.span_protection import BaseSpanProtector
 from sarathi.shakti.text.table import cell_text
 from sarathi.shakti.text.transliteration import (
@@ -28,14 +34,20 @@ __all__ = [
     "DEVANAGARI_RE",
     "ENGLISH_FONT",
     "LegacyFontDetector",
+    "LegacyFontProfile",
     "NormalizedDirection",
+    "SafeZipFile",
     "cell_text",
     "contains_devanagari",
     "is_legacy_text",
     "is_romanized_hindi",
+    "load_font_profiles",
     "normalize_size",
     "normalize_translation_direction",
+    "open_zip_safely",
     "output_font",
+    "resolve_profile_from_font_name",
+    "safe_fromstring",
     "transliterate_romanized_hindi",
     "transliterate_word",
 ]
