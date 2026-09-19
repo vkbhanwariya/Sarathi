@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+from xml.sax.saxutils import quoteattr
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -27,6 +28,7 @@ from sarathi.shakti.docx_exporter.constants import (
     _HINDI_FONT,
     _NON_DELETABLE_RUN_CHILDREN,
     _W_NS,
+    sanitize_xml_text,
 )
 from sarathi.shakti.docx_exporter.font_size_normalizer import (
     FontSizeAdjustment,
@@ -82,16 +84,16 @@ def _serialize_xml_preserving_namespaces(
     missing_xmlns = []
     for attr_name, uri in source_xmlns:
         if attr_name not in existing_xmlns_attrs:
-            missing_xmlns.append(f'{attr_name}="{uri}"')
+            missing_xmlns.append(f"{attr_name}={quoteattr(uri)}")
 
     if missing_xmlns:
         injection = (" " + " ".join(missing_xmlns)).encode("utf-8")
         root_end = ser_match.end() - 1
         if serialized[root_end - 1 : root_end] == b"/":
             root_end -= 1
-        return serialized[:root_end] + injection + serialized[root_end:]
+        serialized = serialized[:root_end] + injection + serialized[root_end:]
 
-    return serialized
+    return re.sub(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]", b"", serialized)
 
 
 def transform_docx_artifact(
@@ -349,9 +351,22 @@ def _reconstruct_translated_paragraph(
         if len(new_rpr) > 0 or new_rpr.attrib:
             new_r.append(new_rpr)
 
-        new_t = ET.SubElement(new_r, t_tag)
-        new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
-        new_t.text = clean_chunk
+        sanitized_chunk = sanitize_xml_text(clean_chunk, preserve_form_feed=True)
+        if "\x0c" in sanitized_chunk:
+            ff_parts = sanitized_chunk.split("\x0c")
+            for ff_idx, ff_part in enumerate(ff_parts):
+                if ff_idx > 0:
+                    br_elem = ET.SubElement(new_r, f"{{{_W_NS}}}br")
+                    br_elem.attrib[f"{{{_W_NS}}}type"] = "page"
+                clean_part = sanitize_xml_text(ff_part)
+                if clean_part:
+                    new_t = ET.SubElement(new_r, t_tag)
+                    new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+                    new_t.text = clean_part
+        else:
+            new_t = ET.SubElement(new_r, t_tag)
+            new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
+            new_t.text = sanitized_chunk
         p.append(new_r)
 
     _merge_adjacent_compatible_runs(p)
@@ -794,7 +809,7 @@ def _transform_xml_tree(
                             style_resolver=style_resolver,
                             p=p,
                         )
-                    t_elems[0].text = chunk
+                    t_elems[0].text = sanitize_xml_text(chunk)
                     t_elems[0].attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
                     for extra_t in t_elems[1:]:
                         child.remove(extra_t)
@@ -816,7 +831,7 @@ def _transform_xml_tree(
                             style_resolver=style_resolver,
                             p=p,
                         )
-                    t_elems[0].text = chunk0
+                    t_elems[0].text = sanitize_xml_text(chunk0)
                     t_elems[0].attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
                     for extra_t in t_elems[1:]:
                         child.remove(extra_t)
@@ -842,7 +857,7 @@ def _transform_xml_tree(
                         new_r.append(new_rpr)
                         new_t = ET.Element(t_tag)
                         new_t.attrib["{http://www.w3.org/XML/1998/namespace}space"] = "preserve"
-                        new_t.text = chunk
+                        new_t.text = sanitize_xml_text(chunk)
                         new_r.append(new_t)
                         parent.insert(c_idx + offset, new_r)
 

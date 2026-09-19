@@ -6,7 +6,7 @@ import io
 import math
 import re
 import zipfile
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, quoteattr
 
 from sarathi.sankalpa import (
     ArtifactIntent,
@@ -20,6 +20,7 @@ from sarathi.shakti.docx_exporter.constants import (
     _DOCX_MIME_TYPE,
     _ENGLISH_FONT,
     _HINDI_FONT,
+    sanitize_xml_text,
 )
 from sarathi.shakti.docx_exporter.scripts import segment_text_by_script
 from sarathi.shakti.text import cell_text
@@ -40,7 +41,7 @@ def _format_run_xml(
     eff_cs_font = cs_font or font
     eff_cs_size = size_cs_half_pt if size_cs_half_pt is not None else size_half_pt
     props: list[str] = [
-        f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:cs="{eff_cs_font}"/>',
+        f'<w:rFonts w:ascii={quoteattr(font)} w:hAnsi={quoteattr(font)} w:cs={quoteattr(eff_cs_font)}/>',
         f'<w:sz w:val="{size_half_pt}"/>',
         f'<w:szCs w:val="{eff_cs_size}"/>',
     ]
@@ -51,8 +52,20 @@ def _format_run_xml(
     if shadow:
         props.append("<w:shadow/>")
 
-    escaped_text = escape(text)
-    return f'<w:r><w:rPr>{"".join(props)}</w:rPr><w:t xml:space="preserve">{escaped_text}</w:t></w:r>'
+    sanitized = sanitize_xml_text(text, preserve_form_feed=True)
+    if "\x0c" in sanitized:
+        parts = sanitized.split("\x0c")
+        t_elements: list[str] = []
+        for idx, part in enumerate(parts):
+            if idx > 0:
+                t_elements.append('<w:br w:type="page"/>')
+            if part:
+                t_elements.append(f'<w:t xml:space="preserve">{escape(part)}</w:t>')
+        inner_xml = "".join(t_elements) if t_elements else '<w:t xml:space="preserve"></w:t>'
+    else:
+        inner_xml = f'<w:t xml:space="preserve">{escape(sanitized)}</w:t>'
+
+    return f'<w:r><w:rPr>{"".join(props)}</w:rPr>{inner_xml}</w:r>'
 
 
 def _format_paragraph_xml(

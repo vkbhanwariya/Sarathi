@@ -958,3 +958,50 @@ def test_bug_O5_literal_none_in_tables() -> None:
                 assert cell is not None, f"Expected cell to not be None, got {row}"
                 assert cell != "None", f"Expected cell to not be 'None', got {row}"
         assert extracted_tbl.rows == (("a", ""), ("", "b"))
+
+
+def test_bug_O6_docx_xml_control_characters() -> None:
+    """O6: Control characters in text must be sanitized/converted, producing valid parseable OpenXML."""
+    import io
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    from sarathi.sankalpa import CanonicalDocument, PageData
+    from sarathi.shakti.docx_exporter.builder import build_docx_payload
+    from sarathi.shakti.docx_exporter.transformer import transform_docx_translation_artifact
+
+    bad_text = "Hello\x00World\x08Test\x0bBreak\x0cNext\x1fEnd"
+    page = PageData(page_number=1, text=bad_text)
+    doc = CanonicalDocument(document_id="doc_ctrl_chars", pages=(page,), text=bad_text)
+
+    # 1. build_docx_payload must produce valid, parseable XML without invalid control chars
+    payload = build_docx_payload(doc, "control_chars.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+
+    # Document XML must be well-formed and parseable by standard XML parser
+    tree = ET.fromstring(doc_xml)
+    assert tree is not None
+
+    for bad_char in ["\x00", "\x08", "\x0b", "\x1f"]:
+        assert bad_char not in doc_xml, f"Found invalid control char {repr(bad_char)} in document.xml"
+
+    # \x0c should be converted into page break or stripped, never present as literal \x0c
+    assert "\x0c" not in doc_xml
+
+    # 2. transform_docx_translation_artifact with control chars in translation must also be sanitized
+    def mock_bad_translate(texts: list[str]) -> list[str]:
+        return [f"Translated_{bad_text}_{t}" for t in texts]
+
+    transformed_payload = transform_docx_translation_artifact(
+        input_bytes=payload.content,
+        translate_fn=mock_bad_translate,
+        filename="transformed_ctrl.docx",
+    )
+    with zipfile.ZipFile(io.BytesIO(transformed_payload.content), "r") as zf:
+        trans_doc_xml = zf.read("word/document.xml").decode("utf-8")
+
+    trans_tree = ET.fromstring(trans_doc_xml)
+    assert trans_tree is not None
+    for bad_char in ["\x00", "\x08", "\x0b", "\x0c", "\x1f"]:
+        assert bad_char not in trans_doc_xml, f"Found invalid char {repr(bad_char)} in transformed XML"

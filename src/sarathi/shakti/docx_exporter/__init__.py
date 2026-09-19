@@ -23,6 +23,7 @@ from sarathi.shakti.docx_exporter.constants import (
     _NON_DELETABLE_RUN_CHILDREN,
     _R_NS,
     _W_NS,
+    sanitize_xml_text,
 )
 from sarathi.shakti.docx_exporter.font_size_normalizer import (
     FontSizeAdjustment,
@@ -77,6 +78,7 @@ __all__ = [
     "register_default_profile_resolver",
     "register_default_profiles_loader",
     "resolve_neutral_ooxml_font",
+    "sanitize_xml_text",
     "segment_text_by_script",
     "transform_docx_artifact",
     "transform_docx_translation_artifact",
