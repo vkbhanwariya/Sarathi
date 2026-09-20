@@ -375,6 +375,7 @@ class ReviewItemView:
     issue_reason: str
     page_number: int | None = None
     source_input_id: str | None = None
+    source_bbox: tuple[float, float, float, float] | None = None
     confidence: float | None = None
     device_type: str = ""
     elapsed_ns: int = 0

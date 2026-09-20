@@ -729,6 +729,7 @@ class RapidOCREngine:
                                     "attempt_id": span.metadata.get("attempt_id", f"span-p{page_number}-{s_idx}"),
                                     "page_number": page_number,
                                     "input_id": input_id,
+                                    "bbox": list(span.bounding_box) if span.bounding_box else None,
                                     "is_review_item": True,
                                     "is_critical": is_crit,
                                     "criticality_type": crit_type.value if crit_type else None,

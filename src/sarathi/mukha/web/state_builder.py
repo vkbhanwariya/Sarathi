@@ -697,6 +697,7 @@ def build_application_view_state(
                 issue_reason=it.get("message", "Validation issue"),
                 page_number=it.get("context", {}).get("page_number"),
                 source_input_id=it.get("context", {}).get("input_id"),
+                source_bbox=tuple(it["context"]["bbox"]) if it.get("context", {}).get("bbox") else None,
                 status=it.get("status", "pending"),
                 draft_proposal=it.get("draft_proposal"),
                 available_actions=it.get("available_actions", ("accept", "unresolved")),

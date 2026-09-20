@@ -431,7 +431,16 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             page = int(request.query_params.get("page", "1"))
         except ValueError:
             page = 1
-        status, payload = await asyncio.to_thread(render_pdf_page, str(target), page)
+        clip_bbox = None
+        bbox_raw = request.query_params.get("bbox", "")
+        if bbox_raw:
+            try:
+                parts = [float(v) for v in bbox_raw.split(",")]
+                if len(parts) == 4:
+                    clip_bbox = (parts[0], parts[1], parts[2], parts[3])
+            except (ValueError, TypeError):
+                pass
+        status, payload = await asyncio.to_thread(render_pdf_page, str(target), page, clip_bbox)
         return _json(status, payload)
 
     async def artifact_preview(request: Request) -> Response:

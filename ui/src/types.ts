@@ -136,6 +136,7 @@ export interface ReviewItemView {
   issue_reason: string;
   page_number: number | null;
   source_input_id: string | null;
+  source_bbox: [number, number, number, number] | null;
   confidence: number | null;
   device_type: string;
   elapsed_ns: number;

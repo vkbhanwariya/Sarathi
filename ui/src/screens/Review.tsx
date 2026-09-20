@@ -75,7 +75,10 @@ export function Review({
     let cancelled = false;
     setSourcePageLoading(true);
     setSourcePageImageUrl(null);
-    const url = `/api/inputs/${encodeURIComponent(item.source_input_id)}/pdf_page?page=${item.page_number}`;
+    let url = `/api/inputs/${encodeURIComponent(item.source_input_id)}/pdf_page?page=${item.page_number}`;
+    if (item.source_bbox) {
+      url += `&bbox=${item.source_bbox.join(",")}`;
+    }
     fetch(url, { headers: { Accept: "application/json" } })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load page"))))
       .then((data: any) => {

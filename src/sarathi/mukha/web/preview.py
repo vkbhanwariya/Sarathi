@@ -181,8 +181,16 @@ def build_document_preview(path_str: str) -> tuple[int, dict[str, Any]]:
     }
 
 
-def render_pdf_page(path_str: str, page_number: int) -> tuple[int, dict[str, Any]]:
-    """Render a specific 1-indexed page of a PDF file to base64 PNG and extract text."""
+def render_pdf_page(
+    path_str: str,
+    page_number: int,
+    clip_bbox: tuple[float, float, float, float] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """Render a specific 1-indexed page of a PDF file to base64 PNG and extract text.
+
+    If *clip_bbox* is provided as (x0, y0, x1, y1) in PDF points, the render is
+    clipped to that region with 40-pt padding, producing a focused crop.
+    """
     if ".." in path_str and ("../" in path_str or "..\\" in path_str):
         return 400, {"ok": False, "error": "Directory traversal detected."}
 
@@ -201,7 +209,23 @@ def render_pdf_page(path_str: str, page_number: int) -> tuple[int, dict[str, Any
 
         page_idx = max(0, min(page_number - 1, page_count - 1))
         page = doc.load_page(page_idx)
-        pix = page.get_pixmap(dpi=120)
+
+        clip_rect = None
+        if clip_bbox and len(clip_bbox) == 4:
+            padding = 40  # PDF points (~0.55 inch)
+            page_rect = page.rect
+            clip_rect = pymupdf.Rect(
+                max(page_rect.x0, clip_bbox[0] - padding),
+                max(page_rect.y0, clip_bbox[1] - padding),
+                min(page_rect.x1, clip_bbox[2] + padding),
+                min(page_rect.y1, clip_bbox[3] + padding),
+            )
+
+        if clip_rect and not clip_rect.is_empty:
+            pix = page.get_pixmap(dpi=150, clip=clip_rect)
+        else:
+            pix = page.get_pixmap(dpi=120)
+
         b64_page = base64.b64encode(pix.tobytes("png")).decode("ascii")
         text_snippet = page.get_text()[:6000]
         doc.close()
