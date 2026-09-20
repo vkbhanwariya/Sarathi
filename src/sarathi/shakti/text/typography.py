@@ -86,6 +86,13 @@ def reconstruct_line_from_spans(
 _DEVA_NUMERALS = str.maketrans("०१२३४५६७८९", "0123456789")
 
 
+def normalize_devanagari_numerals(text: str) -> str:
+    """Convert Devanagari numerals (०-९) to standard ASCII/Arabic digits (0-9)."""
+    if not text or not isinstance(text, str):
+        return "" if text is None else text
+    return text.translate(_DEVA_NUMERALS)
+
+
 def normalize_header_template(text: str) -> str:
     """Normalize text into an invariant template for cross-page recurring header/footer matching.
 
@@ -219,6 +226,7 @@ __all__ = [
     "contains_devanagari",
     "detect_running_headers_footers",
     "heal_devanagari_matra_spacing",
+    "normalize_devanagari_numerals",
     "normalize_header_template",
     "normalize_size",
     "normalize_text_spacing",

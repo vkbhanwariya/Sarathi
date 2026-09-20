@@ -199,9 +199,16 @@ def test_weak_crop_retry_devanagari_digit_guard() -> None:
 
     engine._engine = mock_preserve
     p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
-    assert p_data.spans[0].text == "रकम १००"
+    assert p_data.spans[0].text == "रकम 100"
     assert p_data.spans[0].confidence == 0.95
     assert p_data.spans[0].metadata.get("retry_applied") is True
+
+    # Verify that disabling normalize_digits retains raw Devanagari numerals
+    p_data_raw, _, _, _ = engine.ocr_page(
+        img, 1, "in-1", profile=ExecutionProfile.ACCURATE, custom_options={"normalize_digits": False}
+    )
+    assert p_data_raw.spans[0].text == "रकम १००"
+    assert p_data_raw.spans[0].confidence == 0.95
 
 
 def test_weak_crop_retry_concurrency_guards_infer_request() -> None:

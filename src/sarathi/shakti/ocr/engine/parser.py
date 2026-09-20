@@ -14,6 +14,7 @@ from typing import Any
 
 from sarathi.sankalpa import TextSpan, WarningRecord
 from sarathi.shakti.ocr.engine.common import STAGE_NAME
+from sarathi.shakti.text.typography import normalize_devanagari_numerals
 
 _ALPHANUMERIC_FILTER_RE = re.compile(r"[^\x20-\x7E\u00C0-\u024F₹€£¥§°±×÷½¼¾©®™…\n\r\t•–—“”‘’]")
 _HAS_ENGLISH_OR_DIGIT_RE = re.compile(r"[A-Za-z0-9]")
@@ -128,6 +129,7 @@ def sort_reading_order_xycut(spans: list[TextSpan]) -> list[TextSpan]:
 def _parse_rapidocr_output(
     output: Any,
     filter_opt: bool = True,
+    normalize_digits: bool = True,
 ) -> tuple[list[str], list[TextSpan], list[float], list[WarningRecord], bool, bool]:
     """Parse raw RapidOCR engine output into validated text lines, spans, and warnings."""
     lines: list[str] = []
@@ -154,6 +156,8 @@ def _parse_rapidocr_output(
             if text_val is None:
                 continue
             norm_text = unicodedata.normalize("NFC", str(text_val or "").strip())
+            if normalize_digits:
+                norm_text = normalize_devanagari_numerals(norm_text)
             if filter_opt:
                 norm_text = filter_english_and_numbers(norm_text)
             if norm_text:

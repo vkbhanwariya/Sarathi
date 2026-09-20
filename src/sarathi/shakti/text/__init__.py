@@ -24,6 +24,7 @@ from sarathi.shakti.text.typography import (
     DEVANAGARI_RE,
     ENGLISH_FONT,
     contains_devanagari,
+    normalize_devanagari_numerals,
     normalize_size,
     output_font,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "is_usable_page",
     "lazy_exports",
     "load_font_profiles",
+    "normalize_devanagari_numerals",
     "normalize_size",
     "normalize_translation_direction",
     "open_zip_safely",

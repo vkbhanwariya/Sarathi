@@ -2236,3 +2236,83 @@ def test_bug_T3_type_error_cascades_ocr() -> None:
         engine.ocr_page(img, page_number=1, input_id="in-1")
 
     assert call_count == 1, f"Expected active_engine to be called exactly once, but was called {call_count} times"
+
+
+def test_devanagari_digit_normalization() -> None:
+    """Verify Devanagari numerals are normalized to ASCII/Arabic digits by default and preserved when opted out."""
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from sarathi.shakti.ocr.engine.coordinator import RapidOCREngine
+    from sarathi.shakti.ocr.engine.parser import _parse_rapidocr_output
+    from sarathi.shakti.text.typography import normalize_devanagari_numerals
+
+    # 1. Direct typography primitive
+    assert normalize_devanagari_numerals("०१२३४५६७८९") == "0123456789"
+    assert normalize_devanagari_numerals("पृष्ठ २३ (वर्ष २०२६)") == "पृष्ठ 23 (वर्ष 2026)"
+    assert normalize_devanagari_numerals("English 123 unaffected") == "English 123 unaffected"
+    assert normalize_devanagari_numerals("") == ""
+    assert normalize_devanagari_numerals(None) == ""
+
+    # 2. Output parser behavior
+    fake_out = SimpleNamespace(
+        txts=["पृष्ठ २३", "मूल्य रु ५००"],
+        boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]], [[0, 20], [10, 20], [10, 30], [0, 30]]],
+        scores=[0.95, 0.90],
+    )
+    # Default (normalize_digits=True, filter_opt=False)
+    lines, spans, _, _, _, _ = _parse_rapidocr_output(fake_out, filter_opt=False, normalize_digits=True)
+    assert lines == ["पृष्ठ 23", "मूल्य रु 500"]
+    assert spans[0].text == "पृष्ठ 23"
+    assert spans[1].text == "मूल्य रु 500"
+
+    # Opt-out (normalize_digits=False)
+    lines_raw, spans_raw, _, _, _, _ = _parse_rapidocr_output(fake_out, filter_opt=False, normalize_digits=False)
+    assert lines_raw == ["पृष्ठ २३", "मूल्य रु ५००"]
+    assert spans_raw[0].text == "पृष्ठ २३"
+    assert spans_raw[1].text == "मूल्य रु ५००"
+
+    # 3. Coordinator end-to-end page test
+    engine = RapidOCREngine()
+    mock_runner = MagicMock()
+    mock_runner.return_value = fake_out
+    engine._get_engine = MagicMock(return_value=mock_runner)
+
+    img = Image.new("RGB", (100, 100), color="white")
+    # Default: normalized
+    page_data, _, _, _ = engine.ocr_page(img, 1, "inp-1", profile=ExecutionProfile.ACCURATE)
+    assert "पृष्ठ 23" in page_data.text
+    assert "मूल्य रु 500" in page_data.text
+
+    # Opt-out: preserved
+    page_data_opt_out, _, _, _ = engine.ocr_page(
+        img, 1, "inp-1", profile=ExecutionProfile.CUSTOM, custom_options={"normalize_digits": False}
+    )
+    assert "पृष्ठ २३" in page_data_opt_out.text
+    assert "मूल्य रु ५००" in page_data_opt_out.text
+
+
+def test_ocr_capability_normalize_digits_custom_option(context: ExecutionContext, tmp_path: Path) -> None:
+    """Verify OCRCapability validates normalize_digits in CUSTOM profile."""
+    from PIL import Image
+
+    from sarathi.shakti.ocr.capability import OCRCapability
+
+    img_path = tmp_path / "test.png"
+    Image.new("RGB", (10, 10), color="white").save(img_path)
+
+    cap = OCRCapability()
+
+    # Invalid non-boolean value rejected with FailureCode.VALIDATION_FAILED
+    req_invalid = Request(
+        request_id="req-invalid-norm",
+        requirement="ocr",
+        inputs=(InputRef(input_id="in-1", source_path=img_path, display_name="test.png", size_bytes=100),),
+        profile=ExecutionProfile.CUSTOM,
+        custom_options={"normalize_digits": "not-a-bool"},
+    )
+    with pytest.raises(DoshError) as exc_info:
+        cap.execute(req_invalid, context)
+    assert exc_info.value.code is FailureCode.VALIDATION_FAILED
+    assert "normalize_digits" in exc_info.value.message

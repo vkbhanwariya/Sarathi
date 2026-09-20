@@ -50,6 +50,7 @@ from sarathi.shakti.ocr.engine.preprocessing import (
     is_low_contrast_image,
 )
 from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
+from sarathi.shakti.text.typography import normalize_devanagari_numerals
 
 
 def _preprocess_page_image(
@@ -147,7 +148,8 @@ def _evaluate_page_orientation(
     active_engine: Any,
     use_cls_flag: bool,
     filter_opt: bool,
-    cancellation_token: CancellationToken | None,
+    normalize_digits: bool = True,
+    cancellation_token: CancellationToken | None = None,
 ) -> tuple[np.ndarray, Any, list[Any], list[TextSpan], list[float], tuple[WarningRecord, ...], int]:
     """Detect inverted or rotated page orientation, test candidate rotations, and adopt best orientation."""
     mean_conf = float(np.mean(conf_scores)) if conf_scores else 0.0
@@ -200,7 +202,9 @@ def _evaluate_page_orientation(
                 rotated_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
 
             rot_output = active_engine(rotated_arr, use_det=True, use_cls=use_cls_flag)
-            r_lines, r_spans, r_confs, r_warns, _, _ = _parse_rapidocr_output(rot_output, filter_opt=filter_opt)
+            r_lines, r_spans, r_confs, r_warns, _, _ = _parse_rapidocr_output(
+                rot_output, filter_opt=filter_opt, normalize_digits=normalize_digits
+            )
             r_mean = float(np.mean(r_confs)) if r_confs else 0.0
             r_chars = sum(len(s.text) for s in r_spans)
             candidates.append(
@@ -458,8 +462,14 @@ class RapidOCREngine:
             else:
                 filter_opt = custom_options.get("english_numbers_only", False) if custom_options else False
 
+            normalize_digits = (
+                bool(custom_options.get("normalize_digits", True))
+                if custom_options and "normalize_digits" in custom_options
+                else True
+            )
+
             lines, spans, conf_scores, parse_warnings, has_invalid_confidence, has_invalid_geometry = (
-                _parse_rapidocr_output(output, filter_opt=filter_opt)
+                _parse_rapidocr_output(output, filter_opt=filter_opt, normalize_digits=normalize_digits)
             )
 
             (
@@ -481,6 +491,7 @@ class RapidOCREngine:
                 active_engine=active_engine,
                 use_cls_flag=use_cls_flag,
                 filter_opt=filter_opt,
+                normalize_digits=normalize_digits,
                 cancellation_token=cancellation_token,
             )
 
@@ -631,6 +642,8 @@ class RapidOCREngine:
                         r_text, r_conf = res
                         if not r_text:
                             continue
+                        if normalize_digits:
+                            r_text = normalize_devanagari_numerals(r_text)
 
                         # Numeric & token preservation check: digits must not be corrupted
                         orig_digits = re.findall(r"\d+", span.text.translate(deva_to_ascii))

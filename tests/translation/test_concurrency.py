@@ -289,8 +289,8 @@ def test_translation_concurrent_cancellation_honored() -> None:
 
 
 @pytest.mark.real_model
-def test_ctranslate2_concurrency_cache_key_differentiates_profiles() -> None:
-    """Verify that backend translator cache keys separate different concurrency levels."""
+def test_ctranslate2_concurrency_cache_key_reuses_model_instance() -> None:
+    """Verify backend translator cache reuses model instances across differing concurrency profiles to prevent duplicate allocations."""
     from sarathi.sankalpa import DeviceType, ExecutionBinding
     from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 
@@ -322,10 +322,13 @@ def test_ctranslate2_concurrency_cache_key_differentiates_profiles() -> None:
     # Run multi-stream translation
     backend.translate_sentences(["Hello world"], TranslationDirection.EN_TO_HI, execution_binding=b4)
 
-    # Translators map should have distinct entries for different concurrency profiles
+    # Invariant in Vedas/Capabilities.md: Model instances are cached strictly by
+    # (engine, model_path, device, device_index) to prevent duplicate allocations across differing concurrency configurations.
     keys = list(backend._translators.keys())
-    assert any(":1:" in k for k in keys), f"Expected 1-thread entry in {keys}"
-    assert any(":4:" in k for k in keys), f"Expected 4-thread entry in {keys}"
+    assert len(keys) == 1, f"Expected 1 shared translator instance, got {len(keys)}: {keys}"
+    assert "indictrans2" in keys[0]
+    assert "en-hi" in keys[0]
+    assert "cpu:0" in keys[0]
 
 
 @pytest.mark.real_model

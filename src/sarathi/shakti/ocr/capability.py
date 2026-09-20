@@ -124,6 +124,7 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
         "force_ocr",
         "export_json",
         "checkpoint_cache_enabled",
+        "normalize_digits",
     }
 )
 _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {

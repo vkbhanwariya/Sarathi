@@ -89,6 +89,15 @@ export function IntakeDropzone({
           Add
         </button>
       </div>
+
+      {/* Supported Format Badges */}
+      <div class="supported-formats-pills">
+        <span class="format-pill">PDF</span>
+        <span class="format-pill">DOCX</span>
+        <span class="format-pill">XLSX</span>
+        <span class="format-pill">CSV</span>
+        <span class="format-pill">IMAGES</span>
+      </div>
     </div>
   );
 }
