@@ -4,37 +4,74 @@ export type PrimaryTaskId =
   | "font_conversion"
   | "translation";
 
+export type ModuleId = "documents_handling" | "bank_statement_analysis";
+
+export interface ModuleDef {
+  id: ModuleId;
+  label: string;
+  icon: string;
+  description: string;
+  taskIds: readonly PrimaryTaskId[];
+}
+
+export const MODULES: readonly ModuleDef[] = [
+  {
+    id: "documents_handling",
+    label: "Documents Studio",
+    icon: "📁",
+    description: "Scan to Word, Font Standardizer for Word & Excel, Document Translation, PDF Tables",
+    taskIds: ["documents_extraction", "font_conversion", "translation"],
+  },
+  {
+    id: "bank_statement_analysis",
+    label: "Bank Statement Analysis",
+    icon: "🏦",
+    description: "Multi-bank statement consolidation, running balance verification & forensic analytics",
+    taskIds: ["bank_consolidation"],
+  },
+];
+
 export interface PrimaryTaskDef {
   id: PrimaryTaskId;
   label: string;
   icon: string;
   description: string;
+  moduleId: ModuleId;
+  badge?: string;
 }
 
 export const PRIMARY_TASKS: readonly PrimaryTaskDef[] = [
   {
     id: "documents_extraction",
-    label: "Documents Extraction",
+    label: "Scan to Word & Document Extraction",
     icon: "📄",
-    description: "Native extraction, local OCR, or cloud document AI",
-  },
-  {
-    id: "bank_consolidation",
-    label: "Bank Account Consolidation",
-    icon: "🏦",
-    description: "Financial table extraction & transaction reconciliation",
+    description: "Turn scanned PDFs/images into editable Word (.docx) or extract tables into Excel",
+    moduleId: "documents_handling",
+    badge: "Word & OCR",
   },
   {
     id: "font_conversion",
-    label: "Font Conversion",
+    label: "Font Standardizer (Word & Excel)",
     icon: "🔤",
-    description: "Legacy Hindi typewriter font to/from Unicode conversion",
+    description: "Convert legacy Kruti Dev / Devlys to clean Unicode in Word (.docx) and Excel (.xlsx)",
+    moduleId: "documents_handling",
+    badge: "Unicode",
   },
   {
     id: "translation",
-    label: "Translation",
+    label: "Document Translation (Word, PDF & Excel)",
     icon: "🌐",
-    description: "Local neural or cloud translation between Hindi and English",
+    description: "Translate Word, PDF, or Excel sheets between Hindi and English with name protection",
+    moduleId: "documents_handling",
+    badge: "Hindi ↔ English",
+  },
+  {
+    id: "bank_consolidation",
+    label: "Bank Statement Consolidation & Audit",
+    icon: "🏦",
+    description: "Standardize multi-bank statements into a verified double-entry ledger & 1-page memo",
+    moduleId: "bank_statement_analysis",
+    badge: "Reconciler",
   },
 ];
 

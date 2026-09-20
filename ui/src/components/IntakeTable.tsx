@@ -1,3 +1,4 @@
+import { useState } from "preact/hooks";
 import { RefObject } from "preact";
 import { formatBytes } from "../formatters";
 import type { InputFilter, InputItemView } from "../types";
@@ -18,6 +19,7 @@ export interface IntakeTableProps {
   showGroupedSummary: boolean;
   selectAllRef: RefObject<HTMLInputElement>;
   isAllPagedChecked: boolean;
+  passwords?: Record<string, string>;
   onQueryChange: (query: string) => void;
   onFilterChange: (filter: InputFilter) => void;
   onSetShowAll: (show: boolean) => void;
@@ -28,6 +30,7 @@ export interface IntakeTableProps {
   onClearChecked: () => void;
   onPreview: (pathOrUrl: string, displayName: string) => void;
   onRemoveItem: (item: InputItemView) => void;
+  onSetPassword?: (pathOrName: string, pass: string, applyToAll: boolean) => void;
 }
 
 export function IntakeTable({
@@ -46,6 +49,7 @@ export function IntakeTable({
   showGroupedSummary,
   selectAllRef,
   isAllPagedChecked,
+  passwords = {},
   onQueryChange,
   onFilterChange,
   onSetShowAll,
@@ -56,9 +60,13 @@ export function IntakeTable({
   onClearChecked,
   onPreview,
   onRemoveItem,
+  onSetPassword,
 }: IntakeTableProps) {
   const pageSize = 10;
   const currentPage = Math.min(page, pageCount);
+  const [passwordModalItem, setPasswordModalItem] = useState<string | null>(null);
+  const [passInput, setPassInput] = useState<string>("");
+  const [applyToAll, setApplyToAll] = useState<boolean>(true);
 
   return (
     <div class="intake-table-section">
@@ -114,6 +122,45 @@ export function IntakeTable({
           View All ({visibleItems.length} files)
         </button>
       </div>
+
+      {/* Inline Password Modal / Box */}
+      {passwordModalItem && (
+        <div class="password-unlock-inline-box" style={{ padding: "10px 14px", margin: "8px 0", background: "rgba(99, 102, 241, 0.08)", border: "1px solid rgba(99, 102, 241, 0.3)", borderRadius: "8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "#818cf8" }}>
+              🔑 Unlock Encrypted PDF: {passwordModalItem}
+            </span>
+            <button class="button ghost mini" onClick={() => setPasswordModalItem(null)} type="button">✕</button>
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <input
+              type="password"
+              class="filter-search-input"
+              style={{ maxWidth: "240px", padding: "4px 8px", fontSize: "12px" }}
+              placeholder="Enter PDF password..."
+              value={passInput}
+              onInput={(e) => setPassInput(e.currentTarget.value)}
+            />
+            <label style={{ fontSize: "11px", display: "flex", alignItems: "center", gap: "4px", color: "var(--muted)" }}>
+              <input type="checkbox" checked={applyToAll} onChange={(e) => setApplyToAll(e.currentTarget.checked)} />
+              Apply to all locked PDFs
+            </label>
+            <button
+              class="button primary small"
+              onClick={() => {
+                if (onSetPassword) {
+                  onSetPassword(passwordModalItem, passInput, applyToAll);
+                }
+                setPasswordModalItem(null);
+                setPassInput("");
+              }}
+              type="button"
+            >
+              Save Password
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Intake Table */}
       <div class={`table-container input-table-container ${showGroupedSummary ? "hidden" : ""}`}>
@@ -171,6 +218,8 @@ export function IntakeTable({
               pagedItems.map((item) => {
                 const itemKey = item.source_path || item.display_name;
                 const isChecked = checkedPaths.has(itemKey);
+                const hasPassword = Boolean(passwords[itemKey] || passwords[item.display_name]);
+                const isPdf = item.display_name.toLowerCase().endsWith(".pdf");
                 return (
                   <tr key={item.input_id} data-path={itemKey}>
                     <td style="text-align: center;">
@@ -188,18 +237,38 @@ export function IntakeTable({
                       </div>
                     </td>
                     <td>
-                      {item.is_eligible ? (
-                        <span class="badge badge-emerald">Eligible</span>
-                      ) : (
-                        <button
-                          class="btn-issue-info badge badge-crimson"
-                          tabIndex={0}
-                          aria-label={`Issue: ${item.issue_reason || "Ineligible document"}`}
-                          type="button"
-                        >
-                          {item.issue_reason || "Issue"}
-                        </button>
-                      )}
+                      <div style="display: flex; gap: 4px; align-items: center;">
+                        {item.is_eligible ? (
+                          <span class="badge badge-emerald">Eligible</span>
+                        ) : (
+                          <button
+                            class="btn-issue-info badge badge-crimson"
+                            tabIndex={0}
+                            aria-label={`Issue: ${item.issue_reason || "Ineligible document"}`}
+                            type="button"
+                          >
+                            {item.issue_reason || "Issue"}
+                          </button>
+                        )}
+                        {hasPassword ? (
+                          <span class="badge badge-cyan" title="Password configured for decryption" style={{ fontSize: "10px" }}>
+                            🔑 Unlocked
+                          </span>
+                        ) : isPdf ? (
+                          <button
+                            class="button ghost mini"
+                            onClick={() => {
+                              setPasswordModalItem(item.display_name);
+                              setPassInput(passwords[itemKey] || "");
+                            }}
+                            title="Set decryption password for this PDF"
+                            style={{ padding: "2px 6px", fontSize: "10px", color: "var(--muted)" }}
+                            type="button"
+                          >
+                            🔑 Password
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                     <td style="text-align: right;">
                       <div class="button-row compact" style="justify-content: flex-end;">

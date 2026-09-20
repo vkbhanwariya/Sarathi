@@ -8,6 +8,7 @@
 
 | Document | Topic |
 | --- | --- |
+| [`Purpose.md`](Purpose.md) | Authoritative operational purpose, dual-module architecture, and real-world workflows |
 | [`Architecture.md`](Architecture.md) | Canonical subsystem ownership, runtime flow, primary hardware profile, and invariants |
 | [`Capabilities.md`](Capabilities.md) | Capability specifications, inputs, outputs, fallbacks, and limitations |
 | [`Configuration.md`](Configuration.md) | Typed Sutra configuration keys, defaults, and cloud settings |

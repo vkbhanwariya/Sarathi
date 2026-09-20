@@ -299,12 +299,15 @@ def _process_page_chunk(
     total_pages: int,
     input_id: str,
     skip_header_footer: bool,
+    password: str | None = None,
 ) -> list[tuple[int, PageData, ProvenanceRecord, list[WarningRecord], list[TableData], str]]:
     """Worker task processing a sequence of pages with its own independent Document instance."""
     import pymupdf.layout as _pymupdf_layout  # noqa: F401
 
     with GLOBAL_PYMUPDF_LOCK:
         doc = pymupdf.open(stream=data, filetype="pdf")
+        if doc.is_encrypted and password:
+            doc.authenticate(password)
         results = []
         try:
             for p_idx in page_indices:
@@ -320,6 +323,7 @@ def read_pdf_with_layout(
     input_id: str,
     skip_header_footer: bool = False,
     convert_legacy_fonts: bool = True,
+    password: str | None = None,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract structured document content using GNN page layout analysis.
 
@@ -332,6 +336,8 @@ def read_pdf_with_layout(
 
     with GLOBAL_PYMUPDF_LOCK:
         doc = pymupdf.open(stream=data, filetype="pdf")
+        if doc.is_encrypted and password:
+            doc.authenticate(password)
         try:
             total_pages = len(doc)
         finally:
@@ -354,6 +360,8 @@ def read_pdf_with_layout(
     if total_pages == 1:
         with GLOBAL_PYMUPDF_LOCK:
             doc = pymupdf.open(stream=data, filetype="pdf")
+            if doc.is_encrypted and password:
+                doc.authenticate(password)
             try:
                 raw_results = [_process_single_page(doc[0], 0, 1, input_id, skip_header_footer)]
             finally:
@@ -374,6 +382,7 @@ def read_pdf_with_layout(
                     total_pages,
                     input_id,
                     skip_header_footer,
+                    password,
                 )
                 for chunk in active_chunks
             ]

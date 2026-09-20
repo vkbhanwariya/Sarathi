@@ -29,7 +29,7 @@ def _render_clamped_pixmap(
     return page.get_pixmap(dpi=dpi)
 
 
-def get_page_count_from_bytes(data: bytes) -> int:
+def get_page_count_from_bytes(data: bytes, password: str | None = None) -> int:
     """Return total number of pages in PDF or frames in image without rasterizing."""
     if not data:
         return 0
@@ -39,6 +39,11 @@ def get_page_count_from_bytes(data: bytes) -> int:
 
             with _PYMUPDF_LOCK:
                 doc = pymupdf.open(stream=data, filetype="pdf")
+                if doc.is_encrypted:
+                    if password:
+                        doc.authenticate(password)
+                    if doc.is_encrypted:
+                        return 0
                 try:
                     return len(doc)
                 finally:
@@ -65,6 +70,7 @@ def extract_single_page_image(
     dpi: int = 200,
     cancellation_token: Any | None = None,
     max_dimension: int = DEFAULT_MAX_PIXMAP_DIMENSION,
+    password: str | None = None,
 ) -> Any | None:
     """Extract and rasterize a single page (1-indexed) without rasterizing any other pages."""
     if cancellation_token is not None:
@@ -78,6 +84,11 @@ def extract_single_page_image(
         with _PYMUPDF_LOCK:
             try:
                 doc = pymupdf.open(stream=data, filetype="pdf")
+                if doc.is_encrypted:
+                    if password:
+                        doc.authenticate(password)
+                    if doc.is_encrypted:
+                        return None
                 total_pages = len(doc)
             except (pymupdf.FileDataError, pymupdf.EmptyFileError, ValueError):
                 return None
@@ -117,6 +128,7 @@ def iter_images_from_bytes(
     cancellation_token: Any | None = None,
     skip_pages: set[int] | None = None,
     max_dimension: int = DEFAULT_MAX_PIXMAP_DIMENSION,
+    password: str | None = None,
 ) -> Iterator[Any]:
     """Yield PIL RGB images page-by-page from input bytes (PDF or Image) with cooperative cancellation."""
     import pymupdf
@@ -128,6 +140,11 @@ def iter_images_from_bytes(
         with _PYMUPDF_LOCK:
             try:
                 doc = pymupdf.open(stream=data, filetype="pdf")
+                if doc.is_encrypted:
+                    if password:
+                        doc.authenticate(password)
+                    if doc.is_encrypted:
+                        return
                 num_pages = len(doc)
             except (pymupdf.FileDataError, pymupdf.EmptyFileError, ValueError):
                 return
@@ -209,12 +226,14 @@ class BoundedPageRasterizer:
         dpi: int = 200,
         max_buffered: int = 6,
         cancellation_token: Any | None = None,
+        password: str | None = None,
     ) -> None:
         self._data = data
         self._pages = pages
         self._dpi = dpi
         self._max_buffered = max(1, max_buffered)
         self._cancellation_token = cancellation_token
+        self._password = password
 
         self._ready_pages: dict[int, Any] = {}
         self._errors: dict[int, Exception] = {}
@@ -280,7 +299,7 @@ class BoundedPageRasterizer:
             if not self._data:
                 return
 
-            total_pages = get_page_count_from_bytes(self._data)
+            total_pages = get_page_count_from_bytes(self._data, password=self._password)
             skip_pages: set[int] | None = None
             if self._pages is not None:
                 needed_set = set(self._pages)
@@ -291,6 +310,7 @@ class BoundedPageRasterizer:
                 dpi=self._dpi,
                 cancellation_token=self._cancellation_token,
                 skip_pages=skip_pages,
+                password=self._password,
             )
 
             for page_idx, img in enumerate(page_iter, start=1):

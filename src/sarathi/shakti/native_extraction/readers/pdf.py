@@ -348,6 +348,7 @@ def read_pdf(
     skip_header_footer: bool = False,
     use_layout: bool = False,
     convert_legacy_fonts: bool = True,
+    password: str | None = None,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract full text, pages, rich text spans, and tables from a native PDF document."""
     fallback_warning: WarningRecord | None = None
@@ -364,6 +365,7 @@ def read_pdf(
                     input_id,
                     skip_header_footer=skip_header_footer,
                     convert_legacy_fonts=convert_legacy_fonts,
+                    password=password,
                 )
 
             fallback_warning = WarningRecord(
@@ -395,6 +397,38 @@ def read_pdf(
     GLOBAL_PYMUPDF_LOCK.acquire()
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
+        if doc.is_encrypted:
+            if password:
+                auth_success = bool(doc.authenticate(password))
+                if not auth_success:
+                    warnings.append(
+                        WarningRecord(
+                            code="PDF_AUTHENTICATION_FAILED",
+                            message=f"Provided password failed to decrypt PDF for input {input_id}.",
+                            stage=CAPABILITY_ID,
+                        )
+                    )
+            else:
+                warnings.append(
+                    WarningRecord(
+                        code="PDF_PASSWORD_REQUIRED",
+                        message=f"PDF document {input_id} is password protected but no password was provided.",
+                        stage=CAPABILITY_ID,
+                    )
+                )
+            if doc.is_encrypted:
+                return (
+                    CanonicalDocument(
+                        document_id=f"doc-{input_id}",
+                        source_input_id=input_id,
+                        pages=(),
+                        tables=(),
+                        text="",
+                        detected_type="pdf",
+                    ),
+                    tuple(provenances),
+                    tuple(warnings),
+                )
         total_pages = len(doc)
         page_heights: list[float] = []
         doc_font_map = _resolve_pdf_font_names(doc)

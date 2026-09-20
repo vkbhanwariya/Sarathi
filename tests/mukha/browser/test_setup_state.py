@@ -22,13 +22,24 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     expect(app_page.locator(".nav-tab[data-screen='home']")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#screen-home")).to_have_class(re.compile(r"\bactive\b"))
 
-    # Verify exactly 4 primary tasks are displayed in exact approved order
+    # Verify module tabs are displayed; Documents Studio active by default with 3 primary tasks
+    expect(app_page.locator("#btn-module-documents-handling")).to_be_visible()
+    expect(app_page.locator("#btn-module-bank-statement-analysis")).to_be_visible()
+
     task_tabs = app_page.locator(".primary-task-tab-btn")
-    expect(task_tabs).to_have_count(4)
+    expect(task_tabs).to_have_count(3)
     expect(app_page.locator("#btn-task-documents-extraction")).to_be_visible()
-    expect(app_page.locator("#btn-task-bank-consolidation")).to_be_visible()
     expect(app_page.locator("#btn-task-font-conversion")).to_be_visible()
     expect(app_page.locator("#btn-task-translation")).to_be_visible()
+
+    # Statement Analysis module displays bank consolidation
+    app_page.locator("#btn-module-bank-statement-analysis").click()
+    expect(app_page.locator(".primary-task-tab-btn")).to_have_count(1)
+    expect(app_page.locator("#btn-task-bank-consolidation")).to_be_visible()
+
+    # Switch back to Documents Studio
+    app_page.locator("#btn-module-documents-handling").click()
+    expect(task_tabs).to_have_count(3)
 
     # On home screen, only level 1 selection is shown initially (no level 2 subtask cards visible)
     expect(app_page.locator(".subtask-card")).to_have_count(0)
@@ -77,12 +88,14 @@ def test_parameter_selection_survives_capability_switching(app_page: Page) -> No
     profile_select.select_option("accurate")
     expect(profile_select).to_have_value("accurate")
 
-    # Switch to Bank Account Consolidation
+    # Switch to Statement Analysis -> Bank Account Consolidation
+    app_page.locator("#btn-module-bank-statement-analysis").click()
     bank_tab = app_page.locator("#btn-task-bank-consolidation")
     bank_tab.click()
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
     # Switch back to Documents Extraction
+    app_page.locator("#btn-module-documents-handling").click()
     app_page.locator("#btn-task-documents-extraction").click()
     profile_select = app_page.locator("#param-profile")
     expect(profile_select).to_be_visible()
@@ -104,9 +117,11 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     expect(clahe_chk).to_be_checked()
 
     # Switch to Bank Statements and back to Documents Extraction
+    app_page.locator("#btn-module-bank-statement-analysis").click()
     app_page.locator("#btn-task-bank-consolidation").click()
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
+    app_page.locator("#btn-module-documents-handling").click()
     app_page.locator("#btn-task-documents-extraction").click()
     clahe_chk = app_page.locator("#param-clahe")
     expect(clahe_chk).to_be_visible()
@@ -214,12 +229,14 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     expect(app_page.locator("#chip-azure-ocr")).to_be_visible()
 
     # 2. Bank Account Consolidation: Instant Consolidation, Accurate Consolidation
+    app_page.locator("#btn-module-bank-statement-analysis").click()
     bank_tab = app_page.locator("#btn-task-bank-consolidation")
     bank_tab.click()
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
     expect(app_page.locator("#subtask-accurate-consolidation")).to_be_visible()
 
     # 3. Font Conversion: Legacy to Unicode, Unicode to KrutiDev, Unicode to DevLys
+    app_page.locator("#btn-module-documents-handling").click()
     font_tab = app_page.locator("#btn-task-font-conversion")
     font_tab.click()
     expect(app_page.locator("#subtask-legacy-to-unicode")).to_be_visible()
@@ -264,7 +281,6 @@ def test_translation_direction_and_engine_payload(app_page: Page) -> None:
 def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
     """Verify that Level 1 tasks act as a collapsible accordion: expanding Level 2 on click and collapsing back when clicked again."""
     doc_btn = app_page.locator("#btn-task-documents-extraction")
-    bank_btn = app_page.locator("#btn-task-bank-consolidation")
 
     # Initially collapsed
     expect(app_page.locator(".subtask-card")).to_have_count(0)
@@ -287,7 +303,9 @@ def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
     expect(app_page.locator(".subtask-card")).to_have_count(0)
     expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
 
-    # Click Bank Account Consolidation to expand
+    # Click Bank Account Consolidation in Statement Analysis module
+    app_page.locator("#btn-module-bank-statement-analysis").click()
+    bank_btn = app_page.locator("#btn-task-bank-consolidation")
     bank_btn.click()
     expect(bank_btn).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator(".accordion-item[data-task='bank_consolidation']")).to_have_class(
@@ -295,12 +313,11 @@ def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
     )
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
-    # Switching to Font Conversion collapses Bank Consolidation and expands Font Conversion
+    # Switching to Documents Studio expands Font Conversion
+    app_page.locator("#btn-module-documents-handling").click()
     font_btn = app_page.locator("#btn-task-font-conversion")
     font_btn.click()
-    expect(bank_btn).not_to_have_class(re.compile(r"\bactive\b"))
     expect(font_btn).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator("#subtask-instant-consolidation")).to_have_count(0)
     expect(app_page.locator("#subtask-legacy-to-unicode")).to_be_visible()
 
 
@@ -331,3 +348,67 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     )
     assert payload_ocr is not None
     assert payload_ocr["custom_options"]["skip_header_footer"] is True
+
+
+def test_custom_mode_workflow_and_end_to_end_wiring(app_page: Page) -> None:
+    """Verify that selecting Custom Mode unfolds the 5-stage modular pipeline builder, updates request payloads, and restores Workflows mode seamlessly."""
+    expect(app_page.locator("#btn-mode-custom")).to_be_visible()
+    expect(app_page.locator("#btn-mode-workflows")).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator(".tasks-accordion")).to_be_visible()
+    expect(app_page.locator("#custom-mode-pipeline")).to_have_count(0)
+
+    # 1. Switch to Custom Mode
+    app_page.locator("#btn-mode-custom").click()
+    expect(app_page.locator("#btn-mode-custom")).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator("#custom-mode-pipeline")).to_be_visible()
+    expect(app_page.locator(".tasks-accordion")).to_have_count(0)
+
+    # Verify all 5 pipeline stages are rendered
+    expect(app_page.locator("#custom-stage-extraction")).to_be_visible()
+    expect(app_page.locator("#custom-stage-font")).to_be_visible()
+    expect(app_page.locator("#custom-stage-translation")).to_be_visible()
+    expect(app_page.locator("#custom-stage-layout")).to_be_visible()
+    expect(app_page.locator("#custom-stage-tuning")).to_be_visible()
+
+    # Default payload in custom mode (defaults to native documents extraction)
+    payload_initial = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_initial["requirement"] == "read_native"
+    assert payload_initial["profile"] == "instant"
+
+    # 2. Stage 1: Select RapidOCR Accurate Layout
+    app_page.locator("#custom-engine-accurate-ocr").click()
+    payload_accurate = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_accurate["requirement"] == "ocr"
+    assert payload_accurate["profile"] == "accurate"
+
+    # 3. Stage 1: Select Financial Statements Engine
+    app_page.locator("#custom-engine-bank-statements").click()
+    payload_bank = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_bank["requirement"] == "bank_statements"
+
+    # 4. Stage 1: Select Custom RapidOCR & tune Stage 5 parameters
+    app_page.locator("#custom-engine-custom-ocr").click()
+    payload_custom = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_custom["requirement"] == "ocr"
+    assert payload_custom["profile"] == "custom"
+
+    # Check and toggle CLAHE in tuning panel
+    clahe_toggle = app_page.locator("#param-clahe")
+    expect(clahe_toggle).to_be_visible()
+    clahe_toggle.check()
+    expect(clahe_toggle).to_be_checked()
+
+    payload_tuned = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_tuned["custom_options"]["clahe"] is True
+
+    # 5. Stage 3: Neural Translation selection
+    app_page.locator("#custom-trans-indictrans2").click()
+    payload_trans = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_trans["requirement"] == "translation"
+    assert payload_trans["custom_options"]["engine"] == "indictrans2"
+
+    # 6. Switch back to Workflows mode
+    app_page.locator("#btn-mode-workflows").click()
+    expect(app_page.locator("#btn-mode-workflows")).to_have_class(re.compile(r"\bactive\b"))
+    expect(app_page.locator("#custom-mode-pipeline")).to_have_count(0)
+    expect(app_page.locator(".tasks-accordion")).to_be_visible()

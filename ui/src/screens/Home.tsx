@@ -55,6 +55,21 @@ export function Home({
   const [intakeExpanded, setIntakeExpanded] = useState(true);
   const [recursive, setRecursive] = useState(false);
   const [manualPath, setManualPath] = useState("");
+  const [passwords, setPasswords] = useState<Record<string, string>>({});
+
+  const handleSetPassword = (nameOrPath: string, pass: string, applyToAll: boolean) => {
+    setPasswords((prev) => {
+      const next = { ...prev, [nameOrPath]: pass };
+      if (applyToAll) {
+        for (const item of selection.items) {
+          if (item.display_name.toLowerCase().endsWith(".pdf")) {
+            next[item.source_path || item.display_name] = pass;
+          }
+        }
+      }
+      return next;
+    });
+  };
 
   const [primaryTask, setPrimaryTask] = useState<PrimaryTaskId | null>(null);
 
@@ -238,6 +253,12 @@ export function Home({
       }
     }
 
+    if (Object.keys(passwords).length > 0) {
+      customOptions.passwords = passwords;
+      const firstPass = Object.values(passwords).find((p) => Boolean(p.trim()));
+      if (firstPass) customOptions.pdf_password = firstPass;
+    }
+
     return {
       paths: eligiblePaths,
       requirement: req,
@@ -405,45 +426,39 @@ export function Home({
     }
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (document.activeElement?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        void handleBrowse(false);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        void handleStart();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [roots, recursive, primaryTask, eligiblePaths.length, planError]);
+
   const showGroupedSummary = visibleItems.length > 10 && !showAllInputsTable;
 
   return (
-    <div class="screen-grid home-cockpit">
+    <div class="screen-grid home-cockpit" data-purpose="dual-pane-workspace">
       {/* Column 1: Document Intake */}
-      <section class="panel intake-panel">
+      <section class="panel intake-panel" data-purpose="document-intake">
         <div class="panel-header">
           <div class="panel-title-wrap">
-            <span class="panel-icon panel-icon--amber">
-              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-              </svg>
-            </span>
             <h2 class="panel-heading">Document Intake</h2>
           </div>
-          <div class="panel-header-meta">
-            <span class="count-badge">
-              {visibleItems.length} selected ({formatBytes(totalSize)})
-            </span>
-            <button
-              class="icon-toggle-btn"
-              onClick={() => setIntakeExpanded(!intakeExpanded)}
-              type="button"
-              aria-label="Toggle Intake Section"
-            >
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d={intakeExpanded ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"}
-                />
-              </svg>
-            </button>
-          </div>
+          <span class="count-badge">
+            {visibleItems.length} selected ({formatBytes(totalSize)})
+          </span>
         </div>
 
-        {intakeExpanded ? (
-          <div class="panel-body intake-panel-body">
+        <div class="panel-body intake-panel-body">
             <IntakeDropzone
               working={working}
               hasItems={visibleItems.length > 0}
@@ -518,24 +533,21 @@ export function Home({
               onClearChecked={() => setCheckedPaths(new Set())}
               onPreview={onPreview}
               onRemoveItem={(item) => void removeItem(item)}
+              passwords={passwords}
+              onSetPassword={handleSetPassword}
             />
-          </div>
-        ) : null}
+        </div>
       </section>
 
       {/* Column 2: Processing Capability & Execution Plan */}
       <div class="column-action">
         {/* Processing Action Panel */}
-        <section class="panel capability-panel">
+        <section class="panel capability-panel" data-purpose="task-selection">
           <div class="panel-header">
             <div class="panel-title-wrap">
-              <div>
-                <span class="capability-eyebrow">Task Selection</span>
-                <div class="capability-title-row">
-                  <span class="panel-icon panel-icon--amber">⚡</span>
-                  <h2 class="panel-heading">Processing Action</h2>
-                </div>
-              </div>
+              <span class="panel-icon panel-icon--amber">⚡</span>
+              <h2 class="panel-heading">Processing Action</h2>
+              <span class="task-selection-chip">Task Selection</span>
             </div>
             {primaryTask ? (
               <div class="active-task-badge-pill">
@@ -556,50 +568,52 @@ export function Home({
             )}
           </div>
 
-          <TaskSelector
-            primaryTask={primaryTask}
-            currentSubtask={currentSubtask}
-            subtaskByPrimary={subtaskByPrimary}
-            availableActions={state.available_actions}
-            cloudOcrProvider={cloudOcrProvider}
-            transDirection={transDirection}
-            statutoryEnabled={statutoryEnabled}
-            convertLegacyFonts={convertLegacyFonts}
-            layoutAnalysis={layoutAnalysis}
-            preserveLayout={preserveLayout}
-            sourceFont={sourceFont}
-            skipHeaderFooter={skipHeaderFooter}
-            ocrCustomParams={ocrCustomParams}
-            onSelectPrimaryTask={(task) => setPrimaryTask(task)}
-            onSelectSubtask={(primary, subtask) =>
-              setSubtaskByPrimary((prev) => ({ ...prev, [primary]: subtask }))
-            }
-            onSetCloudOcrProvider={(provider) => setCloudOcrProvider(provider)}
-            onSetTransDirection={(dir) => setTransDirection(dir)}
-            onSetStatutoryEnabled={(enabled) => setStatutoryEnabled(enabled)}
-            onSetConvertLegacyFonts={(enabled) => setConvertLegacyFonts(enabled)}
-            onSetLayoutAnalysis={(enabled) => setLayoutAnalysis(enabled)}
-            onSetPreserveLayout={(enabled) => setPreserveLayout(enabled)}
-            onSetSourceFont={(font) => setSourceFont(font)}
-            onSetSkipHeaderFooter={(enabled) => setSkipHeaderFooter(enabled)}
-            onSetOcrCustomParam={(key, val) =>
-              setOcrCustomParams((prev) => ({ ...prev, [key]: val }))
-            }
-          />
+          <div class="panel-body capability-panel-body">
+            <TaskSelector
+              primaryTask={primaryTask}
+              currentSubtask={currentSubtask}
+              subtaskByPrimary={subtaskByPrimary}
+              availableActions={state.available_actions}
+              cloudOcrProvider={cloudOcrProvider}
+              transDirection={transDirection}
+              statutoryEnabled={statutoryEnabled}
+              convertLegacyFonts={convertLegacyFonts}
+              layoutAnalysis={layoutAnalysis}
+              preserveLayout={preserveLayout}
+              sourceFont={sourceFont}
+              skipHeaderFooter={skipHeaderFooter}
+              ocrCustomParams={ocrCustomParams}
+              onSelectPrimaryTask={(task) => setPrimaryTask(task)}
+              onSelectSubtask={(primary, subtask) =>
+                setSubtaskByPrimary((prev) => ({ ...prev, [primary]: subtask }))
+              }
+              onSetCloudOcrProvider={(provider) => setCloudOcrProvider(provider)}
+              onSetTransDirection={(dir) => setTransDirection(dir)}
+              onSetStatutoryEnabled={(enabled) => setStatutoryEnabled(enabled)}
+              onSetConvertLegacyFonts={(enabled) => setConvertLegacyFonts(enabled)}
+              onSetLayoutAnalysis={(enabled) => setLayoutAnalysis(enabled)}
+              onSetPreserveLayout={(enabled) => setPreserveLayout(enabled)}
+              onSetSourceFont={(font) => setSourceFont(font)}
+              onSetSkipHeaderFooter={(enabled) => setSkipHeaderFooter(enabled)}
+              onSetOcrCustomParam={(key, val) =>
+                setOcrCustomParams((prev) => ({ ...prev, [key]: val }))
+              }
+            />
 
-          {/* If no Level 1 task is selected, show instructional prompt */}
-          {!primaryTask && (
-            <div id="level1-empty-prompt" class="level1-empty-prompt">
-              <span class="level1-prompt-icon">👆</span>
-              <div class="level1-prompt-text">
-                <strong>Select a Primary Task Above</strong>
-                <p>
-                  Choose one of the four primary tasks above to view its specific methods, engines,
-                  and configuration options.
-                </p>
+            {/* If no Level 1 task is selected, show instructional prompt */}
+            {!primaryTask && (
+              <div id="level1-empty-prompt" class="level1-empty-prompt">
+                <span class="level1-prompt-icon">👆</span>
+                <div class="level1-prompt-text">
+                  <strong>Select a Primary Task Above</strong>
+                  <p>
+                    Choose one of the primary tasks above to view its specific methods, engines,
+                    and configuration options.
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
         {/* Preflight Execution Plan Card */}

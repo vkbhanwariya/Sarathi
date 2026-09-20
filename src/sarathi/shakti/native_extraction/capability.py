@@ -37,6 +37,7 @@ def read_pdf(
     use_layout: bool = False,
     skip_header_footer: bool = False,
     convert_legacy_fonts: bool = True,
+    password: str | None = None,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Load the PDF reader only when a PDF is actually processed."""
     from sarathi.shakti.native_extraction.readers.pdf import read_pdf as _read_pdf
@@ -47,6 +48,7 @@ def read_pdf(
         use_layout=use_layout,
         skip_header_footer=skip_header_footer,
         convert_legacy_fonts=convert_legacy_fonts,
+        password=password,
     )
 
 
@@ -317,12 +319,25 @@ class NativeExtractionCapability:
             try:
                 t0 = time.perf_counter_ns()
                 if fmt == DetectedFormat.PDF:
+                    pw: str | None = None
+                    if request.custom_options:
+                        passwords = request.custom_options.get("passwords")
+                        if isinstance(passwords, dict):
+                            pw = (
+                                passwords.get(inp.input_id)
+                                or passwords.get(inp.display_name)
+                                or (passwords.get(inp.source_path.name) if inp.source_path else None)
+                                or (passwords.get(str(inp.source_path)) if inp.source_path else None)
+                            )
+                        if not pw and isinstance(request.custom_options.get("pdf_password"), str):
+                            pw = request.custom_options["pdf_password"]
                     doc, provs, warns = reader(
                         data,
                         inp.input_id,
                         use_layout=use_layout,
                         skip_header_footer=skip_header_footer,
                         convert_legacy_fonts=convert_legacy,
+                        password=pw,
                     )
                 else:
                     doc, provs, warns = reader(data, inp.input_id)

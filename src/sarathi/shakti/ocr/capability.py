@@ -366,9 +366,24 @@ class OCRCapability:
         ocr_inputs: list[tuple[InputRef, list[Any], list[int]]] = []
         empty_or_usable_docs: dict[str, CanonicalDocument] = {}
         existing_native_pages_by_input: dict[str, dict[int, PageData]] = {}
+        input_passwords: dict[str, str | None] = {}
 
         for inp in request.inputs:
             check_cancelled(context)
+
+            pw: str | None = None
+            if request.custom_options:
+                passwords = request.custom_options.get("passwords")
+                if isinstance(passwords, dict):
+                    pw = (
+                        passwords.get(inp.input_id)
+                        or passwords.get(inp.display_name)
+                        or (passwords.get(inp.source_path.name) if inp.source_path else None)
+                        or (passwords.get(str(inp.source_path)) if inp.source_path else None)
+                    )
+                if not pw and isinstance(request.custom_options.get("pdf_password"), str):
+                    pw = request.custom_options["pdf_password"]
+            input_passwords[inp.input_id] = pw
 
             if (usable_doc := prior_docs.get(inp.input_id)) and _is_usable_document(usable_doc):
                 empty_or_usable_docs[inp.input_id] = usable_doc
@@ -402,7 +417,7 @@ class OCRCapability:
                 try:
                     from sarathi.shakti.native_extraction.readers.pdf import read_pdf
 
-                    pdf_doc, pdf_prov, pdf_warns = read_pdf(data, inp.input_id)
+                    pdf_doc, pdf_prov, pdf_warns = read_pdf(data, inp.input_id, password=pw)
                     for p in pdf_doc.pages:
                         if _is_usable_page(p):
                             p_meta = dict(p.metadata)
@@ -428,7 +443,7 @@ class OCRCapability:
             existing_native_pages_by_input[inp.input_id] = native_pages
 
             skip_pages = set(native_pages.keys())
-            total_pages = get_page_count_from_bytes(data)
+            total_pages = get_page_count_from_bytes(data, password=pw)
 
             if total_pages == 0:
                 if len(data) == 0:
@@ -578,6 +593,7 @@ class OCRCapability:
                     dpi=dpi,
                     max_buffered=per_doc_buffered,
                     cancellation_token=context.cancellation_token,
+                    password=input_passwords.get(inp.input_id),
                 )
                 for p_idx in needed_indices:
                     all_items.append((inp, p_idx, tot_pages))
@@ -630,6 +646,7 @@ class OCRCapability:
                         dpi=dpi,
                         cancellation_token=context.cancellation_token,
                         skip_pages=skip_pages,
+                        password=input_passwords.get(inp.input_id),
                     ),
                     start=1,
                 )

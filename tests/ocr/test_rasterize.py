@@ -272,3 +272,24 @@ def test_bug_O3_tiff_n_frames_and_clamping() -> None:
     clamped_img = extract_single_page_image(pdf_bytes, page_number=1, dpi=200, max_dimension=100)
     assert clamped_img is not None
     assert max(clamped_img.width, clamped_img.height) <= 100
+
+
+def test_encrypted_pdf_rasterization() -> None:
+    """Proves BoundedPageRasterizer decrypts password-protected PDFs with user password."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=200, height=200)
+    page.insert_text((20, 20), "Protected OCR Sample")
+    enc_bytes = doc.tobytes(
+        encryption=pymupdf.PDF_ENCRYPT_AES_256,
+        user_pw="securepass",
+        owner_pw="ownerpass",
+    )
+    doc.close()
+
+    assert get_page_count_from_bytes(enc_bytes) == 0
+    assert get_page_count_from_bytes(enc_bytes, password="securepass") == 1
+
+    with BoundedPageRasterizer(enc_bytes, pages=[1], password="securepass") as r:
+        img = r.get_page(1)
+        assert img is not None
+        assert isinstance(img, Image.Image)

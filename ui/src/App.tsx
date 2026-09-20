@@ -413,7 +413,7 @@ export function App() {
         </div>
       </aside>
 
-      <main class="workspace app-main">
+      <main class={`workspace app-main ${screen === "home" ? "workspace--home" : ""}`}>
         <header class="topbar app-header">
           <div class="topbar-left">
             <span class="eyebrow">Mukha</span>
