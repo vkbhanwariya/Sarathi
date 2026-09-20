@@ -39,7 +39,7 @@ from sarathi.shakti.docx_exporter.styles import (
 )
 from sarathi.shakti.text.legacy_detection import _KNOWN_MODERN_FONTS
 from sarathi.shakti.text.safe_zip import open_zip_safely, safe_fromstring
-from sarathi.shakti.text.typography import contains_devanagari
+from sarathi.shakti.text.typography import contains_devanagari, heal_devanagari_matra_spacing
 
 
 def _serialize_xml_preserving_namespaces(
@@ -347,6 +347,7 @@ def _reconstruct_translated_paragraph(
         clean_chunk = clean_tag_re.sub("", text_chunk)
         clean_chunk = re.sub(r"(?:<\s*br\s*/?\s*>\s*)+", " ", clean_chunk, flags=re.IGNORECASE)
         clean_chunk = re.sub(r" {2,}", " ", clean_chunk)
+        clean_chunk = heal_devanagari_matra_spacing(clean_chunk)
         if not clean_chunk.strip() and "\t" not in clean_chunk:
             continue
 
@@ -758,6 +759,7 @@ def _transform_xml_tree(
                         else:
                             segments.append((raw_chunk, False))
                 else:
+                    converted_text = heal_devanagari_matra_spacing(converted_text)
                     segments = segment_text_by_script(converted_text)
 
                 if not segments:

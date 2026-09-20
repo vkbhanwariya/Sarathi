@@ -398,7 +398,7 @@ def detect_borderless_tables(
 def reconstruct_layout(
     image_arr: np.ndarray | None,
     spans: Sequence[TextSpan],
-    preserve_layout: bool = True,
+    preserve_layout: bool = False,
 ) -> tuple[str, tuple[TableData, ...]]:
     """Reconstruct structured layout: detect tables, partition columns, and group paragraphs.
 

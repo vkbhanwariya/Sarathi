@@ -381,17 +381,17 @@ def test_layout_reconstruction_profile_gating() -> None:
     )
     assert len(p_cust_off.tables) == 0
 
-    # 4. CUSTOM with preserve_layout=True -> Table extracted
+    # 4. CUSTOM with preserve_layout=True -> Table extraction bypassed for scanned OCR
     p_cust_on, _, _, _ = engine.ocr_page(
         test_img, 1, "inp_1", profile=ExecutionProfile.CUSTOM, custom_options={"preserve_layout": True}
     )
-    assert len(p_cust_on.tables) == 1
+    assert len(p_cust_on.tables) == 0
+    assert "Col A" in p_cust_on.text
 
-    # 5. LAYOUT_PRESERVING -> Table extracted
+    # 5. LAYOUT_PRESERVING -> Table extraction bypassed for scanned OCR (reserved for native documents)
     p_layout, _, _, _ = engine.ocr_page(test_img, 1, "inp_1", profile=ExecutionProfile.LAYOUT_PRESERVING)
-    assert len(p_layout.tables) == 1
-    assert p_layout.tables[0].headers == ("Col A", "Col B")
-    assert p_layout.tables[0].rows == (("Val 1", "Val 2"),)
+    assert len(p_layout.tables) == 0
+    assert "Col A" in p_layout.text
 
 
 # ==============================================================================
@@ -451,18 +451,18 @@ def test_layout_preserving_docx_export(tmp_path: Path) -> None:
     result = cap.execute(req, ctx)
     assert isinstance(result, Result)
 
-    # 1. PageData.tables must be populated
+    # 1. Scanned documents in OCR do not extract tables (table extraction is exclusive to native files)
     doc = result.data
     assert len(doc.pages) == 1
     page = doc.pages[0]
-    assert len(page.tables) == 1
-    assert page.tables[0].headers == ("Month", "Units")
+    assert len(page.tables) == 0
+    assert "Monthly Summary" in page.text
 
-    # 2. DOCX artifact must contain <w:tbl>
+    # 2. DOCX artifact must contain clean narrative text with justified paragraphs
     docx_payload = next(p for p in result.artifact_payloads if p.intent.media_type.endswith("document"))
     with zipfile.ZipFile(io.BytesIO(docx_payload.content)) as zf:
         xml_content = zf.read("word/document.xml").decode("utf-8")
-        assert "<w:tbl>" in xml_content or "<w:tbl " in xml_content, "DOCX must contain a Word table (<w:tbl>)"
+        assert '<w:jc w:val="both"/>' in xml_content
         assert "Month" in xml_content
         assert "Units" in xml_content
         assert "January" in xml_content
@@ -578,11 +578,11 @@ def test_ragged_table_warning_emission() -> None:
         )
 
         test_img = Image.new("RGB", (300, 150), color="white")
-        _, _, _, warnings = engine.ocr_page(test_img, 1, "inp_ragged", profile=ExecutionProfile.LAYOUT_PRESERVING)
-
+        p_data, _, _, warnings = engine.ocr_page(test_img, 1, "inp_ragged", profile=ExecutionProfile.LAYOUT_PRESERVING)
+        # Invariant: Scanned OCR pages bypass table extraction, producing 0 tables and no ragged table warnings
+        assert len(p_data.tables) == 0
         ragged_warns = [w for w in warnings if w.code == "LAYOUT_TABLE_ROW_RAGGED"]
-        assert len(ragged_warns) >= 1
-        assert "ragged_tbl" in ragged_warns[0].message
+        assert len(ragged_warns) == 0
 
 
 # ==============================================================================

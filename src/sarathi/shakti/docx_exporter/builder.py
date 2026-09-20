@@ -24,6 +24,25 @@ from sarathi.shakti.docx_exporter.constants import (
 )
 from sarathi.shakti.docx_exporter.scripts import segment_text_by_script
 from sarathi.shakti.text import cell_text
+from sarathi.shakti.text.typography import heal_devanagari_matra_spacing
+
+
+def normalize_docx_text(text: str | None) -> str:
+    """Normalize extracted text for clean, uniform DOCX output.
+
+    Replaces tabs with single spaces, collapses redundant whitespace, removes
+    disallowed control chars and invisible zero-width artifacts, repairs
+    Devanagari matra/halant spacing, and normalizes space around punctuation.
+    """
+    if not text or not isinstance(text, str):
+        return ""
+    t = text.replace("\t", " ")
+    t = t.replace("\u00a0", " ").replace("\u200b", "").replace("\u00ad", "")
+    t = re.sub(r"[^\S\n\x0c]+", " ", t)
+    t = re.sub(r" +([,.:;?!%\)\]\}।])", r"\1", t)
+    t = re.sub(r"([(\[\{]) +", r"\1", t)
+    t = heal_devanagari_matra_spacing(t)
+    return t.strip()
 
 
 def _format_run_xml(
@@ -77,22 +96,26 @@ def _format_paragraph_xml(
     default_font: str | None = None,
     default_size_pt: float | None = None,
     legacy_target_font: str | None = None,
+    add_spacing: bool = True,
 ) -> str:
     """Format an OpenXML <w:p> paragraph adhering to canonical Sarathi typography policy."""
-    p_pr = ""
-    if alignment in ("center", "right", "both", "left"):
-        p_pr = f'<w:pPr><w:jc w:val="{alignment}"/></w:pPr>'
+    clean_text = normalize_docx_text(text)
+    eff_alignment = alignment if alignment in ("center", "right", "both", "left") else "both"
+    p_pr_parts = [f'<w:jc w:val="{eff_alignment}"/>']
+    if add_spacing:
+        p_pr_parts.append('<w:spacing w:after="160" w:line="276" w:lineRule="auto"/>')
+    p_pr = f"<w:pPr>{''.join(p_pr_parts)}</w:pPr>"
 
-    if not text:
+    if not clean_text:
         return f"<w:p>{p_pr}</w:p>"
 
     size_half_pt = int(default_size_pt * 2) if default_size_pt and default_size_pt > 0 else _DEFAULT_HALF_PT
 
     if legacy_target_font:
-        has_devanagari = bool(_DEVANAGARI_CHAR_RE.search(text))
+        has_devanagari = bool(_DEVANAGARI_CHAR_RE.search(clean_text))
         if has_devanagari:
             # Unconverted Unicode Devanagari mixed text: separate Devanagari runs from Latin/number runs
-            segments = segment_text_by_script(text)
+            segments = segment_text_by_script(clean_text)
             runs = [
                 _format_run_xml(
                     chunk,
@@ -201,9 +224,10 @@ def _format_cell_content_xml(
     legacy_target_font: str | None = None,
 ) -> str:
     """Format cell content into one or more paragraphs, preserving multiline cell text."""
-    if not cell_text:
+    clean_text = normalize_docx_text(cell_text)
+    if not clean_text:
         return "<w:p/>"
-    lines = [line.strip() for line in cell_text.splitlines() if line.strip()]
+    lines = [normalize_docx_text(line) for line in cell_text.splitlines() if normalize_docx_text(line)]
     if not lines:
         return "<w:p/>"
     p_elements: list[str] = []
@@ -212,10 +236,11 @@ def _format_cell_content_xml(
             _format_paragraph_xml(
                 line,
                 bold=bold,
-                alignment=alignment,
+                alignment=alignment or "left",
                 default_font=default_font,
                 default_size_pt=default_size_pt,
                 legacy_target_font=legacy_target_font,
+                add_spacing=False,
             )
         )
     return "".join(p_elements)
@@ -383,9 +408,8 @@ def build_docx_payload(
 
             if p.text:
                 for line in p.text.splitlines():
-                    trimmed = line.strip()
+                    trimmed = normalize_docx_text(line)
                     if not trimmed:
-                        body_parts.append("<w:p/>")
                         continue
 
                     # 1. Check for in-flow table anchor
@@ -460,10 +484,12 @@ def build_docx_payload(
                             clean_line = trimmed[2:].strip()
                             line_bold = True
 
+                    line_align = "left" if line_bold else "both"
                     body_parts.append(
                         _format_paragraph_xml(
                             clean_line,
                             bold=line_bold,
+                            alignment=line_align,
                             default_font=default_font,
                             default_size_pt=line_size,
                             legacy_target_font=legacy_target_font,
@@ -495,18 +521,17 @@ def build_docx_payload(
                         )
                         body_parts.append("<w:p/>")
 
-        # If pages existed but had zero text, fall back to doc.text narrative
         if not any(page.text and page.text.strip() for page in doc.pages) and doc.text and doc.text.strip():
             for line in doc.text.splitlines():
-                trimmed = line.strip()
+                trimmed = normalize_docx_text(line)
                 if not trimmed:
-                    body_parts.append("<w:p/>")
                     continue
                 if trimmed in table_row_signatures and (" | " in trimmed or "\t" in trimmed):
                     continue
                 body_parts.append(
                     _format_paragraph_xml(
                         trimmed,
+                        alignment="both",
                         default_font=default_font,
                         default_size_pt=default_size_pt,
                         legacy_target_font=legacy_target_font,
@@ -531,9 +556,8 @@ def build_docx_payload(
                         table_row_signatures.add("\t".join(cell_text(c) for c in row))
 
         for line in doc.text.splitlines():
-            trimmed = line.strip()
+            trimmed = normalize_docx_text(line)
             if not trimmed:
-                body_parts.append("<w:p/>")
                 continue
 
             # 1. Check for in-flow table anchor
@@ -603,10 +627,12 @@ def build_docx_payload(
                     clean_line = trimmed[2:].strip()
                     line_bold = True
 
+            line_align = "left" if line_bold else "both"
             body_parts.append(
                 _format_paragraph_xml(
                     clean_line,
                     bold=line_bold,
+                    alignment=line_align,
                     default_font=default_font,
                     default_size_pt=line_size,
                     legacy_target_font=legacy_target_font,
@@ -706,15 +732,37 @@ def build_docx_payload(
         "</Relationships>"
     )
 
+    has_dev = bool(_DEVANAGARI_CHAR_RE.search(doc.text or "")) or any(
+        bool(_DEVANAGARI_CHAR_RE.search(p.text or "")) for p in (doc.pages or ())
+    )
+    eff_doc_font = default_font or (_HINDI_FONT if has_dev else _ENGLISH_FONT)
+
     styles_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
         "  <w:docDefaults>\n"
+        "    <w:pPrDefault>\n"
+        '      <w:pPr><w:jc w:val="both"/><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr>\n'
+        "    </w:pPrDefault>\n"
         "    <w:rPrDefault>\n"
-        f'      <w:rPr><w:rFonts w:ascii="{_ENGLISH_FONT}" w:hAnsi="{_ENGLISH_FONT}" w:cs="{_HINDI_FONT}"/>'
-        f'<w:sz w:val="{_DEFAULT_HALF_PT}"/><w:szCs w:val="{_DEFAULT_HALF_PT}"/></w:rPr>\n'
+        f'      <w:rPr><w:rFonts w:ascii="{eff_doc_font}" w:hAnsi="{eff_doc_font}" w:cs="{_HINDI_FONT}"/>'
+        f'<w:sz w:val="{_DEFAULT_HALF_PT}"/><w:szCs w:val="{_DEFAULT_HALF_PT}"/><w:lang w:val="en-US" w:bidi="hi-IN"/></w:rPr>\n'
         "    </w:rPrDefault>\n"
         "  </w:docDefaults>\n"
+        '  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">\n'
+        '    <w:name w:val="Normal"/>\n'
+        "    <w:qFormat/>\n"
+        "    <w:pPr>\n"
+        '      <w:jc w:val="both"/>\n'
+        '      <w:spacing w:after="160" w:line="276" w:lineRule="auto"/>\n'
+        "    </w:pPr>\n"
+        "    <w:rPr>\n"
+        f'      <w:rFonts w:ascii="{eff_doc_font}" w:hAnsi="{eff_doc_font}" w:cs="{_HINDI_FONT}"/>\n'
+        f'      <w:sz w:val="{_DEFAULT_HALF_PT}"/>\n'
+        f'      <w:szCs w:val="{_DEFAULT_HALF_PT}"/>\n'
+        '      <w:lang w:val="en-US" w:bidi="hi-IN"/>\n'
+        "    </w:rPr>\n"
+        "  </w:style>\n"
         "</w:styles>"
     )
 

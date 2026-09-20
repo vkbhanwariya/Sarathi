@@ -304,7 +304,13 @@ class NativeExtractionCapability:
 
             use_layout = bool(
                 request.profile == ExecutionProfile.LAYOUT_PRESERVING
-                or (request.custom_options and request.custom_options.get("layout_analysis"))
+                or (
+                    request.custom_options
+                    and (
+                        request.custom_options.get("layout_analysis")
+                        or request.custom_options.get("preserve_layout")
+                    )
+                )
             )
 
             # Route to concrete native readers with honest parse error handling

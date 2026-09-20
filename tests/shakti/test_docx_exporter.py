@@ -1005,3 +1005,59 @@ def test_bug_O6_docx_xml_control_characters() -> None:
     assert trans_tree is not None
     for bad_char in ["\x00", "\x08", "\x0b", "\x0c", "\x1f"]:
         assert bad_char not in trans_doc_xml, f"Found invalid char {repr(bad_char)} in transformed XML"
+
+
+def test_docx_exporter_visual_normalization() -> None:
+    """Verify DOCX exporter produces justified paragraphs, paragraph spacing, clean whitespace, and styles.xml defaults."""
+    from sarathi.shakti.docx_exporter.builder import build_docx_payload, normalize_docx_text
+
+    # 1. normalize_docx_text unit checks
+    assert normalize_docx_text("Hello\t\tWorld") == "Hello World"
+    assert normalize_docx_text("Multiple   spaces    here") == "Multiple spaces here"
+    assert normalize_docx_text("Word  ,  punctuation  . ") == "Word, punctuation."
+    assert normalize_docx_text("क  िताब") == "किताब"
+    assert normalize_docx_text("") == ""
+    assert normalize_docx_text(None) == ""
+
+    # 2. Document build with messy whitespace and enters
+    messy_text = (
+        "This is paragraph one with \t tabs   and   spaces  .\n\n\n\n"
+        "This is paragraph two with Devanagari क  िताब content .\n\n"
+        "# Heading One\n\n"
+        "This is paragraph three under heading."
+    )
+    doc = CanonicalDocument(
+        document_id="doc_norm_test",
+        text=messy_text,
+    )
+
+    payload = build_docx_payload(doc, "normalized.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
+        doc_xml = zf.read("word/document.xml").decode("utf-8")
+        styles_xml = zf.read("word/styles.xml").decode("utf-8")
+
+    # Document XML checks:
+    # Paragraphs must be justified:
+    assert '<w:jc w:val="both"/>' in doc_xml
+    # Paragraphs must have standard 8pt spacing after:
+    assert '<w:spacing w:after="160"' in doc_xml
+    # Headings must be left-aligned (not justified):
+    assert '<w:jc w:val="left"/>' in doc_xml
+    # Whitespace in runs must be clean:
+    assert "tabs and spaces." in doc_xml
+    assert "किताब content." in doc_xml
+    # No raw tabs or multi-spaces in output:
+    assert "\t" not in doc_xml
+    assert "   " not in doc_xml
+    # Redundant empty paragraphs must not be present:
+    assert "<w:p/>" not in doc_xml
+
+    # Styles XML checks:
+    # Must declare docDefaults with w:pPrDefault and w:rPrDefault:
+    assert "<w:pPrDefault>" in styles_xml
+    assert '<w:jc w:val="both"/>' in styles_xml
+    assert '<w:spacing w:after="160"' in styles_xml
+    assert "<w:rPrDefault>" in styles_xml
+    assert "Nirmala UI" in styles_xml
+    # Must declare Normal style:
+    assert 'w:styleId="Normal"' in styles_xml
