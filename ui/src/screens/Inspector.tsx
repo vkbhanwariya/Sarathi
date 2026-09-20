@@ -77,13 +77,22 @@ export function Inspector({ inspector }: { inspector: InspectorViewState | null 
             <h3>Distribution</h3>
           </div>
         </div>
-        <div class="data-list">
-          {inspector.confidence_distribution.map(([bucket, count]) => (
-            <div class="data-row" key={bucket}>
-              <strong>{bucket}</strong>
-              <span>{count}</span>
-            </div>
-          ))}
+        <div class="data-list confidence-dist-list">
+          {(() => {
+            const maxVal = Math.max(1, ...inspector.confidence_distribution.map(([, count]) => count));
+            return inspector.confidence_distribution.map(([bucket, count]) => {
+              const pct = (count / maxVal) * 100;
+              return (
+                <div class="data-row confidence-bucket-row" key={bucket}>
+                  <strong>{bucket}</strong>
+                  <div class="bucket-bar-track" style={{ flex: 1, margin: "0 12px", height: "6px", background: "var(--border)", borderRadius: "3px", overflow: "hidden" }}>
+                    <div class="bucket-bar-fill" style={{ width: `${pct}%`, height: "100%", background: "var(--primary)", borderRadius: "3px" }} />
+                  </div>
+                  <span class="font-mono">{count}</span>
+                </div>
+              );
+            });
+          })()}
         </div>
       </section>
 
@@ -97,7 +106,7 @@ export function Inspector({ inspector }: { inspector: InspectorViewState | null 
         <div class="filter-bar">
           <input
             class="search-input"
-            placeholder="Search logs"
+            placeholder="Search logs..."
             value={logQuery}
             onInput={(e) => setLogQuery(e.currentTarget.value)}
           />
@@ -109,7 +118,7 @@ export function Inspector({ inspector }: { inspector: InspectorViewState | null 
             <option value="FAILED">FAILED</option>
           </select>
           <button
-            class="button ghost small"
+            class="button secondary small"
             onClick={() =>
               void navigator.clipboard.writeText(
                 inspector.activity_logs
@@ -119,20 +128,24 @@ export function Inspector({ inspector }: { inspector: InspectorViewState | null 
             }
             type="button"
           >
-            Copy logs
+            📋 Copy Logs
           </button>
         </div>
         <div class="log-list">
           {logs.length ? (
-            logs.map((entry, index) => (
-              <div class="log-entry" key={`${entry.timestamp}-${index}`}>
-                <span>{entry.timestamp}</span>
-                <strong>{entry.severity}</strong>
-                <span>
-                  {entry.component}: {entry.message}
-                </span>
-              </div>
-            ))
+            logs.map((entry, index) => {
+              const sev = (entry.severity || "").toUpperCase();
+              const sevClass = sev === "ERROR" || sev === "FAILED" ? "badge-crimson" : sev === "WARN" ? "badge-amber" : "badge-slate";
+              return (
+                <div class="log-entry" key={`${entry.timestamp}-${index}`}>
+                  <span class="font-mono quiet" style={{ fontSize: "11px" }}>{entry.timestamp}</span>
+                  <span class={`badge ${sevClass}`} style={{ fontSize: "10px", padding: "1px 6px" }}>{entry.severity}</span>
+                  <span>
+                    <strong style={{ color: "var(--text)" }}>{entry.component}</strong>: {entry.message}
+                  </span>
+                </div>
+              );
+            })
           ) : (
             <p class="quiet">No logs match the current filter.</p>
           )}

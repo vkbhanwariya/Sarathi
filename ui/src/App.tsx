@@ -19,6 +19,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { DocumentPreviewModal } from "./components/DocumentPreviewModal";
 import { HistoryDrawer } from "./components/HistoryDrawer";
 import { formatBytes } from "./formatters";
+import { History } from "./screens/History";
 import { Home } from "./screens/Home";
 import { Inspector } from "./screens/Inspector";
 import { Monitor } from "./screens/Monitor";
@@ -50,6 +51,7 @@ export {
 export { CommandPalette } from "./components/CommandPalette";
 export { DocumentPreviewModal } from "./components/DocumentPreviewModal";
 export { HistoryDrawer } from "./components/HistoryDrawer";
+export { History } from "./screens/History";
 export { Home } from "./screens/Home";
 export { Inspector } from "./screens/Inspector";
 export { Monitor } from "./screens/Monitor";
@@ -66,7 +68,7 @@ const screens: readonly { id: Screen; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "monitor", label: "Monitor" },
   { id: "review", label: "Review" },
-  { id: "summary", label: "Summary" },
+  { id: "history", label: "History" },
   { id: "inspector", label: "Inspector" },
 ];
 
@@ -151,12 +153,12 @@ export function App() {
     };
   }, []);
 
-  const openHistory = async () => {
-    setHistoryOpen(true);
+  const openHistory = async (showDrawer = true) => {
+    if (showDrawer) setHistoryOpen(true);
     setHistoryBusy(true);
     setHistoryError(null);
     try {
-      setHistory(await fetchHistory(30));
+      setHistory(await fetchHistory(50));
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : "Unable to load run history.");
     } finally {
@@ -174,7 +176,7 @@ export function App() {
       setSummaryOverride(summary);
       setInspectorOverride(null);
       setHistoryOpen(false);
-      setScreen("summary");
+      setScreen("monitor");
     } catch (reason) {
       if (seq === summarySeqRef.current && requestId === summaryRequest.current) {
         setError(reason instanceof Error ? reason.message : "Unable to load run summary.");
@@ -198,7 +200,14 @@ export function App() {
   };
 
   const chooseScreen = (next: Screen) => {
-    if (next === "summary") setSummaryOverride(null);
+    if (next === "summary") {
+      setSummaryOverride(null);
+      setScreen("monitor");
+      return;
+    }
+    if (next === "history") {
+      void openHistory(false);
+    }
     if (next === "inspector") {
       setInspectorOverride(null);
       const runId = state?.active_run?.run_id ?? state?.terminal_summary?.run_id;
@@ -252,9 +261,9 @@ export function App() {
   const paletteCommands = useMemo(
     () => [
       { id: "nav-home", label: "Navigate: Griha (Home - Intake / Setup)", action: () => chooseScreen("home") },
-      { id: "nav-monitor", label: "Navigate: Pravritti (Monitor - Live Execution)", action: () => chooseScreen("monitor") },
-      { id: "nav-review", label: "Navigate: Pariksha (Review - Review Queue)", action: () => chooseScreen("review") },
-      { id: "nav-summary", label: "Navigate: Samapti (Summary - Run Summary)", action: () => chooseScreen("summary") },
+      { id: "nav-monitor", label: "Navigate: Pravritti (Monitor - Execution & Results)", action: () => chooseScreen("monitor") },
+      { id: "nav-review", label: "Navigate: Pariksha (Review - Exception Queue)", action: () => chooseScreen("review") },
+      { id: "nav-history", label: "Navigate: Itihasa (History - Run Ledger)", action: () => chooseScreen("history") },
       { id: "nav-inspector", label: "Navigate: Nirikshana (Inspector - Telemetry)", action: () => chooseScreen("inspector") },
       {
         id: "act-add-files",
@@ -330,7 +339,6 @@ export function App() {
             <div class="brand-text">
               <h1>Sarathi</h1>
               <span class="brand-subtitle">Local Intelligence</span>
-              <span class="brand-creator">by : VishNu KumaR</span>
             </div>
           </div>
 
@@ -343,6 +351,8 @@ export function App() {
                 onClick={() => chooseScreen(item.id)}
                 type="button"
                 key={item.id}
+                aria-label={item.label}
+                aria-current={screen === item.id ? "page" : undefined}
               >
                 <span class="nav-glyph">{item.label.slice(0, 1)}</span>
                 <span>{item.label}</span>
@@ -378,7 +388,7 @@ export function App() {
             </button>
           </div>
 
-          {/* Workspace Pill */}
+          {/* Workspace Pill Card */}
           <div class="sidebar-workspace-card">
             <div class="workspace-card-header">
               <span class="workspace-card-title">Workspace</span>
@@ -407,7 +417,7 @@ export function App() {
             <span class="telemetry-badge">Ready</span>
           </div>
           <div class="telemetry-detail-row">
-            <span>{state?.requirement || "read_native"}</span>
+            <span>{state?.requirement ? state.requirement.replace(/_/g, " ") : "read_native"}</span>
             <span>rev {state?.state_revision ?? "1"}</span>
           </div>
         </div>
@@ -451,10 +461,17 @@ export function App() {
                 onPreview={(pathOrUrl, displayName) => setPreviewTarget({ pathOrUrl, displayName })}
               />
             </div>
-            <div id="screen-monitor" class={`screen-view ${screen === "monitor" ? "active" : "hidden"}`}>
+            <div
+              id="screen-monitor"
+              class={`screen-view ${screen === "monitor" || screen === "summary" ? "active" : "hidden"}`}
+              data-run-id={summary?.run_id ?? state?.active_run?.run_id ?? ""}
+            >
               <Monitor
                 state={state}
+                summary={summary}
                 onError={setError}
+                onReveal={revealRun}
+                onPreview={(pathOrUrl, displayName) => setPreviewTarget({ pathOrUrl, displayName })}
                 onNavigate={(scr) => {
                   if (scr === "home") void handleProcessAnother();
                   else chooseScreen(scr);
@@ -464,20 +481,27 @@ export function App() {
             <div id="screen-review" class={`screen-view ${screen === "review" ? "active" : "hidden"}`}>
               <Review state={state} onError={setError} onRefresh={refresh} />
             </div>
-            <div
-              id="screen-summary"
-              class={`screen-view ${screen === "summary" ? "active" : "hidden"}`}
-              data-run-id={summary?.run_id ?? ""}
-            >
-              <Summary
-                summary={summary}
-                onError={setError}
-                onReveal={revealRun}
-                onPreview={(pathOrUrl, displayName) => setPreviewTarget({ pathOrUrl, displayName })}
-                onNavigate={(scr) => {
-                  if (scr === "home") void handleProcessAnother();
-                  else chooseScreen(scr);
+            <div id="screen-history" class={`screen-view ${screen === "history" ? "active" : "hidden"}`}>
+              <History
+                history={history}
+                busy={historyBusy}
+                error={historyError}
+                onRefresh={async () => {
+                  setHistoryBusy(true);
+                  try {
+                    setHistory(await fetchHistory(50));
+                  } catch (e) {
+                    setHistoryError(e instanceof Error ? e.message : "Failed to load history.");
+                  } finally {
+                    setHistoryBusy(false);
+                  }
                 }}
+                onSummary={(runId) => void loadSummary(runId)}
+                onInspector={(runId) => void loadInspector(runId)}
+                onClearHistory={() => void handleClearHistory()}
+                onClearCache={() => void handleClearCache()}
+                onReveal={revealRun}
+                onNavigateHome={() => chooseScreen("home")}
               />
             </div>
             <div id="screen-inspector" class={`screen-view ${screen === "inspector" ? "active" : "hidden"}`}>

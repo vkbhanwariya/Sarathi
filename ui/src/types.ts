@@ -341,5 +341,5 @@ export interface DocumentPreviewData {
   data_url?: string;
 }
 
-export type Screen = "home" | "monitor" | "review" | "summary" | "inspector";
+export type Screen = "home" | "monitor" | "review" | "history" | "inspector" | "summary";
 export type InputFilter = "all" | "eligible" | "issues";

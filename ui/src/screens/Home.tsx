@@ -22,7 +22,6 @@ import type {
   RunRequest,
 } from "../types";
 import {
-  PRIMARY_TASKS,
   resolveBackendMapping,
   type PrimaryTaskId,
 } from "../workflow/taskCatalog";
@@ -451,11 +450,11 @@ export function Home({
       <section class="panel intake-panel" data-purpose="document-intake">
         <div class="panel-header">
           <div class="panel-title-wrap">
-            <h2 class="panel-heading">Document Intake</h2>
+            <h2 class="panel-heading">1. Add documents</h2>
           </div>
-          <span class="count-badge">
+          {visibleItems.length > 0 && <span class="count-badge">
             {visibleItems.length} selected ({formatBytes(totalSize)})
-          </span>
+          </span>}
         </div>
 
         <div class="panel-body intake-panel-body">
@@ -544,33 +543,7 @@ export function Home({
         {/* Processing Action / Workflow Studio Panel */}
         <section class="panel capability-panel" data-purpose="task-selection">
           <div class="panel-header studio-panel-header">
-            <div class="panel-title-wrap">
-              <span class="panel-icon panel-icon--emerald">
-                <svg class="task-svg-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-              </span>
-              <div class="panel-heading-group">
-                <h2 class="panel-heading">Workflows</h2>
-              </div>
-            </div>
-            {primaryTask ? (
-              <div class="active-task-badge-pill">
-                <span>Active:</span>
-                <strong>{PRIMARY_TASKS.find((t) => t.id === primaryTask)?.label}</strong>
-                <button
-                  id="btn-deselect-task"
-                  class="btn-deselect-task"
-                  type="button"
-                  title="Deselect task and view all workflows"
-                  onClick={() => setPrimaryTask(null)}
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <span class="step-guide-badge">Select Workflow</span>
-            )}
+            <h2 class="panel-heading">2. Choose a task</h2>
           </div>
 
           <div class="panel-body capability-panel-body">
@@ -605,28 +578,17 @@ export function Home({
               }
             />
 
-            {/* If no Level 1 task is selected, show instructional prompt */}
-            {!primaryTask && (
-              <div id="level1-empty-prompt" class="level1-empty-prompt">
-                <span class="level1-prompt-icon">💡</span>
-                <div class="level1-prompt-text">
-                  <strong>Select a workflow above</strong>
-                  <p>Choose an office workflow to configure outputs and document options.</p>
-                </div>
-              </div>
-            )}
-
             {/* Integrated Cockpit Action & Hardware Telemetry Footer */}
             <div class="cockpit-action-footer">
               <div class="footer-telemetry">
                 {!primaryTask ? (
-                  <span class="footer-status-quiet">Select a workflow above to begin</span>
+                  <span class="footer-status-quiet">Choose a task to continue</span>
                 ) : plan ? (
                   <div class="footer-hw-group">
                     <span class="footer-doc-pill">
                       {plan.document_count} doc{plan.document_count === 1 ? "" : "s"} ({formatBytes(totalSize)})
                     </span>
-                    <span class="footer-device-chip">
+                    <span class="footer-device-chip" title="Target Hardware Accelerator">
                       ⚡ {plan.devices.length ? plan.devices.map((d) => d.device_type).join(" · ") : "Intel Arc iGPU (OpenVINO FP16)"}
                     </span>
                   </div>
@@ -655,11 +617,9 @@ export function Home({
                   <span>
                     {working
                       ? "Working…"
-                      : !primaryTask
-                      ? "Select Workflow"
-                      : !eligiblePaths.length
-                      ? "Select Eligible Files"
-                      : `Start Processing (${eligiblePaths.length})`}
+                      : eligiblePaths.length
+                      ? `Start Processing (${eligiblePaths.length})`
+                      : "Start Processing"}
                   </span>
                   <svg class="btn-bolt-icon" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />

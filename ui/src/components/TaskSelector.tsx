@@ -1,13 +1,11 @@
-import { useEffect, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import { ActionParameter } from "./Common";
 import type { AvailableActionView } from "../types";
 import {
   PRIMARY_TASKS,
   CLOUD_OCR_PROVIDERS,
   TRANSLATION_ENGINES,
-  MODULES,
   type PrimaryTaskId,
-  type ModuleId,
 } from "../workflow/taskCatalog";
 
 export interface TaskSelectorProps {
@@ -63,24 +61,10 @@ export function TaskSelector({
   onSetSkipHeaderFooter,
   onSetOcrCustomParam,
 }: TaskSelectorProps) {
-  const [activeModule, setActiveModule] = useState<ModuleId | "all">("documents_handling");
   const [viewMode, setViewMode] = useState<"workflows" | "custom">("workflows");
 
-  useEffect(() => {
-    if (primaryTask) {
-      const task = PRIMARY_TASKS.find((t) => t.id === primaryTask);
-      if (task && task.moduleId !== activeModule) {
-        setActiveModule(task.moduleId);
-      }
-    }
-  }, [primaryTask]);
-
+  const selectedTask = PRIMARY_TASKS.find((task) => task.id === primaryTask);
   const ocrAction = availableActions.find((a) => a.action_id === "ocr");
-
-  const filteredTasks = PRIMARY_TASKS.filter((task) => {
-    if (activeModule === "all") return true;
-    return task.moduleId === activeModule;
-  });
 
   const renderTaskIcon = (id: PrimaryTaskId) => {
     switch (id) {
@@ -136,154 +120,37 @@ export function TaskSelector({
 
   return (
     <div class="tasks-modern-container">
-      {/* Top Module & Mode Navigation Toolbar */}
-      <div class="tasks-toolbar">
-        <div class="module-segmented-control" role="tablist" aria-label="Operational Modules">
-          {MODULES.map((mod) => (
-            <button
-              key={mod.id}
-              id={`btn-module-${mod.id.replace(/_/g, "-")}`}
-              class={`module-pill-btn ${activeModule === mod.id ? "active" : ""}`}
-              onClick={() => setActiveModule(mod.id)}
-              type="button"
-            >
-              <span class="module-btn-icon">
-                {mod.id === "documents_handling" ? (
-                  <svg class="task-svg-icon" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
-                ) : (
-                  <svg class="task-svg-icon" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                  </svg>
-                )}
-              </span>
-              <span>{mod.id === "bank_statement_analysis" ? "Bank Statements" : "Documents"}</span>
-            </button>
-          ))}
-        </div>
-
-        <div class="mode-toggle-pill-group">
-          <button
-            id="btn-mode-workflows"
-            class={`mode-pill-btn ${viewMode === "workflows" ? "active" : ""}`}
-            onClick={() => setViewMode("workflows")}
-            type="button"
-            title="Standard streamlined office workflows"
-          >
-            <span class="mode-bolt-icon">⚡</span>
-            <span>Workflows</span>
-          </button>
-          <button
-            id="btn-mode-custom"
-            class={`mode-pill-btn ${viewMode === "custom" ? "active" : ""}`}
-            onClick={() => {
-              setViewMode("custom");
-              if (!primaryTask) {
-                onSelectPrimaryTask("documents_extraction");
-                onSelectSubtask("documents_extraction", "native");
-              }
-            }}
-            type="button"
-            title="Advanced step-by-step modular pipeline builder"
-          >
-            <span>⚙️</span>
-            <span>Custom Pipeline</span>
-          </button>
-        </div>
-      </div>
-
       {viewMode === "workflows" ? (
         /* Primary Workflows Layered Deck */
-        <div class={`tasks-accordion tasks-deck ${primaryTask ? "in-deep-dive" : "in-deck-view"}`} role="tablist" aria-label="Primary Tasks">
+        <div class={`tasks-accordion tasks-deck ${primaryTask ? "in-deep-dive" : "in-deck-view"}`} role="group" aria-label="Primary Tasks">
           {primaryTask ? (
             <div class="deep-dive-workspace">
-              {/* Morphing Tabs Header */}
-              <div class="workflow-tabs-strip" role="tablist" aria-label="Workflow Tabs">
-                {filteredTasks.map((task) => {
-                  const isSelected = primaryTask === task.id;
-                  return (
-                    <button
-                      key={task.id}
-                      id={`btn-task-${task.id.replace(/_/g, "-")}`}
-                      data-task={task.id}
-                      class={`primary-task-tab-btn tab-pill ${isSelected ? "active" : ""}`}
-                      role="tab"
-                      aria-selected={isSelected}
-                      aria-expanded={isSelected}
-                      type="button"
-                      onClick={() => onSelectPrimaryTask(isSelected ? null : task.id)}
-                      title={isSelected ? "Click to return to 3-column deck" : `Switch to ${task.label}`}
-                    >
-                      <span class="tab-icon">{renderTaskIcon(task.id)}</span>
-                      <span class="tab-label">{task.label}</span>
-                      {isSelected && <span class="tab-close-icon" title="Return to card deck">✕</span>}
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                id={`btn-task-${primaryTask.replace(/_/g, "-")}`}
+                class="primary-task-tab-btn selected-task-heading active"
+                aria-label={`Change task: ${selectedTask?.label}`}
+                aria-expanded="true"
+                type="button"
+                onClick={() => onSelectPrimaryTask(null)}
+              >
+                <strong>{selectedTask?.label}</strong>
+                <span>Change task</span>
+              </button>
 
-              {/* Active Workflow Workspace */}
-              {filteredTasks
+              {/* Selected task modes and settings */}
+              {PRIMARY_TASKS
                 .filter((task) => primaryTask === task.id)
                 .map((task) => (
                   <div
                     key={task.id}
                     class="accordion-item expanded active-layer"
                     data-task={task.id}
-                    data-module={task.moduleId}
+
                   >
                     <div class="accordion-body">
                       {/* Task 1: Scan to Word & Document Extraction */}
                       {task.id === "documents_extraction" && (
                         <div class="subtasks-container">
-                          {/* Deliverable Banner & Quick Intent Pills */}
-                          <div class="workflow-deliverable-banner">
-                            <div class="deliverable-banner-left">
-                              <span class="deliverable-tag">OUTPUT</span>
-                              <strong class="deliverable-title">Word (.docx) &amp; Excel (.xlsx)</strong>
-                            </div>
-                        <div class="deliverable-quick-pills" role="group" aria-label="Quick Office Intent Actions">
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "instant_ocr" && convertLegacyFonts ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("documents_extraction", "instant_ocr");
-                              onSetConvertLegacyFonts(true);
-                            }}
-                            title="RapidOCR on Intel Arc iGPU with clean Unicode Hindi Word output"
-                          >
-                            <span class="intent-pill-icon">🇮🇳</span>
-                            <span>Hindi Word (Clean Unicode)</span>
-                          </button>
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "accurate_ocr" && preserveLayout ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("documents_extraction", "accurate_ocr");
-                              onSetPreserveLayout(true);
-                            }}
-                            title="Deep OCR with full paragraph and table layout preservation"
-                          >
-                            <span class="intent-pill-icon">🌐</span>
-                            <span>English Word (Translated)</span>
-                          </button>
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "native" ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("documents_extraction", "native");
-                            }}
-                            title="Direct digital text & table vector extraction (0.05s/page)"
-                          >
-                            <span class="intent-pill-icon">⚡</span>
-                            <span>Fast / Direct Word</span>
-                          </button>
-                        </div>
-                      </div>
 
                       <div class="subtasks-grid">
                         {/* 1.1 Native Extraction */}
@@ -299,79 +166,78 @@ export function TaskSelector({
                               data-req="read_native"
                               class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
                               onClick={() => onSelectSubtask("documents_extraction", "native")}
-                              title={isEnabled ? "Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV." : (act?.disabled_reason || "Unavailable")}
+                              title={isEnabled ? "Extract text and tables from digital documents." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Native Digital & Tables</h4>
-                                <span class={`action-tag ${isSel ? "active" : ""}`}>DIGITAL</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Native Extraction</span>
+                                <span class={`action-tag ${isSel ? "active" : ""}`}>FAST · VECTOR</span>
+                              </button>
                               <p class="action-card-desc">
-                                Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV. Extracts tables and text without OCR overhead.
+                                Extract text and tables from digital documents.
                               </p>
                               {isSel && (
-                                <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                  <label class="toggle-row mini">
-                                    <input
-                                      id="param-convert-legacy-fonts"
-                                      type="checkbox"
-                                      checked={convertLegacyFonts}
-                                      onChange={(e) => {
-                                        onSetConvertLegacyFonts(e.currentTarget.checked);
-                                        onSelectSubtask("documents_extraction", "native");
-                                      }}
-                                    />
-                                    <span>
-                                      <strong>Convert Legacy Fonts to Unicode</strong>
-                                    </span>
-                                  </label>
-                                  <label class="toggle-row mini" title="Use Graph Neural Networks for multi-column flow, table grids, and semantic headers">
-                                    <input
-                                      id="param-layout-analysis"
-                                      type="checkbox"
-                                      checked={layoutAnalysis}
-                                      onChange={(e) => {
-                                        onSetLayoutAnalysis(e.currentTarget.checked);
-                                        onSelectSubtask("documents_extraction", "native");
-                                      }}
-                                    />
-                                    <span>
-                                      <strong>Deep Layout Analysis (GNN)</strong>
-                                    </span>
-                                  </label>
-                                  <label class="toggle-row mini">
-                                    <input
-                                      id="param-statutory"
-                                      type="checkbox"
-                                      checked={statutoryEnabled}
-                                      onChange={(e) => {
-                                        onSetStatutoryEnabled(e.currentTarget.checked);
-                                        onSelectSubtask("documents_extraction", "native");
-                                      }}
-                                    />
-                                    <span>
-                                      <strong>Statutory Legal ID Detection</strong>
-                                    </span>
-                                  </label>
-                                  <label class="toggle-row mini" title="Detect and separate running page headers and footers from continuous narrative text">
-                                    <input
-                                      id="param-skip-header-footer"
-                                      type="checkbox"
-                                      checked={skipHeaderFooter}
-                                      onChange={(e) => {
-                                        onSetSkipHeaderFooter(e.currentTarget.checked);
-                                        onSelectSubtask("documents_extraction", "native");
-                                      }}
-                                    />
-                                    <span>
-                                      <strong>Separate Running Headers/Footers</strong>
-                                    </span>
-                                  </label>
-                                </div>
+                                <details class="more-options task-settings" onClick={(e) => e.stopPropagation()}>
+                                  <summary>Settings</summary>
+                                  <div class="subtask-options-row">
+                                    <label class="toggle-row mini">
+                                      <input
+                                        id="param-convert-legacy-fonts"
+                                        type="checkbox"
+                                        checked={convertLegacyFonts}
+                                        onChange={(e) => {
+                                          onSetConvertLegacyFonts(e.currentTarget.checked);
+                                          onSelectSubtask("documents_extraction", "native");
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Convert Legacy Fonts to Unicode</strong>
+                                      </span>
+                                    </label>
+                                    <label class="toggle-row mini" title="Use Graph Neural Networks for multi-column flow, table grids, and semantic headers">
+                                      <input
+                                        id="param-layout-analysis"
+                                        type="checkbox"
+                                        checked={layoutAnalysis}
+                                        onChange={(e) => {
+                                          onSetLayoutAnalysis(e.currentTarget.checked);
+                                          onSelectSubtask("documents_extraction", "native");
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Deep Layout Analysis (GNN)</strong>
+                                      </span>
+                                    </label>
+                                    <label class="toggle-row mini">
+                                      <input
+                                        id="param-statutory"
+                                        type="checkbox"
+                                        checked={statutoryEnabled}
+                                        onChange={(e) => {
+                                          onSetStatutoryEnabled(e.currentTarget.checked);
+                                          onSelectSubtask("documents_extraction", "native");
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Statutory Legal ID Detection</strong>
+                                      </span>
+                                    </label>
+                                    <label class="toggle-row mini" title="Detect and separate running page headers and footers from continuous narrative text">
+                                      <input
+                                        id="param-skip-header-footer"
+                                        type="checkbox"
+                                        checked={skipHeaderFooter}
+                                        onChange={(e) => {
+                                          onSetSkipHeaderFooter(e.currentTarget.checked);
+                                          onSelectSubtask("documents_extraction", "native");
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Separate Running Headers/Footers</strong>
+                                      </span>
+                                    </label>
+                                  </div>
+                                </details>
                               )}
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">read_native</code>
-                              </div>
                             </div>
                           );
                         })()}
@@ -391,17 +257,12 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("documents_extraction", "instant_ocr")}
                               title={isEnabled ? "RapidOCR inference with OpenVINO acceleration." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Scan to Word (Fast OCR)</h4>
-                                <span class={`action-tag ${isSel ? "active" : ""}`}>INTEL iGPU</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Instant OCR</span>
+                              </button>
                               <p class="action-card-desc">
                                 RapidOCR OpenVINO single-pass inference on Intel Arc iGPU. Outputs fast Word documents.
                               </p>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">ocr:instant</code>
-                              </div>
                             </div>
                           );
                         })()}
@@ -421,49 +282,48 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("documents_extraction", "accurate_ocr")}
                               title={isEnabled ? "Quality-optimized OCR with full preprocessing." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Scan to Word (Accurate OCR)</h4>
-                                <span class={`action-tag ${isSel ? "active" : ""}`}>ACCURATE</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Accurate OCR</span>
+                                <span class={`action-tag ${isSel ? "active" : ""}`}>LOCAL NEURAL</span>
+                              </button>
                               <p class="action-card-desc">
-                                Quality-optimized OCR with CLAHE contrast enhancement, deskew, and selective weak-crop retry.
+                                Read scanned documents with extra accuracy checks.
                               </p>
                               {isSel && (
-                                <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                  <label class="toggle-row mini">
-                                    <input
-                                      id="param-preserve-layout"
-                                      type="checkbox"
-                                      checked={preserveLayout}
-                                      onChange={(e) => {
-                                        onSetPreserveLayout(e.currentTarget.checked);
-                                        onSelectSubtask("documents_extraction", "accurate_ocr");
-                                      }}
-                                    />
-                                    <span>
-                                      <strong>Preserve Layout & Margin Geometry</strong>
-                                    </span>
-                                  </label>
-                                  <label class="toggle-row mini" title="Detect and separate running page headers and footers">
-                                    <input
-                                      id="param-ocr-skip-header-footer"
-                                      type="checkbox"
-                                      checked={skipHeaderFooter}
-                                      onChange={(e) => {
-                                        onSetSkipHeaderFooter(e.currentTarget.checked);
-                                        onSelectSubtask("documents_extraction", "accurate_ocr");
-                                      }}
-                                    />
-                                    <span>
-                                      <strong>Separate Running Headers/Footers</strong>
-                                    </span>
-                                  </label>
-                                </div>
+                                <details class="more-options task-settings" onClick={(e) => e.stopPropagation()}>
+                                  <summary>Settings</summary>
+                                  <div class="subtask-options-row">
+                                    <label class="toggle-row mini">
+                                      <input
+                                        id="param-preserve-layout"
+                                        type="checkbox"
+                                        checked={preserveLayout}
+                                        onChange={(e) => {
+                                          onSetPreserveLayout(e.currentTarget.checked);
+                                          onSelectSubtask("documents_extraction", "accurate_ocr");
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Preserve Layout & Margin Geometry</strong>
+                                      </span>
+                                    </label>
+                                    <label class="toggle-row mini" title="Detect and separate running page headers and footers">
+                                      <input
+                                        id="param-ocr-skip-header-footer"
+                                        type="checkbox"
+                                        checked={skipHeaderFooter}
+                                        onChange={(e) => {
+                                          onSetSkipHeaderFooter(e.currentTarget.checked);
+                                          onSelectSubtask("documents_extraction", "accurate_ocr");
+                                        }}
+                                      />
+                                      <span>
+                                        <strong>Separate Running Headers/Footers</strong>
+                                      </span>
+                                    </label>
+                                  </div>
+                                </details>
                               )}
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">ocr:accurate</code>
-                              </div>
                             </div>
                           );
                         })()}
@@ -483,14 +343,15 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("documents_extraction", "cloud_ocr")}
                               title={isEnabled ? "External cloud multimodal document recognition." : (curCloudAct?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Cloud Document AI</h4>
-                                <span class={`action-tag action-tag--cloud ${isSel ? "active" : ""}`}>CLOUD</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Cloud OCR</span>
+                                <span class={`action-tag ${isSel ? "active" : ""}`}>CLOUD AI</span>
+                              </button>
                               <p class="action-card-desc">
-                                Multimodal cloud document recognition (Gemini / Mistral / Azure) with fail-closed privacy.
+                                Read documents using your chosen cloud provider.
                               </p>
-                              <div class="cloud-provider-chips" onClick={(e) => e.stopPropagation()}>
+                              {isSel && (
+                                <div class="cloud-provider-chips" onClick={(e) => e.stopPropagation()}>
                                 {CLOUD_OCR_PROVIDERS.map((cp) => {
                                   const act = availableActions.find((a) => a.action_id === cp.id);
                                   const isChipAvail = act ? act.is_enabled : false;
@@ -512,11 +373,8 @@ export function TaskSelector({
                                     </button>
                                   );
                                 })}
-                              </div>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">{cloudOcrProvider}</code>
-                              </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
@@ -536,17 +394,12 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("documents_extraction", "custom_ocr")}
                               title={isEnabled ? "Fine-grained control over OCR parameters." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Custom Parameters</h4>
-                                <span class={`action-tag ${isSel ? "active" : ""}`}>CUSTOM</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Custom OCR</span>
+                              </button>
                               <p class="action-card-desc">
                                 Granular control over detection thresholds, unclip ratios, and preprocessing toggles.
                               </p>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">ocr:custom</code>
-                              </div>
                             </div>
                           );
                         })()}
@@ -572,56 +425,12 @@ export function TaskSelector({
                         </div>
                       ) : null}
                     </div>
+
                   )}
 
                   {/* Task 2: Font Standardizer (Word & Excel) */}
                   {task.id === "font_conversion" && (
                     <div class="subtasks-container">
-                      {/* Executive Office Deliverable Banner & Quick Intent Pills */}
-                      <div class="workflow-deliverable-banner">
-                        <div class="deliverable-banner-left">
-                          <span class="deliverable-tag">OUTPUT</span>
-                          <strong class="deliverable-title">Standardized Unicode (.docx &amp; .xlsx)</strong>
-                        </div>
-                        <div class="deliverable-quick-pills" role="group" aria-label="Quick Font Conversion Actions">
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "legacy_to_unicode" ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("font_conversion", "legacy_to_unicode");
-                            }}
-                            title="Upgrade Kruti Dev / Devlys / Chanakya to clean standard Unicode"
-                          >
-                            <span class="intent-pill-icon">✨</span>
-                            <span>To Standard Unicode</span>
-                          </button>
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "unicode_to_krutidev" ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("font_conversion", "unicode_to_krutidev");
-                            }}
-                            title="Reverse modern Unicode back to Kruti Dev 010 for typewriter submission portals"
-                          >
-                            <span class="intent-pill-icon">🔄</span>
-                            <span>Reverse to Kruti Dev 010</span>
-                          </button>
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "unicode_to_devlys" ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("font_conversion", "unicode_to_devlys");
-                            }}
-                            title="Reverse Unicode back to Devlys 010"
-                          >
-                            <span class="intent-pill-icon">🔄</span>
-                            <span>Reverse to Devlys 010</span>
-                          </button>
-                        </div>
-                      </div>
 
                       <div class="subtasks-grid">
                         {/* 2.1 Legacy to Unicode */}
@@ -639,34 +448,34 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("font_conversion", "legacy_to_unicode")}
                               title={isEnabled ? "Auto-detects legacy Hindi font encodings and converts to Unicode." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">To Standard Unicode (Word & Excel)</h4>
-                                <span class={`action-tag ${isSel ? "active" : ""}`}>UNICODE</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Auto detect to Unicode</span>
+                              </button>
                               <p class="action-card-desc">
-                                Upgrades KrutiDev, DevLys, Chanakya, Shusha, and Shivaji in Word (.docx) and Excel (.xlsx) to clean Unicode without breaking formulas.
+                                Convert legacy Hindi fonts in Word and Excel to Unicode.
                               </p>
-                              <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                <label class="field mini" style={{ margin: 0 }}>
-                                  <span style={{ fontSize: "11px" }}>Source Font Hint</span>
-                                  <select
-                                    id="param-source-font"
-                                    value={sourceFont}
-                                    onChange={(e) => onSetSourceFont(e.currentTarget.value)}
-                                    style={{ padding: "3px 6px", fontSize: "11px" }}
-                                  >
-                                    <option value="">Auto-Detect Source Font</option>
-                                    <option value="krutidev010">KrutiDev 010 / DevLys</option>
-                                    <option value="chanakya010">Chanakya</option>
-                                    <option value="shusha010">Shusha</option>
-                                    <option value="shivaji010">Shivaji</option>
-                                  </select>
-                                </label>
-                              </div>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">font_conversion:auto_unicode</code>
-                              </div>
+                              {isSel && (
+                                <details class="more-options task-settings" onClick={(e) => e.stopPropagation()}>
+                                  <summary>Settings</summary>
+                                  <div class="subtask-options-row">
+                                    <label class="field mini" style={{ margin: 0 }}>
+                                      <span style={{ fontSize: "11px" }}>Source Font Hint</span>
+                                      <select
+                                        id="param-source-font"
+                                        value={sourceFont}
+                                        onChange={(e) => onSetSourceFont(e.currentTarget.value)}
+                                        style={{ padding: "3px 6px", fontSize: "11px" }}
+                                      >
+                                        <option value="">Auto-Detect Source Font</option>
+                                        <option value="krutidev010">KrutiDev 010 / DevLys</option>
+                                        <option value="chanakya010">Chanakya</option>
+                                        <option value="shusha010">Shusha</option>
+                                        <option value="shivaji010">Shivaji</option>
+                                      </select>
+                                    </label>
+                                  </div>
+                                </details>
+                              )}
                             </div>
                           );
                         })()}
@@ -686,17 +495,12 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("font_conversion", "unicode_to_krutidev")}
                               title={isEnabled ? "Reverses Unicode text into legacy KrutiDev 010." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Reverse to KrutiDev 010</h4>
-                                <span class={`action-tag ${isSel ? "active" : ""}`}>KRUTIDEV</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Convert to KrutiDev</span>
+                              </button>
                               <p class="action-card-desc">
                                 Transduces Unicode text back into legacy KrutiDev 010 for older government printing portals or typewriter submissions.
                               </p>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">font_conversion:to_krutidev</code>
-                              </div>
                             </div>
                           );
                         })()}
@@ -716,34 +520,23 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("font_conversion", "unicode_to_devlys")}
                               title={isEnabled ? "Reverses Unicode text into legacy DevLys 010." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Reverse to DevLys 010</h4>
-                                <span class={`action-tag ${isSel ? "active" : ""}`}>DEVLYS</span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Convert to DevLys</span>
+                              </button>
                               <p class="action-card-desc">
                                 Transduces Unicode text back into legacy DevLys 010 for governmental typewriter compatibility.
                               </p>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">font_conversion:to_devlys</code>
-                              </div>
                             </div>
                           );
                         })()}
                       </div>
                     </div>
+
                   )}
 
                   {/* Task 3: Document Translation (Word, PDF & Excel) */}
                   {task.id === "translation" && (
                     <div class="subtasks-container">
-                      {/* Executive Office Deliverable Banner */}
-                      <div class="workflow-deliverable-banner">
-                        <div class="deliverable-banner-left">
-                          <span class="deliverable-tag">OUTPUT</span>
-                          <strong class="deliverable-title">Bilingual Word (.docx), PDF, or Excel (.xlsx)</strong>
-                        </div>
-                      </div>
 
                       {/* Direction selector */}
                       <div class="translation-direction-toolbar" role="group" aria-label="Translation Direction">
@@ -754,7 +547,7 @@ export function TaskSelector({
                           type="button"
                           onClick={() => onSetTransDirection("")}
                         >
-                          ⚡ Auto-Detect Language
+                          Auto-detect
                         </button>
                         <button
                           id="btn-direction-hi-en"
@@ -792,63 +585,21 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("translation", eng.id)}
                               title={isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">{eng.label}</h4>
-                                <span class={`action-tag ${eng.isCloud ? "action-tag--cloud" : ""} ${isSel ? "active" : ""}`}>
-                                  {eng.tag}
-                                </span>
-                              </div>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">{eng.label}</span>
+                              </button>
                               <p class="action-card-desc">{isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}</p>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">{eng.code}</code>
-                              </div>
                             </div>
                           );
                         })}
                       </div>
                     </div>
+
                   )}
 
                   {/* Task 4: Bank Statement Consolidation & Audit */}
                   {task.id === "bank_consolidation" && (
                     <div class="subtasks-container">
-                      {/* Executive Office Deliverable Banner & Quick Intent Pills */}
-                      <div class="workflow-deliverable-banner">
-                        <div class="deliverable-banner-left">
-                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
-                          <strong class="deliverable-title">Master Consolidated Excel (.xlsx) + 1-Page Audit Memo (.docx)</strong>
-                          <span class="deliverable-desc">
-                            Standardized double-entry running balance ledger with verified arithmetic, UTR repair, and forensic memo.
-                          </span>
-                        </div>
-                        <div class="deliverable-quick-pills" role="group" aria-label="Quick Financial Reconciler Actions">
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "accurate" ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("bank_consolidation", "accurate");
-                            }}
-                            title="Strict double-entry balance arithmetic verification and 1-page memo"
-                          >
-                            <span class="intent-pill-icon">🎯</span>
-                            <span>Deep Verification &amp; Memo</span>
-                          </button>
-                          <button
-                            type="button"
-                            class={`intent-pill ${currentSubtask === "instant" ? "active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectSubtask("bank_consolidation", "instant");
-                            }}
-                            title="High-speed statement ledger parsing"
-                          >
-                            <span class="intent-pill-icon">⚡</span>
-                            <span>Instant Consolidation</span>
-                          </button>
-                        </div>
-                      </div>
 
                       {/* Bank Statement Verification Bar */}
                       <div class="bank-integrity-features-bar">
@@ -874,17 +625,13 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("bank_consolidation", "accurate")}
                               title={isEnabled ? "Strict double-entry verification and UTR repair." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Accurate Reconciler & Memo</h4>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Accurate Consolidation</span>
                                 <span class={`action-tag ${isSel ? "active" : ""}`}>AUDIT-GRADE</span>
-                              </div>
+                              </button>
                               <p class="action-card-desc">
                                 Strict double-entry balance arithmetic verification, UTR/IFSC auto-repair, and master Excel workbook with 1-page executive memo.
                               </p>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">bank_statements:accurate</code>
-                              </div>
                             </div>
                           );
                         })()}
@@ -904,35 +651,21 @@ export function TaskSelector({
                               onClick={() => onSelectSubtask("bank_consolidation", "instant")}
                               title={isEnabled ? "Throughput-optimized financial statement parsing." : (act?.disabled_reason || "Unavailable")}
                             >
-                              <div class="action-card-header">
-                                <h4 class="action-card-name">Instant Consolidation</h4>
+                              <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                <span class="action-card-name">Instant Consolidation</span>
                                 <span class={`action-tag ${isSel ? "active" : ""}`}>FAST</span>
-                              </div>
+                              </button>
                               <p class="action-card-desc">
                                 Throughput-optimized parsing across financial statements using standard layout heuristics.
                               </p>
-                              <div class="action-card-footer">
-                                <span class={`action-dot ${isSel ? "active" : ""}`} />
-                                <code class="action-code">bank_statements:instant</code>
-                              </div>
                             </div>
                           );
                         })()}
                       </div>
 
                       {/* Planned Forensic Roadmap Indicators */}
-                      <div class="roadmap-pills-row">
-                        <span class="roadmap-pill" title="Planned: Monthly Average Balance and Inflow/Outflow trends">
-                          📈 Cash Flow Analytics
-                        </span>
-                        <span class="roadmap-pill" title="Planned: Circular routing and Section 269ST cash alerts">
-                          🔍 PMLA & Fraud Detection
-                        </span>
-                        <span class="roadmap-pill" title="Planned: Commercial counterparty exposure matrix">
-                          🏷️ Counterparty Mapping
-                        </span>
-                      </div>
                     </div>
+
                   )}
                 </div>
               </div>
@@ -940,12 +673,12 @@ export function TaskSelector({
           </div>
         ) : (
             <div class="workflow-columns-grid">
-              {filteredTasks.map((task) => (
+              {PRIMARY_TASKS.map((task) => (
                 <div
                   key={task.id}
                   class="accordion-item collapsed workflow-col-card"
                   data-task={task.id}
-                  data-module={task.moduleId}
+
                 >
                   <button
                     id={`btn-task-${task.id.replace(/_/g, "-")}`}
@@ -957,26 +690,20 @@ export function TaskSelector({
                     type="button"
                     onClick={() => onSelectPrimaryTask(task.id)}
                   >
-                    <div class="col-card-header">
-                      <span class="col-card-icon">{renderTaskIcon(task.id)}</span>
-                      {task.badge ? (
-                        <span class={`task-tag-badge task-tag-badge--${task.id}`}>{task.badge}</span>
-                      ) : null}
-                    </div>
+                    <span class="col-card-icon">{renderTaskIcon(task.id)}</span>
                     <div class="col-card-body">
-                      <h3 class="col-card-title">{task.label}</h3>
+                      <div class="col-card-title-row">
+                        <h3 class="col-card-title">{task.label}</h3>
+                        {task.badge && <span class="col-card-tag">{task.badge}</span>}
+                      </div>
                       <p class="col-card-desc">{task.description}</p>
                     </div>
-                    <div class="col-card-footer">
-                      <span class="col-card-select-pill">
-                        <span>Select</span>
-                        <span class="col-arrow">→</span>
-                      </span>
-                    </div>
+                    <span class="col-arrow" aria-hidden="true">→</span>
                   </button>
                 </div>
               ))}
             </div>
+
           )}
         </div>
       ) : (
@@ -985,13 +712,9 @@ export function TaskSelector({
           {/* Header Banner */}
           <div class="pipeline-builder-header">
             <div class="pipeline-header-info">
-              <div class="pipeline-badge-row">
-                <span class="pipeline-mode-badge">POWER USER WORKSPACE</span>
-                <span class="pipeline-hw-badge">Intel Core Ultra 5 125H · Intel Arc iGPU (OpenVINO FP16)</span>
-              </div>
-              <h3 class="pipeline-title">Custom Modular Pipeline Builder</h3>
+              <h3 class="pipeline-title">Custom workflow</h3>
               <p class="pipeline-desc">
-                Compose custom document-processing stages, neural routing, and hardware accelerator parameters.
+                Adjust extraction, fonts, translation, and output settings.
               </p>
             </div>
             <div class="pipeline-status-summary">
@@ -1166,6 +889,7 @@ export function TaskSelector({
                     ))}
                   </div>
                 </div>
+
               )}
             </div>
           </div>
@@ -1328,6 +1052,7 @@ export function TaskSelector({
                     </button>
                   </div>
                 </div>
+
               )}
             </div>
           </div>
@@ -1425,7 +1150,23 @@ export function TaskSelector({
             </div>
           </div>
         </div>
+
       )}
+      <details class="more-options" id="workflow-more-options">
+        <summary>More options</summary>
+        <div class="mode-toggle-pill-group">
+          <button id="btn-mode-workflows" class={`mode-pill-btn ${viewMode === "workflows" ? "active" : ""}`}
+            type="button" onClick={() => setViewMode("workflows")}>Standard tasks</button>
+          <button id="btn-mode-custom" class={`mode-pill-btn ${viewMode === "custom" ? "active" : ""}`}
+            type="button" onClick={() => {
+              setViewMode("custom");
+              if (!primaryTask) {
+                onSelectPrimaryTask("documents_extraction");
+                onSelectSubtask("documents_extraction", "native");
+              }
+            }}>Custom workflow</button>
+        </div>
+      </details>
     </div>
   );
 }

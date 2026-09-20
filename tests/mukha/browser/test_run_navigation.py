@@ -32,8 +32,8 @@ def test_active_run_id_not_overwritten_by_historical_summary(app_page: Page, web
         }}"""
     )
 
-    app_page.click(".nav-tab[data-screen='summary']")
-    expect(app_page.locator("#screen-summary")).to_have_class("screen-view active")
+    app_page.click(".nav-tab[data-screen='history']")
+    expect(app_page.locator("#screen-history")).to_have_class("screen-view active")
 
     app_page.click(".nav-tab[data-screen='monitor']")
     expect(app_page.locator("#screen-monitor")).to_have_class("screen-view active")

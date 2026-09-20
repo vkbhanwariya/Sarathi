@@ -71,7 +71,7 @@ export function IntakeTable({
   return (
     <div class="intake-table-section">
       {/* Search & Filter Badges */}
-      <div class="intake-search-filter-row">
+      {visibleItems.length > 0 && <div class="intake-search-filter-row">
         <div class="search-input-wrap">
           <svg class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -110,7 +110,7 @@ export function IntakeTable({
             Issues <span id="filter-issues-count">{issueCount}</span>
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Intake Queue Summary */}
       <div id="input-grouped-summary" class={`grouped-summary-card ${showGroupedSummary ? "" : "hidden"}`}>
@@ -211,7 +211,7 @@ export function IntakeTable({
           </thead>
           <tbody id="selected-inputs-tbody">
             {visibleItems.length === 0 ? (
-              <tr class="empty-row"><td colSpan={4} class="empty-cell">No documents selected. Click Add files or paste a path above.</td></tr>
+              <tr class="empty-row"><td colSpan={4} class="empty-cell">No documents selected.</td></tr>
             ) : filteredItems.length === 0 ? (
               <tr class="empty-row"><td colSpan={4} class="empty-cell">No documents match the filter query</td></tr>
             ) : (

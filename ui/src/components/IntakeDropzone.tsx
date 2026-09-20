@@ -55,6 +55,9 @@ export function IntakeDropzone({
             Clear
           </button>
         </div>
+      </div>
+      <details class="more-options" id="intake-more-options">
+        <summary>More options</summary>
         <label class="recursive-label">
           <input
             type="checkbox"
@@ -63,41 +66,42 @@ export function IntakeDropzone({
               onToggleRecursive(event.currentTarget.checked);
             }}
           />
-          <span>Recursive folders</span>
+          <span>Include subfolders</span>
         </label>
-      </div>
+        {/* Path Input Bar */}
+        <div class="path-input-bar">
+          <input
+            class="path-input"
+            aria-label="File or folder path"
+            placeholder="Paste a file or folder path"
+            value={manualPath}
+            onInput={(event) => onManualPathChange(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && manualPath.trim()) {
+                onAddManualPath();
+              }
+            }}
+          />
+          <button
+            class="btn-add-path"
+            disabled={working || !manualPath.trim()}
+            onClick={onAddManualPath}
+            type="button"
+          >
+            Add
+          </button>
+        </div>
+      </details>
 
-      {/* Path Input Bar */}
-      <div class="path-input-bar">
-        <input
-          class="path-input"
-          placeholder="Paste a file or folder path and press Enter"
-          value={manualPath}
-          onInput={(event) => onManualPathChange(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && manualPath.trim()) {
-              onAddManualPath();
-            }
-          }}
-        />
-        <button
-          class="btn-add-path"
-          disabled={working || !manualPath.trim()}
-          onClick={onAddManualPath}
-          type="button"
-        >
-          Add
-        </button>
-      </div>
-
-      {/* Supported Format Badges */}
-      <div class="supported-formats-pills">
-        <span class="format-pill">PDF</span>
-        <span class="format-pill">DOCX</span>
-        <span class="format-pill">XLSX</span>
-        <span class="format-pill">CSV</span>
-        <span class="format-pill">IMAGES</span>
-      </div>
+      {!hasItems && (
+        <div class="supported-formats-pills">
+          <span class="format-pill">PDF</span>
+          <span class="format-pill">DOCX</span>
+          <span class="format-pill">XLSX</span>
+          <span class="format-pill">CSV</span>
+          <span class="format-pill">IMAGES</span>
+        </div>
+      )}
     </div>
   );
 }

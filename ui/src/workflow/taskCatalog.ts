@@ -4,84 +4,42 @@ export type PrimaryTaskId =
   | "font_conversion"
   | "translation";
 
-export type ModuleId = "documents_handling" | "bank_statement_analysis";
-
-export interface ModuleDef {
-  id: ModuleId;
-  label: string;
-  icon: string;
-  description: string;
-  taskIds: readonly PrimaryTaskId[];
-}
-
-export const MODULES: readonly ModuleDef[] = [
-  {
-    id: "documents_handling",
-    label: "Documents Studio",
-    icon: "📁",
-    description: "Scan to Word, Font Standardizer for Word & Excel, Document Translation, PDF Tables",
-    taskIds: ["documents_extraction", "font_conversion", "translation"],
-  },
-  {
-    id: "bank_statement_analysis",
-    label: "Bank Statement Analysis",
-    icon: "🏦",
-    description: "Multi-bank statement consolidation, running balance verification & forensic analytics",
-    taskIds: ["bank_consolidation"],
-  },
-];
-
 export interface PrimaryTaskDef {
   id: PrimaryTaskId;
   label: string;
   icon: string;
   description: string;
-  moduleId: ModuleId;
   badge?: string;
-  deliverable?: string;
-  officeIntent?: string;
 }
 
 export const PRIMARY_TASKS: readonly PrimaryTaskDef[] = [
   {
     id: "documents_extraction",
-    label: "Scan to Word",
+    label: "Documents Extraction",
     icon: "📄",
     description: "Scanned & digital documents to Word (.docx) and Excel (.xlsx)",
-    moduleId: "documents_handling",
     badge: "DOCX / XLSX",
-    deliverable: "Microsoft Word (.docx) & Excel (.xlsx)",
-    officeIntent: "Scanned petitions, FIRs, court orders & PDF tables",
+  },
+  {
+    id: "bank_consolidation",
+    label: "Bank Account Consolidation",
+    icon: "🏦",
+    description: "Consolidate multi-bank statements into a verified Excel ledger",
+    badge: "AUDIT",
   },
   {
     id: "font_conversion",
-    label: "Font Standardizer",
+    label: "Font Conversion",
     icon: "🔤",
     description: "Legacy KrutiDev & Devlys to clean Unicode (.docx & .xlsx)",
-    moduleId: "documents_handling",
     badge: "UNICODE",
-    deliverable: "Standardized [Name]_Unicode.docx / .xlsx",
-    officeIntent: "Word files & Excel sheets with legacy Hindi fonts",
   },
   {
     id: "translation",
     label: "Translation",
     icon: "🌐",
     description: "Hindi ↔ English translation with statutory glossary",
-    moduleId: "documents_handling",
     badge: "HI ↔ EN",
-    deliverable: "Translated Word (.docx), PDF, or Excel (.xlsx)",
-    officeIntent: "Official circulars, court orders, petitions & bilingual sheets",
-  },
-  {
-    id: "bank_consolidation",
-    label: "Bank Statement Consolidation",
-    icon: "🏦",
-    description: "Consolidate multi-bank statements into a verified Excel ledger",
-    moduleId: "bank_statement_analysis",
-    badge: "AUDIT",
-    deliverable: "Master Consolidated Excel (.xlsx) + 1-Page Audit Memo (.docx)",
-    officeIntent: "Bank statements & passbooks in PDF, Excel or CSV",
   },
 ];
 

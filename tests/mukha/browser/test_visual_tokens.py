@@ -81,9 +81,10 @@ def test_panel_scroll_isolation(app_page: Page) -> None:
     assert isolation["panelOverflowY"] == "auto"
 
 
-def test_responsive_layout_and_touch_targets(app_page: Page) -> None:
+@pytest.mark.parametrize("width", [768, 390, 320])
+def test_responsive_layout_and_touch_targets(app_page: Page, width: int) -> None:
     """Verify responsive stacking at 768px viewport width and touch target sizing."""
-    app_page.set_viewport_size({"width": 768, "height": 800})
+    app_page.set_viewport_size({"width": width, "height": 800})
     app_page.wait_for_timeout(200)
 
     grid_cols = app_page.evaluate(
@@ -111,3 +112,14 @@ def test_responsive_layout_and_touch_targets(app_page: Page) -> None:
     )
     assert button_heights["btnHeight"] >= 36.0
     assert button_heights["navTabHeight"] >= 36.0
+
+    # Auto-height mobile panels must keep every task and the final action reachable.
+    task = app_page.locator("#btn-task-translation")
+    task.scroll_into_view_if_needed()
+    expect(task).to_be_in_viewport()
+    task.click()
+    expect(app_page.locator("#btn-task-translation")).to_have_attribute("aria-expanded", "true")
+    run = app_page.locator("#btn-start-run")
+    run.scroll_into_view_if_needed()
+    expect(run).to_be_in_viewport()
+    assert app_page.evaluate("document.documentElement.scrollWidth") == width

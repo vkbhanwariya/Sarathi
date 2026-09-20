@@ -16,40 +16,48 @@ from sarathi.mukha.web import MukhaWebServer
 pytestmark = [pytest.mark.browser]
 
 
+def _choose_task(page: Page, task: str) -> None:
+    button = page.locator(f"#btn-task-{task}")
+    if button.count() == 0:
+        page.locator(".selected-task-heading").click()
+    button.click()
+
+
+def _open_settings(page: Page, subtask: str) -> None:
+    settings = page.locator(f"#subtask-{subtask} .task-settings")
+    if settings.get_attribute("open") is None:
+        settings.locator("summary").click()
+
+
 def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     """Verify that the single-page application loads with Griha Home active and displays only Level 1 selection initially."""
     expect(app_page.locator("h1")).to_contain_text("Sarathi")
     expect(app_page.locator(".nav-tab[data-screen='home']")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#screen-home")).to_have_class(re.compile(r"\bactive\b"))
 
-    # Verify module tabs are displayed; Documents Studio active by default with 3 primary tasks
-    expect(app_page.locator("#btn-module-documents-handling")).to_be_visible()
-    expect(app_page.locator("#btn-module-bank-statement-analysis")).to_be_visible()
-
+    # All four tasks are directly available without an intermediate module filter.
     task_tabs = app_page.locator(".primary-task-tab-btn")
-    expect(task_tabs).to_have_count(3)
-    expect(app_page.locator("#btn-task-documents-extraction")).to_be_visible()
-    expect(app_page.locator("#btn-task-font-conversion")).to_be_visible()
-    expect(app_page.locator("#btn-task-translation")).to_be_visible()
-
-    # Statement Analysis module displays bank consolidation
-    app_page.locator("#btn-module-bank-statement-analysis").click()
-    expect(app_page.locator(".primary-task-tab-btn")).to_have_count(1)
+    expect(task_tabs).to_have_count(4)
+    expect(app_page.locator(".col-card-title")).to_have_text([
+        "Documents Extraction",
+        "Bank Account Consolidation",
+        "Font Conversion",
+        "Translation",
+    ])
     expect(app_page.locator("#btn-task-bank-consolidation")).to_be_visible()
-
-    # Switch back to Documents Studio
-    app_page.locator("#btn-module-documents-handling").click()
-    expect(task_tabs).to_have_count(3)
 
     # On home screen, only level 1 selection is shown initially (no level 2 subtask cards visible)
     expect(app_page.locator(".subtask-card")).to_have_count(0)
-    expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
+    expect(app_page.locator(".workflow-columns-grid")).to_be_visible()
 
     # On selecting the respective level 1 task, the specific level 2 options are displayed
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     expect(app_page.locator("#btn-task-documents-extraction")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#subtask-native")).to_be_visible()
     expect(app_page.locator("#subtask-instant-ocr")).to_be_visible()
+    expect(app_page.locator(".primary-task-tab-btn")).to_have_count(1)
+    expect(app_page.locator("#param-convert-legacy-fonts")).not_to_be_visible()
+    _open_settings(app_page, "native")
     expect(app_page.locator("#param-convert-legacy-fonts")).to_be_visible()
     expect(app_page.locator("#param-convert-legacy-fonts")).to_be_checked()
     expect(app_page.locator("#param-layout-analysis")).to_be_visible()
@@ -57,7 +65,7 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
 
 def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_server: MukhaWebServer) -> None:
     """Verify that changing an action parameter is preserved when telemetry updates arrive."""
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     custom_ocr_card = app_page.locator("#subtask-custom-ocr")
     custom_ocr_card.click()
 
@@ -79,7 +87,7 @@ def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_serve
 
 def test_parameter_selection_survives_capability_switching(app_page: Page) -> None:
     """Verify that changing primary task/capability and returning preserves previous parameter choices."""
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     custom_ocr_card = app_page.locator("#subtask-custom-ocr")
     custom_ocr_card.click()
 
@@ -88,15 +96,12 @@ def test_parameter_selection_survives_capability_switching(app_page: Page) -> No
     profile_select.select_option("accurate")
     expect(profile_select).to_have_value("accurate")
 
-    # Switch to Statement Analysis -> Bank Account Consolidation
-    app_page.locator("#btn-module-bank-statement-analysis").click()
-    bank_tab = app_page.locator("#btn-task-bank-consolidation")
-    bank_tab.click()
+    # Switch directly to Bank Account Consolidation
+    _choose_task(app_page, "bank-consolidation")
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
     # Switch back to Documents Extraction
-    app_page.locator("#btn-module-documents-handling").click()
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     profile_select = app_page.locator("#param-profile")
     expect(profile_select).to_be_visible()
 
@@ -106,7 +111,7 @@ def test_parameter_selection_survives_capability_switching(app_page: Page) -> No
 
 def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     """Verify that custom toggle values survive switching between capabilities."""
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     custom_ocr_card = app_page.locator("#subtask-custom-ocr")
     custom_ocr_card.click()
 
@@ -117,12 +122,10 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     expect(clahe_chk).to_be_checked()
 
     # Switch to Bank Statements and back to Documents Extraction
-    app_page.locator("#btn-module-bank-statement-analysis").click()
-    app_page.locator("#btn-task-bank-consolidation").click()
+    _choose_task(app_page, "bank-consolidation")
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
-    app_page.locator("#btn-module-documents-handling").click()
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     clahe_chk = app_page.locator("#param-clahe")
     expect(clahe_chk).to_be_visible()
     expect(clahe_chk).to_be_checked()
@@ -130,7 +133,7 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
 
 def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
     """Verify that user draft choices survive navigating to another screen and returning."""
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     custom_ocr_card = app_page.locator("#subtask-custom-ocr")
     custom_ocr_card.click()
 
@@ -153,7 +156,7 @@ def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
 
 def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     """Verify that buildRequest produces identical configuration for preview and execution."""
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     accurate_ocr_card = app_page.locator("#subtask-accurate-ocr")
     accurate_ocr_card.locator(".action-card-header").click()
     expect(accurate_ocr_card).to_have_class(re.compile(r"\bselected\b"))
@@ -166,11 +169,12 @@ def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
 
 def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     """Verify that layout preservation and GNN layout analysis checkboxes toggle on click and update request payload."""
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
 
     # 1. Accurate OCR: Preserve Layout toggle
     card = app_page.locator("#subtask-accurate-ocr")
     card.locator(".action-card-header").click()
+    _open_settings(app_page, "accurate-ocr")
     chk_preserve = app_page.locator("#param-preserve-layout")
     expect(chk_preserve).not_to_be_checked()
 
@@ -197,6 +201,7 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     # 2. Native Extraction: Deep Layout Analysis toggle
     native_card = app_page.locator("#subtask-native")
     native_card.locator(".action-card-header").click()
+    _open_settings(app_page, "native")
     chk_gnn = app_page.locator("#param-layout-analysis")
     expect(chk_gnn).not_to_be_checked()
 
@@ -215,38 +220,36 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
 def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> None:
     """Verify that the 4 primary tasks expand into the exact approved second-level choices in Vedas/Decisions.md."""
     # 1. Documents Extraction: Native, Instant OCR, Accurate OCR, Cloud Document AI, Custom OCR
-    doc_tab = app_page.locator("#btn-task-documents-extraction")
-    doc_tab.click()
+    _choose_task(app_page, "documents-extraction")
     expect(app_page.locator("#subtask-native")).to_be_visible()
     expect(app_page.locator("#subtask-instant-ocr")).to_be_visible()
     expect(app_page.locator("#subtask-accurate-ocr")).to_be_visible()
     expect(app_page.locator("#subtask-cloud-ocr")).to_be_visible()
     expect(app_page.locator("#subtask-custom-ocr")).to_be_visible()
 
+    # Providers appear only after Cloud OCR is selected.
+    expect(app_page.locator("#chip-gemini-ocr")).not_to_be_visible()
+    app_page.locator("#subtask-cloud-ocr .action-card-header").click()
     # Verify cloud provider chips in Cloud Document AI
     expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
     expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
     expect(app_page.locator("#chip-azure-ocr")).to_be_visible()
 
     # 2. Bank Account Consolidation: Instant Consolidation, Accurate Consolidation
-    app_page.locator("#btn-module-bank-statement-analysis").click()
-    bank_tab = app_page.locator("#btn-task-bank-consolidation")
-    bank_tab.click()
+    _choose_task(app_page, "bank-consolidation")
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
     expect(app_page.locator("#subtask-accurate-consolidation")).to_be_visible()
 
     # 3. Font Conversion: Legacy to Unicode, Unicode to KrutiDev, Unicode to DevLys
-    app_page.locator("#btn-module-documents-handling").click()
-    font_tab = app_page.locator("#btn-task-font-conversion")
-    font_tab.click()
+    _choose_task(app_page, "font-conversion")
     expect(app_page.locator("#subtask-legacy-to-unicode")).to_be_visible()
     expect(app_page.locator("#subtask-unicode-to-krutidev")).to_be_visible()
     expect(app_page.locator("#subtask-unicode-to-devlys")).to_be_visible()
+    _open_settings(app_page, "legacy-to-unicode")
     expect(app_page.locator("#param-source-font")).to_be_visible()
 
     # 4. Translation: Direction selector first, then 5 engines in exact order
-    trans_tab = app_page.locator("#btn-task-translation")
-    trans_tab.click()
+    _choose_task(app_page, "translation")
     expect(app_page.locator("#btn-direction-auto")).to_be_visible()
     expect(app_page.locator("#btn-direction-hi-en")).to_be_visible()
     expect(app_page.locator("#btn-direction-en-hi")).to_be_visible()
@@ -260,7 +263,7 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
 
 def test_translation_direction_and_engine_payload(app_page: Page) -> None:
     """Verify that translation direction and engine options map correctly to the execution payload."""
-    app_page.locator("#btn-task-translation").click()
+    _choose_task(app_page, "translation")
 
     # Choose Hindi -> English direction
     app_page.locator("#btn-direction-hi-en").click()
@@ -284,10 +287,10 @@ def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
 
     # Initially collapsed
     expect(app_page.locator(".subtask-card")).to_have_count(0)
-    expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
+    expect(app_page.locator(".workflow-columns-grid")).to_be_visible()
 
     # Click Documents Extraction to expand
-    doc_btn.click()
+    _choose_task(app_page, "documents-extraction")
     expect(doc_btn).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(
         re.compile(r"\bexpanded\b")
@@ -295,38 +298,37 @@ def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
     expect(app_page.locator("#subtask-native")).to_be_visible()
 
     # Click Documents Extraction again to collapse
-    doc_btn.click()
+    _choose_task(app_page, "documents-extraction")
     expect(doc_btn).not_to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator(".accordion-item[data-task='documents_extraction']")).to_have_class(
         re.compile(r"\bcollapsed\b")
     )
     expect(app_page.locator(".subtask-card")).to_have_count(0)
-    expect(app_page.locator("#level1-empty-prompt")).to_be_visible()
+    expect(app_page.locator(".workflow-columns-grid")).to_be_visible()
 
-    # Click Bank Account Consolidation in Statement Analysis module
-    app_page.locator("#btn-module-bank-statement-analysis").click()
+    # Click Bank Account Consolidation
     bank_btn = app_page.locator("#btn-task-bank-consolidation")
-    bank_btn.click()
+    _choose_task(app_page, "bank-consolidation")
     expect(bank_btn).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator(".accordion-item[data-task='bank_consolidation']")).to_have_class(
         re.compile(r"\bexpanded\b")
     )
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
-    # Switching to Documents Studio expands Font Conversion
-    app_page.locator("#btn-module-documents-handling").click()
+    # Switching directly to Font Conversion expands its options
     font_btn = app_page.locator("#btn-task-font-conversion")
-    font_btn.click()
+    _choose_task(app_page, "font-conversion")
     expect(font_btn).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#subtask-legacy-to-unicode")).to_be_visible()
 
 
 def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     """Verify that Clean Output (running header/footer separation) toggle is visible, checked by default, and reflected in request payload."""
-    app_page.locator("#btn-task-documents-extraction").click()
+    _choose_task(app_page, "documents-extraction")
     expect(app_page.locator("#subtask-native")).to_be_visible()
 
     # Native Extraction: Clean output checkbox is visible and checked by default
+    _open_settings(app_page, "native")
     native_chk = app_page.locator("#param-skip-header-footer")
     expect(native_chk).to_be_visible()
     expect(native_chk).to_be_checked()
@@ -339,6 +341,7 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
 
     # Accurate OCR: Clean output checkbox is visible and checked by default
     app_page.locator("#subtask-accurate-ocr").click()
+    _open_settings(app_page, "accurate-ocr")
     ocr_chk = app_page.locator("#param-ocr-skip-header-footer")
     expect(ocr_chk).to_be_visible()
     expect(ocr_chk).to_be_checked()
@@ -352,6 +355,8 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
 
 def test_custom_mode_workflow_and_end_to_end_wiring(app_page: Page) -> None:
     """Verify that selecting Custom Mode unfolds the 5-stage modular pipeline builder, updates request payloads, and restores Workflows mode seamlessly."""
+    expect(app_page.locator("#btn-mode-custom")).not_to_be_visible()
+    app_page.locator("#workflow-more-options > summary").click()
     expect(app_page.locator("#btn-mode-custom")).to_be_visible()
     expect(app_page.locator("#btn-mode-workflows")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator(".tasks-accordion")).to_be_visible()
