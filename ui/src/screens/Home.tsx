@@ -551,8 +551,7 @@ export function Home({
                 </svg>
               </span>
               <div class="panel-heading-group">
-                <h2 class="panel-heading">Workflow Studio</h2>
-                <span class="studio-subheading">Document &amp; Financial Intelligence</span>
+                <h2 class="panel-heading">Workflows</h2>
               </div>
             </div>
             {primaryTask ? (
@@ -563,14 +562,14 @@ export function Home({
                   id="btn-deselect-task"
                   class="btn-deselect-task"
                   type="button"
-                  title="Deselect task and view all primary tasks"
+                  title="Deselect task and view all workflows"
                   onClick={() => setPrimaryTask(null)}
                 >
                   ✕
                 </button>
               </div>
             ) : (
-              <span class="step-guide-badge">Step 1: Choose Office Workflow</span>
+              <span class="step-guide-badge">Select Workflow</span>
             )}
           </div>
 
@@ -609,17 +608,10 @@ export function Home({
             {/* If no Level 1 task is selected, show instructional prompt */}
             {!primaryTask && (
               <div id="level1-empty-prompt" class="level1-empty-prompt">
-                <span class="level1-prompt-icon">
-                  <svg class="task-svg-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </span>
+                <span class="level1-prompt-icon">💡</span>
                 <div class="level1-prompt-text">
-                  <strong>Select an Office Workflow Above</strong>
-                  <p>
-                    Choose one of the primary workflows above to configure deliverables, inspect
-                    engines, and preview pipeline execution.
-                  </p>
+                  <strong>Select a workflow above</strong>
+                  <p>Choose an office workflow to configure outputs and document options.</p>
                 </div>
               </div>
             )}

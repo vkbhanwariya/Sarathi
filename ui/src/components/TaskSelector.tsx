@@ -158,7 +158,7 @@ export function TaskSelector({
                   </svg>
                 )}
               </span>
-              <span>{mod.id === "bank_statement_analysis" ? "Bank Statements" : "Documents Studio"}</span>
+              <span>{mod.id === "bank_statement_analysis" ? "Bank Statements" : "Documents"}</span>
             </button>
           ))}
         </div>
@@ -196,80 +196,53 @@ export function TaskSelector({
       {viewMode === "workflows" ? (
         /* Primary Workflows Layered Deck */
         <div class={`tasks-accordion tasks-deck ${primaryTask ? "in-deep-dive" : "in-deck-view"}`} role="tablist" aria-label="Primary Tasks">
-        {primaryTask && (
-          <div class="deck-layer-topbar">
-            <button
-              id="btn-back-to-deck"
-              class="deck-back-btn"
-              type="button"
-              onClick={() => onSelectPrimaryTask(null)}
-              title="Return to card deck"
-            >
-              <span class="back-arrow">←</span>
-              <span>All Workflows</span>
-            </button>
-            <div class="deck-layer-indicator">
-              <span class="layer-dot" />
-              <span>Deep Dive: {PRIMARY_TASKS.find((t) => t.id === primaryTask)?.badge || "Options"}</span>
-            </div>
-          </div>
-        )}
-        {filteredTasks.map((task) => {
-          const isSelected = primaryTask === task.id;
-          return (
-            <div
-              key={task.id}
-              class={`accordion-item ${isSelected ? "expanded active-layer" : "collapsed stacked-layer"}`}
-              data-task={task.id}
-              data-module={task.moduleId}
-            >
-              <button
-                id={`btn-task-${task.id.replace(/_/g, "-")}`}
-                data-task={task.id}
-                class={`primary-task-tab-btn accordion-header-btn ${isSelected ? "active" : ""}`}
-                role="tab"
-                aria-selected={isSelected}
-                aria-expanded={isSelected}
-                type="button"
-                onClick={() => onSelectPrimaryTask(isSelected ? null : task.id)}
-              >
-                <div class="accordion-header-left">
-                  {renderTaskIcon(task.id)}
-                  <div class="primary-task-info">
-                    <div class="task-title-row">
-                      <h3 class="primary-task-label">{task.label}</h3>
-                      {task.badge ? (
-                        <span class={`task-tag-badge task-tag-badge--${task.id}`}>{task.badge}</span>
-                      ) : null}
-                    </div>
-                    <p class="primary-task-desc">{task.description}</p>
-                  </div>
-                </div>
-                <div class="accordion-header-right">
-                  <span class="accordion-badge-pill">
-                    <span>{isSelected ? "Active" : "Select"}</span>
-                    <span class={`accordion-chevron ${isSelected ? "open" : ""}`} aria-hidden="true">
-                      ▾
-                    </span>
-                  </span>
-                </div>
-              </button>
+          {primaryTask ? (
+            <div class="deep-dive-workspace">
+              {/* Morphing Tabs Header */}
+              <div class="workflow-tabs-strip" role="tablist" aria-label="Workflow Tabs">
+                {filteredTasks.map((task) => {
+                  const isSelected = primaryTask === task.id;
+                  return (
+                    <button
+                      key={task.id}
+                      id={`btn-task-${task.id.replace(/_/g, "-")}`}
+                      data-task={task.id}
+                      class={`primary-task-tab-btn tab-pill ${isSelected ? "active" : ""}`}
+                      role="tab"
+                      aria-selected={isSelected}
+                      aria-expanded={isSelected}
+                      type="button"
+                      onClick={() => onSelectPrimaryTask(isSelected ? null : task.id)}
+                      title={isSelected ? "Click to return to 3-column deck" : `Switch to ${task.label}`}
+                    >
+                      <span class="tab-icon">{renderTaskIcon(task.id)}</span>
+                      <span class="tab-label">{task.label}</span>
+                      {isSelected && <span class="tab-close-icon" title="Return to card deck">✕</span>}
+                    </button>
+                  );
+                })}
+              </div>
 
-              {/* Progressive Subtasks and Controls */}
-              {isSelected && (
-                <div class="accordion-body">
-                  {/* Task 1: Scan to Word & Document Extraction */}
-                  {task.id === "documents_extraction" && (
-                    <div class="subtasks-container">
-                      {/* Executive Office Deliverable Banner & Quick Intent Pills */}
-                      <div class="workflow-deliverable-banner">
-                        <div class="deliverable-banner-left">
-                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
-                          <strong class="deliverable-title">Editable Word Document (.docx) &amp; Excel (.xlsx)</strong>
-                          <span class="deliverable-desc">
-                            Preserves paragraph margins, column geometry, and table structures with clean Unicode Devanagari.
-                          </span>
-                        </div>
+              {/* Active Workflow Workspace */}
+              {filteredTasks
+                .filter((task) => primaryTask === task.id)
+                .map((task) => (
+                  <div
+                    key={task.id}
+                    class="accordion-item expanded active-layer"
+                    data-task={task.id}
+                    data-module={task.moduleId}
+                  >
+                    <div class="accordion-body">
+                      {/* Task 1: Scan to Word & Document Extraction */}
+                      {task.id === "documents_extraction" && (
+                        <div class="subtasks-container">
+                          {/* Deliverable Banner & Quick Intent Pills */}
+                          <div class="workflow-deliverable-banner">
+                            <div class="deliverable-banner-left">
+                              <span class="deliverable-tag">OUTPUT</span>
+                              <strong class="deliverable-title">Word (.docx) &amp; Excel (.xlsx)</strong>
+                            </div>
                         <div class="deliverable-quick-pills" role="group" aria-label="Quick Office Intent Actions">
                           <button
                             type="button"
@@ -607,11 +580,8 @@ export function TaskSelector({
                       {/* Executive Office Deliverable Banner & Quick Intent Pills */}
                       <div class="workflow-deliverable-banner">
                         <div class="deliverable-banner-left">
-                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
-                          <strong class="deliverable-title">Non-destructive [Name]_Unicode.docx &amp; .xlsx</strong>
-                          <span class="deliverable-desc">
-                            In-place legacy Hindi font upgrade while strictly preserving Word XML geometry, Excel formulas, and numeric cells.
-                          </span>
+                          <span class="deliverable-tag">OUTPUT</span>
+                          <strong class="deliverable-title">Standardized Unicode (.docx &amp; .xlsx)</strong>
                         </div>
                         <div class="deliverable-quick-pills" role="group" aria-label="Quick Font Conversion Actions">
                           <button
@@ -770,11 +740,8 @@ export function TaskSelector({
                       {/* Executive Office Deliverable Banner */}
                       <div class="workflow-deliverable-banner">
                         <div class="deliverable-banner-left">
-                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
+                          <span class="deliverable-tag">OUTPUT</span>
                           <strong class="deliverable-title">Bilingual Word (.docx), PDF, or Excel (.xlsx)</strong>
-                          <span class="deliverable-desc">
-                            Neural translation with ISO 15919 phonetic proper noun protection and statutory administrative vocabulary.
-                          </span>
                         </div>
                       </div>
 
@@ -968,11 +935,50 @@ export function TaskSelector({
                     </div>
                   )}
                 </div>
-              )}
+              </div>
+            ))}
+          </div>
+        ) : (
+            <div class="workflow-columns-grid">
+              {filteredTasks.map((task) => (
+                <div
+                  key={task.id}
+                  class="accordion-item collapsed workflow-col-card"
+                  data-task={task.id}
+                  data-module={task.moduleId}
+                >
+                  <button
+                    id={`btn-task-${task.id.replace(/_/g, "-")}`}
+                    data-task={task.id}
+                    class="primary-task-tab-btn col-card-btn"
+                    role="tab"
+                    aria-selected={false}
+                    aria-expanded={false}
+                    type="button"
+                    onClick={() => onSelectPrimaryTask(task.id)}
+                  >
+                    <div class="col-card-header">
+                      <span class="col-card-icon">{renderTaskIcon(task.id)}</span>
+                      {task.badge ? (
+                        <span class={`task-tag-badge task-tag-badge--${task.id}`}>{task.badge}</span>
+                      ) : null}
+                    </div>
+                    <div class="col-card-body">
+                      <h3 class="col-card-title">{task.label}</h3>
+                      <p class="col-card-desc">{task.description}</p>
+                    </div>
+                    <div class="col-card-footer">
+                      <span class="col-card-select-pill">
+                        <span>Select</span>
+                        <span class="col-arrow">→</span>
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
       ) : (
         /* Custom Modular Pipeline Builder (Power User Workspace) */
         <div id="custom-mode-pipeline" class="custom-pipeline-builder">
