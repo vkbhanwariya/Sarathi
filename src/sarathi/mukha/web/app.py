@@ -437,7 +437,14 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             try:
                 parts = [float(v) for v in bbox_raw.split(",")]
                 if len(parts) == 4:
-                    clip_bbox = (parts[0], parts[1], parts[2], parts[3])
+                    # OCR bboxes are in pixel coords of the rasterised image (default 200 DPI).
+                    # PyMuPDF clip expects PDF points (72 DPI), so convert.
+                    try:
+                        source_dpi = float(request.query_params.get("dpi", "200"))
+                    except (ValueError, TypeError):
+                        source_dpi = 200.0
+                    scale = 72.0 / source_dpi
+                    clip_bbox = (parts[0] * scale, parts[1] * scale, parts[2] * scale, parts[3] * scale)
             except (ValueError, TypeError):
                 pass
         status, payload = await asyncio.to_thread(render_pdf_page, str(target), page, clip_bbox)
