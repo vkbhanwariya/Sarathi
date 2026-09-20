@@ -8,12 +8,12 @@ dependencies = [
     "charset-normalizer>=3.5.1",
     "defusedxml>=0.7.1",
     "openpyxl>=3.1.5",
-    "polars>=1.44.1",
+    "polars>=1.44.2",
     "pymupdf==1.28.2",
     "python-calamine>=0.8.2",
     "pyyaml>=6.0.3",
     "starlette>=1.6.0,<2",
-    "uvicorn>=0.52.1,<0.53",
+    "uvicorn>=0.53.0,<0.54",
     "xlrd>=2.0.2",
 ]
 
@@ -29,13 +29,13 @@ ocr = [
     "rapidocr>=3.9.2",
 ]
 translation = [
-    "ctranslate2>=4.8.0",
+    "ctranslate2>=4.8.2",
     "sentencepiece>=0.2.2",
 ]
 font_conversion = [
-    "fonttools>=4.55.0",
-    "rapidfuzz>=3.9.0",
-    "regex>=2024.11.1",
+    "fonttools>=4.65.0",
+    "rapidfuzz>=3.14.6",
+    "regex>=2026.9.10",
 ]
 layout = [
     "pymupdf-layout==1.28.2",
@@ -55,13 +55,13 @@ exclude-dependencies = [
 
 [dependency-groups]
 dev = [
-    "fonttools>=4.55.0",
+    "fonttools>=4.65.0",
     "jsonschema>=4.26.0",
     "pytest>=9.1.1",
     "pytest-playwright>=0.9.0",
-    "pytest-xdist>=3.6.0",
-    "py-spy>=0.4.0",
-    "ruff>=0.16.0",
+    "pytest-xdist>=3.8.0",
+    "py-spy>=0.4.2",
+    "ruff>=0.16.8",
 ]
 
 
