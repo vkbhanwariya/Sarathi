@@ -855,7 +855,7 @@ wheels = [
 
 [[package]]
 name = "sarathi"
-version = "3.0.0.dev0"
+version = "3.0.0.dev1"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },

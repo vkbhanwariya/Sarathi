@@ -57,7 +57,7 @@ Sarathi Runtime (Agni / Manthan / Pravaha)
 
 ## 4. UI Screen Architecture
 
-The production Preact frontend (`ui/src/App.tsx`) is structured into 5 dedicated screens:
+The production Preact frontend (`ui/src/App.tsx`) is structured into 5 dedicated primary screens:
 
 ### Screen 1: Home (`home`)
 - **Run Setup**: Ingests document inputs via native file/folder picker, drag-and-drop, or path entry.
@@ -66,26 +66,28 @@ The production Preact frontend (`ui/src/App.tsx`) is structured into 5 dedicated
 - **Plan Preview**: Invokes `/api/plan/preview` to display planned stages and assigned execution devices before launching.
 
 ### Screen 2: Monitor (`monitor`)
-- **Live Execution Tracking**: Subscribes to `/api/events` SSE stream for low-latency progress updates.
-- **Active Context**: Displays currently executing file, active stage, and assigned worker device (`CPU`, `GPU`, `NPU`).
-- **Time Semantics**: Continuously renders elapsed file time, stage time, and overall run duration.
-- **Cooperative Cancellation**: Provides an immediate cancel button triggering `/api/runs/<id>/cancel`.
+- **Live Execution Tracking**: Subscribes to `/api/events` SSE stream for low-latency progress updates, active worker concurrency, elapsed timings, and pipeline document progress.
+- **Active Context**: Displays currently executing file, active stage, and assigned hardware accelerator (`CPU`, `GPU`, `NPU`).
+- **Cooperative Cancellation**: Provides an immediate cancel button triggering `/api/runs/<id>/cancel` with cooperative stage draining.
+- **Automatic Summary Morphing**: Upon terminal task completion (`SUCCESS`, `COMPLETED`, `FAILED`, `CANCELLED`, `WARNING`, `PARTIAL`), Monitor automatically morphs in-place into the full **Summary View**, displaying confirmed output deliverables with 1-click preview and download, hardware/stage timings, metrics, and explorer folder reveal.
+- **Bi-directional Navigation**: Allows manual toggle between live pipeline telemetry and run summary via the `⚡ Live Pipeline` action.
 
 ### Screen 3: Review (`review`)
 - **Human-in-the-Loop Review Queue**: Gathers extraction exceptions, ambiguous bank transactions, and low-confidence OCR spans.
 - **Visual Inspection**: Renders original image region crops side-by-side with candidate text and confidence metrics.
 - **Correction Submission**: Accepts operator corrections and commits updated records back to the result model.
 
-### Screen 4: Summary (`summary`)
-- **Terminal Run Overview**: Displays terminal execution outcome (`SUCCESS`, `PARTIAL`, `FAILURE`, `CANCELLED`).
-- **Committed Artifacts**: Lists verified output files with format badges, file sizes, and download links.
-- **Explorer Integration**: "Reveal in Explorer" button opens the local output directory via native desktop hooks.
-- **Validation Warnings**: Surfaces non-fatal warnings (e.g. balance reconciliation discrepancies, font ambiguation).
+### Screen 4: History (`history`)
+- **Audit & Execution Ledger**: Dedicated chronological log of all historical document processing runs reconstructed from Darpana.
+- **KPI Metrics Strip**: At-a-glance summary cards showing Total Runs, Success Rate %, Deliverables Produced, and Total Execution Duration.
+- **Search & Filter Controls**: Instant client-side search by run ID, workflow, or profile, with status pills (`All`, `Completed`, `Failed`, `Cancelled`).
+- **Actionable Run Cards**: Immediate 1-click actions to view complete summary in Monitor (`📊 View Summary`), inspect diagnostics (`🔍 Inspect`), or reveal outputs in Windows File Explorer (`📁 Open Folder`).
 
 ### Screen 5: Inspector (`inspector`)
 - **Deep Telemetry Breakdown**: Detailed timeline of all nested Maruti operational timing spans.
-- **Quality Observations**: Full listing of page-level and region-level Pramana confidence records and evidence.
-- **Hardware Allocation Facts**: Factual reporting of accelerator devices used during the run.
+- **Quality Observations**: Graphical confidence distribution bar charts and full listing of page/region confidence records.
+- **Activity Logs**: Color-coded log severity chips (`INFO`, `WARNING`, `ERROR`) with monospace timestamps and copy diagnostics action.
+- **Hardware Allocation Facts**: Factual reporting of accelerator devices used during the run (Intel Core Ultra 5 125H & Arc iGPU OpenVINO FP16).
 
 ---
 

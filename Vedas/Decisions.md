@@ -149,3 +149,26 @@ The following are not to be presented as separate top-level Home tasks for now:
    `FontConverter.convert_to_legacy` provides verified reverse mapping for both `krutidev010` and `devlys010`.
 4. **Local Translation Abstraction**:
    Both `indictrans2` and `opus_mt` execute under the canonical `translation` capability through `CTranslate2TranslationEngine`. If weights are missing, execution fails closed with `FailureCode.DEPENDENCY_UNAVAILABLE`.
+
+---
+
+## Mukha UI Architecture — Monitor & Summary Consolidation and Dedicated History Ledger
+
+**Status:** Approved and implemented
+
+### Agreed Decisions
+
+1. **Merged Monitor & Summary Screen**:
+   - Consolidated `monitor` and `summary` into a unified lifecycle view under `Monitor` (`monitor`).
+   - While processing or in idle state, Monitor tracks live progress ticks, worker concurrency, pipeline documents, hardware accelerator allocations, and cooperative cancellation (`#cancel-run-dialog`).
+   - Upon terminal task completion (`SUCCESS`, `COMPLETED`, `FAILED`, `CANCELLED`, `WARNING`, `PARTIAL`), Monitor automatically morphs in-place into the rich **Summary View** displaying confirmed output deliverables with 1-click preview and download, stage timings, accelerator performance metrics, and output directory explorer reveal (`#btn-summary-reveal`).
+   - Retains manual toggle back to live telemetry via the `⚡ Live Pipeline` action.
+
+2. **First-Class History Screen**:
+   - Promoted History (`history`) to a dedicated screen in the primary navigation, replacing the separate Summary tab.
+   - Primary navigation topology is pinned to 5 screens: `Home`, `Monitor`, `Review`, `History`, `Inspector`.
+   - Features KPI metric cards (Total Runs, Success Rate, Deliverables Produced, Total Duration), instant search input, status filter pills (`All`, `Completed`, `Failed`, `Cancelled`), and actionable run cards (`📊 View Summary`, `🔍 Inspect`, `📁 Open Folder`).
+
+3. **Option 1 ("Clean & Premium") Aesthetics**:
+   - Modernized visual presentation across all tabs using tactile 10px card radii, subtle hover lifts, format indicator pills (`PDF`, `DOCX`, `XLSX`, `CSV`, `IMAGES`), task badges, hardware accelerator indicator (`⚡ Intel Arc iGPU (OpenVINO FP16)`), and live engine telemetry pulse.
+   - Enhanced Inspector with graphical confidence distribution bars, colored log severity chips (`INFO`, `WARNING`, `ERROR`), and monospace timestamps.

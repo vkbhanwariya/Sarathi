@@ -617,7 +617,7 @@ The production codebase is organized under `src/sarathi/`. Every module and comp
   - [`server.py`](file:///e:/Sarathi/src/sarathi/mukha/web/server.py): `MukhaWebServer` lifecycle facade managing Uvicorn startup, shutdown, and port resolution.
   - [`state_builder.py`](file:///e:/Sarathi/src/sarathi/mukha/web/state_builder.py): Real-time application state projection builder.
   - **`assets/`**: Static SVG graphics and icons ([`icons.svg`](file:///e:/Sarathi/src/sarathi/mukha/web/assets/icons.svg)).
-  - **`ui/`**: Production compiled single-page application ([`index.html`](file:///e:/Sarathi/src/sarathi/mukha/web/ui/index.html), [`app.js`](file:///e:/Sarathi/src/sarathi/mukha/web/ui/app.js), [`app.css`](file:///e:/Sarathi/src/sarathi/mukha/web/ui/app.css)).
+  - **`ui/`**: Production compiled single-page application ([`index.html`](file:///e:/Sarathi/src/sarathi/mukha/web/ui/index.html), [`app.js`](file:///e:/Sarathi/src/sarathi/mukha/web/ui/app.js), [`app.css`](file:///e:/Sarathi/src/sarathi/mukha/web/ui/app.css)) featuring 5 primary screens: Griha (Home intake & task selection), Pravritti (Live execution monitor & auto-morphing summary), Pariksha (Human review workbench), Itihasa (Execution history ledger), and Nirikshana (Diagnostic inspector).
 
 ### 13. Developer & Engineering Tools (`tools/`)
 - [`benchmark_ocr_and_font.py`](file:///e:/Sarathi/tools/benchmark_ocr_and_font.py): Performance and accuracy benchmark suite comparing OCR engines and font transducers against reference data.
