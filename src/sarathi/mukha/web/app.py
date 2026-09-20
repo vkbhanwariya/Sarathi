@@ -311,9 +311,16 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
 
     async def ui_asset(request: Request) -> Response:
         name = request.path_params["path"]
-        if name not in {"app.js", "app.css"}:
+        if not (
+            name in {"app.js", "app.css"}
+            or (name.endswith(".woff2") and ".." not in name and "/" not in name and "\\" not in name)
+        ):
             return Response("UI asset not found.", status_code=404)
-        mime = "application/javascript" if name.endswith(".js") else "text/css"
+        mime = (
+            "application/javascript"
+            if name.endswith(".js")
+            else ("text/css" if name.endswith(".css") else "font/woff2")
+        )
         return _static_response(f"ui/{name}", mime, "public, max-age=3600")
 
     async def packaged_asset(request: Request) -> Response:

@@ -539,15 +539,21 @@ export function Home({
         </div>
       </section>
 
-      {/* Column 2: Processing Capability & Execution Plan */}
+        {/* Column 2: Processing Capability & Execution Plan */}
       <div class="column-action">
-        {/* Processing Action Panel */}
+        {/* Processing Action / Workflow Studio Panel */}
         <section class="panel capability-panel" data-purpose="task-selection">
-          <div class="panel-header">
+          <div class="panel-header studio-panel-header">
             <div class="panel-title-wrap">
-              <span class="panel-icon panel-icon--amber">⚡</span>
-              <h2 class="panel-heading">Processing Action</h2>
-              <span class="task-selection-chip">Task Selection</span>
+              <span class="panel-icon panel-icon--emerald">
+                <svg class="task-svg-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </span>
+              <div class="panel-heading-group">
+                <h2 class="panel-heading">Workflow Studio</h2>
+                <span class="studio-subheading">Document &amp; Financial Intelligence</span>
+              </div>
             </div>
             {primaryTask ? (
               <div class="active-task-badge-pill">
@@ -564,7 +570,7 @@ export function Home({
                 </button>
               </div>
             ) : (
-              <span class="step-guide-badge">Step 1: Choose Primary Task</span>
+              <span class="step-guide-badge">Step 1: Choose Office Workflow</span>
             )}
           </div>
 
@@ -603,95 +609,74 @@ export function Home({
             {/* If no Level 1 task is selected, show instructional prompt */}
             {!primaryTask && (
               <div id="level1-empty-prompt" class="level1-empty-prompt">
-                <span class="level1-prompt-icon">👆</span>
+                <span class="level1-prompt-icon">
+                  <svg class="task-svg-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </span>
                 <div class="level1-prompt-text">
-                  <strong>Select a Primary Task Above</strong>
+                  <strong>Select an Office Workflow Above</strong>
                   <p>
-                    Choose one of the primary tasks above to view its specific methods, engines,
-                    and configuration options.
+                    Choose one of the primary workflows above to configure deliverables, inspect
+                    engines, and preview pipeline execution.
                   </p>
                 </div>
               </div>
             )}
-          </div>
-        </section>
 
-        {/* Preflight Execution Plan Card */}
-        <section class="panel execution-plan-card">
-          <div class="execution-plan-header">
-            <div>
-              <span class="preflight-eyebrow">Preflight</span>
-              <h3 class="execution-plan-title">Execution Plan</h3>
-            </div>
-            <span class="preflight-status-text">
-              {!primaryTask
-                ? "Select a task above"
-                : preflight
-                ? `${eligibleCount} eligible · ${issueCount} issues`
-                : "Select inputs to validate"}
-            </span>
-          </div>
-
-          {!primaryTask ? (
-            <div class="empty-state" style={{ padding: "20px 14px" }}>
-              <strong>No Task Selected</strong>
-              <p class="quiet" style={{ margin: "4px 0 0 0", fontSize: "12px" }}>
-                Select a primary task above to view options and preview execution.
-              </p>
-            </div>
-          ) : plan ? (
-            <div class="plan-details-box">
-              <div class="plan-header-row">
-                <strong>
-                  {plan.document_count} document{plan.document_count === 1 ? "" : "s"}
-                </strong>
-                <span class="badge badge-emerald">Plan ready</span>
-              </div>
-              <div class="plan-stages-row">
-                {plan.stages.map((stage, idx) => (
-                  <span key={stage.name} class="stage-chip">
-                    {stage.name}
-                    {idx < plan.stages.length - 1 ? <span class="stage-arrow">→</span> : null}
+            {/* Integrated Cockpit Action & Hardware Telemetry Footer */}
+            <div class="cockpit-action-footer">
+              <div class="footer-telemetry">
+                {!primaryTask ? (
+                  <span class="footer-status-quiet">Select a workflow above to begin</span>
+                ) : plan ? (
+                  <div class="footer-hw-group">
+                    <span class="footer-doc-pill">
+                      {plan.document_count} doc{plan.document_count === 1 ? "" : "s"} ({formatBytes(totalSize)})
+                    </span>
+                    <span class="footer-device-chip">
+                      ⚡ {plan.devices.length ? plan.devices.map((d) => d.device_type).join(" · ") : "Intel Arc iGPU (OpenVINO FP16)"}
+                    </span>
+                  </div>
+                ) : (
+                  <span class="footer-status-quiet">
+                    {eligibleCount ? `${eligibleCount} eligible · ${issueCount} issues` : "Select eligible files in intake"}
                   </span>
-                ))}
+                )}
+                {planError && <div class="inline-error">{planError}</div>}
               </div>
-              {plan.devices.length ? (
-                <small class="plan-devices">
-                  {plan.devices
-                    .map(
-                      (device) =>
-                        `${device.device_type}${device.is_available ? "" : " unavailable"}`
-                    )
-                    .join(" · ")}
-                </small>
-              ) : null}
+
+              <button
+                id="btn-start-run"
+                class="button primary btn-primary btn-start-run"
+                disabled={
+                  working ||
+                  !primaryTask ||
+                  !eligiblePaths.length ||
+                  !activeAction?.is_enabled ||
+                  Boolean(planError)
+                }
+                onClick={() => void handleStart()}
+                type="button"
+              >
+                <span class="btn-run-content">
+                  <span>
+                    {working
+                      ? "Working…"
+                      : !primaryTask
+                      ? "Select Workflow"
+                      : !eligiblePaths.length
+                      ? "Select Eligible Files"
+                      : `Start Processing (${eligiblePaths.length})`}
+                  </span>
+                  <svg class="btn-bolt-icon" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                  </svg>
+                </span>
+                <kbd class="btn-kbd-hint">Ctrl+Enter</kbd>
+              </button>
             </div>
-          ) : null}
-
-          {planError ? <div class="inline-error">{planError}</div> : null}
-
-          <button
-            id="btn-start-run"
-            class="button primary btn-primary btn-start-run"
-            disabled={
-              working ||
-              !primaryTask ||
-              !eligiblePaths.length ||
-              !activeAction?.is_enabled ||
-              Boolean(planError)
-            }
-            onClick={() => void handleStart()}
-            type="button"
-          >
-            <span>
-              {working
-                ? "Working…"
-                : !primaryTask
-                ? "Select a Task to Start"
-                : "Start document processing"}
-            </span>
-            <span class="btn-bolt">⚡</span>
-          </button>
+          </div>
         </section>
       </div>
     </div>

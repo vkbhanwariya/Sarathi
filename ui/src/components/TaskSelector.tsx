@@ -87,7 +87,7 @@ export function TaskSelector({
       case "documents_extraction":
         return (
           <div class="task-icon-box task-icon-box--indigo">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="task-svg-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -100,18 +100,20 @@ export function TaskSelector({
       case "font_conversion":
         return (
           <div class="task-icon-box task-icon-box--blue">
-            <span class="font-abc-icon">abc</span>
+            <svg class="task-svg-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 5h12M9 5v14m4-7h8m-4-7v14" />
+            </svg>
           </div>
         );
       case "translation":
         return (
           <div class="task-icon-box task-icon-box--cyan">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="task-svg-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 stroke-width="1.8"
-                d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+                d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"
               />
             </svg>
           </div>
@@ -119,7 +121,7 @@ export function TaskSelector({
       case "bank_consolidation":
         return (
           <div class="task-icon-box task-icon-box--emerald">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="task-svg-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -145,8 +147,18 @@ export function TaskSelector({
               onClick={() => setActiveModule(mod.id)}
               type="button"
             >
-              <span class="module-btn-icon">{mod.icon}</span>
-              <span>{mod.label}</span>
+              <span class="module-btn-icon">
+                {mod.id === "documents_handling" ? (
+                  <svg class="task-svg-icon" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                ) : (
+                  <svg class="task-svg-icon" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                  </svg>
+                )}
+              </span>
+              <span>{mod.id === "bank_statement_analysis" ? "Bank Statements" : "Documents Studio"}</span>
             </button>
           ))}
         </div>
@@ -176,20 +188,38 @@ export function TaskSelector({
             title="Advanced step-by-step modular pipeline builder"
           >
             <span>⚙️</span>
-            <span>Custom Mode</span>
+            <span>Custom Pipeline</span>
           </button>
         </div>
       </div>
 
       {viewMode === "workflows" ? (
-        /* Primary Workflows Accordion / Grid */
-        <div class="tasks-accordion" role="tablist" aria-label="Primary Tasks">
+        /* Primary Workflows Layered Deck */
+        <div class={`tasks-accordion tasks-deck ${primaryTask ? "in-deep-dive" : "in-deck-view"}`} role="tablist" aria-label="Primary Tasks">
+        {primaryTask && (
+          <div class="deck-layer-topbar">
+            <button
+              id="btn-back-to-deck"
+              class="deck-back-btn"
+              type="button"
+              onClick={() => onSelectPrimaryTask(null)}
+              title="Return to card deck"
+            >
+              <span class="back-arrow">←</span>
+              <span>All Workflows</span>
+            </button>
+            <div class="deck-layer-indicator">
+              <span class="layer-dot" />
+              <span>Deep Dive: {PRIMARY_TASKS.find((t) => t.id === primaryTask)?.badge || "Options"}</span>
+            </div>
+          </div>
+        )}
         {filteredTasks.map((task) => {
           const isSelected = primaryTask === task.id;
           return (
             <div
               key={task.id}
-              class={`accordion-item ${isSelected ? "expanded" : "collapsed"}`}
+              class={`accordion-item ${isSelected ? "expanded active-layer" : "collapsed stacked-layer"}`}
               data-task={task.id}
               data-module={task.moduleId}
             >
@@ -231,6 +261,57 @@ export function TaskSelector({
                   {/* Task 1: Scan to Word & Document Extraction */}
                   {task.id === "documents_extraction" && (
                     <div class="subtasks-container">
+                      {/* Executive Office Deliverable Banner & Quick Intent Pills */}
+                      <div class="workflow-deliverable-banner">
+                        <div class="deliverable-banner-left">
+                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
+                          <strong class="deliverable-title">Editable Word Document (.docx) &amp; Excel (.xlsx)</strong>
+                          <span class="deliverable-desc">
+                            Preserves paragraph margins, column geometry, and table structures with clean Unicode Devanagari.
+                          </span>
+                        </div>
+                        <div class="deliverable-quick-pills" role="group" aria-label="Quick Office Intent Actions">
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "instant_ocr" && convertLegacyFonts ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("documents_extraction", "instant_ocr");
+                              onSetConvertLegacyFonts(true);
+                            }}
+                            title="RapidOCR on Intel Arc iGPU with clean Unicode Hindi Word output"
+                          >
+                            <span class="intent-pill-icon">🇮🇳</span>
+                            <span>Hindi Word (Clean Unicode)</span>
+                          </button>
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "accurate_ocr" && preserveLayout ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("documents_extraction", "accurate_ocr");
+                              onSetPreserveLayout(true);
+                            }}
+                            title="Deep OCR with full paragraph and table layout preservation"
+                          >
+                            <span class="intent-pill-icon">🌐</span>
+                            <span>English Word (Translated)</span>
+                          </button>
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "native" ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("documents_extraction", "native");
+                            }}
+                            title="Direct digital text & table vector extraction (0.05s/page)"
+                          >
+                            <span class="intent-pill-icon">⚡</span>
+                            <span>Fast / Direct Word</span>
+                          </button>
+                        </div>
+                      </div>
+
                       <div class="subtasks-grid">
                         {/* 1.1 Native Extraction */}
                         {(() => {
@@ -254,64 +335,66 @@ export function TaskSelector({
                               <p class="action-card-desc">
                                 Direct digital extraction from PDF, DOCX, XLSX, XLS, CSV. Extracts tables and text without OCR overhead.
                               </p>
-                              <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                <label class="toggle-row mini">
-                                  <input
-                                    id="param-convert-legacy-fonts"
-                                    type="checkbox"
-                                    checked={convertLegacyFonts}
-                                    onChange={(e) => {
-                                      onSetConvertLegacyFonts(e.currentTarget.checked);
-                                      onSelectSubtask("documents_extraction", "native");
-                                    }}
-                                  />
-                                  <span>
-                                    <strong>Convert Legacy Fonts to Unicode</strong>
-                                  </span>
-                                </label>
-                                <label class="toggle-row mini" title="Use Graph Neural Networks for multi-column flow, table grids, and semantic headers">
-                                  <input
-                                    id="param-layout-analysis"
-                                    type="checkbox"
-                                    checked={layoutAnalysis}
-                                    onChange={(e) => {
-                                      onSetLayoutAnalysis(e.currentTarget.checked);
-                                      onSelectSubtask("documents_extraction", "native");
-                                    }}
-                                  />
-                                  <span>
-                                    <strong>Deep Layout Analysis (GNN)</strong>
-                                  </span>
-                                </label>
-                                <label class="toggle-row mini">
-                                  <input
-                                    id="param-statutory"
-                                    type="checkbox"
-                                    checked={statutoryEnabled}
-                                    onChange={(e) => {
-                                      onSetStatutoryEnabled(e.currentTarget.checked);
-                                      onSelectSubtask("documents_extraction", "native");
-                                    }}
-                                  />
-                                  <span>
-                                    <strong>Statutory Legal ID Detection</strong>
-                                  </span>
-                                </label>
-                                <label class="toggle-row mini" title="Detect and separate running page headers and footers from continuous narrative text">
-                                  <input
-                                    id="param-skip-header-footer"
-                                    type="checkbox"
-                                    checked={skipHeaderFooter}
-                                    onChange={(e) => {
-                                      onSetSkipHeaderFooter(e.currentTarget.checked);
-                                      onSelectSubtask("documents_extraction", "native");
-                                    }}
-                                  />
-                                  <span>
-                                    <strong>Separate Running Headers/Footers</strong>
-                                  </span>
-                                </label>
-                              </div>
+                              {isSel && (
+                                <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
+                                  <label class="toggle-row mini">
+                                    <input
+                                      id="param-convert-legacy-fonts"
+                                      type="checkbox"
+                                      checked={convertLegacyFonts}
+                                      onChange={(e) => {
+                                        onSetConvertLegacyFonts(e.currentTarget.checked);
+                                        onSelectSubtask("documents_extraction", "native");
+                                      }}
+                                    />
+                                    <span>
+                                      <strong>Convert Legacy Fonts to Unicode</strong>
+                                    </span>
+                                  </label>
+                                  <label class="toggle-row mini" title="Use Graph Neural Networks for multi-column flow, table grids, and semantic headers">
+                                    <input
+                                      id="param-layout-analysis"
+                                      type="checkbox"
+                                      checked={layoutAnalysis}
+                                      onChange={(e) => {
+                                        onSetLayoutAnalysis(e.currentTarget.checked);
+                                        onSelectSubtask("documents_extraction", "native");
+                                      }}
+                                    />
+                                    <span>
+                                      <strong>Deep Layout Analysis (GNN)</strong>
+                                    </span>
+                                  </label>
+                                  <label class="toggle-row mini">
+                                    <input
+                                      id="param-statutory"
+                                      type="checkbox"
+                                      checked={statutoryEnabled}
+                                      onChange={(e) => {
+                                        onSetStatutoryEnabled(e.currentTarget.checked);
+                                        onSelectSubtask("documents_extraction", "native");
+                                      }}
+                                    />
+                                    <span>
+                                      <strong>Statutory Legal ID Detection</strong>
+                                    </span>
+                                  </label>
+                                  <label class="toggle-row mini" title="Detect and separate running page headers and footers from continuous narrative text">
+                                    <input
+                                      id="param-skip-header-footer"
+                                      type="checkbox"
+                                      checked={skipHeaderFooter}
+                                      onChange={(e) => {
+                                        onSetSkipHeaderFooter(e.currentTarget.checked);
+                                        onSelectSubtask("documents_extraction", "native");
+                                      }}
+                                    />
+                                    <span>
+                                      <strong>Separate Running Headers/Footers</strong>
+                                    </span>
+                                  </label>
+                                </div>
+                              )}
                               <div class="action-card-footer">
                                 <span class={`action-dot ${isSel ? "active" : ""}`} />
                                 <code class="action-code">read_native</code>
@@ -372,36 +455,38 @@ export function TaskSelector({
                               <p class="action-card-desc">
                                 Quality-optimized OCR with CLAHE contrast enhancement, deskew, and selective weak-crop retry.
                               </p>
-                              <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
-                                <label class="toggle-row mini">
-                                  <input
-                                    id="param-preserve-layout"
-                                    type="checkbox"
-                                    checked={preserveLayout}
-                                    onChange={(e) => {
-                                      onSetPreserveLayout(e.currentTarget.checked);
-                                      onSelectSubtask("documents_extraction", "accurate_ocr");
-                                    }}
-                                  />
-                                  <span>
-                                    <strong>Preserve Layout & Margin Geometry</strong>
-                                  </span>
-                                </label>
-                                <label class="toggle-row mini" title="Detect and separate running page headers and footers">
-                                  <input
-                                    id="param-ocr-skip-header-footer"
-                                    type="checkbox"
-                                    checked={skipHeaderFooter}
-                                    onChange={(e) => {
-                                      onSetSkipHeaderFooter(e.currentTarget.checked);
-                                      onSelectSubtask("documents_extraction", "accurate_ocr");
-                                    }}
-                                  />
-                                  <span>
-                                    <strong>Separate Running Headers/Footers</strong>
-                                  </span>
-                                </label>
-                              </div>
+                              {isSel && (
+                                <div class="subtask-options-row" onClick={(e) => e.stopPropagation()}>
+                                  <label class="toggle-row mini">
+                                    <input
+                                      id="param-preserve-layout"
+                                      type="checkbox"
+                                      checked={preserveLayout}
+                                      onChange={(e) => {
+                                        onSetPreserveLayout(e.currentTarget.checked);
+                                        onSelectSubtask("documents_extraction", "accurate_ocr");
+                                      }}
+                                    />
+                                    <span>
+                                      <strong>Preserve Layout & Margin Geometry</strong>
+                                    </span>
+                                  </label>
+                                  <label class="toggle-row mini" title="Detect and separate running page headers and footers">
+                                    <input
+                                      id="param-ocr-skip-header-footer"
+                                      type="checkbox"
+                                      checked={skipHeaderFooter}
+                                      onChange={(e) => {
+                                        onSetSkipHeaderFooter(e.currentTarget.checked);
+                                        onSelectSubtask("documents_extraction", "accurate_ocr");
+                                      }}
+                                    />
+                                    <span>
+                                      <strong>Separate Running Headers/Footers</strong>
+                                    </span>
+                                  </label>
+                                </div>
+                              )}
                               <div class="action-card-footer">
                                 <span class={`action-dot ${isSel ? "active" : ""}`} />
                                 <code class="action-code">ocr:accurate</code>
@@ -519,6 +604,55 @@ export function TaskSelector({
                   {/* Task 2: Font Standardizer (Word & Excel) */}
                   {task.id === "font_conversion" && (
                     <div class="subtasks-container">
+                      {/* Executive Office Deliverable Banner & Quick Intent Pills */}
+                      <div class="workflow-deliverable-banner">
+                        <div class="deliverable-banner-left">
+                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
+                          <strong class="deliverable-title">Non-destructive [Name]_Unicode.docx &amp; .xlsx</strong>
+                          <span class="deliverable-desc">
+                            In-place legacy Hindi font upgrade while strictly preserving Word XML geometry, Excel formulas, and numeric cells.
+                          </span>
+                        </div>
+                        <div class="deliverable-quick-pills" role="group" aria-label="Quick Font Conversion Actions">
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "legacy_to_unicode" ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("font_conversion", "legacy_to_unicode");
+                            }}
+                            title="Upgrade Kruti Dev / Devlys / Chanakya to clean standard Unicode"
+                          >
+                            <span class="intent-pill-icon">✨</span>
+                            <span>To Standard Unicode</span>
+                          </button>
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "unicode_to_krutidev" ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("font_conversion", "unicode_to_krutidev");
+                            }}
+                            title="Reverse modern Unicode back to Kruti Dev 010 for typewriter submission portals"
+                          >
+                            <span class="intent-pill-icon">🔄</span>
+                            <span>Reverse to Kruti Dev 010</span>
+                          </button>
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "unicode_to_devlys" ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("font_conversion", "unicode_to_devlys");
+                            }}
+                            title="Reverse Unicode back to Devlys 010"
+                          >
+                            <span class="intent-pill-icon">🔄</span>
+                            <span>Reverse to Devlys 010</span>
+                          </button>
+                        </div>
+                      </div>
+
                       <div class="subtasks-grid">
                         {/* 2.1 Legacy to Unicode */}
                         {(() => {
@@ -633,6 +767,17 @@ export function TaskSelector({
                   {/* Task 3: Document Translation (Word, PDF & Excel) */}
                   {task.id === "translation" && (
                     <div class="subtasks-container">
+                      {/* Executive Office Deliverable Banner */}
+                      <div class="workflow-deliverable-banner">
+                        <div class="deliverable-banner-left">
+                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
+                          <strong class="deliverable-title">Bilingual Word (.docx), PDF, or Excel (.xlsx)</strong>
+                          <span class="deliverable-desc">
+                            Neural translation with ISO 15919 phonetic proper noun protection and statutory administrative vocabulary.
+                          </span>
+                        </div>
+                      </div>
+
                       {/* Direction selector */}
                       <div class="translation-direction-toolbar" role="group" aria-label="Translation Direction">
                         <button
@@ -701,6 +846,51 @@ export function TaskSelector({
                   {/* Task 4: Bank Statement Consolidation & Audit */}
                   {task.id === "bank_consolidation" && (
                     <div class="subtasks-container">
+                      {/* Executive Office Deliverable Banner & Quick Intent Pills */}
+                      <div class="workflow-deliverable-banner">
+                        <div class="deliverable-banner-left">
+                          <span class="deliverable-tag">OFFICE DELIVERABLE</span>
+                          <strong class="deliverable-title">Master Consolidated Excel (.xlsx) + 1-Page Audit Memo (.docx)</strong>
+                          <span class="deliverable-desc">
+                            Standardized double-entry running balance ledger with verified arithmetic, UTR repair, and forensic memo.
+                          </span>
+                        </div>
+                        <div class="deliverable-quick-pills" role="group" aria-label="Quick Financial Reconciler Actions">
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "accurate" ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("bank_consolidation", "accurate");
+                            }}
+                            title="Strict double-entry balance arithmetic verification and 1-page memo"
+                          >
+                            <span class="intent-pill-icon">🎯</span>
+                            <span>Deep Verification &amp; Memo</span>
+                          </button>
+                          <button
+                            type="button"
+                            class={`intent-pill ${currentSubtask === "instant" ? "active" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectSubtask("bank_consolidation", "instant");
+                            }}
+                            title="High-speed statement ledger parsing"
+                          >
+                            <span class="intent-pill-icon">⚡</span>
+                            <span>Instant Consolidation</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Bank Statement Verification Bar */}
+                      <div class="bank-integrity-features-bar">
+                        <span class="integrity-chip">✓ Double-Entry Verified</span>
+                        <span class="integrity-chip">✓ UTR &amp; IFSC Auto-Repair</span>
+                        <span class="integrity-chip">✓ Deduplication</span>
+                        <span class="integrity-chip">📑 1-Page Audit Memo Included</span>
+                      </div>
+
                       <div class="subtasks-grid">
                         {/* 4.1 Accurate Consolidation & Reconciler */}
                         {(() => {

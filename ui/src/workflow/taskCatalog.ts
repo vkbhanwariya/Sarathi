@@ -38,6 +38,8 @@ export interface PrimaryTaskDef {
   description: string;
   moduleId: ModuleId;
   badge?: string;
+  deliverable?: string;
+  officeIntent?: string;
 }
 
 export const PRIMARY_TASKS: readonly PrimaryTaskDef[] = [
@@ -45,33 +47,41 @@ export const PRIMARY_TASKS: readonly PrimaryTaskDef[] = [
     id: "documents_extraction",
     label: "Scan to Word & Document Extraction",
     icon: "📄",
-    description: "Turn scanned PDFs/images into editable Word (.docx) or extract tables into Excel",
+    description: "Turn scanned notices, paper orders & typewriter PDFs into editable Word (.docx) or extract tables into Excel",
     moduleId: "documents_handling",
-    badge: "Word & OCR",
+    badge: "Word .docx",
+    deliverable: "Microsoft Word (.docx) & Excel (.xlsx)",
+    officeIntent: "Scanned petitions, FIRs, court orders, typewriter pages & PDF tables",
   },
   {
     id: "font_conversion",
     label: "Font Standardizer (Word & Excel)",
     icon: "🔤",
-    description: "Convert legacy Kruti Dev / Devlys to clean Unicode in Word (.docx) and Excel (.xlsx)",
+    description: "Convert legacy Kruti Dev / Devlys / Chanakya to clean Unicode in Word (.docx) and Excel (.xlsx)",
     moduleId: "documents_handling",
     badge: "Unicode",
+    deliverable: "Non-destructive [Name]_Unicode.docx / .xlsx",
+    officeIntent: "Word files & Excel spreadsheets with legacy Kruti Dev, Devlys, Chanakya runs",
   },
   {
     id: "translation",
     label: "Document Translation (Word, PDF & Excel)",
     icon: "🌐",
-    description: "Translate Word, PDF, or Excel sheets between Hindi and English with name protection",
+    description: "Translate Word, PDF, or Excel sheets between Hindi and English with name protection and statutory glossary",
     moduleId: "documents_handling",
     badge: "Hindi ↔ English",
+    deliverable: "Translated Word (.docx), PDF, or Excel (.xlsx)",
+    officeIntent: "Official circulars, court orders, petitions & bilingual sheets",
   },
   {
     id: "bank_consolidation",
     label: "Bank Statement Consolidation & Audit",
     icon: "🏦",
-    description: "Standardize multi-bank statements into a verified double-entry ledger & 1-page memo",
+    description: "Standardize multi-bank statements into a verified double-entry Excel ledger & 1-page executive memo",
     moduleId: "bank_statement_analysis",
     badge: "Reconciler",
+    deliverable: "Master Consolidated Excel (.xlsx) + 1-Page Audit Memo (.docx)",
+    officeIntent: "Bank statements & passbooks in PDF (digital/scanned), Excel or CSV",
   },
 ];
 
