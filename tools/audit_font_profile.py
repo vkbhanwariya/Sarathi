@@ -15,13 +15,18 @@ import argparse
 import json
 import sys
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from sarathi.shakti.font_conversion.converter import FontConverter
-from sarathi.shakti.font_conversion.detector import load_font_profiles
-from sarathi.shakti.font_conversion.models import LegacyFontProfile
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from sarathi.shakti.font_conversion.converter import FontConverter  # noqa: E402
+from sarathi.shakti.font_conversion.detector import load_font_profiles  # noqa: E402
+from sarathi.shakti.font_conversion.models import LegacyFontProfile  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)

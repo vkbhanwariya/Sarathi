@@ -134,7 +134,7 @@ echo.
 echo ========================================================================
 echo [*] Verifying All External Assets Integrity (100%% Offline)...
 echo ========================================================================
-uv run python "%~dp0..\update_assets.py" --check
+uv run --project "%~dp0..\.." python "%~dp0..\update_assets.py" --check
 goto AFTER_OP
 
 :RUN_ASSETS
@@ -142,7 +142,7 @@ echo.
 echo ========================================================================
 echo [*] Updating All Declared External Assets from Upstream...
 echo ========================================================================
-uv run python "%~dp0..\update_assets.py" --all
+uv run --project "%~dp0..\.." python "%~dp0..\update_assets.py" --all
 goto AFTER_OP
 
 :AFTER_OP
