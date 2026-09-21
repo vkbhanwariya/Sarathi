@@ -1675,74 +1675,77 @@ a { color: inherit; text-decoration: none; }
   margin-top: 6px;
 }
 
-/* Dual Inference Engine Deck: Local and Cloud in Front */
-.ocr-engine-options-deck {
+/* Unified Clean OCR Control Deck */
+.ocr-controls-deck {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
 }
 
-.ocr-engine-block {
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  transition: all 0.15s ease;
-}
-
-.ocr-engine-block.active {
-  background: #f0fdf4;
-  border-color: #86efac;
-}
-
-.ocr-engine-block.dimmed {
-  opacity: 0.75;
-}
-
-.ocr-engine-block-header {
+.ocr-control-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+}
+
+.ocr-row-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  min-width: 46px;
+}
+
+.ocr-control-row .ocr-segmented-control {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.ocr-control-row .toggle-row.mini {
+  margin: 0;
+  white-space: nowrap;
 }
 
 .cloud-provider-chips {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 6px;
 }
 
 .cloud-chip {
-  padding: 4px 10px;
+  flex: 1;
+  padding: 4px 8px;
   font-size: 11px;
   font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #334155;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .cloud-chip:hover:not(:disabled) {
-  border-color: #0284c7;
-  color: #0284c7;
-  background: #f0f9ff;
+  color: #0f172a;
 }
 
 .cloud-chip.active {
-  border-color: #0284c7;
-  background: #e0f2fe;
-  color: #0369a1;
-  font-weight: 700;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-weight: 600;
 }
 
 .cloud-chip:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
-  border-style: dashed;
 }
 
 /* ==========================================================================

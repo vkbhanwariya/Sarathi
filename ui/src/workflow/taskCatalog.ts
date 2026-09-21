@@ -145,7 +145,7 @@ export function resolveBackendMapping(
       }
       return {
         requirement: "ocr",
-        profile: options.preserveLayout ? "layout_preserving" : "accurate",
+        profile: options.preserveLayout ? "layout_preserving" : (options.ocrProfile || "accurate"),
       };
     }
     if (currentSubtask === "instant_ocr") {

@@ -88,6 +88,7 @@ export function Home({
     state.requirement.endsWith("_ocr") && state.requirement !== "ocr" ? "cloud" : "local"
   );
   const [ocrModelLang, setOcrModelLang] = useState<"devanagari" | "en_v6">("devanagari");
+  const [ocrProfile, setOcrProfile] = useState<"accurate" | "instant">("accurate");
   const [ocrFallbackToLocal, setOcrFallbackToLocal] = useState<boolean>(true);
 
   const [cloudOcrProvider, setCloudOcrProvider] = useState<string>(
@@ -185,10 +186,10 @@ export function Home({
       layoutAnalysis,
       preserveLayout,
       cloudOcrProvider,
-      ocrProfile: ocrCustomParams.profile ? String(ocrCustomParams.profile) : undefined,
+      ocrProfile,
       ocrEngineType,
     });
-  }, [primaryTask, currentSubtask, layoutAnalysis, preserveLayout, cloudOcrProvider, ocrCustomParams.profile, ocrEngineType]);
+  }, [primaryTask, currentSubtask, layoutAnalysis, preserveLayout, cloudOcrProvider, ocrProfile, ocrEngineType]);
 
   const activeAction = currentBackendMapping
     ? state.available_actions.find((action) => action.action_id === currentBackendMapping.requirement)
@@ -615,6 +616,8 @@ export function Home({
               ocrEngineType={ocrEngineType}
               ocrModelLang={ocrModelLang}
               ocrFallbackToLocal={ocrFallbackToLocal}
+              ocrProfile={ocrProfile}
+              onSetOcrProfile={setOcrProfile}
               removeStamps={removeStamps}
               preserveProperNouns={transPreserveProperNouns}
               transFallbackToLocal={transFallbackToLocal}

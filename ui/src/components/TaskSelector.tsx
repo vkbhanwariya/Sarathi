@@ -40,6 +40,8 @@ export interface TaskSelectorProps {
   onSetRemoveStamps?: (enabled: boolean) => void;
   onSetPreserveProperNouns?: (enabled: boolean) => void;
   onSetTransFallbackToLocal?: (fallback: boolean) => void;
+  ocrProfile?: "accurate" | "instant";
+  onSetOcrProfile?: (profile: "accurate" | "instant") => void;
   onSetOcrCustomParam: (key: string, value: unknown) => void;
   onSetOcrEngineType: (engineType: "local" | "cloud") => void;
   onSetOcrModelLang: (lang: "devanagari" | "en_v6") => void;
@@ -78,6 +80,8 @@ export function TaskSelector({
   onSetRemoveStamps,
   onSetPreserveProperNouns,
   onSetTransFallbackToLocal,
+  ocrProfile = "accurate",
+  onSetOcrProfile,
   onSetOcrCustomParam,
   onSetOcrEngineType,
   onSetOcrModelLang,
@@ -284,91 +288,116 @@ export function TaskSelector({
                                   <span class="action-card-name">OCR Document Recognition</span>
                                   <span class={`action-tag ${isSel ? "active" : ""}`}>{tagLabel}</span>
                                 </button>
-                                <p class="action-card-desc">
-                                  Scanned document OCR with OpenVINO neural acceleration on Intel Arc iGPU or Cloud AI.
-                                </p>
                                 {isSel && (
                                   <div class="ocr-card-details" onClick={(e) => e.stopPropagation()}>
-                                      {/* Document Layout & Formatting: All toggles in front */}
-                                      <div class="ocr-add-ons-section">
-                                        <span class="ocr-section-subtitle">Layout &amp; Document Structure</span>
-                                        <div class="ocr-toggles-grid">
-                                          <label class="toggle-row mini" title="Preserve layout geometry and margins in output">
-                                            <input
-                                              id="param-preserve-layout"
-                                              type="checkbox"
-                                              checked={preserveLayout}
-                                              onChange={(e) => {
-                                                onSetPreserveLayout(e.currentTarget.checked);
-                                                onSelectSubtask("documents_extraction", "ocr");
-                                              }}
-                                            />
-                                            <span>
-                                              <strong>Preserve Layout Geometry</strong>
-                                            </span>
-                                          </label>
-                                          <label class="toggle-row mini" title="Detect and separate running page headers and footers">
-                                            <input
-                                              id="param-ocr-skip-header-footer"
-                                              type="checkbox"
-                                              checked={skipHeaderFooter}
-                                              onChange={(e) => {
-                                                onSetSkipHeaderFooter(e.currentTarget.checked);
-                                                onSelectSubtask("documents_extraction", "ocr");
-                                              }}
-                                            />
-                                            <span>
-                                              <strong>Separate Running Headers/Footers</strong>
-                                            </span>
-                                          </label>
-                                          <label class="toggle-row mini" title="Extract and validate statutory IDs, CNR, court, tax, and company numbers">
-                                            <input
-                                              id="param-ocr-statutory"
-                                              type="checkbox"
-                                              checked={statutoryEnabled}
-                                              onChange={(e) => {
-                                                onSetStatutoryEnabled(e.currentTarget.checked);
-                                                onSelectSubtask("documents_extraction", "ocr");
-                                              }}
-                                            />
-                                            <span>
-                                              <strong>Statutory Legal ID Detection</strong>
-                                            </span>
-                                          </label>
-                                          <label class="toggle-row mini" title="Detect and standardize legacy Hindi fonts (KrutiDev, DevLys)">
-                                            <input
-                                              id="param-ocr-convert-legacy-fonts"
-                                              type="checkbox"
-                                              checked={convertLegacyFonts}
-                                              onChange={(e) => {
-                                                onSetConvertLegacyFonts(e.currentTarget.checked);
-                                                onSelectSubtask("documents_extraction", "ocr");
-                                              }}
-                                            />
-                                            <span>
-                                              <strong>Convert Legacy Fonts to Unicode</strong>
-                                            </span>
-                                          </label>
-                                          <label class="toggle-row mini" title="Suppress rubber stamp and official seal ink bleed-through">
-                                            <input
-                                              id="param-ocr-remove-stamps"
-                                              type="checkbox"
-                                              checked={removeStamps}
-                                              onChange={(e) => {
-                                                if (onSetRemoveStamps) onSetRemoveStamps(e.currentTarget.checked);
-                                                onSelectSubtask("documents_extraction", "ocr");
-                                              }}
-                                            />
-                                            <span>
-                                              <strong>Stamp &amp; Seal Suppression</strong>
-                                            </span>
-                                          </label>
+                                    {/* Clean Toggles */}
+                                    <div class="ocr-toggles-grid">
+                                      <label class="toggle-row mini" title="Preserve layout geometry">
+                                        <input
+                                          id="param-preserve-layout"
+                                          type="checkbox"
+                                          checked={preserveLayout}
+                                          onChange={(e) => {
+                                            onSetPreserveLayout(e.currentTarget.checked);
+                                            onSelectSubtask("documents_extraction", "ocr");
+                                          }}
+                                        />
+                                        <span>
+                                          <strong>Preserve layout</strong>
+                                        </span>
+                                      </label>
+                                      <label class="toggle-row mini" title="Separate running headers and footers">
+                                        <input
+                                          id="param-ocr-skip-header-footer"
+                                          type="checkbox"
+                                          checked={skipHeaderFooter}
+                                          onChange={(e) => {
+                                            onSetSkipHeaderFooter(e.currentTarget.checked);
+                                            onSelectSubtask("documents_extraction", "ocr");
+                                          }}
+                                        />
+                                        <span>
+                                          <strong>Headers / Footers</strong>
+                                        </span>
+                                      </label>
+                                      <label class="toggle-row mini" title="Extract and validate statutory IDs">
+                                        <input
+                                          id="param-ocr-statutory"
+                                          type="checkbox"
+                                          checked={statutoryEnabled}
+                                          onChange={(e) => {
+                                            onSetStatutoryEnabled(e.currentTarget.checked);
+                                            onSelectSubtask("documents_extraction", "ocr");
+                                          }}
+                                        />
+                                        <span>
+                                          <strong>Statutory IDs</strong>
+                                        </span>
+                                      </label>
+                                      <label class="toggle-row mini" title="Convert legacy Hindi fonts to Unicode">
+                                        <input
+                                          id="param-ocr-convert-legacy-fonts"
+                                          type="checkbox"
+                                          checked={convertLegacyFonts}
+                                          onChange={(e) => {
+                                            onSetConvertLegacyFonts(e.currentTarget.checked);
+                                            onSelectSubtask("documents_extraction", "ocr");
+                                          }}
+                                        />
+                                        <span>
+                                          <strong>Legacy fonts</strong>
+                                        </span>
+                                      </label>
+                                      <label class="toggle-row mini" title="Suppress rubber stamps and seals">
+                                        <input
+                                          id="param-ocr-remove-stamps"
+                                          type="checkbox"
+                                          checked={removeStamps}
+                                          onChange={(e) => {
+                                            if (onSetRemoveStamps) onSetRemoveStamps(e.currentTarget.checked);
+                                            onSelectSubtask("documents_extraction", "ocr");
+                                          }}
+                                        />
+                                        <span>
+                                          <strong>Stamp suppression</strong>
+                                        </span>
+                                      </label>
+                                    </div>
+
+                                    {/* Clean Control Deck */}
+                                    <div class="ocr-controls-deck">
+                                      {/* Profile Selector */}
+                                      <div class="ocr-control-row">
+                                        <span class="ocr-row-label">Profile:</span>
+                                        <div class="ocr-segmented-control" role="group" aria-label="OCR Profile">
+                                          <button
+                                            id="btn-ocr-profile-accurate"
+                                            type="button"
+                                            class={`ocr-seg-btn ${ocrProfile === "accurate" ? "active" : ""}`}
+                                            onClick={() => {
+                                              if (onSetOcrProfile) onSetOcrProfile("accurate");
+                                              onSelectSubtask("documents_extraction", "ocr");
+                                            }}
+                                          >
+                                            🎯 Accurate (200 DPI)
+                                          </button>
+                                          <button
+                                            id="btn-ocr-profile-instant"
+                                            type="button"
+                                            class={`ocr-seg-btn ${ocrProfile === "instant" ? "active" : ""}`}
+                                            onClick={() => {
+                                              if (onSetOcrProfile) onSetOcrProfile("instant");
+                                              onSelectSubtask("documents_extraction", "ocr");
+                                            }}
+                                          >
+                                            ⚡ Instant (150 DPI)
+                                          </button>
                                         </div>
                                       </div>
 
-                                      {/* Inference Engines Deck: Local and Cloud both in front */}
-                                      <div class="ocr-add-ons-section">
-                                        <span class="ocr-section-subtitle">Inference Engine</span>
+                                      {/* Engine Selector */}
+                                      <div class="ocr-control-row">
+                                        <span class="ocr-row-label">Engine:</span>
                                         <div class="ocr-segmented-control" role="group" aria-label="Inference Engine">
                                           <button
                                             id="btn-ocr-engine-local"
@@ -379,7 +408,7 @@ export function TaskSelector({
                                               onSelectSubtask("documents_extraction", "ocr");
                                             }}
                                           >
-                                            ⚡ Local OpenVINO (Intel Arc iGPU)
+                                            ⚡ Local (Arc iGPU)
                                           </button>
                                           <button
                                             id="btn-ocr-engine-cloud"
@@ -390,92 +419,83 @@ export function TaskSelector({
                                               onSelectSubtask("documents_extraction", "ocr");
                                             }}
                                           >
-                                            ☁ Cloud Multimodal
+                                            ☁ Cloud
                                           </button>
-                                        </div>
-
-                                        <div class="ocr-engine-options-deck">
-                                          {/* Local Model Block: PP-OCRv5 Devanagari default, toggle to PP-OCRv6 English */}
-                                          <div class={`ocr-engine-block ${ocrEngineType === "local" ? "active" : "dimmed"}`}>
-                                            <div class="ocr-engine-block-header">
-                                              <span class="ocr-field-label" style={{ fontSize: "11px", color: "var(--color-text-secondary)" }}>Local Model:</span>
-                                              <div class="ocr-lang-toggle-group">
-                                                <button
-                                                  id="btn-ocr-lang-devanagari"
-                                                  type="button"
-                                                  class={`ocr-seg-btn ${ocrModelLang === "devanagari" ? "active" : ""}`}
-                                                  onClick={() => {
-                                                    onSetOcrEngineType("local");
-                                                    onSetOcrModelLang("devanagari");
-                                                    onSelectSubtask("documents_extraction", "ocr");
-                                                  }}
-                                                  title="PP-OCRv5 Hindi/Devanagari model"
-                                                  style={{ fontSize: "11px", padding: "3px 8px" }}
-                                                >
-                                                  PP-OCRv5 Devanagari (Default)
-                                                </button>
-                                                <button
-                                                  id="btn-ocr-lang-en-v6"
-                                                  type="button"
-                                                  class={`ocr-seg-btn ${ocrModelLang === "en_v6" ? "active" : ""}`}
-                                                  onClick={() => {
-                                                    onSetOcrEngineType("local");
-                                                    onSetOcrModelLang("en_v6");
-                                                    onSelectSubtask("documents_extraction", "ocr");
-                                                  }}
-                                                  title="PP-OCRv6 English model"
-                                                  style={{ fontSize: "11px", padding: "3px 8px" }}
-                                                >
-                                                  PP-OCRv6 English
-                                                </button>
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          {/* Cloud Providers Block: 3 buttons in front to choose required cloud */}
-                                          <div class={`ocr-engine-block ${ocrEngineType === "cloud" ? "active" : "dimmed"}`}>
-                                            <div class="ocr-engine-block-header">
-                                              <span class="ocr-field-label" style={{ fontSize: "11px", color: "var(--color-text-secondary)" }}>Cloud Provider:</span>
-                                              <div class="cloud-provider-chips">
-                                                {CLOUD_OCR_PROVIDERS.map((cp) => {
-                                                  const cloudAct = availableActions.find((a) => a.action_id === cp.id);
-                                                  const isChipAvail = cloudAct ? cloudAct.is_enabled : false;
-                                                  const isChipActive = ocrEngineType === "cloud" && cloudOcrProvider === cp.id;
-                                                  return (
-                                                    <button
-                                                      key={cp.id}
-                                                      id={`chip-${cp.id.replace(/_/g, "-")}`}
-                                                      class={`cloud-chip ${isChipActive ? "active" : ""} ${!isChipAvail ? "disabled" : ""}`}
-                                                      disabled={!isChipAvail}
-                                                      title={isChipAvail ? cp.label : (cloudAct?.disabled_reason || "Unavailable")}
-                                                      type="button"
-                                                      onClick={() => {
-                                                        onSetOcrEngineType("cloud");
-                                                        onSetCloudOcrProvider(cp.id);
-                                                        onSelectSubtask("documents_extraction", "ocr");
-                                                      }}
-                                                    >
-                                                      {cp.label}
-                                                    </button>
-                                                  );
-                                                })}
-                                              </div>
-                                            </div>
-                                            <label class="toggle-row mini" style={{ marginTop: "6px" }}>
-                                              <input
-                                                id="param-ocr-fallback-to-local"
-                                                type="checkbox"
-                                                checked={ocrFallbackToLocal}
-                                                onChange={(e) => onSetOcrFallbackToLocal(e.currentTarget.checked)}
-                                              />
-                                              <span>
-                                                <strong>Fallback to Local OpenVINO if Cloud Fails</strong>
-                                              </span>
-                                            </label>
-                                          </div>
                                         </div>
                                       </div>
 
+                                      {/* Local Model Selector */}
+                                      <div class="ocr-control-row">
+                                        <span class="ocr-row-label">Model:</span>
+                                        <div class="ocr-segmented-control" role="group" aria-label="Local Model">
+                                          <button
+                                            id="btn-ocr-lang-devanagari"
+                                            type="button"
+                                            class={`ocr-seg-btn ${ocrModelLang === "devanagari" ? "active" : ""}`}
+                                            onClick={() => {
+                                              onSetOcrEngineType("local");
+                                              onSetOcrModelLang("devanagari");
+                                              onSelectSubtask("documents_extraction", "ocr");
+                                            }}
+                                            title="PP-OCRv5 Hindi/Devanagari"
+                                          >
+                                            Devanagari (Hindi)
+                                          </button>
+                                          <button
+                                            id="btn-ocr-lang-en-v6"
+                                            type="button"
+                                            class={`ocr-seg-btn ${ocrModelLang === "en_v6" ? "active" : ""}`}
+                                            onClick={() => {
+                                              onSetOcrEngineType("local");
+                                              onSetOcrModelLang("en_v6");
+                                              onSelectSubtask("documents_extraction", "ocr");
+                                            }}
+                                            title="PP-OCRv6 English"
+                                          >
+                                            English
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Cloud Provider Selector */}
+                                      <div class="ocr-control-row">
+                                        <span class="ocr-row-label">Cloud:</span>
+                                        <div class="cloud-provider-chips" role="group" aria-label="Cloud Provider">
+                                          {CLOUD_OCR_PROVIDERS.map((cp) => {
+                                            const cloudAct = availableActions.find((a) => a.action_id === cp.id);
+                                            const isChipAvail = cloudAct ? cloudAct.is_enabled : false;
+                                            const isChipActive = ocrEngineType === "cloud" && cloudOcrProvider === cp.id;
+                                            return (
+                                              <button
+                                                key={cp.id}
+                                                id={`chip-${cp.id.replace(/_/g, "-")}`}
+                                                class={`cloud-chip ${isChipActive ? "active" : ""}`}
+                                                disabled={!isChipAvail}
+                                                type="button"
+                                                onClick={() => {
+                                                  onSetOcrEngineType("cloud");
+                                                  onSetCloudOcrProvider(cp.id);
+                                                  onSelectSubtask("documents_extraction", "ocr");
+                                                }}
+                                              >
+                                                {cp.label}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                        <label class="toggle-row mini" style={{ margin: 0, whiteSpace: "nowrap" }}>
+                                          <input
+                                            id="param-ocr-fallback-to-local"
+                                            type="checkbox"
+                                            checked={ocrFallbackToLocal}
+                                            onChange={(e) => onSetOcrFallbackToLocal(e.currentTarget.checked)}
+                                          />
+                                          <span>
+                                            <strong>Fallback to local</strong>
+                                          </span>
+                                        </label>
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
                               </div>

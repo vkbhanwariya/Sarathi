@@ -370,6 +370,23 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
     assert payload_initial["requirement"] == "ocr"
     assert payload_initial["profile"] == "accurate"
 
+    # Verify Profile selector (Accurate vs Instant)
+    btn_instant = app_page.locator("#btn-ocr-profile-instant")
+    btn_accurate = app_page.locator("#btn-ocr-profile-accurate")
+    expect(btn_accurate).to_be_visible()
+    expect(btn_accurate).to_have_class(re.compile(r"\bactive\b"))
+    expect(btn_instant).to_be_visible()
+
+    btn_instant.click()
+    expect(btn_instant).to_have_class(re.compile(r"\bactive\b"))
+    payload_instant = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_instant["profile"] == "instant"
+
+    btn_accurate.click()
+    expect(btn_accurate).to_have_class(re.compile(r"\bactive\b"))
+    payload_reaccurate = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_reaccurate["profile"] == "accurate"
+
     # 2. Verify Local OpenVINO model options (Devanagari vs English)
     btn_devanagari = app_page.locator("#btn-ocr-lang-devanagari")
     btn_en_v6 = app_page.locator("#btn-ocr-lang-en-v6")
