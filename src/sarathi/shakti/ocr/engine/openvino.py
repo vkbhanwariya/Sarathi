@@ -101,10 +101,12 @@ def get_shared_openvino_core(cache_dir: Path | None = None) -> Any:
             effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()
             try:
                 effective_cache_dir.mkdir(parents=True, exist_ok=True)
-                core.set_property({
-                    "CACHE_DIR": str(effective_cache_dir),
-                    "CACHE_MODE": "OPTIMIZE_SPEED",
-                })
+                core.set_property(
+                    {
+                        "CACHE_DIR": str(effective_cache_dir),
+                        "CACHE_MODE": "OPTIMIZE_SPEED",
+                    }
+                )
             except Exception:
                 pass
             _SHARED_OPENVINO_CORE = core
@@ -146,7 +148,7 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                     core.set_property("CPU", cpu_props)
                 except Exception:
                     pass
-            elif device_name in ("GPU", "NPU") or "GPU" in device_name or "NPU" in device_name:
+            elif "GPU" in device_name:
                 try:
                     gpu_props: dict[str, Any] = {
                         "INFERENCE_PRECISION_HINT": "f16",
@@ -161,6 +163,27 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                     except Exception:
                         pass
                     core.set_property(device_name, gpu_props)
+                except Exception:
+                    pass
+            elif "NPU" in device_name:
+                try:
+                    npu_props: dict[str, Any] = {
+                        "INFERENCE_PRECISION_HINT": "f16",
+                        "PERFORMANCE_HINT": "THROUGHPUT",
+                        "EXECUTION_MODE_HINT": "PERFORMANCE",
+                    }
+                    effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()
+                    try:
+                        effective_cache_dir.mkdir(parents=True, exist_ok=True)
+                        npu_props["CACHE_DIR"] = str(effective_cache_dir)
+                    except Exception:
+                        pass
+                    try:
+                        supported_props = core.get_property(device_name, "SUPPORTED_PROPERTIES")
+                        npu_props = {k: v for k, v in npu_props.items() if k in supported_props}
+                    except Exception:
+                        pass
+                    core.set_property(device_name, npu_props)
                 except Exception:
                     pass
 

@@ -45,6 +45,7 @@ def benchmark_translation_threads(
     results: list[dict[str, Any]] = []
 
     for threads in thread_counts:
+        engine.clear_cache()
         binding = ExecutionBinding(
             device_id=f"cpu-{threads}",
             device_type=DeviceType.CPU,

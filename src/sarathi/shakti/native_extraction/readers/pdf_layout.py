@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pymupdf
@@ -188,7 +186,7 @@ def _process_single_page(
         for t_idx, t_item in enumerate(table_layout_items, 1):
             clip_rect = pymupdf.Rect(float(t_item[0]), float(t_item[1]), float(t_item[2]), float(t_item[3]))
             try:
-                tabs = page.find_tables(clip=clip_rect)
+                tabs = page.find_tables(clip=clip_rect, refine=True)
                 if tabs and tabs.tables:
                     for tab in tabs.tables:
                         extracted_rows = tab.extract()
@@ -215,7 +213,7 @@ def _process_single_page(
     # Fallback table extraction if GNN didn't find any or find_tables in clip yielded none
     if not page_tables:
         try:
-            tabs = page.find_tables()
+            tabs = page.find_tables(refine=True)
             if tabs and tabs.tables:
                 for t_idx, tab in enumerate(tabs.tables, 1):
                     extracted_rows = tab.extract()
@@ -293,31 +291,6 @@ def _process_single_page(
     return page_idx, page_data, provenance, warnings, page_tables, page_text
 
 
-def _process_page_chunk(
-    data: bytes,
-    page_indices: list[int],
-    total_pages: int,
-    input_id: str,
-    skip_header_footer: bool,
-    password: str | None = None,
-) -> list[tuple[int, PageData, ProvenanceRecord, list[WarningRecord], list[TableData], str]]:
-    """Worker task processing a sequence of pages with its own independent Document instance."""
-    import pymupdf.layout as _pymupdf_layout  # noqa: F401
-
-    with GLOBAL_PYMUPDF_LOCK:
-        doc = pymupdf.open(stream=data, filetype="pdf")
-        if doc.is_encrypted and password:
-            doc.authenticate(password)
-        results = []
-        try:
-            for p_idx in page_indices:
-                page = doc[p_idx]
-                results.append(_process_single_page(page, p_idx, total_pages, input_id, skip_header_footer))
-            return results
-        finally:
-            doc.close()
-
-
 def read_pdf_with_layout(
     data: bytes,
     input_id: str,
@@ -330,7 +303,6 @@ def read_pdf_with_layout(
     Uses Graph Neural Networks (BoxRFDGNN) trained on PDF vector topologies to
     extract semantic entities (title, section-header, list-item, table, page-header, page-footer),
     resolve multi-column topological reading order, and isolate table grids.
-    Multi-page documents are processed concurrently across CPU worker threads.
     """
     import pymupdf.layout as _pymupdf_layout  # noqa: F401 # Ensures activation of pymupdf._get_layout
 
@@ -340,58 +312,26 @@ def read_pdf_with_layout(
             doc.authenticate(password)
         try:
             total_pages = len(doc)
+            if total_pages == 0:
+                return (
+                    CanonicalDocument(
+                        document_id=f"doc-{input_id}",
+                        source_input_id=input_id,
+                        pages=(),
+                        tables=(),
+                        text="",
+                        detected_type="pdf",
+                    ),
+                    (),
+                    (),
+                )
+
+            raw_results = [
+                _process_single_page(doc[p_idx], p_idx, total_pages, input_id, skip_header_footer)
+                for p_idx in range(total_pages)
+            ]
         finally:
             doc.close()
-
-    if total_pages == 0:
-        return (
-            CanonicalDocument(
-                document_id=f"doc-{input_id}",
-                source_input_id=input_id,
-                pages=(),
-                tables=(),
-                text="",
-                detected_type="pdf",
-            ),
-            (),
-            (),
-        )
-
-    if total_pages == 1:
-        with GLOBAL_PYMUPDF_LOCK:
-            doc = pymupdf.open(stream=data, filetype="pdf")
-            if doc.is_encrypted and password:
-                doc.authenticate(password)
-            try:
-                raw_results = [_process_single_page(doc[0], 0, 1, input_id, skip_header_footer)]
-            finally:
-                doc.close()
-    else:
-        max_workers = min(total_pages, min(os.cpu_count() or 4, 6))
-        chunks: list[list[int]] = [[] for _ in range(max_workers)]
-        for idx in range(total_pages):
-            chunks[idx % max_workers].append(idx)
-        active_chunks = [c for c in chunks if c]
-
-        with ThreadPoolExecutor(max_workers=len(active_chunks), thread_name_prefix="sarathi-layout") as executor:
-            futures = [
-                executor.submit(
-                    _process_page_chunk,
-                    data,
-                    chunk,
-                    total_pages,
-                    input_id,
-                    skip_header_footer,
-                    password,
-                )
-                for chunk in active_chunks
-            ]
-            raw_results = []
-            for future in futures:
-                raw_results.extend(future.result())
-
-    # Sort results strictly by page_idx to maintain exact canonical document order
-    raw_results.sort(key=lambda r: r[0])
 
     pages: list[PageData] = []
     provenances: list[ProvenanceRecord] = []

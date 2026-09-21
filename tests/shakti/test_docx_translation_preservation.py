@@ -289,7 +289,9 @@ def test_translation_capability_dispatches_in_place_for_docx(tmp_path: Path) -> 
         target_language=MagicMock(value="hi"),
         protected_spans_count=0,
     )
-    mock_engine.translate_sentences.side_effect = lambda sents, direction=None, **kwargs: [f"अनुवादित: {s}" for s in sents]
+    mock_engine.translate_sentences.side_effect = lambda sents, direction=None, **kwargs: [
+        f"अनुवादित: {s}" for s in sents
+    ]
 
     cap = TranslationCapability(backend=mock_engine)
 

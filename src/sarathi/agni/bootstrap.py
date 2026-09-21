@@ -385,7 +385,6 @@ class Agni:
         if first_error is not None:
             raise first_error
 
-
     def stop(self) -> None:
         self.close()
 

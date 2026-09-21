@@ -767,6 +767,7 @@ class TestDarpanaGlobalWiring:
     def test_record_maruti_helper(self) -> None:
         """Verify record_maruti gracefully handles None and valid Darpana."""
         from sarathi.darpana import MarutiRecord, record_maruti
+
         assert record_maruti(None, phase_name="test") is None
 
         darpana = Darpana()

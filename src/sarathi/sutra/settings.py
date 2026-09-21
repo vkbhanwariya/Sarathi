@@ -257,7 +257,6 @@ class Settings:
         """
         return self._get_int("hardware", "gpu_capacity_per_device", 4)
 
-
     @property
     def hardware_npu_capacity_per_device(self) -> int:
         """Return validated hardware.npu_capacity_per_device, defaulting to 2."""

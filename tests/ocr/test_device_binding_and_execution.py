@@ -358,6 +358,7 @@ class TestOCRCapabilityYantraIntegration:
         is_ready, reason = check_ocr_readiness()
         try:
             import openvino as ov
+
             core = ov.Core()
             _ = core.available_devices
         except ImportError:

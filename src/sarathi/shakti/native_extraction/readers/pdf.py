@@ -523,7 +523,6 @@ def read_pdf(
             if image_coverage >= 0.80 and (len(page_text.strip()) < 30 or len(body_text.strip()) == 0):
                 page_meta["is_scanned_image"] = True
 
-
             if not spans:
                 blocks = text_page.extractBLOCKS()
                 for b in blocks:
@@ -548,10 +547,11 @@ def read_pdf(
                         snap_tolerance=3.0,
                         join_tolerance=3.0,
                         min_words_vertical=1,
+                        refine=True,
                     )
                 except Exception:
                     try:
-                        tabs = page.find_tables()
+                        tabs = page.find_tables(refine=True)
                     except (pymupdf.FileDataError, ValueError):
                         warnings.append(
                             WarningRecord(

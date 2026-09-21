@@ -378,7 +378,6 @@ class TestMukhaInputAndIntakeTruth:
         assert req.custom_options["threshold"] == 0.75
         assert req.custom_options["mode"] == "fast"
 
-
     def test_run_coordinator_auto_discovers_input_root(self, tmp_path: Path) -> None:
         from sarathi.agni import Agni
         from sarathi.mukha.web.runner import RunCoordinator

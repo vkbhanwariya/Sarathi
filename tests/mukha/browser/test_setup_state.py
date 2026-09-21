@@ -38,12 +38,14 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     # All four tasks are directly available without an intermediate module filter.
     task_tabs = app_page.locator(".primary-task-tab-btn")
     expect(task_tabs).to_have_count(4)
-    expect(app_page.locator(".col-card-title")).to_have_text([
-        "Documents Extraction",
-        "Bank Account Consolidation",
-        "Font Conversion",
-        "Translation",
-    ])
+    expect(app_page.locator(".col-card-title")).to_have_text(
+        [
+            "Documents Extraction",
+            "Bank Account Consolidation",
+            "Font Conversion",
+            "Translation",
+        ]
+    )
     expect(app_page.locator("#btn-task-bank-consolidation")).to_be_visible()
 
     # On home screen, only level 1 selection is shown initially (no level 2 subtask cards visible)

@@ -142,7 +142,6 @@ def test_compute_cer_and_wer_metrics() -> None:
     assert compute_wer("", "") == 0.0
 
 
-
 def test_benchmark_ocr_dry_run_sweep() -> None:
     """Verify synthetic OCR benchmark sweep generates valid Pareto report."""
     report = run_synthetic_or_real_benchmark(dry_run=True)

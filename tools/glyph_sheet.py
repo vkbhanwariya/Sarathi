@@ -90,7 +90,7 @@ def generate_glyph_sheet_html(
                 <div class="cp-hex">0x{cp:02X} ({cp})</div>
                 <div class="char-sym">Char: <code>{html.escape(char_repr)}</code></div>
                 <div class="glyph-name">{html.escape(gname)}</div>
-                {f'<div class="mapped-target">Maps to: <b>{html.escape(mapped_target)}</b></div>' if mapped_target else ''}
+                {f'<div class="mapped-target">Maps to: <b>{html.escape(mapped_target)}</b></div>' if mapped_target else ""}
             </div>
         </div>
         """

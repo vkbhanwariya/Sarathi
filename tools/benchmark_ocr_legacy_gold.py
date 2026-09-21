@@ -78,7 +78,6 @@ def compute_wer(reference: str, hypothesis: str) -> float:
     return round(dist / len(ref_words), 4)
 
 
-
 def calculate_adaptive_dpi(h_median: float, base_dpi: int = 200, target_height_px: float = 32.0) -> int:
     """Calculate content-adaptive DPI to normalize Devanagari glyphs to target recognition height.
 
@@ -147,6 +146,14 @@ def run_synthetic_or_real_benchmark(
     raw_text = page.get_text("text")
     gold_truth = converter.convert(raw_text, profile_id=profile_id)
 
+    ocr_engine = None
+    try:
+        from rapidocr import RapidOCR
+
+        ocr_engine = RapidOCR()
+    except Exception:
+        pass
+
     sweeps = []
     for dpi in dpi_ladder:
         start_t = time.perf_counter()
@@ -157,24 +164,43 @@ def run_synthetic_or_real_benchmark(
         pix_bytes = pix.tobytes("png")
         vram_est = round(len(pix_bytes) / (1024 * 1024) * 4.0 + 150.0, 1)
 
-        # In real benchmark without live OCR models compiled in CI, mock inference
-        latency = round((time.perf_counter() - start_t) * 1000 + 60.0, 1)
-        sim_cer = max(0.01, round(0.15 - (dpi - 150) * 0.0005, 4))
-        sim_wer = round(sim_cer * 2.0, 4)
-        acc = round(1.0 - sim_cer, 4)
-        pareto = round(acc / (latency * (vram_est / 1024.0)), 3)
-
-        sweeps.append(
-            BenchmarkSweepResult(
-                dpi=dpi,
-                latency_ms=latency,
-                cer=sim_cer,
-                wer=sim_wer,
-                accuracy=acc,
-                pareto_metric=pareto,
-                estimated_vram_mb=vram_est,
+        if ocr_engine is not None:
+            ocr_res, _ = ocr_engine(pix_bytes)
+            ocr_text = " ".join(box[1] for box in ocr_res) if ocr_res else ""
+            actual_cer = compute_cer(gold_truth, ocr_text)
+            actual_wer = compute_wer(gold_truth, ocr_text)
+            acc = round(max(0.0, 1.0 - actual_cer), 4)
+            latency = round((time.perf_counter() - start_t) * 1000, 1)
+            pareto = round(acc / (max(1.0, latency) * (vram_est / 1024.0)), 3)
+            sweeps.append(
+                BenchmarkSweepResult(
+                    dpi=dpi,
+                    latency_ms=latency,
+                    cer=actual_cer,
+                    wer=actual_wer,
+                    accuracy=acc,
+                    pareto_metric=pareto,
+                    estimated_vram_mb=vram_est,
+                )
             )
-        )
+        else:
+            # Fallback mock when OCR dependencies are not installed in CI
+            latency = round((time.perf_counter() - start_t) * 1000 + 60.0, 1)
+            sim_cer = max(0.01, round(0.15 - (dpi - 150) * 0.0005, 4))
+            sim_wer = round(sim_cer * 2.0, 4)
+            acc = round(1.0 - sim_cer, 4)
+            pareto = round(acc / (latency * (vram_est / 1024.0)), 3)
+            sweeps.append(
+                BenchmarkSweepResult(
+                    dpi=dpi,
+                    latency_ms=latency,
+                    cer=sim_cer,
+                    wer=sim_wer,
+                    accuracy=acc,
+                    pareto_metric=pareto,
+                    estimated_vram_mb=vram_est,
+                )
+            )
 
     adaptive_dpi = calculate_adaptive_dpi(h_median=24.0)
 
@@ -213,10 +239,14 @@ def main() -> None:
         print(f"Gold Truth Sample: {report.ground_truth_sample}")
         print(f"Adaptive DPI Recommended: {report.adaptive_dpi_recommended} DPI")
         print("\nResolution Sweep (Pareto Frontier):")
-        print(f"{'DPI':>5s} | {'Latency':>10s} | {'CER':>7s} | {'WER':>7s} | {'Acc':>7s} | {'VRAM (MB)':>10s} | {'Pareto':>8s}")
+        print(
+            f"{'DPI':>5s} | {'Latency':>10s} | {'CER':>7s} | {'WER':>7s} | {'Acc':>7s} | {'VRAM (MB)':>10s} | {'Pareto':>8s}"
+        )
         print("-" * 75)
         for s in report.sweeps:
-            print(f"{s.dpi:5d} | {s.latency_ms:8.1f}ms | {s.cer:6.2%} | {s.wer:6.2%} | {s.accuracy:6.2%} | {s.estimated_vram_mb:8.1f}MB | {s.pareto_metric:8.3f}")
+            print(
+                f"{s.dpi:5d} | {s.latency_ms:8.1f}ms | {s.cer:6.2%} | {s.wer:6.2%} | {s.accuracy:6.2%} | {s.estimated_vram_mb:8.1f}MB | {s.pareto_metric:8.3f}"
+            )
 
 
 if __name__ == "__main__":

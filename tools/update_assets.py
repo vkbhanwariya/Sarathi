@@ -76,7 +76,9 @@ def check_ocr_models() -> tuple[int, int, list[str]]:
         if actual_sha == expected_sha:
             valid += 1
         else:
-            issues.append(f"OCR model {filename} checksum mismatch (expected {expected_sha[:12]}..., got {actual_sha[:12]}...)")
+            issues.append(
+                f"OCR model {filename} checksum mismatch (expected {expected_sha[:12]}..., got {actual_sha[:12]}...)"
+            )
 
     return total, valid, issues
 
@@ -245,9 +247,7 @@ def print_status_report() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Inspect, verify, or update Sarathi external data assets."
-    )
+    parser = argparse.ArgumentParser(description="Inspect, verify, or update Sarathi external data assets.")
     parser.add_argument(
         "--check",
         action="store_true",

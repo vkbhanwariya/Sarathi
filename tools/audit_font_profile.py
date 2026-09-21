@@ -161,7 +161,9 @@ def main() -> None:
         print(json.dumps([asdict(s) for s in all_summaries], indent=2))
 
     if has_failure:
-        print("\nNote: Profiles with unexpected_loss have ambiguous reverse mappings requiring reverse_preferred definitions.")
+        print(
+            "\nNote: Profiles with unexpected_loss have ambiguous reverse mappings requiring reverse_preferred definitions."
+        )
 
 
 if __name__ == "__main__":

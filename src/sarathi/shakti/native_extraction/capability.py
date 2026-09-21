@@ -311,10 +311,7 @@ class NativeExtractionCapability:
                 request.profile == ExecutionProfile.LAYOUT_PRESERVING
                 or (
                     request.custom_options
-                    and (
-                        request.custom_options.get("layout_analysis")
-                        or request.custom_options.get("preserve_layout")
-                    )
+                    and (request.custom_options.get("layout_analysis") or request.custom_options.get("preserve_layout"))
                 )
             )
 

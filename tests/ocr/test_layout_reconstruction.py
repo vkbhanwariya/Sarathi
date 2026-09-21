@@ -673,7 +673,6 @@ def test_is_usable_page_scanned_image_arbitration() -> None:
     assert _is_usable_page(legitimate_short_page) is True
 
 
-
 # ==============================================================================
 # 13. Borderless Table Prose Protection & Column Detection
 # ==============================================================================

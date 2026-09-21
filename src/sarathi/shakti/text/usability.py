@@ -59,7 +59,8 @@ def is_usable_page(page: PageData) -> bool:
                 top_margin = 0.15 * page_h
                 bottom_margin = 0.85 * page_h
                 has_body_span = any(
-                    s.bounding_box is not None and (s.bounding_box[1] < bottom_margin and s.bounding_box[3] > top_margin)
+                    s.bounding_box is not None
+                    and (s.bounding_box[1] < bottom_margin and s.bounding_box[3] > top_margin)
                     for s in page.spans
                 )
                 if not has_body_span:

@@ -57,9 +57,7 @@ def test_rasterize_with_correct_password(encrypted_pdf_bytes: bytes) -> None:
     assert img.size[0] > 0
 
 
-def test_native_extraction_capability_with_request_passwords(
-    encrypted_pdf_bytes: bytes, tmp_path
-) -> None:
+def test_native_extraction_capability_with_request_passwords(encrypted_pdf_bytes: bytes, tmp_path) -> None:
     file_path = tmp_path / "statement.pdf"
     file_path.write_bytes(encrypted_pdf_bytes)
 
@@ -77,9 +75,7 @@ def test_native_extraction_capability_with_request_passwords(
         profile=ExecutionProfile.INSTANT,
         custom_options={"passwords": {"statement.pdf": "bankpass42"}},
     )
-    context = ExecutionContext(
-        run_id="run-enc-1", request_id="req-enc-test", trace_id="t-1", span_id="s-1"
-    )
+    context = ExecutionContext(run_id="run-enc-1", request_id="req-enc-test", trace_id="t-1", span_id="s-1")
     cap = NativeExtractionCapability()
 
     result = cap.execute(request, context)

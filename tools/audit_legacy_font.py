@@ -123,7 +123,9 @@ def main() -> None:
         else:
             print(f"=== Font Audit Report: {report['file']} ===")
             print(f"Family: {report['family_name']} | Full: {report['full_name']} | PS: {report['postscript_name']}")
-            print(f"Classification: Modern={report['is_modern_unicode']}, Legacy={report['is_legacy_symbol']}, Unsupported={report['is_unsupported_legacy']}")
+            print(
+                f"Classification: Modern={report['is_modern_unicode']}, Legacy={report['is_legacy_symbol']}, Unsupported={report['is_unsupported_legacy']}"
+            )
             print(f"GSUB Devanagari: {report['has_gsub_deva']}")
             print(f"CMap Platforms: {report['cmap_platforms']}")
             print(f"CMap Signature: {report['cmap_signature']}")

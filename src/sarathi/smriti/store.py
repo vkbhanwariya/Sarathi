@@ -57,6 +57,7 @@ class SQLiteCacheStore:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_smriti_accessed ON smriti_entries(accessed_at);
             """)
+
     def _reclaim_unreferenced_artifacts(self, conn: sqlite3.Connection, deleted_data_jsons: list[str]) -> None:
         """Remove artifact blob files that are no longer referenced by any remaining cache entries."""
         if not self._artifacts_dir or not self._artifacts_dir.is_dir():
@@ -160,13 +161,17 @@ class SQLiteCacheStore:
         """Invalidate entries from persistent SQLite store and clean up orphaned artifact blobs."""
         with self._lock, self._get_connection() as conn:
             if key is not None:
-                row = conn.execute("SELECT data_json FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)).fetchone()
+                row = conn.execute(
+                    "SELECT data_json FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)
+                ).fetchone()
                 cur = conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
                 if row:
                     self._reclaim_unreferenced_artifacts(conn, [row[0]])
                 return cur.rowcount
             if capability_id is not None:
-                rows = conn.execute("SELECT data_json FROM smriti_entries WHERE capability_id = ?", (capability_id,)).fetchall()
+                rows = conn.execute(
+                    "SELECT data_json FROM smriti_entries WHERE capability_id = ?", (capability_id,)
+                ).fetchall()
                 cur = conn.execute("DELETE FROM smriti_entries WHERE capability_id = ?", (capability_id,))
                 self._reclaim_unreferenced_artifacts(conn, [r[0] for r in rows])
                 return cur.rowcount

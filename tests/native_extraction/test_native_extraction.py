@@ -1447,27 +1447,27 @@ def test_read_docx_preserves_tabs_breaks_and_sdt_clauses() -> None:
     doc_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
-        '  <w:body>\n'
-        '    <w:p>\n'
-        '      <w:r>\n'
-        '        <w:t>Header</w:t>\n'
-        '        <w:tab/>\n'
-        '        <w:t>Value</w:t>\n'
-        '        <w:br/>\n'
-        '        <w:t>Line2</w:t>\n'
-        '        <w:noBreakHyphen/>\n'
-        '        <w:t>Suffix</w:t>\n'
-        '      </w:r>\n'
-        '    </w:p>\n'
-        '    <w:sdt>\n'
-        '      <w:sdtContent>\n'
-        '        <w:p>\n'
-        '          <w:r><w:t>SDT Clause Text</w:t></w:r>\n'
-        '        </w:p>\n'
-        '      </w:sdtContent>\n'
-        '    </w:sdt>\n'
-        '  </w:body>\n'
-        '</w:document>'
+        "  <w:body>\n"
+        "    <w:p>\n"
+        "      <w:r>\n"
+        "        <w:t>Header</w:t>\n"
+        "        <w:tab/>\n"
+        "        <w:t>Value</w:t>\n"
+        "        <w:br/>\n"
+        "        <w:t>Line2</w:t>\n"
+        "        <w:noBreakHyphen/>\n"
+        "        <w:t>Suffix</w:t>\n"
+        "      </w:r>\n"
+        "    </w:p>\n"
+        "    <w:sdt>\n"
+        "      <w:sdtContent>\n"
+        "        <w:p>\n"
+        "          <w:r><w:t>SDT Clause Text</w:t></w:r>\n"
+        "        </w:p>\n"
+        "      </w:sdtContent>\n"
+        "    </w:sdt>\n"
+        "  </w:body>\n"
+        "</w:document>"
     )
 
     buf = io.BytesIO()
@@ -1509,9 +1509,7 @@ def test_extract_page_fonts_handles_tuple_font_extraction(monkeypatch: pytest.Mo
     assert font_map.get("F1") == "ResolvedLegacyFamily"
 
 
-def test_font_conversion_failure_records_warning_with_context(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_font_conversion_failure_records_warning_with_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Verify font conversion unexpected exception records FONT_CONVERSION_FAILED warning without TypeError."""
     from typing import Any
 

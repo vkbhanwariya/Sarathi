@@ -387,7 +387,6 @@ def test_translate_batch_deduplicates_identical_sentences() -> None:
     # 'Notice is issued...' and 'The interim protection...' are deduplicated, reducing 6 to 4!
     assert len(backend_sent_list) == 4
 
-
     # All 3 texts must receive their full, correctly translated bodies in original order
     assert "THE INTERIM PROTECTION GRANTED EARLIER SHALL CONTINUE" in results[0].translated_text
     assert "IS ISSUED TO THE RESPONDENTS" in results[0].translated_text

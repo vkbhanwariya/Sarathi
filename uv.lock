@@ -897,7 +897,6 @@ translation = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "fonttools" },
     { name = "jsonschema" },
     { name = "py-spy" },
     { name = "pytest" },
@@ -936,7 +935,6 @@ provides-extras = ["ocr", "translation", "font-conversion", "layout", "cloud"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "fonttools", specifier = ">=4.65.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "py-spy", specifier = ">=0.4.2" },
     { name = "pytest", specifier = ">=9.1.1" },

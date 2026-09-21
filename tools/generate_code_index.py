@@ -122,9 +122,7 @@ def generate_index_markdown() -> str:
         "",
     ]
 
-    all_files = sorted(
-        [p for p in SRC_ROOT.rglob("*.py") if p.name != "__init__.py" and "__pycache__" not in p.parts]
-    )
+    all_files = sorted([p for p in SRC_ROOT.rglob("*.py") if p.name != "__init__.py" and "__pycache__" not in p.parts])
 
     by_subsystem: dict[str, list[Path]] = {sub: [] for sub, _ in SUBSYSTEM_ORDER}
     root_files: list[Path] = []

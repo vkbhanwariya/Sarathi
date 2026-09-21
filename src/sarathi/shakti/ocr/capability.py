@@ -545,7 +545,10 @@ class OCRCapability:
                         c_pdata, c_prov, c_warns = cached
                         if c_prov is not None and c_prov.source_input_id != inp.input_id:
                             c_prov = dataclasses.replace(c_prov, source_input_id=inp.input_id)
-                        if "source_input_id" in c_pdata.metadata and c_pdata.metadata["source_input_id"] != inp.input_id:
+                        if (
+                            "source_input_id" in c_pdata.metadata
+                            and c_pdata.metadata["source_input_id"] != inp.input_id
+                        ):
                             c_pdata_meta = dict(c_pdata.metadata)
                             c_pdata_meta["source_input_id"] = inp.input_id
                             c_pdata = dataclasses.replace(c_pdata, metadata=c_pdata_meta)

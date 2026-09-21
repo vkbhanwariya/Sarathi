@@ -124,7 +124,9 @@ def main() -> None:
     else:
         print(f"=== Mined {len(candidates)} Mapping Candidates ===")
         for c in candidates:
-            print(f"[{c.status.upper():11s}] {c.legacy!r:>6s} -> {c.unicode!r:<6s} (support: {c.support}, conf: {c.confidence})")
+            print(
+                f"[{c.status.upper():11s}] {c.legacy!r:>6s} -> {c.unicode!r:<6s} (support: {c.support}, conf: {c.confidence})"
+            )
 
 
 if __name__ == "__main__":

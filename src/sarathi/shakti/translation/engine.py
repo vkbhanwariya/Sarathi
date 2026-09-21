@@ -504,6 +504,12 @@ class CTranslate2NativeBackend:
             input_truncation_flags=tuple(sentence_input_truncations),
         )
 
+    def clear_cache(self) -> None:
+        """Clear cached CTranslate2 Translator and SentencePiece instances."""
+        with self._lock:
+            self._translators.clear()
+            self._spms.clear()
+
 
 _CTranslate2NativeBackend = CTranslate2NativeBackend
 
@@ -531,6 +537,14 @@ class CTranslate2TranslationEngine:
         self._initialized_backend: TranslatorBackend | None = None
         self._backend_lock: threading.Lock = threading.Lock()
         self._asset_version: str = self._compute_asset_version()
+
+    def clear_cache(self) -> None:
+        """Clear cached CTranslate2 Translator instances."""
+        with self._backend_lock:
+            if self._backend is not None and hasattr(self._backend, "clear_cache"):
+                self._backend.clear_cache()
+            if self._initialized_backend is not None and hasattr(self._initialized_backend, "clear_cache"):
+                self._initialized_backend.clear_cache()
 
     def _compute_asset_version(self) -> str:
         import hashlib
@@ -774,7 +788,6 @@ class CTranslate2TranslationEngine:
             if unique_input_truncations:
                 input_truncation_flags = [unique_input_truncations[i] for i in sentence_map]
 
-
         results: list[TranslationResult] = []
         for idx, sent_count, spans, start_idx, separators, name_placeholders in text_slices:
             orig_text = texts[idx]
@@ -793,7 +806,9 @@ class CTranslate2TranslationEngine:
 
             sents = all_translated_sentences[start_idx : start_idx + sent_count]
             item_truncations = truncation_flags[start_idx : start_idx + sent_count] if truncation_flags else []
-            item_input_truncations = input_truncation_flags[start_idx : start_idx + sent_count] if input_truncation_flags else []
+            item_input_truncations = (
+                input_truncation_flags[start_idx : start_idx + sent_count] if input_truncation_flags else []
+            )
             truncation_suspected = any(item_truncations)
             input_truncation_suspected = any(item_input_truncations)
             translated_body = "".join(ts + sep for ts, sep in zip(sents, separators))
