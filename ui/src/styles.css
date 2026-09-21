@@ -1739,6 +1739,86 @@ a { color: inherit; text-decoration: none; }
   cursor: not-allowed;
 }
 
+/* OCR Grouped Rows (Reorganized by Mode: Instant vs Accurate) */
+.ocr-group-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.ocr-group-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  min-width: 48px;
+}
+
+.ocr-group-toggles {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Cloud Engines Segmented Pill underneath Cloud OCR button */
+.cloud-pill-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+  padding-left: 60px;
+  flex-wrap: wrap;
+}
+
+.cloud-provider-pills {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  padding: 2px 3px;
+  border-radius: 8px;
+  gap: 2px;
+  border: 1px solid #e2e8f0;
+}
+
+.cloud-pill-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cloud-pill-btn:hover:not(:disabled) {
+  color: #0f172a;
+}
+
+.cloud-pill-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.cloud-pill-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ocr-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 6px 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
 /* ==========================================================================
    CHOOSE TASK: MODERN 2x2 WORKFLOW GRID & ELEVATED BOX CARDS
    ========================================================================== */

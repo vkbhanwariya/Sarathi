@@ -88,7 +88,7 @@ export function Home({
     state.requirement.endsWith("_ocr") && state.requirement !== "ocr" ? "cloud" : "local"
   );
   const [ocrModelLang, setOcrModelLang] = useState<"devanagari" | "en_v6">("devanagari");
-  const [ocrProfile, setOcrProfile] = useState<"accurate" | "instant">("accurate");
+  const [ocrProfile, setOcrProfile] = useState<"accurate" | "instant">("instant");
   const [ocrFallbackToLocal, setOcrFallbackToLocal] = useState<boolean>(true);
 
   const [cloudOcrProvider, setCloudOcrProvider] = useState<string>(
