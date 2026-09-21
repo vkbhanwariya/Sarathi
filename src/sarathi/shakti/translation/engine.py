@@ -16,6 +16,7 @@ from typing import Any, Protocol
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceType, ExecutionBinding
 from sarathi.shakti.translation.glossary import GlossaryStore
+from sarathi.shakti.translation.harmonizer import GlossaryHarmonizer
 from sarathi.shakti.translation.models import (
     Language,
     TranslationDirection,
@@ -381,10 +382,11 @@ class CTranslate2NativeBackend:
                     else default_concurrency
                 )
                 if device == "cpu":
-                    # Thread budget invariant: scale worker processes and intra-threads to saturate CPU
-                    # without thrashing: inter_threads * intra_threads <= host logical capacity
-                    inter_threads = max(1, min(4, approved))
-                    intra_threads = max(2, min(6, (cpu_count + 1) // inter_threads))
+                    # On hybrid P+E architecture (e.g. Core Ultra 5 125H with 4 P-cores + 8 E-cores),
+                    # pin intra-op parallelism to physical P-cores (4) with AVX2/AVX-VNNI acceleration
+                    # to prevent barrier synchronization jitter across heterogeneous cores.
+                    inter_threads = max(1, min(2, approved))
+                    intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // inter_threads))
                 else:
                     inter_threads = approved
                     intra_threads = 0
@@ -524,6 +526,7 @@ class CTranslate2TranslationEngine:
         glossary: GlossaryStore | None = None,
         protector: TranslationProtector | None = None,
         proper_noun_guard: ProperNounGuard | None = None,
+        harmonizer: GlossaryHarmonizer | None = None,
     ) -> None:
         self._data_root = (data_root or _CANONICAL_TRANSLATION_DATA_DIR).resolve()
         self._backend = backend
@@ -534,6 +537,7 @@ class CTranslate2TranslationEngine:
                 _compile_anubhava_pattern(src)
         self._protector = protector or TranslationProtector()
         self._proper_noun_guard = proper_noun_guard or ProperNounGuard()
+        self._harmonizer = harmonizer or GlossaryHarmonizer()
         self._initialized_backend: TranslatorBackend | None = None
         self._backend_lock: threading.Lock = threading.Lock()
         self._asset_version: str = self._compute_asset_version()
@@ -815,6 +819,8 @@ class CTranslate2TranslationEngine:
             final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
             if name_placeholders and self._proper_noun_guard is not None:
                 final_text = self._proper_noun_guard.restore(final_text, name_placeholders)
+            if self._harmonizer is not None:
+                final_text = self._harmonizer.harmonize(final_text, direction)
 
             metadata: dict[str, Any] = {
                 "sentences_count": sent_count,

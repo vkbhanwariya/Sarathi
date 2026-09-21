@@ -25,6 +25,8 @@ export interface TaskSelectorProps {
   ocrModelLang: "devanagari" | "en_v6";
   ocrFallbackToLocal: boolean;
   removeStamps?: boolean;
+  preserveProperNouns?: boolean;
+  transFallbackToLocal?: boolean;
   onSelectPrimaryTask: (task: PrimaryTaskId | null) => void;
   onSelectSubtask: (primary: PrimaryTaskId, subtask: string) => void;
   onSetCloudOcrProvider: (provider: string) => void;
@@ -36,6 +38,8 @@ export interface TaskSelectorProps {
   onSetSourceFont: (font: string) => void;
   onSetSkipHeaderFooter: (enabled: boolean) => void;
   onSetRemoveStamps?: (enabled: boolean) => void;
+  onSetPreserveProperNouns?: (enabled: boolean) => void;
+  onSetTransFallbackToLocal?: (fallback: boolean) => void;
   onSetOcrCustomParam: (key: string, value: unknown) => void;
   onSetOcrEngineType: (engineType: "local" | "cloud") => void;
   onSetOcrModelLang: (lang: "devanagari" | "en_v6") => void;
@@ -59,6 +63,8 @@ export function TaskSelector({
   ocrEngineType,
   ocrModelLang,
   ocrFallbackToLocal,
+  preserveProperNouns = true,
+  transFallbackToLocal = true,
   onSelectPrimaryTask,
   onSelectSubtask,
   onSetCloudOcrProvider,
@@ -70,6 +76,8 @@ export function TaskSelector({
   onSetSourceFont,
   onSetSkipHeaderFooter,
   onSetRemoveStamps,
+  onSetPreserveProperNouns,
+  onSetTransFallbackToLocal,
   onSetOcrCustomParam,
   onSetOcrEngineType,
   onSetOcrModelLang,
@@ -584,6 +592,14 @@ export function TaskSelector({
                     {/* Task 3: Document Translation (Word, PDF & Excel) */}
                     {task.id === "translation" && (
                       <div class="subtasks-container">
+                        {/* Translation Legal Integrity Bar */}
+                        <div class="translation-integrity-features-bar">
+                          <span class="integrity-chip">✓ Statutory Legal Glossaries</span>
+                          <span class="integrity-chip">✓ Proper Noun Preservation</span>
+                          <span class="integrity-chip">✓ Case Law &amp; Citation Protector</span>
+                          <span class="integrity-chip">⚡ AVX-VNNI Neural Speed</span>
+                        </div>
+
                         {/* Direction selector */}
                         <div class="translation-direction-toolbar" role="group" aria-label="Translation Direction">
                           <button
@@ -615,6 +631,57 @@ export function TaskSelector({
                           </button>
                         </div>
 
+                        {/* Legal Invariants Toggles in Front */}
+                        <div class="translation-add-ons-section">
+                          <span class="ocr-section-subtitle">Legal Fidelity &amp; Terminology Protection</span>
+                          <div class="ocr-toggles-grid">
+                            <label class="toggle-row mini" title="Normalize and align legal terms using on-device statutory glossaries">
+                              <input
+                                id="param-trans-statutory"
+                                type="checkbox"
+                                checked={statutoryEnabled}
+                                onChange={(e) => {
+                                  onSetStatutoryEnabled(e.currentTarget.checked);
+                                }}
+                              />
+                              <span>
+                                <strong>Statutory Terminology Harmonization</strong>
+                              </span>
+                            </label>
+                            <label class="toggle-row mini" title="Preserve Indian proper names and kinship designations from semantic hallucination">
+                              <input
+                                id="param-trans-proper-nouns"
+                                type="checkbox"
+                                checked={preserveProperNouns}
+                                onChange={(e) => {
+                                  if (onSetPreserveProperNouns) onSetPreserveProperNouns(e.currentTarget.checked);
+                                }}
+                              />
+                              <span>
+                                <strong>Proper Noun &amp; Name Preservation</strong>
+                              </span>
+                            </label>
+                            {(() => {
+                              const selEng = TRANSLATION_ENGINES.find((e) => e.id === currentSubtask);
+                              return Boolean(selEng?.isCloud) ? (
+                                <label class="toggle-row mini" title="Automatically fall back to local IndicTrans2 if cloud API rate limits or network issues occur">
+                                  <input
+                                    id="param-trans-fallback-local"
+                                    type="checkbox"
+                                    checked={transFallbackToLocal}
+                                    onChange={(e) => {
+                                      if (onSetTransFallbackToLocal) onSetTransFallbackToLocal(e.currentTarget.checked);
+                                    }}
+                                  />
+                                  <span>
+                                    <strong>Fallback to Local IndicTrans2</strong>
+                                  </span>
+                                </label>
+                              ) : null;
+                            })()}
+                          </div>
+                        </div>
+
                         {/* Engine Choices */}
                         <div class="subtasks-grid">
                           {TRANSLATION_ENGINES.map((eng) => {
@@ -633,6 +700,7 @@ export function TaskSelector({
                               >
                                 <button class="action-card-header" type="button" aria-pressed={isSel}>
                                   <span class="action-card-name">{eng.label}</span>
+                                  <span class={`action-tag ${isSel ? "active" : ""}`}>{eng.tag || (eng.isCloud ? "CLOUD AI" : "LOCAL NEURAL")}</span>
                                 </button>
                                 <p class="action-card-desc">{isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}</p>
                               </div>

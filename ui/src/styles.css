@@ -2117,6 +2117,32 @@ a { color: inherit; text-decoration: none; }
   border-radius: 6px;
 }
 
+/* Translation Integrity Badges */
+.translation-integrity-features-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 8px;
+  background: rgba(238, 242, 255, 0.7);
+  border: 1px solid #e0e7ff;
+  border-radius: 6px;
+}
+
+.translation-integrity-features-bar .integrity-chip {
+  color: #4338ca;
+}
+
+.translation-add-ons-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
 .integrity-chip {
   font-size: 10px;
   font-weight: 600;

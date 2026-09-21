@@ -101,6 +101,8 @@ export function Home({
   const [sourceFont, setSourceFont] = useState<string>("");
   const [skipHeaderFooter, setSkipHeaderFooter] = useState<boolean>(true);
   const [removeStamps, setRemoveStamps] = useState<boolean>(false);
+  const [transPreserveProperNouns, setTransPreserveProperNouns] = useState<boolean>(true);
+  const [transFallbackToLocal, setTransFallbackToLocal] = useState<boolean>(true);
 
   const ocrAction = state.available_actions.find((a) => a.action_id === "ocr");
   const [ocrCustomParams, setOcrCustomParams] = useState<Record<string, unknown>>(() => {
@@ -291,6 +293,11 @@ export function Home({
       } else if (currentSubtask === "indictrans2") {
         customOptions.engine = "indictrans2";
       }
+      customOptions.statutory = statutoryEnabled;
+      customOptions.preserve_proper_nouns = transPreserveProperNouns;
+      if (currentSubtask === "gemini" || currentSubtask === "mistral" || currentSubtask === "azure") {
+        customOptions.fallback_to_local = transFallbackToLocal;
+      }
     }
 
     if (Object.keys(passwords).length > 0) {
@@ -398,6 +405,9 @@ export function Home({
       (window as any).__sarathi_get_subtask = (t: PrimaryTaskId) => subtaskByPrimary[t];
       (window as any).__sarathi_set_cloud_ocr_provider = (p: string) => setCloudOcrProvider(p);
       (window as any).__sarathi_set_translation_direction = (d: string) => setTransDirection(d);
+      (window as any).__sarathi_set_trans_statutory = (e: boolean) => setStatutoryEnabled(e);
+      (window as any).__sarathi_set_trans_proper_nouns = (e: boolean) => setTransPreserveProperNouns(e);
+      (window as any).__sarathi_set_trans_fallback = (e: boolean) => setTransFallbackToLocal(e);
       (window as any).__sarathi_set_skip_header_footer = (v: boolean) => setSkipHeaderFooter(v);
       (window as any).__sarathi_set_ocr_param = (key: string, val: unknown) => {
         setOcrCustomParams((prev) => ({ ...prev, [key]: val }));
@@ -606,6 +616,8 @@ export function Home({
               ocrModelLang={ocrModelLang}
               ocrFallbackToLocal={ocrFallbackToLocal}
               removeStamps={removeStamps}
+              preserveProperNouns={transPreserveProperNouns}
+              transFallbackToLocal={transFallbackToLocal}
               onSelectPrimaryTask={(task) => setPrimaryTask(task)}
               onSelectSubtask={(primary, subtask) =>
                 setSubtaskByPrimary((prev) => ({ ...prev, [primary]: subtask }))
@@ -619,6 +631,8 @@ export function Home({
               onSetSourceFont={(font) => setSourceFont(font)}
               onSetSkipHeaderFooter={(enabled) => setSkipHeaderFooter(enabled)}
               onSetRemoveStamps={(enabled) => setRemoveStamps(enabled)}
+              onSetPreserveProperNouns={(enabled) => setTransPreserveProperNouns(enabled)}
+              onSetTransFallbackToLocal={(fallback) => setTransFallbackToLocal(fallback)}
               onSetOcrCustomParam={(key, val) =>
                 setOcrCustomParams((prev) => ({ ...prev, [key]: val }))
               }

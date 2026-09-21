@@ -408,3 +408,45 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
 
     payload_tuned = app_page.evaluate("() => window.__sarathi_build_request()")
     assert payload_tuned["custom_options"]["remove_stamps"] is True
+
+
+def test_translation_in_front_toggles_and_legal_integrity_bar(app_page: Page) -> None:
+    """Verify Translation in-front toggles, legal integrity chips, and cloud fallback configuration."""
+    _choose_task(app_page, "translation")
+
+    # 1. Verify Legal Integrity Bar
+    integrity_bar = app_page.locator(".translation-integrity-features-bar")
+    expect(integrity_bar).to_be_visible()
+    expect(integrity_bar).to_contain_text("Statutory Legal Glossaries")
+    expect(integrity_bar).to_contain_text("Proper Noun Preservation")
+    expect(integrity_bar).to_contain_text("AVX-VNNI Neural Speed")
+
+    # 2. In-front legal fidelity toggles are visible and checked by default
+    stat_chk = app_page.locator("#param-trans-statutory")
+    pn_chk = app_page.locator("#param-trans-proper-nouns")
+    expect(stat_chk).to_be_visible()
+    expect(stat_chk).to_be_checked()
+    expect(pn_chk).to_be_visible()
+    expect(pn_chk).to_be_checked()
+
+    # 3. Default payload carries statutory and proper noun flags
+    payload = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
+    assert payload is not None
+    assert payload["custom_options"]["statutory"] is True
+    assert payload["custom_options"]["preserve_proper_nouns"] is True
+
+    # 4. Select Cloud AI engine (Gemini)
+    gemini_card = app_page.locator("#subtask-engine-gemini")
+    expect(gemini_card).to_be_visible()
+    gemini_card.click()
+    expect(gemini_card).to_have_class(re.compile(r"\bselected\b"))
+
+    # Cloud fallback checkbox appears and is checked
+    fallback_chk = app_page.locator("#param-trans-fallback-local")
+    expect(fallback_chk).to_be_visible()
+    expect(fallback_chk).to_be_checked()
+
+    payload_cloud = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
+    assert payload_cloud is not None
+    assert payload_cloud["requirement"] == "gemini_translation"
+    assert payload_cloud["custom_options"]["fallback_to_local"] is True

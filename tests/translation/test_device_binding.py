@@ -123,8 +123,9 @@ class TestTranslationDeviceBinding:
             res = engine.translate("नमस्ते", direction=TranslationDirection.HI_TO_EN, execution_binding=binding_cuda)
 
             assert res.translated_text == "Hello"
-            cpu_total = os.cpu_count() or 4
-            expected_intra = max(2, min(6, (cpu_total + 1) // 1))
+            cpu_fn = getattr(os, "process_cpu_count", None)
+            cpu_total = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
+            expected_intra = 4 if cpu_total >= 12 else max(2, min(4, (cpu_total + 1) // 1))
             mock_trans_cls.assert_called_once_with(
                 str(models_dir),
                 device="cpu",
