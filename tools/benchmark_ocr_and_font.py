@@ -221,21 +221,42 @@ def run_ocr_benchmarks() -> dict[str, Any]:
     print(f"  Deskew OFF: {dur_off:.2f} ms (CER: {cer_off:.4f})")
     print(f"  Deskew ON:  {dur_on:.2f} ms (CER: {cer_on:.4f}) -> Overhead: +{overhead_ms:.2f} ms")
 
-    # E. Weak-Crop Same-Engine Retry Verification
-    print("\n--- E. Weak-Crop Same-Engine Retry Verification ---")
+    # E. Bounded Critical-Token Recovery & Consequence Repair Verification
+    print("\n--- E. Bounded Critical-Token Recovery & Consequence Repair ---")
     try:
-        import numpy as np
+        from sarathi.shakti.ocr.engine.critical import (
+            CriticalityType,
+            repair_critical_token,
+            validate_critical_token,
+        )
 
-        crop_arr = np.array(test_img.crop((60, 160, 450, 220)))
-        retry_res = engine._retry_weak_crop(crop_arr, "devanagari", min_confidence=0.0)
-        if retry_res:
-            retried_text, retried_conf = retry_res
-            print(f"  Weak Crop Retried Output: {retried_text!r} (Reported Conf: {retried_conf:.4f})")
-            results["weak_crop_retry_test"] = {"text": retried_text, "conf": retried_conf}
-        else:
-            print("  No text recovered or weak crop filtered.")
+        distorted_tokens = [
+            ("Financial Amount", "₹ 45,25O.OO", CriticalityType.CURRENCY_AMOUNT),
+            ("Indian Date", "15-O8-2024", CriticalityType.DATE),
+            ("PAN Identifier", "ABCP012O4E", CriticalityType.STATUTORY_IDENTIFIER),
+            ("IFSC Code", "SBINO001234", CriticalityType.STATUTORY_IDENTIFIER),
+        ]
+        crit_benchmark_results = []
+        for label, dist_text, ctype in distorted_tokens:
+            rep_text, was_rep = repair_critical_token(dist_text, ctype)
+            is_valid, val_label = validate_critical_token(rep_text, ctype)
+            crit_benchmark_results.append(
+                {
+                    "label": label,
+                    "raw": dist_text,
+                    "repaired": rep_text,
+                    "was_repaired": was_rep,
+                    "is_valid": is_valid,
+                    "validation": val_label,
+                }
+            )
+            print(
+                f"  [{'REPAIRED' if was_rep else 'UNCHANGED'}] {label}: {dist_text!r} -> {rep_text!r} (Valid: {is_valid})"
+            )
+
+        results["critical_token_repair_tests"] = crit_benchmark_results
     except Exception as exc:
-        print(f"  Weak crop retry check skipped: {exc}")
+        print(f"  Critical token repair check skipped: {exc}")
 
     return results
 

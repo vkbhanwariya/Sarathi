@@ -50,6 +50,7 @@ from sarathi.shakti.ocr.engine.rasterize import (
     BoundedPageRasterizer,
     extract_images_from_bytes,
     iter_images_from_bytes,
+    resolve_ocr_dpi,
 )
 
 __all__ = [
@@ -86,6 +87,7 @@ __all__ = [
     "reconstruct_layout",
     "remove_stamp_artifacts",
     "remove_stamps_using_detection",
+    "resolve_ocr_dpi",
     "resolve_target_device",
     "sort_reading_order_xycut",
 ]

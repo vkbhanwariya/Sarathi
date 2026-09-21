@@ -4,12 +4,43 @@ from __future__ import annotations
 
 import io
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any
 
+from sarathi.sankalpa import ExecutionProfile
 from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK as _PYMUPDF_LOCK
 
 DEFAULT_MAX_PIXMAP_DIMENSION: int = 4096
+
+
+def resolve_ocr_dpi(
+    profile: ExecutionProfile | str | None = None,
+    custom_options: Mapping[str, Any] | None = None,
+) -> int:
+    """Resolve optimal OCR rasterization DPI based on execution profile and options.
+
+    Triage Policy:
+      - Explicit custom_options['dpi']: strictly respected if in [72, 600].
+      - ExecutionProfile.INSTANT: 150 DPI (~44% fewer pixels, ~40% faster rasterization & inference).
+      - custom_options['high_dpi']: 250 DPI for fine-print or dense degraded scans.
+      - ExecutionProfile.ACCURATE / DEEP / default: 200 DPI (the proven baseline for RapidOCR PP-OCRv5/v6).
+    """
+    if custom_options and "dpi" in custom_options:
+        try:
+            dpi_val = int(custom_options["dpi"])
+            if 72 <= dpi_val <= 600:
+                return dpi_val
+        except (ValueError, TypeError):
+            pass
+
+    if custom_options and bool(custom_options.get("high_dpi")):
+        return 250
+
+    prof_str = profile.value if hasattr(profile, "value") else str(profile or "").lower()
+    if prof_str == "instant":
+        return 150
+
+    return 200
 
 
 def _render_clamped_pixmap(
@@ -351,4 +382,5 @@ __all__ = [
     "extract_single_page_image",
     "get_page_count_from_bytes",
     "iter_images_from_bytes",
+    "resolve_ocr_dpi",
 ]

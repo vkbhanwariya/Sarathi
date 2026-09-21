@@ -35,6 +35,7 @@ def build_rapidocr_instance(
     target_device: str,
     verified_model_paths: dict[str, str],
     default_lang: str = "devanagari",
+    rec_batch_num: int | None = None,
 ) -> tuple[Any, str, str, str]:
     """Build and initialize a verified RapidOCR engine instance.
 
@@ -63,8 +64,9 @@ def build_rapidocr_instance(
 
     patch_rapidocr_openvino_device()
 
-    # Tune recognition batch size: 16 on CPU, 48 on Intel Arc iGPU (7 Xe-cores)
-    rec_batch_num = 16 if target_device == "CPU" else 48
+    # Tune recognition batch size: 16 on CPU, 48 on Intel Arc iGPU (7 Xe-cores), or custom override
+    if rec_batch_num is None or rec_batch_num <= 0:
+        rec_batch_num = 16 if target_device == "CPU" else 48
     box_thresh = 0.55
 
     if engine_key == "v6_en":

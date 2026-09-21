@@ -44,6 +44,7 @@ from sarathi.shakti.ocr.engine.rasterize import (
     BoundedPageRasterizer,
     get_page_count_from_bytes,
     iter_images_from_bytes,
+    resolve_ocr_dpi,
 )
 from sarathi.shakti.ocr.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.text import cell_text
@@ -467,13 +468,8 @@ class OCRCapability:
         if request.custom_options and callable(request.custom_options.get("progress_callback")):
             progress_cb = request.custom_options["progress_callback"]
 
-        # Locked standard 200 DPI resolution for OCR across all profiles
-        dpi = 200
-        if request.custom_options and "dpi" in request.custom_options:
-            try:
-                dpi = int(request.custom_options["dpi"])
-            except (ValueError, TypeError):
-                dpi = 200
+        # Resolve adaptive OCR resolution (profile-aware triage: 150 DPI instant, 200 DPI accurate, 250 DPI high_dpi)
+        dpi = resolve_ocr_dpi(request.profile, request.custom_options)
 
         # Checkpoint cache configuration
         checkpoint_cache_enabled = (

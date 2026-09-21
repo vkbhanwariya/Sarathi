@@ -169,6 +169,9 @@ def repair_critical_token(text: str, crit_type: CriticalityType | None = None) -
         # 'O'/'o' between digits or right after decimal / comma / symbol
         repaired = re.sub(r"(?<=\d)[Oo](?=\d|\.|$)", "0", repaired)
         repaired = re.sub(r"(?<=[\.,₹])([Oo])(?=\d)", "0", repaired)
+        repaired = re.sub(r"(?<=\.)[Oo]{2}\b", "00", repaired)
+        repaired = re.sub(r"(?<=\.)[Oo](?=\d)", "0", repaired)
+        repaired = re.sub(r"(?<=\.\d)[Oo]\b", "0", repaired)
         # 'l' or 'I' between digits / commas: e.g. 1,l50 -> 1,150
         repaired = re.sub(r"(?<=[,\d])[lI](?=\d)", "1", repaired)
         # 'S' or 's' between digits / commas: e.g. 1,S00 -> 1,500

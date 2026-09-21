@@ -110,7 +110,7 @@ def test_adaptive_dpi_resolution_in_capability(tmp_path: Path) -> None:
             cap.execute(req_acc, ctx)
             assert mock_iter.call_args.kwargs.get("dpi") == 200
 
-    # 2. INSTANT profile -> locked 200 DPI
+    # 2. INSTANT profile -> triage 150 DPI
     req_inst = Request(
         request_id="r-inst",
         requirement="ocr",
@@ -122,7 +122,7 @@ def test_adaptive_dpi_resolution_in_capability(tmp_path: Path) -> None:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr("sarathi.shakti.ocr.capability.iter_images_from_bytes", mock_iter)
             cap.execute(req_inst, ctx)
-            assert mock_iter.call_args.kwargs.get("dpi") == 200
+            assert mock_iter.call_args.kwargs.get("dpi") == 150
 
     # 3. Custom DPI override -> 250 DPI
     req_custom = Request(
