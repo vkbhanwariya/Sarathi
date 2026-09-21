@@ -74,10 +74,8 @@ export function Home({
 
   const [subtaskByPrimary, setSubtaskByPrimary] = useState<Record<PrimaryTaskId, string>>(() => ({
     documents_extraction:
-      state.requirement === "ocr"
-        ? "instant_ocr"
-        : state.requirement.endsWith("_ocr")
-        ? "cloud_ocr"
+      state.requirement === "ocr" || state.requirement.endsWith("_ocr")
+        ? "ocr"
         : "native",
     bank_consolidation: (state as any).profile === "accurate" ? "accurate" : "instant",
     font_conversion: "legacy_to_unicode",
@@ -85,6 +83,12 @@ export function Home({
       ? state.requirement.replace("_translation", "")
       : "indictrans2",
   }));
+
+  const [ocrEngineType, setOcrEngineType] = useState<"local" | "cloud">(
+    state.requirement.endsWith("_ocr") && state.requirement !== "ocr" ? "cloud" : "local"
+  );
+  const [ocrModelLang, setOcrModelLang] = useState<"devanagari" | "en_v6">("devanagari");
+  const [ocrFallbackToLocal, setOcrFallbackToLocal] = useState<boolean>(true);
 
   const [cloudOcrProvider, setCloudOcrProvider] = useState<string>(
     state.requirement.endsWith("_ocr") ? state.requirement : "gemini_ocr"
@@ -96,11 +100,11 @@ export function Home({
   const [preserveLayout, setPreserveLayout] = useState<boolean>(false);
   const [sourceFont, setSourceFont] = useState<string>("");
   const [skipHeaderFooter, setSkipHeaderFooter] = useState<boolean>(true);
+  const [removeStamps, setRemoveStamps] = useState<boolean>(false);
 
   const ocrAction = state.available_actions.find((a) => a.action_id === "ocr");
   const [ocrCustomParams, setOcrCustomParams] = useState<Record<string, unknown>>(() => {
     const d = actionDefaults(ocrAction);
-    d.profile = "custom";
     d.engine = "rapidocr";
     return d;
   });
@@ -179,9 +183,10 @@ export function Home({
       layoutAnalysis,
       preserveLayout,
       cloudOcrProvider,
-      ocrProfile: String(ocrCustomParams.profile || "custom"),
+      ocrProfile: ocrCustomParams.profile ? String(ocrCustomParams.profile) : undefined,
+      ocrEngineType,
     });
-  }, [primaryTask, currentSubtask, layoutAnalysis, preserveLayout, cloudOcrProvider, ocrCustomParams.profile]);
+  }, [primaryTask, currentSubtask, layoutAnalysis, preserveLayout, cloudOcrProvider, ocrCustomParams.profile, ocrEngineType]);
 
   const activeAction = currentBackendMapping
     ? state.available_actions.find((action) => action.action_id === currentBackendMapping.requirement)
@@ -205,20 +210,56 @@ export function Home({
         }
         const skipHdrEl = typeof document !== "undefined" ? (document.getElementById("param-skip-header-footer") as HTMLInputElement | null) : null;
         customOptions.skip_header_footer = skipHdrEl ? skipHdrEl.checked : skipHeaderFooter;
-      } else if (currentSubtask === "accurate_ocr") {
+      } else if (
+        currentSubtask === "ocr" ||
+        currentSubtask === "accurate_ocr" ||
+        currentSubtask === "instant_ocr" ||
+        currentSubtask === "custom_ocr" ||
+        currentSubtask === "cloud_ocr"
+      ) {
         const layEl = typeof document !== "undefined" ? (document.getElementById("param-preserve-layout") as HTMLInputElement | null) : null;
         if (layEl ? layEl.checked : preserveLayout) {
           customOptions.preserve_layout = true;
         }
         const ocrSkipHdrEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-skip-header-footer") as HTMLInputElement | null) : null;
         customOptions.skip_header_footer = ocrSkipHdrEl ? ocrSkipHdrEl.checked : skipHeaderFooter;
-      } else if (currentSubtask === "instant_ocr") {
-        customOptions.skip_header_footer = skipHeaderFooter;
-      } else if (currentSubtask === "custom_ocr") {
-        customOptions.engine = "rapidocr";
+
+        const ocrStatEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-statutory") as HTMLInputElement | null) : null;
+        if (ocrStatEl ? ocrStatEl.checked : statutoryEnabled) {
+          customOptions.statutory = true;
+        }
+        const ocrLegEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-convert-legacy-fonts") as HTMLInputElement | null) : null;
+        if (ocrLegEl ? ocrLegEl.checked : convertLegacyFonts) {
+          customOptions.convert_legacy_fonts = true;
+        }
+        const ocrStampEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-remove-stamps") as HTMLInputElement | null) : null;
+        if (ocrStampEl ? ocrStampEl.checked : removeStamps) {
+          customOptions.remove_stamps = true;
+          customOptions.stamp_mode = "remove";
+        }
+
+        if (ocrEngineType === "cloud" || currentSubtask === "cloud_ocr") {
+          customOptions.engine = cloudOcrProvider;
+          const fbEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-fallback-to-local") as HTMLInputElement | null) : null;
+          if (fbEl ? fbEl.checked : ocrFallbackToLocal) {
+            customOptions.fallback_to_local = true;
+          }
+        } else {
+          customOptions.engine = "rapidocr";
+          customOptions.lang = ocrModelLang;
+        }
+
         const ocrAct = state.available_actions.find((a) => a.action_id === "ocr");
         for (const parameter of ocrAct?.parameters ?? []) {
-          if (parameter.parameter_id === "profile") continue;
+          if (
+            parameter.parameter_id === "profile" ||
+            parameter.parameter_id === "binarize" ||
+            parameter.parameter_id === "lang" ||
+            parameter.parameter_id === "preprocess" ||
+            parameter.parameter_id === "remove_stamps"
+          ) {
+            continue;
+          }
           const el = typeof document !== "undefined" ? (document.getElementById(`param-${parameter.parameter_id}`) as HTMLInputElement | null) : null;
           const domVal = parameter.kind === "toggle" ? el?.checked : el?.value;
           const val = domVal !== undefined ? domVal : (ocrCustomParams[parameter.parameter_id] ?? parameter.default_value);
@@ -561,6 +602,10 @@ export function Home({
               sourceFont={sourceFont}
               skipHeaderFooter={skipHeaderFooter}
               ocrCustomParams={ocrCustomParams}
+              ocrEngineType={ocrEngineType}
+              ocrModelLang={ocrModelLang}
+              ocrFallbackToLocal={ocrFallbackToLocal}
+              removeStamps={removeStamps}
               onSelectPrimaryTask={(task) => setPrimaryTask(task)}
               onSelectSubtask={(primary, subtask) =>
                 setSubtaskByPrimary((prev) => ({ ...prev, [primary]: subtask }))
@@ -573,9 +618,13 @@ export function Home({
               onSetPreserveLayout={(enabled) => setPreserveLayout(enabled)}
               onSetSourceFont={(font) => setSourceFont(font)}
               onSetSkipHeaderFooter={(enabled) => setSkipHeaderFooter(enabled)}
+              onSetRemoveStamps={(enabled) => setRemoveStamps(enabled)}
               onSetOcrCustomParam={(key, val) =>
                 setOcrCustomParams((prev) => ({ ...prev, [key]: val }))
               }
+              onSetOcrEngineType={(engType) => setOcrEngineType(engType)}
+              onSetOcrModelLang={(lang) => setOcrModelLang(lang)}
+              onSetOcrFallbackToLocal={(fb) => setOcrFallbackToLocal(fb)}
             />
 
             {/* Integrated Cockpit Action & Hardware Telemetry Footer */}

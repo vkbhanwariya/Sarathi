@@ -208,7 +208,7 @@ def test_bug_O10_deskew_angle_estimation() -> None:
 
 
 def test_bug_O11_binarize_and_isolated_state() -> None:
-    """O11: Verify Otsu binarization preserves gradient/shadowed text and engines have isolated state."""
+    """O11: Verify engines have isolated state and image preprocessing preserves continuous anti-aliased grayscale."""
     # 1. Verify RapidOCREngine class has no shared locks or pools
     assert not hasattr(RapidOCREngine, "_infer_lock"), "Class-level _infer_lock must be removed"
     assert not hasattr(RapidOCREngine, "_gpu_pools"), "Class-level _gpu_pools must be removed"
@@ -220,25 +220,20 @@ def test_bug_O11_binarize_and_isolated_state() -> None:
     assert e1._infer_lock is not e2._infer_lock
     assert e1._gpu_pools is not e2._gpu_pools
 
-    # 2. Verify binarize on gradient/shadowed illumination uses Otsu (not constant 128)
-    # Shadowed document: paper background is 80 (well below 128), text is 10
+    # 2. Verify continuous anti-aliased grayscale is preserved for DBNet without binarization artifacts
     img = np.full((100, 100, 3), 80, dtype=np.uint8)
     img[40:60, 40:60] = 10  # text patch
 
     mock_runner = mock.MagicMock(return_value=None)
     e1._get_engine = mock.MagicMock(return_value=mock_runner)
 
-    e1.ocr_page(img, 1, "in-1", profile=ExecutionProfile.CUSTOM, custom_options={"binarize": True})
+    e1.ocr_page(img, 1, "in-1", profile=ExecutionProfile.CUSTOM, custom_options={"clahe": True})
     assert mock_runner.called
-    binarized_arr = mock_runner.call_args[0][0]
+    processed_arr = mock_runner.call_args[0][0]
 
-    # With constant 128 threshold, all pixels <= 128 would become 0 (mean == 0.0)
-    # With Otsu threshold, background (80) becomes 255 and text (10) becomes 0, so mean > 150
-    assert float(np.mean(binarized_arr)) > 150.0
-    # Background must be white (255)
-    assert np.all(binarized_arr[0, 0] == [255, 255, 255])
-    # Text patch must be black (0)
-    assert np.all(binarized_arr[50, 50] == [0, 0, 0])
+    # Continuous grayscale: not collapsed into binary 0 and 255
+    unique_vals = np.unique(processed_arr)
+    assert len(unique_vals) > 2
 
 
 def test_choose_page_rotation() -> None:

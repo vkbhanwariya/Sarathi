@@ -7,9 +7,7 @@ weak-crop retry, and canonical PageData and TableData synthesis.
 from __future__ import annotations
 
 import queue
-import re
 import threading
-import unicodedata
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -37,7 +35,6 @@ from sarathi.shakti.ocr.engine.common import (
     V6_LANGS,
 )
 from sarathi.shakti.ocr.engine.critical import (
-    DEFAULT_CRITICAL_RETRY_THRESHOLD,
     DEFAULT_CRITICAL_REVIEW_THRESHOLD,
     classify_span,
 )
@@ -47,20 +44,18 @@ from sarathi.shakti.ocr.engine.openvino import resolve_target_device
 from sarathi.shakti.ocr.engine.parser import _parse_rapidocr_output
 from sarathi.shakti.ocr.engine.preprocessing import (
     RotationCandidate,
-    apply_clahe,
     choose_page_rotation,
     is_low_contrast_image,
 )
 from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
-from sarathi.shakti.text.typography import normalize_devanagari_numerals
 
 
 def _preprocess_page_image(
     img_arr: np.ndarray,
     profile: ExecutionProfile,
     custom_options: Mapping[str, Any] | None,
-) -> tuple[np.ndarray, tuple[Any, ...], bool, float, Any, bool, str]:
-    """Execute adaptive deskew, CLAHE, stamp detection/removal, and binarization."""
+) -> tuple[np.ndarray, tuple[Any, ...], bool, float, Any, str]:
+    """Execute adaptive deskew, CLAHE, and stamp detection/removal."""
     is_lightweight = bool(custom_options.get("lightweight", False)) if custom_options else False
     preprocess_requested = custom_options.get("preprocess") if custom_options else None
     should_preprocess = (preprocess_requested is not False) and not is_lightweight
@@ -112,29 +107,12 @@ def _preprocess_page_image(
         stamp_removed_ratio = 0.0
         stamp_filled_arr = None
 
-    is_binarized = False
-    if profile == ExecutionProfile.CUSTOM and custom_options and custom_options.get("binarize"):
-        is_binarized = True
-        try:
-            import cv2
-
-            gray = cv2.cvtColor(img_arr, cv2.COLOR_RGB2GRAY) if len(img_arr.shape) == 3 else img_arr
-            thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-            img_arr = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
-        except ImportError:
-            from PIL import Image
-
-            gray_pil = Image.fromarray(img_arr).convert("L")
-            threshold_img = gray_pil.point(lambda p: 255 if p > 128 else 0)
-            img_arr = np.array(threshold_img.convert("RGB"))
-
     return (
         img_arr,
         stamps_detected_regions,
         stamp_removal_applied,
         stamp_removed_ratio,
         stamp_filled_arr,
-        is_binarized,
         stamp_mode,
     )
 
@@ -421,7 +399,6 @@ class RapidOCREngine:
             stamp_removal_applied,
             stamp_removed_ratio,
             stamp_filled_arr,
-            is_binarized,
             stamp_mode,
         ) = _preprocess_page_image(img_arr, profile, custom_options)
 
@@ -520,163 +497,6 @@ class RapidOCREngine:
                     )
                 )
 
-            # Same-engine weak-crop retry for ACCURATE, LAYOUT_PRESERVING, or CUSTOM
-            is_high_accuracy = profile in (ExecutionProfile.ACCURATE, ExecutionProfile.LAYOUT_PRESERVING) or bool(
-                custom_options and (custom_options.get("preserve_layout") or custom_options.get("retry_enabled"))
-            )
-            retry_enabled = (
-                (custom_options.get("retry_enabled", True) if custom_options else True)
-                if is_high_accuracy
-                else bool(custom_options and custom_options.get("retry_enabled", False))
-            )
-            # Support legacy fallback_enabled custom option
-            if custom_options and "fallback_enabled" in custom_options:
-                retry_enabled = bool(custom_options["fallback_enabled"])
-
-            retry_threshold = (
-                float(custom_options.get("retry_threshold", custom_options.get("fallback_threshold", 0.65)))
-                if (custom_options and ("retry_threshold" in custom_options or "fallback_threshold" in custom_options))
-                else 0.65
-            )
-            critical_retry_threshold = (
-                float(custom_options.get("critical_retry_threshold", DEFAULT_CRITICAL_RETRY_THRESHOLD))
-                if (custom_options and "critical_retry_threshold" in custom_options)
-                else DEFAULT_CRITICAL_RETRY_THRESHOLD
-            )
-
-            retry_applied = False
-            retry_count = 0
-            retry_improved_count = 0
-            retry_total_gain = 0.0
-
-            if retry_enabled and spans and profile != ExecutionProfile.INSTANT:
-                h_img, w_img = img_arr.shape[:2]
-                deva_to_ascii = str.maketrans("०१२३४५६७८९", "0123456789")
-
-                candidates: list[tuple[int, TextSpan, Any]] = []
-                for idx, span in enumerate(spans):
-                    if span.confidence is not None and span.bounding_box:
-                        is_crit, _ = classify_span(span.text)
-                        effective_retry_thresh = critical_retry_threshold if is_crit else retry_threshold
-                        if span.confidence < effective_retry_thresh:
-                            min_x, min_y, max_x, max_y = span.bounding_box
-                            # Zero-copy crop slicing with 3px boundary padding
-                            cy0 = max(0, int(min_y) - 3)
-                            cy1 = min(h_img, int(max_y) + 3)
-                            cx0 = max(0, int(min_x) - 3)
-                            cx1 = min(w_img, int(max_x) + 3)
-
-                            if cy1 <= cy0 or cx1 <= cx0:
-                                continue
-
-                            retry_count += 1
-                            if stamp_mode == "auto" and stamp_filled_arr is not None:
-                                overlap_stamp = any(
-                                    not (cx1 < r.bbox[0] or cx0 > r.bbox[2] or cy1 < r.bbox[1] or cy0 > r.bbox[3])
-                                    for r in stamps_detected_regions
-                                )
-                                source_crop_img = stamp_filled_arr if overlap_stamp else img_arr
-                            else:
-                                source_crop_img = img_arr
-                            crop = source_crop_img[cy0:cy1, cx0:cx1]
-
-                            # Adaptive enhancement on crop: contrast boost / CLAHE if low contrast
-                            if is_low_contrast_image(crop, std_threshold=45.0):
-                                crop = apply_clahe(crop, clip_limit=2.5)
-
-                            candidates.append((idx, span, crop))
-
-                if candidates:
-                    recognized_results: list[tuple[str, float] | None] = []
-                    crops_batch = [c for _, _, c in candidates]
-
-                    # Native RapidOCR batch recognition fast path
-                    if hasattr(active_engine, "recognize_txt"):
-                        try:
-                            batch_out = active_engine.recognize_txt(crops_batch)
-                            if (
-                                batch_out
-                                and getattr(batch_out, "txts", None) is not None
-                                and getattr(batch_out, "scores", None) is not None
-                                and len(batch_out.txts) == len(candidates)
-                                and len(batch_out.scores) == len(candidates)
-                            ):
-                                b_txts = list(batch_out.txts)
-                                b_scores = list(batch_out.scores)
-                                for i in range(len(candidates)):
-                                    t = (
-                                        unicodedata.normalize("NFC", str(b_txts[i]).strip())
-                                        if b_txts[i] is not None
-                                        else ""
-                                    )
-                                    s = float(b_scores[i]) if b_scores[i] is not None else 0.0
-                                    recognized_results.append((t, s))
-                        except Exception:
-                            recognized_results.clear()
-
-                    # Fallback path: per-crop recognition for test mocks or batch failures
-                    if not recognized_results:
-                        for _, _, crop in candidates:
-                            try:
-                                retry_out = active_engine(crop, use_det=False, use_cls=False)
-                                if (
-                                    retry_out
-                                    and getattr(retry_out, "txts", None)
-                                    and getattr(retry_out, "scores", None)
-                                ):
-                                    r_txts = list(retry_out.txts)
-                                    r_scores = list(retry_out.scores)
-                                    if r_txts and r_scores and r_scores[0] is not None:
-                                        r_text = unicodedata.normalize("NFC", str(r_txts[0]).strip())
-                                        r_conf = float(r_scores[0])
-                                        recognized_results.append((r_text, r_conf))
-                                    else:
-                                        recognized_results.append(None)
-                                else:
-                                    recognized_results.append(None)
-                            except Exception:
-                                recognized_results.append(None)
-
-                    # Process results against candidate spans
-                    for (idx, span, _), res in zip(candidates, recognized_results):
-                        if not res:
-                            continue
-                        r_text, r_conf = res
-                        if not r_text:
-                            continue
-                        if normalize_digits:
-                            r_text = normalize_devanagari_numerals(r_text)
-
-                        # Numeric & token preservation check: digits must not be corrupted
-                        orig_digits = re.findall(r"\d+", span.text.translate(deva_to_ascii))
-                        if orig_digits:
-                            r_digits = re.findall(r"\d+", r_text.translate(deva_to_ascii))
-                            if orig_digits != r_digits:
-                                continue
-
-                        if r_conf > span.confidence:
-                            gain = round(r_conf - span.confidence, 4)
-                            spans[idx] = TextSpan(
-                                text=r_text,
-                                confidence=r_conf,
-                                bounding_box=span.bounding_box,
-                                language=span.language,
-                                script=span.script,
-                                metadata={
-                                    "retry_applied": True,
-                                    "fallback_applied": True,
-                                    "fallback_engine": "same_engine_retry",
-                                    "original_confidence": span.confidence,
-                                    "replacement_confidence": r_conf,
-                                    "confidence_gain": gain,
-                                    "raw_confidence_score_delta": gain,
-                                },
-                            )
-                            if idx < len(lines):
-                                lines[idx] = r_text
-                            retry_applied = True
-                            retry_improved_count += 1
-                            retry_total_gain += gain
 
         # Continuous reading-order paragraph reconstruction for scanned pages
         # Note: Table extraction and layout preservation are reserved exclusively for native digital documents.
@@ -772,8 +592,6 @@ class RapidOCREngine:
             validation_outcome = "invalid_confidence"
         elif has_invalid_geometry:
             validation_outcome = "invalid_geometry"
-        elif retry_applied:
-            validation_outcome = "retry_improved"
         else:
             validation_outcome = "usable"
 
@@ -787,14 +605,14 @@ class RapidOCREngine:
             "validation_outcome": validation_outcome,
             "model": model_label,
             "scope": scope,
-            "retry_applied": retry_applied,
-            "retry_count": retry_count,
-            "retry_improved_count": retry_improved_count,
-            "retry_total_gain": round(retry_total_gain, 4),
-            "fallback_applied": retry_applied,
-            "fallback_engine": "same_engine_retry" if retry_applied else "none",
-            "fallback_improved_count": retry_improved_count,
-            "fallback_total_gain": round(retry_total_gain, 4),
+            "retry_applied": False,
+            "retry_count": 0,
+            "retry_improved_count": 0,
+            "retry_total_gain": 0.0,
+            "fallback_applied": False,
+            "fallback_engine": "none",
+            "fallback_improved_count": 0,
+            "fallback_total_gain": 0.0,
             "column_count": 1,
         }
         if page_confidence is not None:
@@ -818,16 +636,6 @@ class RapidOCREngine:
             "rotation_applied": rotation_applied,
             "validation_outcome": validation_outcome,
         }
-        if is_binarized:
-            evidence_dict["binarized"] = True
-        if retry_applied:
-            evidence_dict["retry_applied"] = True
-            evidence_dict["retry_count"] = retry_count
-            evidence_dict["retry_improved_count"] = retry_improved_count
-            evidence_dict["retry_total_gain"] = round(retry_total_gain, 4)
-            evidence_dict["fallback_applied"] = True
-            evidence_dict["fallback_improved_count"] = retry_improved_count
-            evidence_dict["fallback_total_gain"] = round(retry_total_gain, 4)
 
         provenance = ProvenanceRecord(
             source_input_id=input_id,

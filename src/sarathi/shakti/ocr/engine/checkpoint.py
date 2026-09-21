@@ -61,16 +61,12 @@ def compute_params_hash(
 
     # Extract all options that can alter page OCR text, layout, or confidence
     relevant_keys = (
-        "binarize",
         "deskew",
         "clahe",
         "english_numbers_only",
         "preserve_layout",
         "use_angle_cls",
         "use_cls",
-        "retry_enabled",
-        "retry_threshold",
-        "critical_retry_threshold",
         "review_threshold",
         "critical_review_threshold",
         "remove_stamps",
@@ -81,7 +77,6 @@ def compute_params_hash(
         "unpaper",
         "denoise",
         "shadow_removal",
-        "adaptive_binarize",
     )
     extracted_opts = _clean_dict({k: opts[k] for k in relevant_keys if k in opts})
     eff_asset_version = asset_version or opts.get("asset_version", "")

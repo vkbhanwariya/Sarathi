@@ -125,6 +125,7 @@ export function resolveBackendMapping(
     preserveLayout?: boolean;
     cloudOcrProvider?: string;
     ocrProfile?: string;
+    ocrEngineType?: "local" | "cloud";
   }
 ): BackendMapping | null {
   if (!primaryTask || !currentSubtask) return null;
@@ -133,6 +134,18 @@ export function resolveBackendMapping(
       return {
         requirement: "read_native",
         profile: options.layoutAnalysis ? "layout_preserving" : "instant",
+      };
+    }
+    if (currentSubtask === "ocr") {
+      if (options.ocrEngineType === "cloud") {
+        return {
+          requirement: options.cloudOcrProvider || "gemini_ocr",
+          profile: "instant",
+        };
+      }
+      return {
+        requirement: "ocr",
+        profile: options.preserveLayout ? "layout_preserving" : "accurate",
       };
     }
     if (currentSubtask === "instant_ocr") {

@@ -1,18 +1,20 @@
-"""Unit and integration tests for same-engine weak-crop retry and runtime cleanliness.
+"""Unit and integration tests for OCR execution cleanliness and deterministic single-pass behavior.
 
 Verifies:
-1. Same-engine weak-crop retry behavior on low-confidence text spans.
-2. Instant profile skips retry while Accurate/Layout Preserving profile retries weak crops.
-3. Numeric and token preservation guard protects against digit corruption.
-4. Complete absence of NE-OCR and ONNX Runtime in the production OCR subsystem.
+1. Complete absence of NE-OCR and ONNX Runtime in the production OCR subsystem.
+2. Both Accurate and Instant profiles execute deterministic single-pass inference without secondary weak-crop loops.
+3. RapidOCR engine concurrency guards protect infer requests under multi-threading.
 """
 
 from __future__ import annotations
 
 import importlib
 import json
+import threading
+import time
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 from PIL import Image
@@ -46,177 +48,41 @@ def test_absence_of_ne_ocr_and_onnxruntime_production_paths() -> None:
     assert not hasattr(ocr_engine_pkg, "NEOCRFallbackAdapter")
 
 
-def test_accurate_mode_executes_same_engine_weak_crop_retry() -> None:
-    """Accurate OCR must retry weak spans using the same recognizer and record retry metadata."""
-    engine = RapidOCREngine(default_lang="hi")
+def test_deterministic_single_pass_never_invokes_weak_crop_retry() -> None:
+    """Both Accurate and Instant modes are deterministic single-pass and never invoke crop retries."""
+    for profile in (ExecutionProfile.ACCURATE, ExecutionProfile.INSTANT):
+        engine = RapidOCREngine(default_lang="hi")
+        retry_invoked = False
 
-    invoked_crops: list[Any] = []
-
-    def mock_call(img_arr: Any, **kwargs: Any) -> DummyOutput:
-        if kwargs.get("use_det") is False:
-            # Crop retry invocation on the SAME recognizer
-            invoked_crops.append(img_arr)
+        def mock_call(img_arr: Any, **kwargs: Any) -> DummyOutput:
+            nonlocal retry_invoked
+            if kwargs.get("use_det") is False:
+                retry_invoked = True
+                return DummyOutput(txts=["सुधरा"], boxes=[], scores=[0.95])
             return DummyOutput(
-                txts=["राजस्थान सरकार"],
-                boxes=[],
-                scores=[0.95],
+                txts=["राजस्धान सरकार"],
+                boxes=[[(10, 10), (100, 10), (100, 30), (10, 30)]],
+                scores=[0.52],
             )
-        # Full-page detection & recognition pass (initial low-confidence inference)
-        return DummyOutput(
-            txts=["राजस्धान सरकार"],
-            boxes=[[(10, 10), (100, 10), (100, 30), (10, 30)]],
-            scores=[0.52],  # Weak confidence (< 0.65)
+
+        engine._engine = mock_call
+
+        img = Image.new("RGB", (200, 100), color="white")
+        page_data, provenance, _, _ = engine.ocr_page(
+            image=img,
+            page_number=1,
+            input_id=f"inp-single-pass-{profile.value}",
+            profile=profile,
         )
 
-    engine._engine = mock_call
-
-    img = Image.new("RGB", (200, 100), color="white")
-    page_data, provenance, _, _ = engine.ocr_page(
-        image=img,
-        page_number=1,
-        input_id="inp-retry-test",
-        profile=ExecutionProfile.ACCURATE,
-    )
-
-    # Verify same-engine retry was invoked exactly once for the weak span
-    assert len(invoked_crops) == 1
-    assert isinstance(invoked_crops[0], np.ndarray)
-
-    # Verify updated span text and confidence
-    assert len(page_data.spans) == 1
-    span = page_data.spans[0]
-    assert span.text == "राजस्थान सरकार"
-    assert span.confidence == 0.95
-    assert span.metadata["retry_applied"] is True
-    assert span.metadata["original_confidence"] == 0.52
-    assert span.metadata["replacement_confidence"] == 0.95
-    assert span.metadata["confidence_gain"] == 0.43
-
-    # Verify truthful provenance evidence
-    assert provenance.evidence["retry_applied"] is True
-    assert provenance.evidence["retry_improved_count"] == 1
-    assert provenance.evidence["retry_count"] == 1
-    assert provenance.evidence["retry_total_gain"] == 0.43
+        assert not retry_invoked, f"{profile.value} mode must not execute secondary weak-crop retries."
+        assert page_data.spans[0].text == "राजस्धान सरकार"
+        assert page_data.spans[0].confidence == 0.52
+        assert page_data.metadata.get("retry_applied") is False
 
 
-def test_instant_mode_never_invokes_weak_crop_retry() -> None:
-    """Instant mode is latency-oriented and must never invoke crop retries even for weak spans."""
-    engine = RapidOCREngine(default_lang="hi")
-
-    retry_invoked = False
-
-    def mock_call(img_arr: Any, **kwargs: Any) -> DummyOutput:
-        nonlocal retry_invoked
-        if kwargs.get("use_det") is False:
-            retry_invoked = True
-            return DummyOutput(txts=["राजस्थान"], boxes=[], scores=[0.95])
-        return DummyOutput(
-            txts=["राजस्धान"],
-            boxes=[[(10, 10), (100, 10), (100, 30), (10, 30)]],
-            scores=[0.48],
-        )
-
-    engine._engine = mock_call
-
-    img = Image.new("RGB", (200, 100), color="white")
-    page_data, provenance, _, _ = engine.ocr_page(
-        image=img,
-        page_number=1,
-        input_id="inp-instant-test",
-        profile=ExecutionProfile.INSTANT,
-    )
-
-    assert not retry_invoked, "Instant mode must not execute weak-crop retries."
-    assert page_data.spans[0].text == "राजस्धान"
-    assert page_data.spans[0].confidence == 0.48
-    assert "retry_applied" not in provenance.evidence or not provenance.evidence.get("retry_applied")
-
-
-def test_numeric_preservation_guard_rejects_corrupted_retry() -> None:
-    """If a retry mutates or corrupts numeric tokens, the replacement must be safely rejected."""
-    engine = RapidOCREngine(default_lang="en")
-
-    def mock_call(img_arr: Any, **kwargs: Any) -> DummyOutput:
-        if kwargs.get("use_det") is False:
-            # Hallucinated replacement that alters digits (1024 -> 9999)
-            return DummyOutput(
-                txts=["INVOICE-9999"],
-                boxes=[],
-                scores=[0.99],
-            )
-        return DummyOutput(
-            txts=["INVOICE-1024"],
-            boxes=[[(10, 10), (100, 10), (100, 30), (10, 30)]],
-            scores=[0.50],
-        )
-
-    engine._engine = mock_call
-
-    img = Image.new("RGB", (200, 100), color="white")
-    page_data, provenance, _, _ = engine.ocr_page(
-        image=img,
-        page_number=1,
-        input_id="inp-numeric-guard",
-        profile=ExecutionProfile.ACCURATE,
-    )
-
-    # Replacement rejected because digits did not match; original text and confidence preserved
-    assert page_data.spans[0].text == "INVOICE-1024"
-    assert page_data.spans[0].confidence == 0.50
-    assert not page_data.spans[0].metadata.get("retry_applied", False)
-    assert not provenance.evidence.get("retry_applied", False)
-
-
-def test_weak_crop_retry_devanagari_digit_guard() -> None:
-    """Verify weak-crop retry rejects number-corrupting replacements and accepts digit-preserving ones."""
-    from types import SimpleNamespace
-
-    engine = RapidOCREngine(default_lang="hi")
-    img = Image.new("RGB", (200, 200), color="white")
-
-    def mock_corrupt(arr, **kwargs):
-        if kwargs.get("use_det") is False:
-            return SimpleNamespace(txts=["रकम 999"], scores=[0.95])
-        return SimpleNamespace(
-            txts=["रकम 100"],
-            boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
-            scores=[0.50],
-        )
-
-    engine._engine = mock_corrupt
-    p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
-    assert p_data.spans[0].text == "रकम 100"
-    assert p_data.spans[0].confidence == 0.50
-
-    def mock_preserve(arr, **kwargs):
-        if kwargs.get("use_det") is False:
-            return SimpleNamespace(txts=["रकम १००"], scores=[0.95])
-        return SimpleNamespace(
-            txts=["रकम 100"],
-            boxes=[[[10, 10], [90, 10], [90, 30], [10, 30]]],
-            scores=[0.50],
-        )
-
-    engine._engine = mock_preserve
-    p_data, _, _, _ = engine.ocr_page(img, 1, "in-1", profile=ExecutionProfile.ACCURATE)
-    assert p_data.spans[0].text == "रकम 100"
-    assert p_data.spans[0].confidence == 0.95
-    assert p_data.spans[0].metadata.get("retry_applied") is True
-
-    # Verify that disabling normalize_digits retains raw Devanagari numerals
-    p_data_raw, _, _, _ = engine.ocr_page(
-        img, 1, "in-1", profile=ExecutionProfile.ACCURATE, custom_options={"normalize_digits": False}
-    )
-    assert p_data_raw.spans[0].text == "रकम १००"
-    assert p_data_raw.spans[0].confidence == 0.95
-
-
-def test_weak_crop_retry_concurrency_guards_infer_request() -> None:
-    """Verify weak-crop retry stays protected under inference lock/pool without Infer Request is busy."""
-    import threading
-    import time
-    from unittest.mock import MagicMock
-
+def test_concurrency_guards_infer_request() -> None:
+    """Verify inference calls stay synchronized under inference lock/pool without 'Infer Request is busy'."""
     coordinator = RapidOCREngine()
 
     active_calls = 0
@@ -257,7 +123,6 @@ def test_weak_crop_retry_concurrency_guards_infer_request() -> None:
                 page_number=idx + 1,
                 input_id=f"inp-{idx}",
                 profile=ExecutionProfile.ACCURATE,
-                custom_options={"retry_enabled": True},
             )
             results[idx] = p_data
         except Exception as exc:
@@ -269,6 +134,6 @@ def test_weak_crop_retry_concurrency_guards_infer_request() -> None:
     for t in threads:
         t.join()
 
-    assert not errors, f"Concurrent OCR with retry threw errors: {errors}"
+    assert not errors, f"Concurrent OCR threw errors: {errors}"
     assert max_concurrent_seen == 1, f"Expected strictly 1 concurrent inference call, got {max_concurrent_seen}"
     assert all(r is not None for r in results)

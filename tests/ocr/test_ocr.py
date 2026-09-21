@@ -1396,7 +1396,7 @@ class TestOCRDeclarations:
 
             res = cap.execute(req, context)
             assert isinstance(res, Result)
-            assert "सुधरा" in res.data.text
+            assert "कमजोर" in res.data.text
 
 
 def test_recursive_xycut_multi_column_reading_order() -> None:
@@ -1845,7 +1845,7 @@ def test_instant_profile_bypasses_preprocessing_when_requested() -> None:
 
 
 def test_accurate_weak_crop_retry_from_preprocessed_image_space() -> None:
-    """Accurate mode weak-crop retry must crop from preprocessed image space matching RapidOCR bounding boxes."""
+    """Accurate mode runs single-pass deterministic inference without weak crop retry."""
     from PIL import Image
 
     from sarathi.shakti.ocr.engine import RapidOCREngine
@@ -1873,16 +1873,14 @@ def test_accurate_weak_crop_retry_from_preprocessed_image_space() -> None:
         custom_options={"deskew": True, "clahe": False},
     )
 
-    assert len(crops_seen) == 1
-    assert crops_seen[0].shape[1] == 106
-    assert crops_seen[0].shape[0] == 46
-    assert prov.evidence["validation_outcome"] == "retry_improved"
-    assert prov.evidence["retry_applied"] is True
+    assert len(crops_seen) == 0
+    assert page_data.text == "राज"
+    assert prov.evidence["validation_outcome"] == "usable"
+    assert page_data.metadata.get("retry_applied") is False
 
 
 def test_custom_profile_rebuilds_all_evidence_on_binarize_pass() -> None:
-    """When Custom binarize runs, text, spans, boxes, confidence, warnings, and evidence are rebuilt together."""
-    import numpy as np
+    """When Custom clahe runs, text, spans, boxes, confidence, warnings, and evidence are assembled together."""
     from PIL import Image
 
     from sarathi.shakti.ocr.engine import RapidOCREngine
@@ -1890,17 +1888,10 @@ def test_custom_profile_rebuilds_all_evidence_on_binarize_pass() -> None:
     engine = RapidOCREngine()
 
     def fake_rapidocr(arr, **_kwargs):
-        unique_vals = np.unique(arr)
-        if len(unique_vals) <= 2:
-            return DummyOutput(
-                txts=["BINARIZED_TEXT"],
-                boxes=[[(10, 10), (120, 10), (120, 30), (10, 30)]],
-                scores=[0.98],
-            )
         return DummyOutput(
-            txts=["ORIGINAL_TEXT"],
-            boxes=[[(5, 5), (100, 5), (100, 25), (5, 25)]],
-            scores=[0.70],
+            txts=["ENHANCED_TEXT"],
+            boxes=[[(10, 10), (120, 10), (120, 30), (10, 30)]],
+            scores=[0.98],
         )
 
     engine._engine = fake_rapidocr
@@ -1911,16 +1902,15 @@ def test_custom_profile_rebuilds_all_evidence_on_binarize_pass() -> None:
         page_number=1,
         input_id="inp-custom",
         profile=ExecutionProfile.CUSTOM,
-        custom_options={"binarize": True},
+        custom_options={"clahe": True},
     )
 
-    assert page_data.text == "BINARIZED_TEXT"
+    assert page_data.text == "ENHANCED_TEXT"
     assert len(page_data.spans) == 1
-    assert page_data.spans[0].text == "BINARIZED_TEXT"
+    assert page_data.spans[0].text == "ENHANCED_TEXT"
     assert page_data.spans[0].confidence == 0.98
     assert conf is not None
     assert conf.score == 0.98
-    assert prov.evidence["binarized"] is True
     assert prov.evidence["box_count"] == 1
 
 
@@ -2048,7 +2038,7 @@ def test_ocr_page_validation_enabled_option() -> None:
 
 
 def test_custom_options_extended_validation() -> None:
-    """Verify extended custom options (fallback_threshold, review_threshold, use_angle_cls, preserve_layout)."""
+    """Verify extended custom options (review_threshold, critical_review_threshold, use_angle_cls, preserve_layout)."""
     import io
 
     from sarathi.dosh import DoshError, FailureCode
@@ -2064,8 +2054,8 @@ def test_custom_options_extended_validation() -> None:
         inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
         profile=ExecutionProfile.CUSTOM,
         custom_options={
-            "fallback_threshold": 0.85,
-            "review_threshold": 0.70,
+            "review_threshold": 0.85,
+            "critical_review_threshold": 0.70,
             "use_angle_cls": True,
             "preserve_layout": True,
         },
@@ -2083,7 +2073,7 @@ def test_custom_options_extended_validation() -> None:
         "ocr",
         inputs=(InputRef("in-1", Path("test.png"), "image/png", 100),),
         profile=ExecutionProfile.CUSTOM,
-        custom_options={"fallback_threshold": 1.5},
+        custom_options={"review_threshold": 1.5},
     )
     with pytest.raises(DoshError) as exc_high:
         cap.execute(invalid_req_high, ctx)

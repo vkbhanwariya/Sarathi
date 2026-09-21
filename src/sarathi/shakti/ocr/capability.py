@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import queue
 import re
 import threading
 import time
@@ -88,9 +89,6 @@ def _format_page_text_with_tables(page: PageData) -> str:
 
 _FLOAT_CUSTOM_OPTIONS: frozenset[str] = frozenset(
     {
-        "fallback_threshold",
-        "retry_threshold",
-        "critical_retry_threshold",
         "review_threshold",
         "critical_review_threshold",
     }
@@ -103,16 +101,10 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
         "deskew",
         "clahe",
         "lightweight",
-        "binarize",
         "english_numbers_only",
         "remove_stamps",
         "inpaint_stamps",
         "stamp_mode",
-        "retry_enabled",
-        "retry_threshold",
-        "critical_retry_threshold",
-        "fallback_enabled",
-        "fallback_threshold",
         "review_threshold",
         "critical_review_threshold",
         "use_angle_cls",
@@ -126,15 +118,14 @@ _SUPPORTED_CUSTOM_OPTIONS: frozenset[str] = frozenset(
         "export_json",
         "checkpoint_cache_enabled",
         "normalize_digits",
+        "statutory",
+        "convert_legacy_fonts",
     }
 )
 _BOOLEAN_CUSTOM_OPTIONS: frozenset[str] = _SUPPORTED_CUSTOM_OPTIONS - {
     "engine",
     "lang",
     "progress_callback",
-    "fallback_threshold",
-    "retry_threshold",
-    "critical_retry_threshold",
     "review_threshold",
     "critical_review_threshold",
     "dpi",
@@ -654,7 +645,27 @@ class OCRCapability:
                     ),
                     start=1,
                 )
-                for page_idx, img in page_iter:
+                # Asynchronous CPU-GPU overlap: prefetch Page N+1 on CPU while iGPU infers Page N
+                prefetch_q: queue.Queue[tuple[int, Any] | None] = queue.Queue(maxsize=1)
+                producer_exc: list[Exception] = []
+
+                def _prefetch_producer() -> None:
+                    try:
+                        for item in page_iter:
+                            prefetch_q.put(item)
+                    except Exception as e:
+                        producer_exc.append(e)
+                    finally:
+                        prefetch_q.put(None)
+
+                producer_th = threading.Thread(target=_prefetch_producer, daemon=True)
+                producer_th.start()
+
+                while True:
+                    item = prefetch_q.get()
+                    if item is None:
+                        break
+                    page_idx, img = item
                     if img is None or page_idx not in needed_indices:
                         continue
                     page_data, prov, page_warnings = self._process_page_image(
@@ -672,6 +683,10 @@ class OCRCapability:
                         target_lang=target_lang,
                     )
                     doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
+
+                producer_th.join()
+                if producer_exc:
+                    raise producer_exc[0]
 
         # 3. Assemble CanonicalDocuments preserving exact request input order
         for inp in request.inputs:

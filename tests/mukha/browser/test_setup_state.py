@@ -25,7 +25,7 @@ def _choose_task(page: Page, task: str) -> None:
 
 def _open_settings(page: Page, subtask: str) -> None:
     settings = page.locator(f"#subtask-{subtask} .task-settings")
-    if settings.get_attribute("open") is None:
+    if settings.count() > 0 and settings.get_attribute("open") is None:
         settings.locator("summary").click()
 
 
@@ -56,10 +56,8 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     _choose_task(app_page, "documents-extraction")
     expect(app_page.locator("#btn-task-documents-extraction")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#subtask-native")).to_be_visible()
-    expect(app_page.locator("#subtask-instant-ocr")).to_be_visible()
+    expect(app_page.locator("#subtask-ocr")).to_be_visible()
     expect(app_page.locator(".primary-task-tab-btn")).to_have_count(1)
-    expect(app_page.locator("#param-convert-legacy-fonts")).not_to_be_visible()
-    _open_settings(app_page, "native")
     expect(app_page.locator("#param-convert-legacy-fonts")).to_be_visible()
     expect(app_page.locator("#param-convert-legacy-fonts")).to_be_checked()
     expect(app_page.locator("#param-layout-analysis")).to_be_visible()
@@ -68,14 +66,13 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
 def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_server: MukhaWebServer) -> None:
     """Verify that changing an action parameter is preserved when telemetry updates arrive."""
     _choose_task(app_page, "documents-extraction")
-    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
-    custom_ocr_card.click()
+    ocr_card = app_page.locator("#subtask-ocr")
+    ocr_card.click()
 
-    profile_select = app_page.locator("#param-profile")
-    expect(profile_select).to_be_visible()
-
-    profile_select.select_option("accurate")
-    expect(profile_select).to_have_value("accurate")
+    btn_en = app_page.locator("#btn-ocr-lang-en-v6")
+    expect(btn_en).to_be_visible()
+    btn_en.click()
+    expect(btn_en).to_have_class(re.compile(r"\bactive\b"))
 
     # Simulate background telemetry update or state revision change
     web_server.runner.set_intake_selection(web_server.runner.get_intake_selection())
@@ -83,20 +80,20 @@ def test_draft_parameter_preservation_across_telemetry(app_page: Page, web_serve
     # Wait for SSE/poll update
     app_page.wait_for_timeout(2000)
 
-    # In Phase 1 requirement: value must NOT reset back to default 'instant'
-    expect(profile_select).to_have_value("accurate")
+    # Value must NOT reset back to default
+    expect(btn_en).to_have_class(re.compile(r"\bactive\b"))
 
 
 def test_parameter_selection_survives_capability_switching(app_page: Page) -> None:
     """Verify that changing primary task/capability and returning preserves previous parameter choices."""
     _choose_task(app_page, "documents-extraction")
-    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
-    custom_ocr_card.click()
+    ocr_card = app_page.locator("#subtask-ocr")
+    ocr_card.click()
 
-    profile_select = app_page.locator("#param-profile")
-    expect(profile_select).to_be_visible()
-    profile_select.select_option("accurate")
-    expect(profile_select).to_have_value("accurate")
+    btn_en = app_page.locator("#btn-ocr-lang-en-v6")
+    expect(btn_en).to_be_visible()
+    btn_en.click()
+    expect(btn_en).to_have_class(re.compile(r"\bactive\b"))
 
     # Switch directly to Bank Account Consolidation
     _choose_task(app_page, "bank-consolidation")
@@ -104,45 +101,45 @@ def test_parameter_selection_survives_capability_switching(app_page: Page) -> No
 
     # Switch back to Documents Extraction
     _choose_task(app_page, "documents-extraction")
-    profile_select = app_page.locator("#param-profile")
-    expect(profile_select).to_be_visible()
+    btn_en = app_page.locator("#btn-ocr-lang-en-v6")
+    expect(btn_en).to_be_visible()
 
     # Must survive switching capabilities and returning
-    expect(profile_select).to_have_value("accurate")
+    expect(btn_en).to_have_class(re.compile(r"\bactive\b"))
 
 
 def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     """Verify that custom toggle values survive switching between capabilities."""
     _choose_task(app_page, "documents-extraction")
-    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
-    custom_ocr_card.click()
+    ocr_card = app_page.locator("#subtask-ocr")
+    ocr_card.click()
 
-    # Toggle clahe checkbox
-    clahe_chk = app_page.locator("#param-clahe")
-    expect(clahe_chk).to_be_visible()
-    clahe_chk.check()
-    expect(clahe_chk).to_be_checked()
+    # Toggle preserve layout checkbox
+    lay_chk = app_page.locator("#param-preserve-layout")
+    expect(lay_chk).to_be_visible()
+    lay_chk.check()
+    expect(lay_chk).to_be_checked()
 
     # Switch to Bank Statements and back to Documents Extraction
     _choose_task(app_page, "bank-consolidation")
     expect(app_page.locator("#subtask-instant-consolidation")).to_be_visible()
 
     _choose_task(app_page, "documents-extraction")
-    clahe_chk = app_page.locator("#param-clahe")
-    expect(clahe_chk).to_be_visible()
-    expect(clahe_chk).to_be_checked()
+    lay_chk = app_page.locator("#param-preserve-layout")
+    expect(lay_chk).to_be_visible()
+    expect(lay_chk).to_be_checked()
 
 
 def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
     """Verify that user draft choices survive navigating to another screen and returning."""
     _choose_task(app_page, "documents-extraction")
-    custom_ocr_card = app_page.locator("#subtask-custom-ocr")
-    custom_ocr_card.click()
+    ocr_card = app_page.locator("#subtask-ocr")
+    ocr_card.click()
 
-    profile_select = app_page.locator("#param-profile")
-    expect(profile_select).to_be_visible()
-    profile_select.select_option("accurate")
-    expect(profile_select).to_have_value("accurate")
+    btn_en = app_page.locator("#btn-ocr-lang-en-v6")
+    expect(btn_en).to_be_visible()
+    btn_en.click()
+    expect(btn_en).to_have_class(re.compile(r"\bactive\b"))
 
     # Switch to Monitor (F2) and back to Home (F1)
     app_page.click(".nav-tab[data-screen='monitor']")
@@ -151,17 +148,17 @@ def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
     app_page.click(".nav-tab[data-screen='home']")
     expect(app_page.locator("#screen-home")).to_have_class(re.compile(r"\bactive\b"))
 
-    # Value should remain accurate
-    profile_select = app_page.locator("#param-profile")
-    expect(profile_select).to_have_value("accurate")
+    # Value should remain selected
+    btn_en = app_page.locator("#btn-ocr-lang-en-v6")
+    expect(btn_en).to_have_class(re.compile(r"\bactive\b"))
 
 
 def test_preview_and_execution_payload_equivalence(app_page: Page) -> None:
     """Verify that buildRequest produces identical configuration for preview and execution."""
     _choose_task(app_page, "documents-extraction")
-    accurate_ocr_card = app_page.locator("#subtask-accurate-ocr")
-    accurate_ocr_card.locator(".action-card-header").click()
-    expect(accurate_ocr_card).to_have_class(re.compile(r"\bselected\b"))
+    ocr_card = app_page.locator("#subtask-ocr")
+    ocr_card.locator(".action-card-header").click()
+    expect(ocr_card).to_have_class(re.compile(r"\bselected\b"))
 
     payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
     assert payload is not None
@@ -173,10 +170,9 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     """Verify that layout preservation and GNN layout analysis checkboxes toggle on click and update request payload."""
     _choose_task(app_page, "documents-extraction")
 
-    # 1. Accurate OCR: Preserve Layout toggle
-    card = app_page.locator("#subtask-accurate-ocr")
+    # 1. OCR: Preserve Layout toggle
+    card = app_page.locator("#subtask-ocr")
     card.locator(".action-card-header").click()
-    _open_settings(app_page, "accurate-ocr")
     chk_preserve = app_page.locator("#param-preserve-layout")
     expect(chk_preserve).not_to_be_checked()
 
@@ -221,17 +217,16 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
 
 def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> None:
     """Verify that the 4 primary tasks expand into the exact approved second-level choices in Vedas/Decisions.md."""
-    # 1. Documents Extraction: Native, Instant OCR, Accurate OCR, Cloud Document AI, Custom OCR
+    # 1. Documents Extraction: Native, OCR Document Recognition
     _choose_task(app_page, "documents-extraction")
     expect(app_page.locator("#subtask-native")).to_be_visible()
-    expect(app_page.locator("#subtask-instant-ocr")).to_be_visible()
-    expect(app_page.locator("#subtask-accurate-ocr")).to_be_visible()
-    expect(app_page.locator("#subtask-cloud-ocr")).to_be_visible()
-    expect(app_page.locator("#subtask-custom-ocr")).to_be_visible()
+    expect(app_page.locator("#subtask-ocr")).to_be_visible()
+    expect(app_page.locator(".subtask-card")).to_have_count(2)
 
-    # Providers appear only after Cloud OCR is selected.
+    # Providers appear after Cloud OCR is selected.
     expect(app_page.locator("#chip-gemini-ocr")).not_to_be_visible()
-    app_page.locator("#subtask-cloud-ocr .action-card-header").click()
+    app_page.locator("#subtask-ocr .action-card-header").click()
+    app_page.locator("#btn-ocr-engine-cloud").click()
     # Verify cloud provider chips in Cloud Document AI
     expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
     expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
@@ -341,9 +336,8 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     assert payload_native is not None
     assert payload_native["custom_options"]["skip_header_footer"] is True
 
-    # Accurate OCR: Clean output checkbox is visible and checked by default
-    app_page.locator("#subtask-accurate-ocr").click()
-    _open_settings(app_page, "accurate-ocr")
+    # OCR: Clean output checkbox is visible and checked by default
+    app_page.locator("#subtask-ocr").click()
     ocr_chk = app_page.locator("#param-ocr-skip-header-footer")
     expect(ocr_chk).to_be_visible()
     expect(ocr_chk).to_be_checked()
@@ -355,67 +349,62 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     assert payload_ocr["custom_options"]["skip_header_footer"] is True
 
 
-def test_custom_mode_workflow_and_end_to_end_wiring(app_page: Page) -> None:
-    """Verify that selecting Custom Mode unfolds the 5-stage modular pipeline builder, updates request payloads, and restores Workflows mode seamlessly."""
-    expect(app_page.locator("#btn-mode-custom")).not_to_be_visible()
-    app_page.locator("#workflow-more-options > summary").click()
-    expect(app_page.locator("#btn-mode-custom")).to_be_visible()
-    expect(app_page.locator("#btn-mode-workflows")).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator(".tasks-accordion")).to_be_visible()
+def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -> None:
+    """Verify OCR Document Recognition subtask integrates presets, layout toggles, local/cloud engines, and clean single-path UI without redundant custom pipeline."""
+    # Redundant switcher and custom mode pipeline are completely absent from production
+    expect(app_page.locator("#workflow-more-options")).to_have_count(0)
     expect(app_page.locator("#custom-mode-pipeline")).to_have_count(0)
 
-    # 1. Switch to Custom Mode
-    app_page.locator("#btn-mode-custom").click()
-    expect(app_page.locator("#btn-mode-custom")).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator("#custom-mode-pipeline")).to_be_visible()
-    expect(app_page.locator(".tasks-accordion")).to_have_count(0)
+    # 1. Expand Documents Extraction and select OCR Document Recognition
+    _choose_task(app_page, "documents-extraction")
+    ocr_card = app_page.locator("#subtask-ocr")
+    ocr_card.locator(".action-card-header").click()
+    expect(ocr_card).to_have_class(re.compile(r"\bselected\b"))
 
-    # Verify all 5 pipeline stages are rendered
-    expect(app_page.locator("#custom-stage-extraction")).to_be_visible()
-    expect(app_page.locator("#custom-stage-font")).to_be_visible()
-    expect(app_page.locator("#custom-stage-translation")).to_be_visible()
-    expect(app_page.locator("#custom-stage-layout")).to_be_visible()
-    expect(app_page.locator("#custom-stage-tuning")).to_be_visible()
+    # Verify absence of redundant preset controls
+    expect(app_page.locator("#btn-ocr-preset-instant")).to_have_count(0)
+    expect(app_page.locator("#btn-ocr-preset-accurate")).to_have_count(0)
 
-    # Default payload in custom mode (defaults to native documents extraction)
+    # Default profile is accurate
     payload_initial = app_page.evaluate("() => window.__sarathi_build_request()")
-    assert payload_initial["requirement"] == "read_native"
-    assert payload_initial["profile"] == "instant"
+    assert payload_initial["requirement"] == "ocr"
+    assert payload_initial["profile"] == "accurate"
 
-    # 2. Stage 1: Select RapidOCR Accurate Layout
-    app_page.locator("#custom-engine-accurate-ocr").click()
-    payload_accurate = app_page.evaluate("() => window.__sarathi_build_request()")
-    assert payload_accurate["requirement"] == "ocr"
-    assert payload_accurate["profile"] == "accurate"
+    # 2. Verify Local OpenVINO model options (Devanagari vs English)
+    btn_devanagari = app_page.locator("#btn-ocr-lang-devanagari")
+    btn_en_v6 = app_page.locator("#btn-ocr-lang-en-v6")
+    expect(btn_devanagari).to_be_visible()
+    expect(btn_devanagari).to_have_class(re.compile(r"\bactive\b"))
+    expect(btn_en_v6).to_be_visible()
 
-    # 3. Stage 1: Select Financial Statements Engine
-    app_page.locator("#custom-engine-bank-statements").click()
-    payload_bank = app_page.evaluate("() => window.__sarathi_build_request()")
-    assert payload_bank["requirement"] == "bank_statements"
+    btn_en_v6.click()
+    expect(btn_en_v6).to_have_class(re.compile(r"\bactive\b"))
+    payload_en = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_en["custom_options"]["lang"] == "en_v6"
 
-    # 4. Stage 1: Select Custom RapidOCR & tune Stage 5 parameters
-    app_page.locator("#custom-engine-custom-ocr").click()
-    payload_custom = app_page.evaluate("() => window.__sarathi_build_request()")
-    assert payload_custom["requirement"] == "ocr"
-    assert payload_custom["profile"] == "custom"
+    # 3. Switch to Cloud Multimodal Inference Engine
+    btn_cloud = app_page.locator("#btn-ocr-engine-cloud")
+    btn_cloud.click()
+    expect(btn_cloud).to_have_class(re.compile(r"\bactive\b"))
 
-    # Check and toggle CLAHE in tuning panel
-    clahe_toggle = app_page.locator("#param-clahe")
-    expect(clahe_toggle).to_be_visible()
-    clahe_toggle.check()
-    expect(clahe_toggle).to_be_checked()
+    # Verify cloud chips and local fallback checkbox appear
+    expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
+    expect(app_page.locator("#param-ocr-fallback-to-local")).to_be_visible()
+    expect(app_page.locator("#param-ocr-fallback-to-local")).to_be_checked()
+
+    payload_cloud = app_page.evaluate("() => window.__sarathi_build_request()")
+    assert payload_cloud["requirement"] == "gemini_ocr"
+    assert payload_cloud["custom_options"]["engine"] == "gemini_ocr"
+    assert payload_cloud["custom_options"]["fallback_to_local"] is True
+
+    # 4. In-front inference engines and stamp suppression toggle
+    expect(app_page.locator("#btn-ocr-lang-devanagari")).to_be_visible()
+    expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
+
+    stamp_chk = app_page.locator("#param-ocr-remove-stamps")
+    expect(stamp_chk).to_be_visible()
+    stamp_chk.check()
+    expect(stamp_chk).to_be_checked()
 
     payload_tuned = app_page.evaluate("() => window.__sarathi_build_request()")
-    assert payload_tuned["custom_options"]["clahe"] is True
-
-    # 5. Stage 3: Neural Translation selection
-    app_page.locator("#custom-trans-indictrans2").click()
-    payload_trans = app_page.evaluate("() => window.__sarathi_build_request()")
-    assert payload_trans["requirement"] == "translation"
-    assert payload_trans["custom_options"]["engine"] == "indictrans2"
-
-    # 6. Switch back to Workflows mode
-    app_page.locator("#btn-mode-workflows").click()
-    expect(app_page.locator("#btn-mode-workflows")).to_have_class(re.compile(r"\bactive\b"))
-    expect(app_page.locator("#custom-mode-pipeline")).to_have_count(0)
-    expect(app_page.locator(".tasks-accordion")).to_be_visible()
+    assert payload_tuned["custom_options"]["remove_stamps"] is True

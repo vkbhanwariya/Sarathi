@@ -81,7 +81,7 @@ def test_accurate_profile_executes_and_preserves_clean_cases(tmp_path: Path) -> 
 
 
 def test_accurate_profile_measured_confidence_replaces_weaker_rapidocr_span() -> None:
-    """Proves factual measured retry confidence replaces weaker RapidOCR span (< 0.65)."""
+    """Proves Accurate profile executes single-pass deterministic inference without secondary crop retries."""
     img = Image.new("RGB", (200, 50), color="white")
     engine = RapidOCREngine(default_lang="hi")
 
@@ -103,14 +103,10 @@ def test_accurate_profile_measured_confidence_replaces_weaker_rapidocr_span() ->
     engine._engine = mock_call
     page_data, prov, conf, warnings = engine.ocr_page(img, 1, "inp-1", profile=ExecutionProfile.ACCURATE)
 
-    assert page_data.spans[0].text == "राजस्थान"
-    assert page_data.spans[0].confidence == 0.94
-    assert page_data.spans[0].metadata.get("retry_applied") is True
-    assert page_data.spans[0].metadata.get("original_confidence") == 0.50
-    assert page_data.spans[0].metadata.get("confidence_gain") == 0.44
-    assert page_data.metadata.get("retry_improved_count") == 1
-    assert page_data.metadata.get("retry_total_gain") == 0.44
-    assert page_data.text == "राजस्थान"
+    assert page_data.spans[0].text == "कमजोर"
+    assert page_data.spans[0].confidence == 0.50
+    assert page_data.metadata.get("retry_applied") is False
+    assert page_data.text == "कमजोर"
 
 
 def test_accurate_profile_preserves_span_when_retry_confidence_is_lower() -> None:

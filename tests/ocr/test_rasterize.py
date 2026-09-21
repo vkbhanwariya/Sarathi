@@ -141,7 +141,7 @@ def test_adaptive_dpi_resolution_in_capability(tmp_path: Path) -> None:
 
 
 def test_weak_crop_batch_recognition_fast_path() -> None:
-    """Proves RapidOCREngine batches weak crops into a single recognize_txt call."""
+    """Proves RapidOCREngine executes single-pass deterministic OCR without weak-crop secondary passes."""
     img = Image.new("RGB", (300, 100), color="white")
     engine = RapidOCREngine(default_lang="hi")
 
@@ -151,7 +151,7 @@ def test_weak_crop_batch_recognition_fast_path() -> None:
 
         def __call__(self, arr: Any, **kwargs: Any) -> Any:
             mock_out = MagicMock()
-            mock_out.txts = ["कमजोर1", "कमजोर2"]
+            mock_out.txts = ["पाठ1", "पाठ2"]
             mock_out.boxes = [
                 [(10, 10), (80, 10), (80, 40), (10, 40)],
                 [(100, 10), (180, 10), (180, 40), (100, 40)],
@@ -171,16 +171,11 @@ def test_weak_crop_batch_recognition_fast_path() -> None:
 
     page_data, prov, conf, warns = engine.ocr_page(img, 1, "inp-test", profile=ExecutionProfile.ACCURATE)
 
-    # Must have called recognize_txt exactly once with 2 crops
-    assert len(mock_inst.recognize_txt_calls) == 1
-    assert len(mock_inst.recognize_txt_calls[0]) == 2
-
-    # Spans should be upgraded
-    assert page_data.spans[0].text == "मजबूत1"
-    assert page_data.spans[0].confidence == 0.92
-    assert page_data.spans[1].text == "मजबूत2"
-    assert page_data.spans[1].confidence == 0.88
-    assert page_data.metadata.get("retry_improved_count") == 2
+    # Must NOT have called secondary crop retries
+    assert len(mock_inst.recognize_txt_calls) == 0
+    assert page_data.spans[0].text == "पाठ1"
+    assert page_data.spans[1].text == "पाठ2"
+    assert prov.evidence["validation_outcome"] == "usable"
 
 
 def test_bug_O3_pymupdf_lock_not_held_across_yield() -> None:

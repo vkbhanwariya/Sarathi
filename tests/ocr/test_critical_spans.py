@@ -92,10 +92,7 @@ def test_classify_span_categories() -> None:
 
 
 def test_critical_span_elevated_crop_retry() -> None:
-    """A critical span with confidence 0.75 triggers retry under default critical threshold (0.85).
-
-    Standard spans with 0.75 do not trigger retry since standard threshold is 0.65.
-    """
+    """Critical spans do not invoke secondary crop retry since OCR runs single-pass deterministic inference."""
     engine = RapidOCREngine(default_lang="en")
 
     invoked_crops: list[Any] = []
@@ -124,21 +121,17 @@ def test_critical_span_elevated_crop_retry() -> None:
         profile=ExecutionProfile.ACCURATE,
     )
 
-    # Only the critical span (₹ 50,000.00) should be retried (0.75 < 0.85).
-    # The regular text (0.75 >= 0.65) must NOT be retried.
-    assert len(invoked_crops) == 1
-    assert provenance.evidence["retry_count"] == 1
-    assert provenance.evidence["retry_improved_count"] == 1
+    # In single-pass execution, no secondary crop retry is invoked
+    assert len(invoked_crops) == 0
+    assert page_data.metadata.get("retry_applied") is False
 
     crit_span = page_data.spans[1]
     assert crit_span.text == "₹ 50,000.00"
-    assert crit_span.confidence == 0.96
-    assert crit_span.metadata["retry_applied"] is True
+    assert crit_span.confidence == 0.75
 
     reg_span = page_data.spans[0]
     assert reg_span.text == "Regular text line"
     assert reg_span.confidence == 0.75
-    assert reg_span.metadata.get("retry_applied") is None
 
 
 def test_critical_span_elevated_review_warning() -> None:

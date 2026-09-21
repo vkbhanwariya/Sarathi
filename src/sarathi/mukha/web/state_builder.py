@@ -364,18 +364,11 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
                 description="Adaptive histogram equalization",
             ),
             ActionParameterView(
-                parameter_id="binarize",
-                display_name="Binarization",
+                parameter_id="remove_stamps",
+                display_name="Stamp & Seal Suppression",
                 kind="toggle",
                 default_value=False,
-                description="Otsu binarization filter",
-            ),
-            ActionParameterView(
-                parameter_id="fallback_enabled",
-                display_name="Fallback (NE-OCR)",
-                kind="toggle",
-                default_value=True,
-                description="ONNX secondary fallback engine",
+                description="Suppress stamp and seal ink bleed-through",
             ),
             ActionParameterView(
                 parameter_id="validation_enabled",

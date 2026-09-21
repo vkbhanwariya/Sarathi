@@ -155,11 +155,17 @@ def patch_rapidocr_openvino_device(cache_dir: Path | None = None) -> None:
                         "PERFORMANCE_HINT": "THROUGHPUT",
                         "EXECUTION_MODE_HINT": "PERFORMANCE",
                         "CACHE_MODE": "OPTIMIZE_SPEED",
+                        "DYNAMIC_QUANTIZATION_GROUP_SIZE": "32",
                     }
                     effective_cache_dir = (cache_dir or Path("Runtime/Cache/openvino_model_cache")).resolve()
                     try:
                         effective_cache_dir.mkdir(parents=True, exist_ok=True)
                         gpu_props["CACHE_DIR"] = str(effective_cache_dir)
+                    except Exception:
+                        pass
+                    try:
+                        supported_props = core.get_property(device_name, "SUPPORTED_PROPERTIES")
+                        gpu_props = {k: v for k, v in gpu_props.items() if k in supported_props}
                     except Exception:
                         pass
                     core.set_property(device_name, gpu_props)
