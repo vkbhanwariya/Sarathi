@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
@@ -26,7 +26,7 @@ def record_ocr_page_telemetry(
     if darpana is None:
         return
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     dev_t = binding.device_type.value.upper() if binding and hasattr(binding, "device_type") else "CPU"
     dev_i = str(getattr(binding, "device_id", "0")) if binding else "0"
 

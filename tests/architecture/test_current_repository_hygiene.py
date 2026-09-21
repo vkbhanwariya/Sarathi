@@ -13,6 +13,7 @@ SELF = Path(__file__).resolve()
 CURRENT_DOCS = {
     "README.md",
     "Architecture.md",
+    "CODE_INDEX.md",
     "Capabilities.md",
     "Configuration.md",
     "Decisions.md",
@@ -101,3 +102,15 @@ def test_vedas_has_only_current_document_names() -> None:
     assert not stale_names, f"Version-prefixed Vedas files are obsolete: {stale_names}"
     existing = {path.name for path in vedas.glob("*.md")}
     assert CURRENT_DOCS.issubset(existing)
+
+
+@pytest.mark.architecture
+def test_code_index_is_synchronized() -> None:
+    from tools.generate_code_index import INDEX_PATH, generate_index_markdown
+
+    assert INDEX_PATH.is_file(), f"Missing {INDEX_PATH}"
+    expected = generate_index_markdown()
+    actual = INDEX_PATH.read_text(encoding="utf-8")
+    assert actual == expected, (
+        "Vedas/CODE_INDEX.md is out of sync with codebase. Run 'uv run python tools/generate_code_index.py'."
+    )

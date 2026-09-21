@@ -12,9 +12,10 @@ Does NOT embed PDF, OCR, spreadsheet, bank, translation, or capability-specific 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)

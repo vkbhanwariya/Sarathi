@@ -10,9 +10,10 @@ import queue
 import re
 import threading
 import unicodedata
+from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
@@ -271,7 +272,7 @@ class RapidOCREngine:
         if manifest_path.is_file():
             try:
                 st = manifest_path.stat()
-                hasher.update(f"manifest:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                hasher.update(f"manifest:{st.st_size}:{st.st_mtime_ns}".encode())
             except OSError:
                 pass
         return hasher.hexdigest()[:16]

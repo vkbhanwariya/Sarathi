@@ -9,8 +9,9 @@ citations, and enforces strict structural and citation preservation.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from sarathi.shakti.statutory.extractor import extract_statutory_entities
 from sarathi.shakti.translation.glossary import GlossaryStore

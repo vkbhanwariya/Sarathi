@@ -7,8 +7,9 @@ import secrets
 import socket
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any
 
 import uvicorn
 
@@ -175,7 +176,7 @@ class MukhaWebServer:
             manifest_path = self._agni.output_root / terminal.output_dir / "run-manifest.json"
             if manifest_path.is_file():
                 try:
-                    with open(manifest_path, "r", encoding="utf-8") as f:
+                    with open(manifest_path, encoding="utf-8") as f:
                         mdata = json.load(f)
                     out_dir_path = self._agni.output_root / terminal.output_dir
                     for art in mdata.get("artifacts", []):

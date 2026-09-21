@@ -10,9 +10,10 @@ Contains metadata only; performs no policy decisions, authorization, or enforcem
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True, slots=True)

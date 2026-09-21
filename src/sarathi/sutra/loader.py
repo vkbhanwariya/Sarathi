@@ -10,7 +10,7 @@ from __future__ import annotations
 import tomllib
 from contextlib import nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import ExecutionContext
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 def load_settings(
-    path: Union[str, Path],
+    path: str | Path,
     darpana: Darpana | None = None,
     context: ExecutionContext | None = None,
 ) -> Settings:
@@ -60,7 +60,7 @@ def load_settings(
         return _load_settings_internal(path)
 
 
-def _load_settings_internal(path: Union[str, Path]) -> Settings:
+def _load_settings_internal(path: str | Path) -> Settings:
     file_path = Path(path)
 
     if file_path.suffix.lower() != ".toml":

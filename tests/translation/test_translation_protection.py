@@ -401,8 +401,8 @@ def test_bug_T4_glossary_matching_performance() -> None:
 
 def test_bug_T5_redundant_translation() -> None:
     """T5: For a 2-page doc where doc.text == '\\n\\n'.join(page.text), every unique sentence reaches backend exactly once."""
+    from collections.abc import Sequence
     from pathlib import Path
-    from typing import Sequence
 
     from sarathi.sankalpa import (
         CanonicalDocument,
@@ -516,7 +516,7 @@ def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
 
 def test_bug_T7_anubhava_word_boundary() -> None:
     """T7: Anubhava correction का->X must not alter कार्य, but must apply to standalone word का."""
-    from typing import Sequence
+    from collections.abc import Sequence
 
     from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
     from sarathi.shakti.translation.models import TranslationDirection

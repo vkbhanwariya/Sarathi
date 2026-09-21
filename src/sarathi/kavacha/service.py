@@ -5,8 +5,8 @@ performs path containment and overlap verification. Contains no secret storage,
 PII scanning, network clients, logging, or telemetry.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.kavacha.policy import SecurityPolicy

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import UTC
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -219,11 +220,11 @@ class GeminiOCRCapability:
 
                     # Telemetry to Darpana
                     if self._darpana is not None:
-                        from datetime import datetime, timezone
+                        from datetime import datetime
 
                         from sarathi.darpana import PramanaRecord
 
-                        now_iso = datetime.now(timezone.utc).isoformat()
+                        now_iso = datetime.now(UTC).isoformat()
                         page_evidence = {
                             "score_kind": "raw_engine",
                             "calibrated": False,

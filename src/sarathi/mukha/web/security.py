@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import re
 import urllib.parse
+from collections.abc import Sequence
 from enum import Enum
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from sarathi.dosh import DoshError
 from sarathi.sankalpa import ExecutionProfile

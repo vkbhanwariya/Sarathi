@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import io
+from collections.abc import Sequence
 from contextlib import nullcontext
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode

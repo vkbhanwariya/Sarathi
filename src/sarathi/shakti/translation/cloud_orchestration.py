@@ -10,9 +10,10 @@ glossary grounding, artifact generation (TXT and DOCX), and fail-closed telemetr
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (

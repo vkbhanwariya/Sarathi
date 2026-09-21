@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import io
 import json
+from collections.abc import Sequence
 from decimal import Decimal
-from typing import Sequence
 
 import openpyxl
 import polars as pl
@@ -224,24 +224,24 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
 
     df = pl.DataFrame(
         {
-            "date": pl.Series("date", dates, dtype=pl.Utf8),
-            "time": pl.Series("time", times, dtype=pl.Utf8),
-            "posting_date": pl.Series("posting_date", posting_dates, dtype=pl.Utf8),
-            "value_date": pl.Series("value_date", value_dates, dtype=pl.Utf8),
-            "description": pl.Series("description", descriptions, dtype=pl.Utf8),
-            "reference_number": pl.Series("reference_number", ref_nums, dtype=pl.Utf8),
-            "cheque_number": pl.Series("cheque_number", chq_nums, dtype=pl.Utf8),
+            "date": pl.Series("date", dates, dtype=pl.String),
+            "time": pl.Series("time", times, dtype=pl.String),
+            "posting_date": pl.Series("posting_date", posting_dates, dtype=pl.String),
+            "value_date": pl.Series("value_date", value_dates, dtype=pl.String),
+            "description": pl.Series("description", descriptions, dtype=pl.String),
+            "reference_number": pl.Series("reference_number", ref_nums, dtype=pl.String),
+            "cheque_number": pl.Series("cheque_number", chq_nums, dtype=pl.String),
             "debit": pl.Series("debit", debits, dtype=pl.Decimal(38, max_scale)),
             "credit": pl.Series("credit", credits, dtype=pl.Decimal(38, max_scale)),
             "running_balance": pl.Series("running_balance", balances, dtype=pl.Decimal(38, max_scale)),
-            "bank_name": pl.Series("bank_name", bank_names, dtype=pl.Utf8),
-            "masked_account_number": pl.Series("masked_account_number", masked_accs, dtype=pl.Utf8),
-            "account_fingerprint": pl.Series("account_fingerprint", fingerprints, dtype=pl.Utf8),
-            "account_holder": pl.Series("account_holder", acc_holders, dtype=pl.Utf8),
-            "currency": pl.Series("currency", currencies, dtype=pl.Utf8),
-            "status": pl.Series("status", statuses, dtype=pl.Utf8),
-            "issues": pl.Series("issues", issues_col, dtype=pl.Utf8),
-            "metadata": pl.Series("metadata", metadata_col, dtype=pl.Utf8),
+            "bank_name": pl.Series("bank_name", bank_names, dtype=pl.String),
+            "masked_account_number": pl.Series("masked_account_number", masked_accs, dtype=pl.String),
+            "account_fingerprint": pl.Series("account_fingerprint", fingerprints, dtype=pl.String),
+            "account_holder": pl.Series("account_holder", acc_holders, dtype=pl.String),
+            "currency": pl.Series("currency", currencies, dtype=pl.String),
+            "status": pl.Series("status", statuses, dtype=pl.String),
+            "issues": pl.Series("issues", issues_col, dtype=pl.String),
+            "metadata": pl.Series("metadata", metadata_col, dtype=pl.String),
         }
     )
 

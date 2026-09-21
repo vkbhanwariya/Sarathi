@@ -14,10 +14,11 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 from sarathi.dosh import DoshError
 from sarathi.mukha.presenter import MukhaPresenter
@@ -405,7 +406,7 @@ class RunCoordinator:
             return None
 
         try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest_data = json.load(f)
 
             m_run_id = manifest_data.get("run_id")

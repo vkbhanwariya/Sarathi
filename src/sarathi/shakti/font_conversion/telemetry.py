@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
@@ -25,7 +25,7 @@ def emit_conversion_telemetry(
     if darpana is None:
         return
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
     dev_i = str(context.execution_binding.device_id) if context.execution_binding else "0"
     pages = doc.pages or ()

@@ -7,8 +7,9 @@ import json
 import re
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (

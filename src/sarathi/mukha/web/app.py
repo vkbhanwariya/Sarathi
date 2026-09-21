@@ -11,8 +11,9 @@ import mimetypes
 import re
 import time
 import urllib.parse
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from starlette.applications import Starlette
 from starlette.datastructures import MutableHeaders
@@ -378,7 +379,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                         if serialized != last_serialized or runner_revision != last_revision:
                             last_serialized = serialized
                             last_revision = state.state_revision
-                            yield f"event: state\ndata: {serialized}\n\n".encode("utf-8")
+                            yield f"event: state\ndata: {serialized}\n\n".encode()
 
                     now = time.monotonic()
                     if now - last_ping >= 15.0:
@@ -389,7 +390,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                     try:
                         await asyncio.wait_for(change_event.wait(), timeout=wait_timeout)
                         change_event.clear()
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         pass
             except asyncio.CancelledError:
                 return

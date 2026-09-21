@@ -10,8 +10,8 @@ resource allocation, telemetry, retry, quarantine, caching, or security enforcem
 
 from __future__ import annotations
 
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
-from typing import Collection, Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh

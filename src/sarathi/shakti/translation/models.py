@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
-from typing import Mapping
+from enum import StrEnum
 
 
-class Language(str, Enum):
+class Language(StrEnum):
     """Supported language codes."""
 
     HINDI = "hi"
@@ -18,7 +18,7 @@ class Language(str, Enum):
     UNKNOWN = "unknown"
 
 
-class TranslationDirection(str, Enum):
+class TranslationDirection(StrEnum):
     """Supported translation direction pairs."""
 
     HI_TO_EN = "hi-en"

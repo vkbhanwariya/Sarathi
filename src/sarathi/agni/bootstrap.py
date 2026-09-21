@@ -7,10 +7,11 @@ execution to Pravaha. It intentionally avoids a separate lifecycle-manager layer
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from sarathi.agni.dispatcher import execute_request
 from sarathi.agni.preflight import (
@@ -268,7 +269,7 @@ class Agni:
                                     span_id=f"sp-prewarm-{cap.declaration.capability_id[:8]}",
                                     phase_name="prewarm.failure",
                                     component="agni.bootstrap",
-                                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                    timestamp_utc=datetime.now(UTC).isoformat(),
                                     duration_ns=0,
                                     outcome="failure",
                                     attributes={

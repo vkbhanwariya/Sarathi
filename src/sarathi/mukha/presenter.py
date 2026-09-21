@@ -7,8 +7,9 @@ or fabricate metrics.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from sarathi.darpana import MarutiRecord, PramanaRecord
 from sarathi.darpana.pramana import select_aggregate_confidence_records as _aggregate_confidence_records

@@ -7,11 +7,11 @@ dates, legal references) where an OCR error carries severe operational or legal 
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 from typing import Final
 
 
-class CriticalityType(str, Enum):
+class CriticalityType(StrEnum):
     """Classification of high-consequence text tokens."""
 
     CURRENCY_AMOUNT = "currency_amount"

@@ -7,6 +7,7 @@ and TXT/DOCX artifacts.
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -149,11 +150,11 @@ class MistralOCRCapability:
 
                 # Emit Pramana telemetry if Darpana is wired
                 if self._darpana is not None:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
 
                     from sarathi.darpana import PramanaRecord
 
-                    now_iso = datetime.now(timezone.utc).isoformat()
+                    now_iso = datetime.now(UTC).isoformat()
                     page_evidence = {"model": model, "provider": "mistral"}
                     self._darpana.record_pramana(
                         PramanaRecord(

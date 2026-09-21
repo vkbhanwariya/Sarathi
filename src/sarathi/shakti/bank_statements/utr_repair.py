@@ -8,9 +8,9 @@ and performs mathematical double-entry balance verification with exact row refer
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Sequence
 
 # RBI IFSC Regex: 4 alphabetic bank code, 5th character strictly '0', 6 alphanumeric branch code
 _IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")

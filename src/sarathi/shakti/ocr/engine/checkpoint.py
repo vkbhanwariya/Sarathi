@@ -326,7 +326,7 @@ def load_page_checkpoint(
         return None
 
     try:
-        with open(target_path, "r", encoding="utf-8") as f:
+        with open(target_path, encoding="utf-8") as f:
             data = json.load(f)
 
         if not isinstance(data, dict):

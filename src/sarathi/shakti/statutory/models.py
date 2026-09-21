@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Mapping
+from enum import StrEnum
+from typing import Any
 
 from sarathi.sankalpa import WarningRecord
 
 
-class StatutoryDocumentType(str, Enum):
+class StatutoryDocumentType(StrEnum):
     """Classified statutory or legal document type."""
 
     GST_INVOICE = "gst_invoice"

@@ -9,8 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 import stat
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.shakti.ocr.engine.common import (

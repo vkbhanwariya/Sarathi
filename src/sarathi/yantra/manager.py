@@ -10,7 +10,7 @@ import threading
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -497,7 +497,7 @@ class Yantra:
                                 span_id=context.span_id,
                                 phase_name="device_release_failure",
                                 component="yantra.manager",
-                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                timestamp_utc=datetime.now(UTC).isoformat(),
                                 duration_ns=0,
                                 outcome="failure",
                                 attributes={"error_type": type(rel_err).__name__},

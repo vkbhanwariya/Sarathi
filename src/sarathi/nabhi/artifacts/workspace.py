@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -68,7 +68,7 @@ class RunWorkspace:
         self._staging_dir: Path = staging_dir
         self._output_dir: Path = output_dir
         self._preserve_partial: bool = preserve_partial
-        self._start_time_utc: datetime = start_time_utc if start_time_utc is not None else datetime.now(timezone.utc)
+        self._start_time_utc: datetime = start_time_utc if start_time_utc is not None else datetime.now(UTC)
         self._darpana: Darpana | None = darpana
         self._context: ExecutionContext | None = context
 
@@ -333,7 +333,7 @@ class RunWorkspace:
                                 span_id=self._context.span_id,
                                 phase_name="artifact.cleanup_failure",
                                 component="nabhi.artifacts",
-                                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                                timestamp_utc=datetime.now(UTC).isoformat(),
                                 duration_ns=0,
                                 outcome="failure",
                                 attributes={"error": "cleanup_failed_during_exception"},

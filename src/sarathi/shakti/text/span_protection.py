@@ -8,7 +8,8 @@ survive pipeline operations untouched.
 from __future__ import annotations
 
 import re
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 _PROT_START: str = "\ue000"
 _PROT_END: str = "\ue001"

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Mapping
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
@@ -150,7 +151,7 @@ def execute_retry_attempt(
             failure_code=dosh_err.code,
             attempt_count=new_attempt,
             status=next_status,
-            updated_at_utc=datetime.now(timezone.utc).isoformat(),
+            updated_at_utc=datetime.now(UTC).isoformat(),
         )
         if not is_still_retryable:
             with quarantine_transition_scope(

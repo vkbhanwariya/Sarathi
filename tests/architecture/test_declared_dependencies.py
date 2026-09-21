@@ -68,7 +68,7 @@ def _get_declared_import_names(pyproject_path: Path) -> set[str]:
 
 
 def _find_top_level_imports(file_path: Path) -> set[str]:
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(file_path, encoding="utf-8", errors="ignore") as f:
         source = f.read()
 
     try:

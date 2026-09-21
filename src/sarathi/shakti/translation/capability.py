@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 
 if TYPE_CHECKING:
     from sarathi.yantra import Yantra
+from datetime import UTC
+
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
@@ -243,11 +246,11 @@ class TranslationCapability:
         """Record worker execution performance and page/region quality telemetry in Darpana."""
         if self._darpana is None:
             return
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from sarathi.darpana import MarutiRecord, PramanaRecord
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
         dev_i = str(context.execution_binding.device_id) if context.execution_binding else "0"
         pages = doc.pages or ()

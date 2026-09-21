@@ -13,10 +13,11 @@ import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any
 
 from sarathi.darpana.history import TerminalRunHistoryStore, TerminalRunSummary
 from sarathi.darpana.maruti import MarutiRecord
@@ -81,7 +82,7 @@ class Darpana:
                         span_id=f"sp-{summary.run_id[:8]}",
                         phase_name="telemetry.history_persistence_failure",
                         component="darpana.history",
-                        timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                        timestamp_utc=datetime.now(UTC).isoformat(),
                         duration_ns=0,
                         outcome="failure",
                         attributes={"run_id": summary.run_id},
@@ -168,7 +169,7 @@ class Darpana:
         normalized_phase = phase_name.strip()
         normalized_component = component.strip()
         safe_attributes = dict(attributes) if attributes else {}
-        start_time_utc = datetime.now(timezone.utc).isoformat()
+        start_time_utc = datetime.now(UTC).isoformat()
         start_ns = time.perf_counter_ns()
         scope_key = f"{context.span_id}-{uuid.uuid4().hex[:8]}"
         with self._lock:
@@ -259,7 +260,7 @@ def record_maruti(
     """Safely construct and record a MarutiRecord in darpana, ignoring None darpana."""
     if darpana is None:
         return None
-    now_iso = timestamp_utc or datetime.now(timezone.utc).isoformat()
+    now_iso = timestamp_utc or datetime.now(UTC).isoformat()
     record = MarutiRecord(
         run_id=context.run_id if context else "",
         request_id=context.request_id if context else "",

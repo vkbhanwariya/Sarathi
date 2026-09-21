@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sarathi.nabhi.kosh import Kosh
@@ -77,7 +77,7 @@ def record_pramana_if_available(
             span_id=context.span_id,
             capability_id=capability.declaration.capability_id,
             stage=capability.declaration.capability_id,
-            timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            timestamp_utc=datetime.now(UTC).isoformat(),
             confidence=result.confidence,
             accuracy=accuracy_val,
             attributes={

@@ -8,7 +8,7 @@ PMLA, Banking & Financial, Criminal Law, and Judicial designations).
 from __future__ import annotations
 
 import re
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from sarathi.shakti.translation.models import TranslationDirection
 

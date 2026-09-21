@@ -196,7 +196,7 @@ class TerminalRunHistoryStore:
                     # Read only bounded tail into memory
                     tail_lines: deque[str] = deque(maxlen=self._max_records)
                     if self._path.exists():
-                        with open(self._path, "r", encoding="utf-8") as f:
+                        with open(self._path, encoding="utf-8") as f:
                             for line in f:
                                 stripped = line.strip()
                                 if stripped:
@@ -274,7 +274,7 @@ class TerminalRunHistoryStore:
                     from collections import deque
 
                     bounded_tail: deque[str] = deque(maxlen=limit)
-                    with open(self._path, "r", encoding="utf-8") as f:
+                    with open(self._path, encoding="utf-8") as f:
                         for line in f:
                             s = line.strip()
                             if s:

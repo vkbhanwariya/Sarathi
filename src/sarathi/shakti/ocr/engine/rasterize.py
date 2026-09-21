@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import io
 import threading
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from sarathi.yantra.resources import GLOBAL_PYMUPDF_LOCK as _PYMUPDF_LOCK
 

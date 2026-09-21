@@ -61,7 +61,7 @@ def query_run_history(agni: Agni, limit: int = 50) -> tuple[Any, ...]:
                     manifest_path = agni.output_root / out_dir / "run-manifest.json"
                     if manifest_path.is_file():
                         try:
-                            with open(manifest_path, "r", encoding="utf-8") as f:
+                            with open(manifest_path, encoding="utf-8") as f:
                                 mdata = json.load(f)
                             prov = mdata.get("provenance", [])
                             distinct = {

@@ -9,9 +9,10 @@ Must NOT become a global mutable state container or service locator.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any
 
 from sarathi.sankalpa.capability import DeviceType
 from sarathi.sankalpa.execution_profile import ExecutionProfile

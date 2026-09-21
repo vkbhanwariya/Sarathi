@@ -11,10 +11,11 @@ Contains no scheduling, resource allocation, device selection, or execution logi
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from sarathi.sankalpa.execution_profile import ExecutionProfile
 

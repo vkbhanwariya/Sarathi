@@ -7,7 +7,7 @@ import time
 import uuid
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,7 @@ def record_terminal_summary(
             profile=request.profile.value,
             status=status,
             start_time_utc=start_time_utc,
-            completed_at_utc=datetime.now(timezone.utc).isoformat(),
+            completed_at_utc=datetime.now(UTC).isoformat(),
             duration_ms=duration_ms,
             artifact_count=artifact_count,
             warning_count=warning_count,
@@ -70,7 +70,7 @@ def record_terminal_summary(
                     span_id=exec_ctx.span_id,
                     phase_name="telemetry.history_persistence_failure",
                     component="agni",
-                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                    timestamp_utc=datetime.now(UTC).isoformat(),
                     duration_ns=0,
                     outcome="failure",
                     attributes={"error": "history_recording_failed"},
@@ -281,7 +281,7 @@ def execute_request(
         (runtime_root, effective_output_root),
     )
 
-    t_start_utc = datetime.now(timezone.utc).isoformat()
+    t_start_utc = datetime.now(UTC).isoformat()
     t_start_ns = time.perf_counter_ns()
 
     # 2. Reconcile request and supplied-context cancellation tokens

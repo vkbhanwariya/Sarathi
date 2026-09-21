@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.artifacts.paths import (
@@ -37,7 +38,7 @@ def serialize_run_manifest(
         "requirement": requirement,
         "status": effective_status,
         "created_at_utc": start_time_utc.isoformat(),
-        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "completed_at_utc": datetime.now(UTC).isoformat(),
         "artifacts": [
             {
                 "artifact_id": art.artifact_id,

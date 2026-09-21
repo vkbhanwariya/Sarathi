@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -137,7 +137,7 @@ class TestRunWorkspaceLifecycle:
         assert exc_info.value.code is FailureCode.INVALID_CONFIGURATION
 
     def test_unique_run_directory_creation_on_same_timestamp(self, boundary: ArtifactBoundary) -> None:
-        fixed_time = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
+        fixed_time = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
         ws1 = boundary.begin_run(run_id="run-a", requirement="ocr", timestamp=fixed_time)
         ws2 = boundary.begin_run(run_id="run-b", requirement="ocr", timestamp=fixed_time)
 

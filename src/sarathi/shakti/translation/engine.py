@@ -7,10 +7,11 @@ import os
 import re
 import threading
 import tomllib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceType, ExecutionBinding
@@ -539,7 +540,7 @@ class CTranslate2TranslationEngine:
         if manifest_path.is_file():
             try:
                 st = manifest_path.stat()
-                hasher.update(f"manifest:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                hasher.update(f"manifest:{st.st_size}:{st.st_mtime_ns}".encode())
                 hasher.update(manifest_path.read_bytes())
             except OSError:
                 pass
@@ -547,7 +548,7 @@ class CTranslate2TranslationEngine:
         if anubhava_file.is_file():
             try:
                 st = anubhava_file.stat()
-                hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode())
                 hasher.update(anubhava_file.read_bytes())
             except OSError:
                 pass
@@ -556,7 +557,7 @@ class CTranslate2TranslationEngine:
             if g_path.is_file():
                 try:
                     st = g_path.stat()
-                    hasher.update(f"{g_name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                    hasher.update(f"{g_name}:{st.st_size}:{st.st_mtime_ns}".encode())
                     hasher.update(g_path.read_bytes())
                 except OSError:
                     pass
@@ -566,7 +567,7 @@ class CTranslate2TranslationEngine:
                 for p in sorted(glossary_dir.iterdir()):
                     if p.is_file() and p.suffix.lower() in (".json", ".yaml", ".yml"):
                         st = p.stat()
-                        hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                        hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode())
                         hasher.update(p.read_bytes())
             except OSError:
                 pass

@@ -5,11 +5,14 @@ from __future__ import annotations
 import csv
 import time
 import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 from zipfile import BadZipFile
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
+
+from datetime import UTC
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -130,11 +133,11 @@ class NativeExtractionCapability:
         """Record fine-grained worker performance and page/region quality telemetry in Darpana."""
         if self._darpana is None:
             return
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from sarathi.darpana import MarutiRecord, PramanaRecord
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         dev_t = context.execution_binding.device_type.value.upper() if context.execution_binding else "CPU"
         dev_i = str(context.execution_binding.device_id) if context.execution_binding else "0"
         page_cnt = max(1, len(doc.pages))

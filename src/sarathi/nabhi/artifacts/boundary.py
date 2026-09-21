@@ -7,9 +7,10 @@ and storage root lifecycle.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.artifacts.paths import (
@@ -191,7 +192,7 @@ class ArtifactBoundary:
         staging_dir = self._runtime_root / "Work" / cleaned_run_id
 
         # Unique run directory: Output/<requirement>/Run-<timestamp>-<short-id>/
-        ts = timestamp if timestamp is not None else datetime.now(timezone.utc)
+        ts = timestamp if timestamp is not None else datetime.now(UTC)
         ts_str = ts.strftime("%Y%m%d-%H%M%S")
 
         req_output_dir = active_output_root / requirement

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import re
 import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
 

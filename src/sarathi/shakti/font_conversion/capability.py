@@ -126,14 +126,14 @@ class FontConversionCapability:
             try:
                 for p in sorted(self._fonts_dir.glob("*.json")):
                     st = p.stat()
-                    hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                    hasher.update(f"{p.name}:{st.st_size}:{st.st_mtime_ns}".encode())
                     hasher.update(p.read_bytes())
             except OSError:
                 pass
         if self._anubhava_path and self._anubhava_path.is_file():
             try:
                 st = self._anubhava_path.stat()
-                hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode("utf-8"))
+                hasher.update(f"anubhava:{st.st_size}:{st.st_mtime_ns}".encode())
                 hasher.update(self._anubhava_path.read_bytes())
             except OSError:
                 pass

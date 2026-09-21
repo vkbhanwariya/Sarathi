@@ -7,8 +7,8 @@ import io
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Callable
-from typing import Any, Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 from xml.sax.saxutils import quoteattr
 
 from sarathi.dosh import DoshError, FailureCode

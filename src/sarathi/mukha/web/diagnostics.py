@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import platform
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sarathi.darpana.pramana import select_aggregate_confidence_records
@@ -57,7 +57,7 @@ def export_run_diagnostics(
         "python_version": sys.version.split()[0],
         "os_platform": platform.platform(),
         "processor": platform.processor() or "Unknown",
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "host": host,
         "port": port,
         "security_policy": "Kavacha Local Isolation",
@@ -113,7 +113,7 @@ def export_run_diagnostics(
     return {
         "schema": "sarathi.diagnostics.v1",
         "run_id": run_id,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": datetime.now(UTC).isoformat(),
         "system": system_facts,
         "hardware_devices": devices,
         "stages": stage_durations,

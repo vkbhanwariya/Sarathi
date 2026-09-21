@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import Mapping, Sequence
 
 from sarathi.darpana import Darpana
 from sarathi.kavacha import Kavacha

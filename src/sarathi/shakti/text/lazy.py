@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 
 def lazy_exports(package_globals: dict[str, Any], export_map: Mapping[str, str]) -> None:

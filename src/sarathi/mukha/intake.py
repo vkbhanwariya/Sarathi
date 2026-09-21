@@ -7,8 +7,8 @@ Does not perform presentation projection or runtime execution.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from sarathi.kavacha import Kavacha
 from sarathi.mukha.state import (

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Mapping
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.kosh import Kosh
@@ -94,7 +95,7 @@ def _check_cancellation(context: ExecutionContext, darpana: Darpana | None = Non
                     span_id=context.span_id,
                     phase_name="cancellation",
                     component="nabhi.pravaha",
-                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                    timestamp_utc=datetime.now(UTC).isoformat(),
                     duration_ns=0,
                     outcome="cancelled",
                     error_type="DoshError",
@@ -180,7 +181,7 @@ def _lookup_cache(
                 span_id=context.span_id,
                 phase_name="cache.lookup",
                 component="smriti",
-                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                timestamp_utc=datetime.now(UTC).isoformat(),
                 duration_ns=duration_ns,
                 outcome="success",
                 attributes=cache_attrs,
@@ -213,7 +214,7 @@ def _safe_cache_put(
                     span_id=context.span_id,
                     phase_name="cache.write_failure",
                     component="smriti",
-                    timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                    timestamp_utc=datetime.now(UTC).isoformat(),
                     duration_ns=0,
                     outcome="failure",
                     attributes={"error_type": type(cache_err).__name__},
@@ -234,7 +235,7 @@ def _safe_cache_put(
                 span_id=context.span_id,
                 phase_name="cache.unsupported_type",
                 component="smriti",
-                timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                timestamp_utc=datetime.now(UTC).isoformat(),
                 duration_ns=0,
                 outcome="success",
                 attributes={"data_type": type(result.data).__name__},
@@ -287,8 +288,8 @@ def _handle_stage_failure(
                 attempt_count=current_attempt,
                 max_retries=retry_policy.max_retries,
                 status=QuarantineStatus.TERMINAL,
-                created_at_utc=datetime.now(timezone.utc).isoformat(),
-                updated_at_utc=datetime.now(timezone.utc).isoformat(),
+                created_at_utc=datetime.now(UTC).isoformat(),
+                updated_at_utc=datetime.now(UTC).isoformat(),
             )
             with quarantine_transition_scope(
                 darpana=darpana,
@@ -314,8 +315,8 @@ def _handle_stage_failure(
         attempt_count=current_attempt,
         max_retries=retry_policy.max_retries,
         status=QuarantineStatus.QUARANTINED,
-        created_at_utc=datetime.now(timezone.utc).isoformat(),
-        updated_at_utc=datetime.now(timezone.utc).isoformat(),
+        created_at_utc=datetime.now(UTC).isoformat(),
+        updated_at_utc=datetime.now(UTC).isoformat(),
     )
     if quarantine_store is None:
         raise DoshError(

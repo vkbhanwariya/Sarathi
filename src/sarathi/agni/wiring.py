@@ -6,9 +6,9 @@ Kosh owns declaration registration, and Pravaha owns request execution.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode

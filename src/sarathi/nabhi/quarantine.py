@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.nabhi.artifacts.atomic_io import _write_bytes_atomically
@@ -29,7 +30,7 @@ from sarathi.sankalpa import ExecutionContext, Request, Result
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
-class QuarantineStatus(str, Enum):
+class QuarantineStatus(StrEnum):
     """Lifecycle status for a quarantined pipeline item."""
 
     QUARANTINED = "quarantined"
@@ -38,7 +39,7 @@ class QuarantineStatus(str, Enum):
     TERMINAL = "terminal"
 
 
-class LifecycleActionType(str, Enum):
+class LifecycleActionType(StrEnum):
     """Supported lifecycle actions for quarantined items."""
 
     RETRY = "retry"
@@ -365,7 +366,7 @@ class QuarantineStore:
             existing,
             attempt_count=attempt_count if attempt_count is not None else existing.attempt_count,
             status=new_status,
-            updated_at_utc=updated_at_utc or datetime.now(timezone.utc).isoformat(),
+            updated_at_utc=updated_at_utc or datetime.now(UTC).isoformat(),
         )
         self.quarantine(updated_record)
         return updated_record

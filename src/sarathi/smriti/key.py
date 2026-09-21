@@ -6,10 +6,11 @@ import dataclasses
 import datetime
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from sarathi.sankalpa import CanonicalDocument, InputRef, Request, Result
 
@@ -30,12 +31,10 @@ class CacheKey:
 def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
     """Compute a stable, privacy-safe SHA-256 fingerprint from factual input content streamed in request order."""
     hasher = hashlib.sha256()
-    hasher.update(f"COUNT:{len(inputs)}:".encode("utf-8"))
+    hasher.update(f"COUNT:{len(inputs)}:".encode())
     for idx, inp in enumerate(inputs):
         hasher.update(
-            f"INP:{idx}:ID:{len(inp.input_id)}:{inp.input_id}:NAME:{len(inp.display_name)}:{inp.display_name}:SIZE:{inp.size_bytes}:TYPE:{inp.media_type or ''}:".encode(
-                "utf-8"
-            )
+            f"INP:{idx}:ID:{len(inp.input_id)}:{inp.input_id}:NAME:{len(inp.display_name)}:{inp.display_name}:SIZE:{inp.size_bytes}:TYPE:{inp.media_type or ''}:".encode()
         )
         file_read_ok = False
         if inp.source_path and inp.source_path.is_file():
@@ -82,7 +81,7 @@ def _hash_canonical_document(doc: CanonicalDocument) -> str:
     doc_hasher.update(doc.text.encode("utf-8"))
 
     for page in doc.pages:
-        doc_hasher.update(f":p{page.page_number}:{page.text}:".encode("utf-8"))
+        doc_hasher.update(f":p{page.page_number}:{page.text}:".encode())
         for span in page.spans:
             if span.bounding_box:
                 if isinstance(span.bounding_box, (tuple, list)):
@@ -93,30 +92,30 @@ def _hash_canonical_document(doc: CanonicalDocument) -> str:
                 bb = ""
             sm = f":sm{json.dumps(dict(span.metadata), sort_keys=True, default=str)}:" if span.metadata else ""
             doc_hasher.update(
-                f":s{span.text}:{span.confidence}:{bb}:{span.language or ''}:{span.script or ''}{sm}:".encode("utf-8")
+                f":s{span.text}:{span.confidence}:{bb}:{span.language or ''}:{span.script or ''}{sm}:".encode()
             )
         if page.metadata:
-            doc_hasher.update(f":pm{json.dumps(dict(page.metadata), sort_keys=True, default=str)}:".encode("utf-8"))
+            doc_hasher.update(f":pm{json.dumps(dict(page.metadata), sort_keys=True, default=str)}:".encode())
         for tbl in page.tables:
             t_name = tbl.name or ""
             tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
             h_json = json.dumps([f"{type(h).__name__}:{h}" for h in tbl.headers], ensure_ascii=False)
-            doc_hasher.update(f":th{t_name}:{h_json}{tm}:".encode("utf-8"))
+            doc_hasher.update(f":th{t_name}:{h_json}{tm}:".encode())
             for row in tbl.rows:
                 r_json = json.dumps([f"{type(c).__name__}:{c}" for c in row], ensure_ascii=False)
-                doc_hasher.update(f":tr{r_json}:".encode("utf-8"))
+                doc_hasher.update(f":tr{r_json}:".encode())
 
     for tbl in doc.tables:
         t_name = tbl.name or ""
         tm = f":tm{json.dumps(dict(tbl.metadata), sort_keys=True, default=str)}:" if tbl.metadata else ""
         h_json = json.dumps([f"{type(h).__name__}:{h}" for h in tbl.headers], ensure_ascii=False)
-        doc_hasher.update(f":dth{t_name}:{h_json}{tm}:".encode("utf-8"))
+        doc_hasher.update(f":dth{t_name}:{h_json}{tm}:".encode())
         for row in tbl.rows:
             r_json = json.dumps([f"{type(c).__name__}:{c}" for c in row], ensure_ascii=False)
-            doc_hasher.update(f":dtr{r_json}:".encode("utf-8"))
+            doc_hasher.update(f":dtr{r_json}:".encode())
 
     if doc.metadata:
-        doc_hasher.update(f":dm{json.dumps(dict(doc.metadata), sort_keys=True, default=str)}:".encode("utf-8"))
+        doc_hasher.update(f":dm{json.dumps(dict(doc.metadata), sort_keys=True, default=str)}:".encode())
 
     content_hash = doc_hasher.hexdigest()
     return f"{doc.document_id}:{doc.source_input_id or ''}:{doc.detected_type}:{len(doc.pages)}:{len(doc.tables)}:{content_hash}"
@@ -149,7 +148,7 @@ def compute_prior_result_digest(prior_result: Result | None) -> str:
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
     except Exception:
         data_type_name = type(prior_result.data).__name__
-        return hashlib.sha256(f"{data_type_name}:{prov_hash}".encode("utf-8")).hexdigest()
+        return hashlib.sha256(f"{data_type_name}:{prov_hash}".encode()).hexdigest()
 
 
 def compute_cache_key(

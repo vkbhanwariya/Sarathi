@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
 

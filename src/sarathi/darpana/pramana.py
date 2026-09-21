@@ -11,10 +11,10 @@ Never stores raw document text, file paths, or fabricated scores.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
 from sarathi.sankalpa import ConfidenceValue
 

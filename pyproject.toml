@@ -22,10 +22,10 @@ sarathi = "sarathi.__main__:main"
 
 [project.optional-dependencies]
 ocr = [
-    "numpy>=2.0.0",
+    "numpy>=2.5.3",
     "opencv-python-headless>=5.0.0,<5.1.0",
     "openvino>=2026.4.0",
-    "pillow>=12.0.0",
+    "pillow>=12.3.0",
     "rapidocr>=3.9.2",
 ]
 translation = [
@@ -88,7 +88,7 @@ line-length = 120
 output-format = "concise"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+select = ["E", "F", "W", "I", "UP"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
