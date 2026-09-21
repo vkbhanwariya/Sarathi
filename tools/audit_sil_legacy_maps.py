@@ -17,10 +17,16 @@ from typing import Any
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from sarathi.shakti.font_conversion import FontConverter
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from sarathi.shakti.font_conversion import FontConverter  # noqa: E402
 
 # Canonical test fixtures directory (100% offline, committed in repo)
-FIXTURES_DIR = Path("tests/font_conversion/fixtures/sil")
+FIXTURES_DIR = REPO_ROOT / "tests" / "font_conversion" / "fixtures" / "sil"
 
 
 def generate_krutidev_vectors() -> list[dict[str, Any]]:
@@ -302,7 +308,7 @@ def main() -> int:
 
     if args.update_upstream:
         # Load upstream information from external sources registry
-        registry_path = Path("data/external_sources.json")
+        registry_path = REPO_ROOT / "data" / "external_sources.json"
         if registry_path.is_file():
             print(f"[SIL Oracle] Synchronizing from upstream registry: {registry_path}")
         save_fixtures()
