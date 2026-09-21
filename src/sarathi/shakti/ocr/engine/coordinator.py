@@ -89,16 +89,15 @@ def _preprocess_page_image(
         stamp_filled_arr: Any = None
 
         if stamp_mode in ("tag", "remove", "auto"):
-            from sarathi.shakti.ocr.engine.preprocessing import detect_stamps, remove_stamp_artifacts
+            from sarathi.shakti.ocr.engine.preprocessing import detect_stamps, remove_stamps_using_detection
 
             detection = detect_stamps(img_arr)
             stamps_detected_regions = detection.regions
-            if detection.removed_ratio > 0.0:
-                stamp_filled_arr = remove_stamp_artifacts(img_arr)
-                if stamp_mode == "remove":
-                    img_arr = stamp_filled_arr
-                    stamp_removal_applied = True
-                    stamp_removed_ratio = detection.removed_ratio
+            if stamp_mode == "remove" and detection.removed_ratio > 0.0:
+                stamp_filled_arr = remove_stamps_using_detection(img_arr, detection)
+                img_arr = stamp_filled_arr
+                stamp_removal_applied = True
+                stamp_removed_ratio = detection.removed_ratio
 
         img_arr = ocr_engine.preprocess_ocr_image(img_arr, deskew=deskew, clahe=clahe, remove_stamps=False)
     else:
@@ -146,7 +145,7 @@ def _evaluate_page_orientation(
     conf_thresh = float(custom_options.get("orientation_confidence_threshold", 0.6)) if custom_options else 0.6
 
     if orientation_enabled and (mean_conf < conf_thresh or median_ratio > 1.5):
-        candidate_angles = [90, 270] if median_ratio > 1.5 else [180, 90, 270]
+        candidate_angles = [90, 270] if median_ratio > 1.5 else [180]
         candidates = [
             RotationCandidate(
                 rotation=0,
@@ -249,8 +248,8 @@ class RapidOCREngine:
         manifest_path = self._data_root / "manifest.json"
         if manifest_path.is_file():
             try:
-                st = manifest_path.stat()
-                hasher.update(f"manifest:{st.st_size}:{st.st_mtime_ns}".encode())
+                content = manifest_path.read_text(encoding="utf-8")
+                hasher.update(content.encode("utf-8"))
             except OSError:
                 pass
         return hasher.hexdigest()[:16]

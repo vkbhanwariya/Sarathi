@@ -43,6 +43,7 @@ from sarathi.shakti.ocr.engine.preprocessing import (
     is_low_contrast_image,
     preprocess_ocr_image,
     remove_stamp_artifacts,
+    remove_stamps_using_detection,
 )
 from sarathi.shakti.ocr.engine.rasterize import (
     BoundedPageRasterizer,
@@ -82,6 +83,7 @@ __all__ = [
     "preprocess_ocr_image",
     "reconstruct_layout",
     "remove_stamp_artifacts",
+    "remove_stamps_using_detection",
     "resolve_target_device",
     "sort_reading_order_xycut",
 ]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -396,3 +398,24 @@ def test_bug_O1_checkpoint_robustness(tmp_path: Path, monkeypatch: Any) -> None:
     cap.execute(req, ctx)
 
     assert not (work_dir / "Runtime").exists(), "Runtime/ folder must not be created in CWD!"
+
+
+def test_asset_version_tracks_manifest_content_deterministically(tmp_path: Path) -> None:
+    """Verify RapidOCREngine.asset_version derives deterministically from manifest content, not mtime."""
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text('{"models": {"v1": {"sha256": "abc"}}}', encoding="utf-8")
+
+    engine1 = RapidOCREngine(data_root=tmp_path)
+    v1 = engine1.asset_version
+    assert len(v1) == 16
+
+    # Update mtime without changing content: asset_version MUST be identical
+    now = time.time()
+    os.utime(manifest_file, (now - 500, now - 500))
+    engine2 = RapidOCREngine(data_root=tmp_path)
+    assert engine2.asset_version == v1
+
+    # Change content: asset_version MUST change
+    manifest_file.write_text('{"models": {"v2": {"sha256": "def"}}}', encoding="utf-8")
+    engine3 = RapidOCREngine(data_root=tmp_path)
+    assert engine3.asset_version != v1

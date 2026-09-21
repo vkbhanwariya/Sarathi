@@ -49,14 +49,14 @@ def deskew_image(image_arr: Any) -> tuple[Any, float]:
             proj = np.sum(rot, axis=1)
             return float(np.var(proj))
 
-        # Coarse search from -15 to +15 in 0.5 degree steps
-        coarse_angles = np.arange(-15.0, 15.001, 0.5)
+        # Coarse search from -14 to +14 in 2.0 degree steps (15 angles instead of 61)
+        coarse_angles = np.arange(-14.0, 14.001, 2.0)
         coarse_vars = [score_angle(float(a)) for a in coarse_angles]
         best_coarse_idx = int(np.argmax(coarse_vars))
         best_coarse_angle = float(coarse_angles[best_coarse_idx])
 
-        # Fine search in 0.1 degree steps around peak
-        fine_angles = np.arange(best_coarse_angle - 0.6, best_coarse_angle + 0.601, 0.1)
+        # Fine search in 0.1 degree steps around peak (±0.8 degrees)
+        fine_angles = np.arange(best_coarse_angle - 0.8, best_coarse_angle + 0.801, 0.1)
         fine_vars = [score_angle(float(a)) for a in fine_angles]
         best_fine_idx = int(np.argmax(fine_vars))
         angle = float(fine_angles[best_fine_idx])
@@ -271,8 +271,8 @@ def detect_stamps(
         return StampDetection(mask=np.zeros((h, w), dtype=np.uint8), regions=(), removed_ratio=0.0)
 
 
-def remove_stamp_artifacts(image_arr: Any) -> Any:
-    """Remove colored official rubber stamps using hue-agnostic detection and background fill."""
+def remove_stamps_using_detection(image_arr: Any, detection: StampDetection) -> Any:
+    """Inpaint detected stamp regions using background fill without re-running stamp detection."""
     try:
         import cv2
         import numpy as np
@@ -280,7 +280,6 @@ def remove_stamp_artifacts(image_arr: Any) -> Any:
         if not isinstance(image_arr, np.ndarray) or len(image_arr.shape) != 3 or image_arr.size == 0:
             return image_arr
 
-        detection = detect_stamps(image_arr)
         if detection.removed_ratio == 0.0 or cv2.countNonZero(detection.mask) == 0:
             return image_arr
 
@@ -298,6 +297,12 @@ def remove_stamp_artifacts(image_arr: Any) -> Any:
         return out
     except Exception:
         return image_arr
+
+
+def remove_stamp_artifacts(image_arr: Any) -> Any:
+    """Remove colored official rubber stamps using hue-agnostic detection and background fill."""
+    detection = detect_stamps(image_arr)
+    return remove_stamps_using_detection(image_arr, detection)
 
 
 def preprocess_ocr_image(

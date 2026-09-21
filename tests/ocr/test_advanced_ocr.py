@@ -424,3 +424,51 @@ def test_digital_pdf_auto_triage_fast_path(tmp_path: Path) -> None:
     res_force = cap.execute(req_force, ctx)
     assert len(engine_calls) == 1
     assert "Forced OCR Output" in res_force.data.pages[0].text
+
+
+def test_skip_header_footer_filters_both_text_and_spans(tmp_path: Path) -> None:
+    """Verify skip_header_footer filters recurring headers from both text and PageData.spans."""
+    import fitz
+
+    # Create a 2-page PDF with identical recurring header template
+    pdf_doc = fitz.open()
+    for p_no in (1, 2):
+        page = pdf_doc.new_page(width=300, height=300)
+        page.insert_text((20, 20), f"[2026:RJ-JP:18881] ({p_no} of 2)", fontsize=10)
+        page.insert_text((20, 100), f"Body paragraph content for page {p_no}", fontsize=12)
+
+    pdf_bytes = pdf_doc.tobytes()
+    pdf_doc.close()
+
+    pdf_file = tmp_path / "recurring_header.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+
+    cap = OCRCapability(engine=MagicMock())
+    req = Request(
+        request_id="req-hf",
+        requirement="ocr",
+        inputs=[
+            InputRef(
+                input_id="inp-hf",
+                source_path=pdf_file,
+                display_name="recurring_header.pdf",
+                size_bytes=len(pdf_bytes),
+                media_type="application/pdf",
+            )
+        ],
+        custom_options={"skip_header_footer": True},
+    )
+    ctx = ExecutionContext("run-hf", "req-hf", "t-hf", "s-hf")
+
+    res = cap.execute(req, ctx)
+    assert res is not None
+    doc: CanonicalDocument = res.data
+    assert len(doc.pages) == 2
+
+    # Verify both text and spans exclude the header
+    for p in doc.pages:
+        assert "Body paragraph content" in p.text
+        assert "[2026:RJ-JP:18881]" not in p.text
+        assert not any("[2026:RJ-JP:18881]" in s.text for s in p.spans)
+        assert any("Body paragraph content" in s.text for s in p.spans)
+        assert "header" in p.metadata

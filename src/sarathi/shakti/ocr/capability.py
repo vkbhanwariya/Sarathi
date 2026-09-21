@@ -762,13 +762,15 @@ class OCRCapability:
                                     continue
                                 body_spans.append(s)
                             p_text = group_paragraphs(body_spans) if body_spans else ""
+                            p_spans = tuple(body_spans)
                         else:
                             p_text = p.text
+                            p_spans = p.spans
                         clean_pages.append(
                             PageData(
                                 page_number=p.page_number,
                                 text=p_text,
-                                spans=p.spans,
+                                spans=p_spans,
                                 tables=p.tables,
                                 metadata=p_meta,
                             )

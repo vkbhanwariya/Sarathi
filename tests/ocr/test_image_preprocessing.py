@@ -16,8 +16,10 @@ from sarathi.shakti.ocr.engine import (
     RapidOCREngine,
     apply_clahe,
     deskew_image,
+    detect_stamps,
     preprocess_ocr_image,
     remove_stamp_artifacts,
+    remove_stamps_using_detection,
 )
 
 
@@ -500,3 +502,35 @@ def test_extract_images_multipage_tiff() -> None:
 
     images = extract_images_from_bytes(tiff_bytes)
     assert len(images) == 3
+
+
+def test_remove_stamps_using_detection_direct() -> None:
+    """Verify remove_stamps_using_detection inpaints using existing detection without re-detecting."""
+    import cv2
+
+    img = np.ones((100, 100, 3), dtype=np.uint8) * 255
+    # Red circle stamp
+    cv2.circle(img, (50, 50), 20, (30, 30, 220), -1)
+
+    detection = detect_stamps(img)
+    assert detection.removed_ratio > 0.0
+
+    with mock.patch("sarathi.shakti.ocr.engine.preprocessing.detect_stamps") as mock_detect:
+        inpainted = remove_stamps_using_detection(img, detection)
+        # detect_stamps must NOT be called again
+        mock_detect.assert_not_called()
+        assert not np.array_equal(inpainted, img)
+
+
+def test_deskew_preserves_straight_image() -> None:
+    """Verify deskew_image returns 0.0 angle on horizontal text lines."""
+    import cv2
+
+    img = np.zeros((200, 200, 3), dtype=np.uint8)
+    # Draw horizontal white text-like bars
+    cv2.rectangle(img, (20, 40), (180, 50), (255, 255, 255), -1)
+    cv2.rectangle(img, (20, 80), (180, 90), (255, 255, 255), -1)
+    cv2.rectangle(img, (20, 120), (180, 130), (255, 255, 255), -1)
+
+    out, angle = deskew_image(img)
+    assert abs(angle) <= 0.5
