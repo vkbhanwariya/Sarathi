@@ -370,20 +370,20 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
     assert payload_initial["requirement"] == "ocr"
     assert payload_initial["profile"] == "instant"
 
-    # Verify Profile selector (Instant vs Accurate)
-    btn_instant = app_page.locator("#btn-ocr-profile-instant")
+    # Verify Profile selector (single Accurate toggle, Instant is default)
+    expect(app_page.locator("#btn-ocr-profile-instant")).to_have_count(0)
     btn_accurate = app_page.locator("#btn-ocr-profile-accurate")
-    expect(btn_instant).to_be_visible()
-    expect(btn_instant).to_have_class(re.compile(r"\bactive\b"))
     expect(btn_accurate).to_be_visible()
+    # Default: Accurate toggle is OFF (profile = instant)
+    expect(btn_accurate).not_to_have_class(re.compile(r"\bactive\b"))
 
     btn_accurate.click()
     expect(btn_accurate).to_have_class(re.compile(r"\bactive\b"))
     payload_accurate = app_page.evaluate("() => window.__sarathi_build_request()")
     assert payload_accurate["profile"] == "accurate"
 
-    btn_instant.click()
-    expect(btn_instant).to_have_class(re.compile(r"\bactive\b"))
+    btn_accurate.click()
+    expect(btn_accurate).not_to_have_class(re.compile(r"\bactive\b"))
     payload_reinstant = app_page.evaluate("() => window.__sarathi_build_request()")
     assert payload_reinstant["profile"] == "instant"
 
