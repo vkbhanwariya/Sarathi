@@ -3225,8 +3225,8 @@ a { color: inherit; text-decoration: none; }
 /* Workflow Choices: Tactile Cards */
 .workflow-columns-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
   width: 100%;
 }
 .workflow-col-card {
