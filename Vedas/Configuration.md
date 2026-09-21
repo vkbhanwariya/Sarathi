@@ -1,163 +1,35 @@
 # Sarathi Configuration
 
-Sarathi configuration is managed by the **Sutra** subsystem. Configuration is read from an explicit TOML file (default: `config/settings.toml`) into immutable, typed `Settings`.
+Configuration is managed by the **Sutra** subsystem, loaded from `config/settings.toml` into immutable, typed `Settings`.
 
 ---
 
-## Configuration Sections
+## Master Configuration Matrix
 
-### `[storage]`
-
-Configures filesystem boundaries for data ingestion, staging, and artifact storage.
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `input_root` | `Path` | `"Input"` | `"Input"` | Root directory containing input documents. |
-| `output_root` | `Path` | `"Output"` | `"Output"` | Root directory for validated, committed output artifacts. |
-| `runtime_root` | `Path` | `"Runtime"` | `"Runtime"` | Directory for scratch workspaces, staging, and temp files. |
-
----
-
-### `[pipeline]`
-
-Controls execution workflow behavior.
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `max_retries` | `int` | `0` | `0` | Maximum automated retry attempts for transient pipeline execution failures. |
-
----
-
-### `[security]`
-
-Defines Kavacha authorization rules and network boundaries.
-
-> [!IMPORTANT]
-> Settings that enable external or cloud processing are marked with **(Enables External/Cloud)**.
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `allow_pii_access` | `bool` | `false` | `false` | Permits capabilities to access Personally Identifiable Information. Shipped disabled for privacy hardening. |
-| `allow_network_access` | `bool` | `false` | `false` | **(Enables External/Cloud)** Permits outbound network socket and HTTP communication. Shipped disabled for offline privacy. |
-| `allow_external_processing` | `bool` | `false` | `false` | **(Enables External/Cloud)** Permits transmitting document data to third-party cloud APIs. Shipped disabled. |
-| `allowed_secrets` | `list[str]` | `()` | See below | List of environment variable names containing secrets that Kavacha authorizes capabilities to access. |
-
-> [!TIP]
-> For cloud-enabled environments where external AI processing is explicitly authorized, consult `config/settings.cloud.example.toml`.
-
-Default `allowed_secrets` in `config/settings.toml`:
-```toml
-allowed_secrets = [
-    "AZURE_API_KEY",
-    "AZURE_ENDPOINT",
-    "GEMINI_API_KEY",
-    "MISTRAL_API_KEY",
-]
-```
-
----
-
-### `[telemetry]`
-
-Configures Darpana execution and quality telemetry.
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `history_enabled` | `bool` | `false` | `false` | Enables persistent disk storage of terminal run records. |
-| `history_path` | `Path \| None` | `None` | `"history.jsonl"` | File path where terminal run history is stored. |
-| `history_format` | `str` | `"jsonl"` | `"jsonl"` | Format for stored history (`"jsonl"` or `"sqlite"`). |
-| `live_buffer_capacity` | `int` | `1000` | `256` | Maximum number of in-memory live telemetry records retained. |
-| `history_max_records` | `int` | `1000` | `1000` | Maximum historical records retained in queries. |
-
----
-
-### `[hardware]`
-
-Configures Yantra hardware resource detection and execution concurrency.
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `detect_accelerators` | `bool` | `false` | `true` | Enables OpenVINO probing for local GPU and NPU devices. |
-| `gpu_capacity_per_device` | `int` | `4` | `2` | Scheduler concurrency slot budget allocated per GPU (tuned for dual hardware streams on Intel Arc iGPU). |
-| `cpu_capacity` | `int \| None` | `None` | `6` | Scheduler concurrency slot budget for CPU worker pool (tuned for 4 P-cores + 2 E-cores on reference Meteor Lake Ultra 5 125H). |
-| `npu_capacity_per_device` | `int` | `2` | `2` | Scheduler concurrency slot budget allocated per NPU. |
-| `max_queue_depth` | `int` | `64` | `64` | Maximum pending subtask queue depth for accelerator dispatch. |
-
----
-
-### `[cache]`
-
-Configures Smriti deterministic result caching.
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `enabled` | `bool` | `true` | `true` | Enables result caching across requests. |
-| `dir` | `Path \| None` | `None` | `None` | Directory path for persistent L2 cache (memory-only if `None`). |
-| `ttl_seconds` | `int \| None` | `86400` | `86400` | Cache time-to-live in seconds (24 hours; `None` disables expiry). |
-| `max_entries_l1` | `int` | `200` | `200` | In-memory L1 cache capacity. |
-| `max_entries_l2` | `int` | `2000` | `2000` | Persistent L2 cache entry capacity. |
-
----
-
-### `[limits]`
-
-Defines resource limits and defensive caps for archive and XML parsing (S3 security).
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `max_input_bytes` | `int` | `524288000` | `524288000` | Maximum intake file size (500 MB). Larger inputs are rejected fail-closed. |
-| `max_uncompressed_bytes` | `int` | `1073741824` | `1073741824` | Maximum uncompressed extracted archive size (1 GiB) to prevent zip bombs. |
-| `max_compression_ratio` | `float` | `200.0` | `200.0` | Maximum allowable compression ratio before aborting decompression. |
-| `max_zip_members` | `int` | `10000` | `10000` | Maximum number of files permitted in an ingested ZIP/DOCX/XLSX archive. |
-
----
-
-### `[plugins]`
-
-Controls plugin registration during bootstrap.
-
-| Key | Type | Code Default | Config Default | Description |
-| --- | --- | --- | --- | --- |
-| `disabled` | `list[str]` | `()` | `()` | Sequence of plugin IDs to disable during bootstrap. |
-
----
-
-## Cloud Provider Configuration
-
-The following sections configure external cloud adapters. These settings are consulted only when external processing and network access are enabled in `[security]`.
-
-### `[mistral]`
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `api_key` | `str \| None` | `None` | Mistral API key (overrides `MISTRAL_API_KEY` env var). |
-| `base_url` | `str` | `"https://api.mistral.ai/v1"` | Base endpoint URL for Mistral API. |
-| `model_ocr` | `str` | `"mistral-ocr-latest"` | Model identifier for Mistral OCR. |
-| `model_translation` | `str` | `"mistral-medium-latest"` | Model identifier for Mistral translation. |
-| `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |
-| `rate_limit_delay_seconds` | `float` | `2.0` | Minimum seconds between consecutive requests for RPM/RPS pacing (tuned for 1 RPS free tier). |
-
-### `[gemini]`
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `api_key` | `str \| None` | `None` | Gemini API key (overrides `GEMINI_API_KEY` env var). |
-| `base_url` | `str` | `"https://generativelanguage.googleapis.com/v1beta"` | Base endpoint URL for Gemini API. |
-| `model_ocr` | `str` | `"gemini-3.6-flash"` | Model identifier for Gemini OCR. |
-| `model_translation` | `str` | `"gemini-3.6-flash"` | Model identifier for Gemini translation. |
-| `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |
-| `rate_limit_delay_seconds` | `float` | `2.0` | Minimum seconds between consecutive requests for free-tier RPM pacing. |
-
-### `[azure]`
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `api_key` | `str \| None` | `None` | Azure Document Intelligence key (overrides `AZURE_API_KEY`). |
-| `endpoint` | `str \| None` | `None` | Azure Document Intelligence endpoint (overrides `AZURE_ENDPOINT`). |
-| `translator_key` | `str \| None` | `None` | Azure Translator key (overrides `AZURE_TRANSLATOR_KEY`). |
-| `translator_region` | `str \| None` | `None` | Azure Translator region (overrides `AZURE_TRANSLATOR_REGION`). |
-| `translator_endpoint` | `str` | `"https://api.cognitive.microsofttranslator.com"` | Endpoint URL for Azure Translator. |
-| `api_version` | `str` | `"2024-11-30"` | Azure Document Intelligence API version. |
-| `model_translation` | `str` | `"azure-translator-v3"` | Model name for Azure translation. |
-| `timeout_seconds` | `float` | `60.0` | HTTP request timeout in seconds. |
-| `poll_timeout_seconds` | `float` | `600.0` | Separate timeout in seconds for asynchronous Azure layout polling. |
+| Section | Key | Type | Default | Description & Security Impact |
+| :--- | :--- | :--- | :--- | :--- |
+| `[storage]` | `input_root` | `Path` | `"Input"` | Root directory containing raw input documents. |
+| | `output_root` | `Path` | `"Output"` | Root directory for validated, committed output artifacts. |
+| | `runtime_root` | `Path` | `"Runtime"` | Directory for scratch workspaces, staging, and temp files. |
+| `[pipeline]` | `max_retries` | `int` | `0` | Automated retry limit for transient pipeline errors. |
+| `[security]` | `allow_pii_access` | `bool` | `false` | Permits access to Personally Identifiable Information (disabled for privacy). |
+| | `allow_network_access` | `bool` | `false` | **(External/Cloud)** Permits outbound socket/HTTP egress (disabled by default). |
+| | `allow_external_processing`| `bool` | `false` | **(External/Cloud)** Permits transmitting document data to cloud APIs. |
+| | `allowed_secrets` | `list[str]`| `["AZURE_..."]` | Environment variable names containing authorized API keys. |
+| `[hardware]` | `detect_accelerators` | `bool` | `true` | Probes OpenVINO GPU and NPU devices. Set `false` to force CPU. |
+| | `gpu_capacity_per_device` | `int` | `2` | Max concurrent worker slots per GPU (tuned for Intel Arc iGPU). |
+| | `cpu_capacity` | `int` | `6` | CPU concurrency slots (tuned for Core Ultra 5 125H 4P + 2E cores). |
+| | `npu_capacity_per_device` | `int` | `2` | Concurrency slots allocated per NPU. |
+| | `max_queue_depth` | `int` | `64` | Subtask queue depth for accelerator dispatch. |
+| `[cache]` | `enabled` | `bool` | `true` | Enables deterministic result caching across runs. |
+| | `dir` | `Path \| None`| `None` | Persistent L2 cache directory (`None` = memory-only L1). |
+| | `ttl_seconds` | `int \| None`| `86400` | Result cache TTL in seconds (default 24h). |
+| | `max_entries_l1` | `int` | `200` | In-memory L1 cache capacity. |
+| | `max_entries_l2` | `int` | `2000` | Disk L2 cache capacity. |
+| `[telemetry]` | `history_enabled` | `bool` | `false` | Enables persistent storage of terminal run records. |
+| | `history_path` | `Path \| None`| `"history.jsonl"` | File path where terminal run history is stored. |
+| | `history_format` | `str` | `"jsonl"` | Format for stored history (`"jsonl"` or `"sqlite"`). |
+| | `live_buffer_capacity` | `int` | `256` | In-memory live telemetry buffer capacity. |
+| `[limits]` | `max_input_bytes` | `int` | `268435456` | Maximum allowed size of an uploaded input file (256 MiB). |
+| | `max_uncompressed_bytes` | `int` | `1073741824`| Maximum allowed uncompressed size for zip/docx/xlsx (1 GiB). |
+| | `max_compression_ratio` | `float` | `200.0` | Maximum compression ratio permitted (zip bomb protection). |

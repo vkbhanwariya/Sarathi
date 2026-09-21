@@ -107,11 +107,10 @@ uv run --all-extras --group dev pytest -q -m "not browser and not performance an
 Comprehensive engineering documentation is maintained in [`Vedas/`](Vedas/README.md):
 
 - **[Architecture & Runtime Flow](Vedas/Architecture.md)**: Canonical subsystem ownership, runtime coordination, and architectural invariants.
+- **[Code & Optimization Index](Vedas/CODE_INDEX.md)**: Automated dense code index mapping every module to responsibility, compute profile, and key symbols.
 - **[Capabilities Specification](Vedas/Capabilities.md)**: Inputs, outputs, fallbacks, configurations, and limitations for each capability.
 - **[Runtime Configuration](Vedas/Configuration.md)**: Configurable options, defaults, and security/cloud processing settings.
-- **[Supported Formats](Vedas/Formats.md)**: Details on supported PDF, DOCX, spreadsheet, delimited text, and legacy font formats.
 - **[Troubleshooting](Vedas/Troubleshooting.md)**: Diagnoses and actionable fixes for OCR, OpenVINO, fonts, encodings, and network setup.
 - **[Developer Workflow & CI Commands](Vedas/Development.md)**: Exact commands for testing, linting, building, and running CI gates.
-- **[Local Web Transport](Vedas/Mukha_Transport.md)**: ASGI server configuration, SSE streaming, and security boundary.
 - **[Design & Product Decisions](Vedas/Decisions.md)**: Canonical UI/UX progressive Home task hierarchy and capability mapping.
 - **[Production Architecture Manifest](Vedas/architecture.manifest.json)**: Machine-readable system topology.

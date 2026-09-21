@@ -61,6 +61,20 @@ Sarathi is an offline-first, local document and financial intelligence system. I
 
 ---
 
+## Mukha Local Web Transport
+
+Mukha exposes Sarathi through a local-only ASGI application backed by Uvicorn, Starlette, and a production Preact/TypeScript SPA:
+- **Loopback & Security**: Strictly binds to `127.0.0.1`. Generates a 256-bit session token (`secrets.token_urlsafe(32)`), setting an `HttpOnly; SameSite=Strict` cookie on `/?t=<token>`. Non-loopback Host/Origin headers are rejected with `403 Forbidden`. Enforces CSP, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY`.
+- **Reactive Streaming**: Uses Server-Sent Events (`GET /api/events`) for real-time state synchronization, active stage/hardware reporting, and progress ticks (5-second progress visibility rule).
+- **Core Endpoints**:
+  - `GET /` & `/ui/*` — Preact SPA shell and compiled static assets.
+  - `GET /api/state` & `GET /api/events` — Real-time application view state snapshot and SSE stream.
+  - `POST /api/intake` & `POST /api/plan/preview` — Input document discovery, security validation, and planned stage preview.
+  - `POST /api/runs` & `POST /api/runs/{id}/cancel` — Pipeline dispatch and cooperative run cancellation.
+  - `GET /api/inputs/{id}/preview` & `GET /api/runs/{id}/artifacts/{id}` — Path-contained document previews and downloads.
+
+---
+
 ## Primary Hardware Deployment Profile
 
 Sarathi optimizations are engineered, tuned, and validated for this primary hardware profile first before fallback targets:

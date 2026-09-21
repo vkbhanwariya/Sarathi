@@ -23,6 +23,11 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR / "src"))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 EXTERNAL_SOURCES_PATH = ROOT_DIR / "data" / "external_sources.json"
 OCR_MANIFEST_PATH = ROOT_DIR / "data" / "ocr" / "manifest.json"
 TRANSLATION_MANIFEST_PATH = ROOT_DIR / "data" / "translation" / "manifest.json"
@@ -114,7 +119,10 @@ def update_sil_fixtures() -> bool:
     SIL_FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
 
     # Use tools/audit_sil_legacy_maps.py save_fixtures as canonical transformer
-    from tools.audit_sil_legacy_maps import audit_converter, save_fixtures
+    try:
+        from tools.audit_sil_legacy_maps import audit_converter, save_fixtures
+    except ModuleNotFoundError:
+        from audit_sil_legacy_maps import audit_converter, save_fixtures
 
     kruti_path, shusha_path = save_fixtures()
     print(f"  [OK] Generated canonical fixtures: {kruti_path.name}, {shusha_path.name}")

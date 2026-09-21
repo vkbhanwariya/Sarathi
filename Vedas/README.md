@@ -13,10 +13,8 @@
 | [`CODE_INDEX.md`](CODE_INDEX.md) | Automated dense code index mapping every module to responsibility, compute profile, and key symbols |
 | [`Capabilities.md`](Capabilities.md) | Document intelligence capabilities, inputs, outputs, accelerators, and fallbacks |
 | [`Configuration.md`](Configuration.md) | Typed Sutra configuration keys, defaults, and cloud settings |
-| [`Formats.md`](Formats.md) | Supported document, spreadsheet, delimited, and font formats |
 | [`Decisions.md`](Decisions.md) | Canonical UI task hierarchy and workflow mapping |
 | [`Development.md`](Development.md) | Environment setup, fast-gate commands, and development ladder |
-| [`Mukha_Transport.md`](Mukha_Transport.md) | Local ASGI web transport, SSE streaming, and security boundary |
 | [`Troubleshooting.md`](Troubleshooting.md) | Diagnoses and fixes for OCR, translation, OpenVINO, fonts, and network |
 | [`architecture.manifest.json`](architecture.manifest.json) | Machine-readable production package and component topology |
 

@@ -21,6 +21,10 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 
 ## 1. Native Extraction (`native_extraction`)
 - **Engine**: PyMuPDF (`pymupdf`) vector text and character bounding box extraction. Deep GNN layout recovery via `pymupdf-layout` under `layout_preserving` profile.
+- **Format Coverage**:
+  - *Spreadsheets*: Modern XLSX/XLSM (`python-calamine` / `openpyxl`), legacy BIFF8 XLS (Calamine / `xlrd`), XML SpreadsheetML 2003, and HTML tables disguised as `.xls`.
+  - *Delimited Text*: CSV, TSV, semicolon, pipe (dialect auto-sniffed via `csv.Sniffer`, memory-efficient columnar parsing via `polars`).
+  - *Encodings*: Auto-sniffed via `charset-normalizer` (UTF-8/16, CP1252, Latin-1, with graceful replacement fallback).
 - **Stroke Table Recovery**: Clusters vector drawing paths (`_extract_vector_stroke_tables`) to reconstruct borderless and ruled tables sub-millisecond without neural model overhead.
 - **Archive & XML Defenses**: Safe zip decompression caps (1 GiB uncompressed, 200.0 ratio bound, 10,000 members) and `defusedxml` protection against Billion Laughs and XXE.
 - **Fallback**: Sets `needs_ocr=True` on scanned or empty-text PDFs to trigger automated OCR escalation via Manthan.

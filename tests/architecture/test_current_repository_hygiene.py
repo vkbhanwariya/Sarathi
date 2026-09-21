@@ -18,8 +18,6 @@ CURRENT_DOCS = {
     "Configuration.md",
     "Decisions.md",
     "Development.md",
-    "Formats.md",
-    "Mukha_Transport.md",
     "Troubleshooting.md",
 }
 STALE_DOC_NAME_PARTS = (
