@@ -459,13 +459,18 @@ class _ResourceAllocator:
         self._used_units[registered.device_id] = max(0, curr - registered.granted_units)
 
     def _dispatch_waiting_unlocked(self) -> None:
-        for i, entry in enumerate(self._waiting_queue):
-            alloc = self._try_allocate_unlocked(entry.requirement)
-            if alloc is not None:
-                self._waiting_queue.pop(i)
-                entry.allocation = alloc
-                entry.event.set()
-                return
+        while self._waiting_queue:
+            dispatched = False
+            for i, entry in enumerate(self._waiting_queue):
+                alloc = self._try_allocate_unlocked(entry.requirement)
+                if alloc is not None:
+                    self._waiting_queue.pop(i)
+                    entry.allocation = alloc
+                    entry.event.set()
+                    dispatched = True
+                    break
+            if not dispatched:
+                break
 
     def _create_allocation(
         self,

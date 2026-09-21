@@ -15,7 +15,7 @@ from sarathi.sankalpa import (
     ExecutionBinding,
     ExecutionContext,
 )
-from sarathi.yantra import DeviceInfo, DeviceInventory, Yantra
+from sarathi.yantra import Allocation, DeviceInfo, DeviceInventory, Yantra
 
 
 class TestQueueingAndWaiting:
@@ -127,6 +127,73 @@ class TestQueueingAndWaiting:
 
         # High priority waiter must have been dispatched before low priority waiter!
         assert dispatch_order == ["high", "low"]
+
+    def test_multi_waiter_capacity_dispatch_admits_all_compatible_jobs(self) -> None:
+        """Verify releasing a multi-unit allocation admits all compatible queued waiters at once."""
+        inventory = DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=8)])
+        yantra = Yantra(inventory)
+
+        # Initial heavy allocation consumes all 8 capacity units
+        req_heavy = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,),
+            supported_devices=(DeviceType.CPU,),
+            parallelizable=True,
+            inference_slots=8,
+        )
+        alloc_heavy = yantra.allocate(req_heavy)
+        assert alloc_heavy.granted_units == 8
+        assert yantra._allocator.get_available_capacity("cpu-0") == 0
+
+        # Enqueue 6 workers, each requesting 1 capacity unit
+        req_worker = DeviceRequirement(
+            preferred_devices=(DeviceType.CPU,),
+            supported_devices=(DeviceType.CPU,),
+            parallelizable=False,
+        )
+
+        results: list[Allocation | None] = [None] * 6
+        errors: list[Exception | None] = [None] * 6
+        ready_events = [threading.Event() for _ in range(6)]
+
+        def worker(idx: int) -> None:
+            ready_events[idx].set()
+            try:
+                alloc = yantra.allocate(req_worker, timeout=3.0)
+                results[idx] = alloc
+            except Exception as e:
+                errors[idx] = e
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
+        for t in threads:
+            t.start()
+
+        # Wait for all workers to begin and queue
+        for ev in ready_events:
+            ev.wait(timeout=1.0)
+        time.sleep(0.1)
+
+        # All 6 must still be waiting since all 8 units are occupied
+        assert all(res is None for res in results)
+        assert all(err is None for err in errors)
+
+        # Release the 8-unit allocation: dispatcher MUST drain and admit all 6 waiters in a single release!
+        yantra.release(alloc_heavy)
+
+        for t in threads:
+            t.join(timeout=2.0)
+            assert not t.is_alive()
+
+        # Verify all 6 workers were admitted and acquired their allocations
+        assert all(err is None for err in errors)
+        assert all(res is not None for res in results)
+        assert len({res.allocation_id for res in results if res is not None}) == 6
+        assert yantra._allocator.get_available_capacity("cpu-0") == 2
+
+        # Cleanup
+        for res in results:
+            if res is not None:
+                yantra.release(res)
+        assert yantra._allocator.get_available_capacity("cpu-0") == 8
 
     def test_cancellation_while_waiting_in_queue(self) -> None:
         inventory = DeviceInventory([DeviceInfo(device_id="cpu-0", device_type=DeviceType.CPU, capacity=1)])
