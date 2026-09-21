@@ -121,6 +121,27 @@ def apply_clahe(image_arr: Any, clip_limit: float = 2.0, tile_grid_size: tuple[i
         return image_arr
 
 
+def enhance_crop_contrast(crop_arr: Any, clip_limit: float = 2.5) -> Any:
+    """Enhance contrast of a cropped text region using localized adaptive histogram equalization."""
+    try:
+        import numpy as np
+
+        if not isinstance(crop_arr, np.ndarray) or crop_arr.size == 0:
+            return crop_arr
+
+        h, w = crop_arr.shape[:2]
+        if h < 4 or w < 4:
+            return crop_arr
+
+        # Choose adaptive grid size based on crop dimensions (at least 2x2, at most 4x4)
+        grid_y = max(2, min(4, h // 8))
+        grid_x = max(2, min(4, w // 16))
+
+        return apply_clahe(crop_arr, clip_limit=clip_limit, tile_grid_size=(grid_x, grid_y))
+    except Exception:
+        return crop_arr
+
+
 @dataclass(frozen=True)
 class StampRegion:
     """Detected stamp bounding box and dominant RGB color."""

@@ -6,9 +6,11 @@ weak-crop retry, and canonical PageData and TableData synthesis.
 
 from __future__ import annotations
 
+import math
 import queue
 import threading
-from collections.abc import Mapping
+import unicodedata
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -35,19 +37,28 @@ from sarathi.shakti.ocr.engine.common import (
     V6_LANGS,
 )
 from sarathi.shakti.ocr.engine.critical import (
+    DEFAULT_CRITICAL_RETRY_THRESHOLD,
     DEFAULT_CRITICAL_REVIEW_THRESHOLD,
+    CriticalityType,
     classify_span,
+    repair_critical_token,
+    validate_critical_token,
 )
 from sarathi.shakti.ocr.engine.factory import build_rapidocr_instance, resolve_engine_keys
 from sarathi.shakti.ocr.engine.layout import reconstruct_layout
 from sarathi.shakti.ocr.engine.openvino import resolve_target_device
-from sarathi.shakti.ocr.engine.parser import _parse_rapidocr_output
+from sarathi.shakti.ocr.engine.parser import _parse_rapidocr_output, filter_english_and_numbers
 from sarathi.shakti.ocr.engine.preprocessing import (
     RotationCandidate,
     choose_page_rotation,
     is_low_contrast_image,
 )
 from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
+from sarathi.shakti.text.typography import (
+    contains_devanagari,
+    normalize_devanagari_numerals,
+    synthesize_akshara_unicode,
+)
 
 
 def _preprocess_page_image(
@@ -215,6 +226,138 @@ def _evaluate_page_orientation(
                 img_arr = np.ascontiguousarray(np.rot90(img_arr, -k))
 
     return img_arr, output, lines, spans, conf_scores, parse_warnings, rotation_applied
+
+
+def _recover_critical_spans(
+    img_arr: Any,
+    spans: list[TextSpan],
+    active_engine: Any,
+    custom_options: Mapping[str, Any] | None,
+    stamps_detected_regions: Sequence[tuple[float, float, float, float]] = (),
+    filter_opt: bool = False,
+    normalize_digits: bool = True,
+    max_crops: int = 3,
+) -> list[TextSpan]:
+    """Perform bounded recognition recovery on low-confidence critical entities.
+
+    Invariants:
+      - Only spans classified as critical (currency, statutory IDs, dates, accounts) are eligible.
+      - Never re-runs full-page detection or re-crops general prose.
+      - Hard upper bound on retries (max_crops, default 3, capped at 5).
+      - Applies localized CLAHE enhancement when occluded by stamps or faint ink.
+    """
+    if not spans or not isinstance(img_arr, np.ndarray) or img_arr.size == 0:
+        return spans
+
+    crit_retry_thresh = (
+        float(custom_options.get("critical_retry_threshold", DEFAULT_CRITICAL_RETRY_THRESHOLD))
+        if custom_options and "critical_retry_threshold" in custom_options
+        else DEFAULT_CRITICAL_RETRY_THRESHOLD
+    )
+    user_max_crops = (
+        int(custom_options.get("max_critical_crops", max_crops))
+        if custom_options and "max_critical_crops" in custom_options
+        else max_crops
+    )
+    eff_max_crops = max(1, min(5, user_max_crops))
+
+    candidates: list[tuple[int, TextSpan, CriticalityType, float]] = []
+    for idx, span in enumerate(spans):
+        if not span.text.strip() or span.bounding_box is None:
+            continue
+        is_crit, crit_type = classify_span(span.text)
+        if not is_crit or crit_type is None:
+            continue
+
+        conf = span.confidence if span.confidence is not None else 0.0
+        is_valid, _ = validate_critical_token(span.text, crit_type)
+        if conf < crit_retry_thresh or not is_valid:
+            candidates.append((idx, span, crit_type, conf))
+
+    if not candidates:
+        return spans
+
+    candidates.sort(key=lambda c: c[3])
+    to_recover = candidates[:eff_max_crops]
+
+    from sarathi.shakti.ocr.engine.preprocessing import enhance_crop_contrast
+
+    img_h, img_w = img_arr.shape[:2]
+    recovered_spans = list(spans)
+
+    for idx, span, crit_type, orig_conf in to_recover:
+        bbox = span.bounding_box
+        if bbox is None:
+            continue
+
+        x0, y0, x1, y1 = bbox
+        pad = 3
+        cx0 = max(0, int(math.floor(x0)) - pad)
+        cy0 = max(0, int(math.floor(y0)) - pad)
+        cx1 = min(img_w, int(math.ceil(x1)) + pad)
+        cy1 = min(img_h, int(math.ceil(y1)) + pad)
+
+        if cx1 <= cx0 or cy1 <= cy0:
+            continue
+
+        crop = img_arr[cy0:cy1, cx0:cx1]
+        if crop.size == 0:
+            continue
+
+        overlaps_stamp = any(
+            not (cx1 < sx0 or cx0 > sx1 or cy1 < sy0 or cy0 > sy1)
+            for sx0, sy0, sx1, sy1 in stamps_detected_regions
+        )
+
+        enhanced_crop = enhance_crop_contrast(crop) if overlaps_stamp else crop
+
+        try:
+            rec_output = active_engine(enhanced_crop, use_det=False, use_cls=False)
+        except Exception:
+            continue
+
+        if not rec_output or not getattr(rec_output, "txts", None) or not rec_output.txts:
+            continue
+
+        rec_text = str(rec_output.txts[0] or "").strip()
+        rec_score = float(rec_output.scores[0]) if getattr(rec_output, "scores", None) and rec_output.scores else 0.0
+
+        if not rec_text:
+            continue
+
+        norm_rec = unicodedata.normalize("NFC", rec_text)
+        if normalize_digits:
+            norm_rec = normalize_devanagari_numerals(norm_rec)
+        if contains_devanagari(norm_rec):
+            norm_rec = synthesize_akshara_unicode(norm_rec)
+        if filter_opt:
+            norm_rec = filter_english_and_numbers(norm_rec)
+
+        rep_rec, was_rep = repair_critical_token(norm_rec, crit_type)
+        candidate_text = rep_rec if was_rep else norm_rec
+
+        orig_valid, _ = validate_critical_token(span.text, crit_type)
+        cand_valid, _ = validate_critical_token(candidate_text, crit_type)
+
+        should_replace = False
+        if cand_valid and not orig_valid:
+            should_replace = True
+        elif rec_score > orig_conf:
+            should_replace = True
+
+        if should_replace:
+            meta = dict(span.metadata)
+            meta["critical_recovered"] = True
+            meta["original_text"] = span.text
+            meta["original_confidence"] = orig_conf
+            recovered_spans[idx] = TextSpan(
+                text=candidate_text,
+                bounding_box=span.bounding_box,
+                confidence=rec_score,
+                metadata=meta,
+            )
+
+    return recovered_spans
 
 
 class RapidOCREngine:
@@ -496,6 +639,36 @@ class RapidOCREngine:
                     )
                 )
 
+            # Bounded critical span recognition recovery (max 3 crops per page)
+            spans = _recover_critical_spans(
+                img_arr=img_arr,
+                spans=spans,
+                active_engine=active_engine,
+                custom_options=custom_options,
+                stamps_detected_regions=stamps_detected_regions,
+                filter_opt=filter_opt,
+                normalize_digits=normalize_digits,
+            )
+
+        # Apply deterministic critical token repairs (financial amounts, dates, statutory checksums)
+        final_spans: list[TextSpan] = []
+        for s in spans:
+            rep_text, was_rep = repair_critical_token(s.text)
+            if was_rep:
+                s_meta = dict(s.metadata)
+                s_meta["critical_repaired"] = True
+                s_meta["pre_repair_text"] = s.text
+                final_spans.append(
+                    TextSpan(
+                        text=rep_text,
+                        bounding_box=s.bounding_box,
+                        confidence=s.confidence,
+                        metadata=s_meta,
+                    )
+                )
+            else:
+                final_spans.append(s)
+        spans = final_spans
 
         # Continuous reading-order paragraph reconstruction for scanned pages
         # Note: Table extraction and layout preservation are reserved exclusively for native digital documents.

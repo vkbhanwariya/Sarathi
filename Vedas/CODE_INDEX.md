@@ -86,7 +86,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/docx_exporter/scripts.py` | Text script segmentation for bilingual Hindi (Devanagari) and Latin/English documents | **Standard Logic** | `segment_text_by_script()` |
 | `shakti/docx_exporter/styles.py` | OpenXML style and docDefaults hierarchy resolution for run font and size properties | **Standard Logic** | `DocxStyleResolver`, `resolve_neutral_ooxml_font()` |
 | `shakti/docx_exporter/transformer.py` | In-place OpenXML DOCX document transformation and XML tree processing | **Standard Logic** | `transform_docx_artifact()`, `transform_docx_translation_artifact()`, `normalize_font_family()`, `get_default_profiles()` |
-| `shakti/font_conversion/akshara.py` | Akshara-aware Devanagari Syllable Synthesis and Reordering for Roopa | **CPU (Font Engine / TTF)** | `reorder_pre_base_matra_legacy()`, `reorder_reph_unicode()`, `synthesize_akshara_unicode()` |
+| `shakti/font_conversion/akshara.py` | Akshara-aware Devanagari Syllable Synthesis and Reordering for Roopa | **CPU (Font Engine / TTF)** | `reorder_pre_base_matra_legacy()`, `reorder_reph_unicode()` |
 | `shakti/font_conversion/byte_normalizer.py` | Byte normalizer for repairing MacRoman-encoded legacy Devanagari streams | **CPU (Font Engine / TTF)** | `has_macroman_signatures()`, `is_macroman_text()`, `normalize_macroman_bytes()` |
 | `shakti/font_conversion/capability.py` | Roopa Font Conversion Executable Capability for Sarathi | **CPU (Font Engine / TTF)** | `FontConversionCapability` |
 | `shakti/font_conversion/converter.py` | Akshara-aware Legacy Font to Unicode Converter for Roopa | **CPU (Font Engine / TTF)** | `AnubhavaStore`, `FontConverter` |
@@ -125,7 +125,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/ocr/engine/checkpoint.py` | Content-addressed per-page OCR checkpoint cache for atomic resumption and crash recovery | **Primary iGPU (OpenVINO FP16)** | `get_default_checkpoint_dir()`, `compute_doc_hash()`, `compute_params_hash()`, `get_checkpoint_path()`, `serialize_page_data()` |
 | `shakti/ocr/engine/common.py` | Shared constants, regexes, and language definitions for the OCR engine | **Primary iGPU (OpenVINO FP16)** | `STAGE_NAME`, `PLUGIN_ID`, `CAPABILITY_ID` |
 | `shakti/ocr/engine/coordinator.py` | RapidOCR + OpenVINO engine coordinator for Sarathi | **Primary iGPU (OpenVINO FP16)** | `RapidOCREngine` |
-| `shakti/ocr/engine/critical.py` | Consequence-driven Critical Span Detector for OCR verification and retry | **Primary iGPU (OpenVINO FP16)** | `CriticalityType`, `classify_span()` |
+| `shakti/ocr/engine/critical.py` | Consequence-driven Critical Span Detector for OCR verification and retry | **Primary iGPU (OpenVINO FP16)** | `CriticalityType`, `classify_span()`, `repair_critical_token()`, `validate_critical_token()` |
 | `shakti/ocr/engine/factory.py` | Verified RapidOCR + OpenVINO Engine Instance Factory for Sarathi | **Primary iGPU (OpenVINO FP16)** | `resolve_engine_keys()`, `build_rapidocr_instance()` |
 | `shakti/ocr/engine/layout.py` | Layout and Table Reconstruction Engine for Sarathi OCR | **Primary iGPU (OpenVINO FP16)** | `detect_ruled_tables()`, `detect_borderless_tables()`, `reconstruct_layout()`, `group_paragraphs()`, `detect_column_count()` |
 | `shakti/ocr/engine/openvino.py` | OpenVINO environment configuration, device patching, and safe model resolution | **Primary iGPU (OpenVINO FP16)** | `is_safe_filename()`, `disable_openvino_telemetry()`, `get_shared_openvino_core()`, `patch_rapidocr_openvino_device()`, `resolve_target_device()` |
@@ -154,7 +154,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/text/span_protection.py` | Span Protection and Restoration Utilities for Shakti | **Standard Logic** | `BaseSpanProtector` |
 | `shakti/text/table.py` | Table text processing helpers | **Standard Logic** | `cell_text()` |
 | `shakti/text/transliteration.py` | Phonetic Transliteration Transducer from Romanized Hindi (Hinglish) to Unicode Devanagari | **Standard Logic** | `is_romanized_hindi()`, `transliterate_word()`, `transliterate_romanized_hindi()` |
-| `shakti/text/typography.py` | Shared output typography primitives for Shakti document capabilities | **Standard Logic** | `contains_devanagari()`, `heal_devanagari_matra_spacing()`, `normalize_text_spacing()`, `reconstruct_line_from_spans()`, `normalize_devanagari_numerals()` |
+| `shakti/text/typography.py` | Shared output typography primitives for Shakti document capabilities | **Standard Logic** | `contains_devanagari()`, `synthesize_akshara_unicode()`, `heal_devanagari_matra_spacing()`, `normalize_text_spacing()`, `reconstruct_line_from_spans()` |
 | `shakti/text/usability.py` | Canonical page and document usability arbitration logic shared across Shakti capabilities | **Standard Logic** | `is_usable_page()`, `is_usable_document()` |
 | `shakti/translation/capability.py` | Executable Translation Capability for Sarathi | **Multi-core CPU (Neural AVX2)** | `TranslationCapability` |
 | `shakti/translation/cloud_orchestration.py` | Canonical Cloud Translation Orchestration Runner for Sarathi | **Standard Logic** | `is_structural_placeholder()`, `execute_cloud_translation()` |
