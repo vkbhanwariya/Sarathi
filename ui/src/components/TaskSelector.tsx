@@ -290,7 +290,7 @@ export function TaskSelector({
                                 </button>
                                 {isSel && (
                                   <div class="ocr-card-details" onClick={(e) => e.stopPropagation()}>
-                                    {/* Clean Toggles */}
+                                    {/* All Simple Toggles (just like Statutory IDs) */}
                                     <div class="ocr-toggles-grid">
                                       <label class="toggle-row mini" title="Preserve layout geometry">
                                         <input
@@ -362,139 +362,129 @@ export function TaskSelector({
                                           <strong>Stamp suppression</strong>
                                         </span>
                                       </label>
-                                    </div>
 
-                                    {/* Clean Control Deck */}
-                                    <div class="ocr-controls-deck">
-                                      {/* Profile Selector */}
-                                      <div class="ocr-control-row">
-                                        <span class="ocr-row-label">Profile:</span>
-                                        <div class="ocr-segmented-control" role="group" aria-label="OCR Profile">
-                                          <button
-                                            id="btn-ocr-profile-accurate"
-                                            type="button"
-                                            class={`ocr-seg-btn ${ocrProfile === "accurate" ? "active" : ""}`}
-                                            onClick={() => {
-                                              if (onSetOcrProfile) onSetOcrProfile("accurate");
-                                              onSelectSubtask("documents_extraction", "ocr");
-                                            }}
-                                          >
-                                            🎯 Accurate (200 DPI)
-                                          </button>
-                                          <button
-                                            id="btn-ocr-profile-instant"
-                                            type="button"
-                                            class={`ocr-seg-btn ${ocrProfile === "instant" ? "active" : ""}`}
-                                            onClick={() => {
-                                              if (onSetOcrProfile) onSetOcrProfile("instant");
-                                              onSelectSubtask("documents_extraction", "ocr");
-                                            }}
-                                          >
-                                            ⚡ Instant (150 DPI)
-                                          </button>
-                                        </div>
-                                      </div>
+                                      {/* Profile Toggles */}
+                                      <button
+                                        id="btn-ocr-profile-accurate"
+                                        type="button"
+                                        class={`toggle-row mini toggle-switch-btn ${ocrProfile === "accurate" ? "active" : ""}`}
+                                        title="Accurate profile 200 DPI"
+                                        onClick={() => {
+                                          if (onSetOcrProfile) onSetOcrProfile("accurate");
+                                          onSelectSubtask("documents_extraction", "ocr");
+                                        }}
+                                      >
+                                        <span class="toggle-switch-slider"></span>
+                                        <span><strong>Accurate (200 DPI)</strong></span>
+                                      </button>
+                                      <button
+                                        id="btn-ocr-profile-instant"
+                                        type="button"
+                                        class={`toggle-row mini toggle-switch-btn ${ocrProfile === "instant" ? "active" : ""}`}
+                                        title="Instant profile 150 DPI"
+                                        onClick={() => {
+                                          if (onSetOcrProfile) onSetOcrProfile("instant");
+                                          onSelectSubtask("documents_extraction", "ocr");
+                                        }}
+                                      >
+                                        <span class="toggle-switch-slider"></span>
+                                        <span><strong>Instant (150 DPI)</strong></span>
+                                      </button>
 
-                                      {/* Engine Selector */}
-                                      <div class="ocr-control-row">
-                                        <span class="ocr-row-label">Engine:</span>
-                                        <div class="ocr-segmented-control" role="group" aria-label="Inference Engine">
+                                      {/* Engine Toggles */}
+                                      <button
+                                        id="btn-ocr-engine-local"
+                                        type="button"
+                                        class={`toggle-row mini toggle-switch-btn ${ocrEngineType === "local" ? "active" : ""}`}
+                                        title="Local OpenVINO Arc iGPU"
+                                        onClick={() => {
+                                          onSetOcrEngineType("local");
+                                          onSelectSubtask("documents_extraction", "ocr");
+                                        }}
+                                      >
+                                        <span class="toggle-switch-slider"></span>
+                                        <span><strong>Local (Arc iGPU)</strong></span>
+                                      </button>
+                                      <button
+                                        id="btn-ocr-engine-cloud"
+                                        type="button"
+                                        class={`toggle-row mini toggle-switch-btn ${ocrEngineType === "cloud" ? "active" : ""}`}
+                                        title="Cloud Multimodal AI"
+                                        onClick={() => {
+                                          onSetOcrEngineType("cloud");
+                                          onSelectSubtask("documents_extraction", "ocr");
+                                        }}
+                                      >
+                                        <span class="toggle-switch-slider"></span>
+                                        <span><strong>Cloud AI</strong></span>
+                                      </button>
+
+                                      {/* Model Toggles */}
+                                      <button
+                                        id="btn-ocr-lang-devanagari"
+                                        type="button"
+                                        class={`toggle-row mini toggle-switch-btn ${ocrModelLang === "devanagari" ? "active" : ""}`}
+                                        title="PP-OCRv5 Devanagari Hindi"
+                                        onClick={() => {
+                                          onSetOcrEngineType("local");
+                                          onSetOcrModelLang("devanagari");
+                                          onSelectSubtask("documents_extraction", "ocr");
+                                        }}
+                                      >
+                                        <span class="toggle-switch-slider"></span>
+                                        <span><strong>Devanagari (Hindi)</strong></span>
+                                      </button>
+                                      <button
+                                        id="btn-ocr-lang-en-v6"
+                                        type="button"
+                                        class={`toggle-row mini toggle-switch-btn ${ocrModelLang === "en_v6" ? "active" : ""}`}
+                                        title="PP-OCRv6 English"
+                                        onClick={() => {
+                                          onSetOcrEngineType("local");
+                                          onSetOcrModelLang("en_v6");
+                                          onSelectSubtask("documents_extraction", "ocr");
+                                        }}
+                                      >
+                                        <span class="toggle-switch-slider"></span>
+                                        <span><strong>English model</strong></span>
+                                      </button>
+
+                                      {/* Cloud Provider & Fallback Toggles */}
+                                      {CLOUD_OCR_PROVIDERS.map((cp) => {
+                                        const cloudAct = availableActions.find((a) => a.action_id === cp.id);
+                                        const isChipAvail = cloudAct ? cloudAct.is_enabled : false;
+                                        const isChipActive = ocrEngineType === "cloud" && cloudOcrProvider === cp.id;
+                                        return (
                                           <button
-                                            id="btn-ocr-engine-local"
+                                            key={cp.id}
+                                            id={`chip-${cp.id.replace(/_/g, "-")}`}
                                             type="button"
-                                            class={`ocr-seg-btn ${ocrEngineType === "local" ? "active" : ""}`}
-                                            onClick={() => {
-                                              onSetOcrEngineType("local");
-                                              onSelectSubtask("documents_extraction", "ocr");
-                                            }}
-                                          >
-                                            ⚡ Local (Arc iGPU)
-                                          </button>
-                                          <button
-                                            id="btn-ocr-engine-cloud"
-                                            type="button"
-                                            class={`ocr-seg-btn ${ocrEngineType === "cloud" ? "active" : ""}`}
+                                            class={`toggle-row mini toggle-switch-btn ${isChipActive ? "active" : ""}`}
+                                            disabled={!isChipAvail}
+                                            title={isChipAvail ? `${cp.label} Cloud OCR` : (cloudAct?.disabled_reason || "Unavailable")}
                                             onClick={() => {
                                               onSetOcrEngineType("cloud");
+                                              onSetCloudOcrProvider(cp.id);
                                               onSelectSubtask("documents_extraction", "ocr");
                                             }}
                                           >
-                                            ☁ Cloud
+                                            <span class="toggle-switch-slider"></span>
+                                            <span><strong>{cp.label} Cloud</strong></span>
                                           </button>
-                                        </div>
-                                      </div>
+                                        );
+                                      })}
 
-                                      {/* Local Model Selector */}
-                                      <div class="ocr-control-row">
-                                        <span class="ocr-row-label">Model:</span>
-                                        <div class="ocr-segmented-control" role="group" aria-label="Local Model">
-                                          <button
-                                            id="btn-ocr-lang-devanagari"
-                                            type="button"
-                                            class={`ocr-seg-btn ${ocrModelLang === "devanagari" ? "active" : ""}`}
-                                            onClick={() => {
-                                              onSetOcrEngineType("local");
-                                              onSetOcrModelLang("devanagari");
-                                              onSelectSubtask("documents_extraction", "ocr");
-                                            }}
-                                            title="PP-OCRv5 Hindi/Devanagari"
-                                          >
-                                            Devanagari (Hindi)
-                                          </button>
-                                          <button
-                                            id="btn-ocr-lang-en-v6"
-                                            type="button"
-                                            class={`ocr-seg-btn ${ocrModelLang === "en_v6" ? "active" : ""}`}
-                                            onClick={() => {
-                                              onSetOcrEngineType("local");
-                                              onSetOcrModelLang("en_v6");
-                                              onSelectSubtask("documents_extraction", "ocr");
-                                            }}
-                                            title="PP-OCRv6 English"
-                                          >
-                                            English
-                                          </button>
-                                        </div>
-                                      </div>
-
-                                      {/* Cloud Provider Selector */}
-                                      <div class="ocr-control-row">
-                                        <span class="ocr-row-label">Cloud:</span>
-                                        <div class="cloud-provider-chips" role="group" aria-label="Cloud Provider">
-                                          {CLOUD_OCR_PROVIDERS.map((cp) => {
-                                            const cloudAct = availableActions.find((a) => a.action_id === cp.id);
-                                            const isChipAvail = cloudAct ? cloudAct.is_enabled : false;
-                                            const isChipActive = ocrEngineType === "cloud" && cloudOcrProvider === cp.id;
-                                            return (
-                                              <button
-                                                key={cp.id}
-                                                id={`chip-${cp.id.replace(/_/g, "-")}`}
-                                                class={`cloud-chip ${isChipActive ? "active" : ""}`}
-                                                disabled={!isChipAvail}
-                                                type="button"
-                                                onClick={() => {
-                                                  onSetOcrEngineType("cloud");
-                                                  onSetCloudOcrProvider(cp.id);
-                                                  onSelectSubtask("documents_extraction", "ocr");
-                                                }}
-                                              >
-                                                {cp.label}
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                        <label class="toggle-row mini" style={{ margin: 0, whiteSpace: "nowrap" }}>
-                                          <input
-                                            id="param-ocr-fallback-to-local"
-                                            type="checkbox"
-                                            checked={ocrFallbackToLocal}
-                                            onChange={(e) => onSetOcrFallbackToLocal(e.currentTarget.checked)}
-                                          />
-                                          <span>
-                                            <strong>Fallback to local</strong>
-                                          </span>
-                                        </label>
-                                      </div>
+                                      <label class="toggle-row mini" title="Fallback to local OpenVINO if Cloud fails">
+                                        <input
+                                          id="param-ocr-fallback-to-local"
+                                          type="checkbox"
+                                          checked={ocrFallbackToLocal}
+                                          onChange={(e) => onSetOcrFallbackToLocal(e.currentTarget.checked)}
+                                        />
+                                        <span>
+                                          <strong>Fallback to local</strong>
+                                        </span>
+                                      </label>
                                     </div>
                                   </div>
                                 )}

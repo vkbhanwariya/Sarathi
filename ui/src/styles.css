@@ -1675,98 +1675,124 @@ a { color: inherit; text-decoration: none; }
   margin-top: 6px;
 }
 
-/* Unified Clean OCR Control Deck */
-.ocr-controls-deck {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid #e2e8f0;
-}
-
-.ocr-control-row {
-  display: flex;
+/* All-in-One Identical Toggle Switch Buttons (like Statutory ID toggle) */
+.toggle-switch-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-}
-
-.ocr-row-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  min-width: 46px;
-}
-
-.ocr-control-row .ocr-segmented-control {
-  margin-bottom: 0;
-  flex: 1;
-}
-
-.ocr-control-row .toggle-row.mini {
-  margin: 0;
-  white-space: nowrap;
-}
-
-.cloud-provider-chips {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  background: #f1f5f9;
-  padding: 3px;
-  border-radius: 6px;
-}
-
-.cloud-chip {
-  flex: 1;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  text-align: center;
-  border: none;
+  gap: 8px;
   background: transparent;
-  color: #64748b;
-  border-radius: 4px;
+  border: none;
+  padding: 4px 0;
+  margin: 0;
   cursor: pointer;
-  transition: all 0.15s ease;
+  font-family: inherit;
+  text-align: left;
+  user-select: none;
 }
 
-.cloud-chip:hover:not(:disabled) {
-  color: #0f172a;
+.toggle-switch-slider {
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--border-active, #cbd5e1);
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.cloud-chip.active {
+.toggle-switch-slider::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
   background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toggle-switch-btn.active .toggle-switch-slider {
+  background: #166534;
+}
+
+.toggle-switch-btn.active .toggle-switch-slider::after {
+  transform: translateX(12px);
+}
+
+.toggle-switch-btn span strong {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #334155;
+  transition: color 0.15s ease;
+}
+
+.toggle-switch-btn.active span strong {
   color: #0f172a;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   font-weight: 600;
 }
 
-.cloud-chip:disabled {
-  opacity: 0.4;
+.toggle-switch-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 /* ==========================================================================
-   MATERIAL 3 MINIMALIST WORKFLOW STUDIO & LAYERED DECK
+   CHOOSE TASK: MODERN 2x2 WORKFLOW GRID & ELEVATED BOX CARDS
    ========================================================================== */
 
-/* Top Navigation: Material 3 Segmented Controls */
-
-.mode-pill-btn:hover:not(.active) {
-  color: #0f172a;
+.workflow-columns-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  width: 100%;
+  margin-top: 10px;
 }
 
-/* Multi-Column Workflow Deck (3-Column Grid) */
+@media (max-width: 640px) {
+  .workflow-columns-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.workflow-col-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.workflow-col-card:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.09);
+  transform: translateY(-2px);
+}
+
+.col-card-btn {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 14px !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 16px 18px !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 12px !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  box-sizing: border-box !important;
+  transition: all 0.15s ease !important;
+}
 
 .col-card-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  flex-shrink: 0;
 }
 
 .col-card-body {
@@ -1774,9 +1800,52 @@ a { color: inherit; text-decoration: none; }
   min-width: 0;
 }
 
-.col-card-btn:hover .col-card-select-pill {
-  background: #166534;
-  color: #ffffff;
+.col-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.col-card-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.col-card-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #475569;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.col-card-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.col-arrow {
+  font-size: 16px;
+  color: #94a3b8;
+  margin-left: auto;
+  align-self: center;
+  transition: transform 0.2s ease, color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.col-card-btn:hover .col-arrow {
+  color: #2563eb;
+  transform: translateX(4px);
 }
 
 /* Deep Dive Workspace & Morphing Tabs */
