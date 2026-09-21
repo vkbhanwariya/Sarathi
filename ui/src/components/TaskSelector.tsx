@@ -517,18 +517,17 @@ export function TaskSelector({
                                   Convert legacy Hindi fonts in Word and Excel to Unicode.
                                 </p>
                                 {isSel && (
-                                  <details class="more-options task-settings" onClick={(e) => e.stopPropagation()}>
-                                    <summary>Settings</summary>
-                                    <div class="subtask-options-row">
+                                  <div class="ocr-card-details" onClick={(e) => e.stopPropagation()}>
+                                    <div class="ocr-feature-box">
+                                      <span class="ocr-feature-box-header">Source Font</span>
                                       <label class="field mini" style={{ margin: 0 }}>
-                                        <span style={{ fontSize: "11px" }}>Source Font Hint</span>
                                         <select
                                           id="param-source-font"
                                           value={sourceFont}
                                           onChange={(e) => onSetSourceFont(e.currentTarget.value)}
-                                          style={{ padding: "3px 6px", fontSize: "11px" }}
+                                          style={{ padding: "4px 8px", fontSize: "11px", borderRadius: "6px", border: "1px solid #e2e8f0" }}
                                         >
-                                          <option value="">Auto-Detect Source Font</option>
+                                          <option value="">Auto-Detect</option>
                                           <option value="krutidev010">KrutiDev 010 / DevLys</option>
                                           <option value="chanakya010">Chanakya</option>
                                           <option value="shusha010">Shusha</option>
@@ -536,7 +535,7 @@ export function TaskSelector({
                                         </select>
                                       </label>
                                     </div>
-                                  </details>
+                                  </div>
                                 )}
                               </div>
                             );
@@ -598,48 +597,54 @@ export function TaskSelector({
                     {/* Task 3: Document Translation (Word, PDF & Excel) */}
                     {task.id === "translation" && (
                       <div class="subtasks-container">
-                        {/* Translation Legal Integrity Bar */}
-                        <div class="translation-integrity-features-bar">
-                          <span class="integrity-chip">✓ Statutory Legal Glossaries</span>
-                          <span class="integrity-chip">✓ Proper Noun Preservation</span>
-                          <span class="integrity-chip">✓ Case Law &amp; Citation Protector</span>
-                          <span class="integrity-chip">⚡ AVX-VNNI Neural Speed</span>
+                        {/* Capabilities Bar */}
+                        <div class="ocr-feature-box" style={{ background: "rgba(238, 242, 255, 0.5)" }}>
+                          <span class="ocr-feature-box-header">Capabilities</span>
+                          <div class="integrity-chips-row">
+                            <span class="integrity-chip trans">✓ Statutory Legal Glossaries</span>
+                            <span class="integrity-chip trans">✓ Proper Noun Preservation</span>
+                            <span class="integrity-chip trans">✓ Case Law &amp; Citation Protector</span>
+                            <span class="integrity-chip trans">⚡ AVX-VNNI Neural Speed</span>
+                          </div>
                         </div>
 
-                        {/* Direction selector */}
-                        <div class="translation-direction-toolbar" role="group" aria-label="Translation Direction">
-                          <button
-                            id="btn-direction-auto"
-                            data-dir=""
-                            class={`direction-seg-btn ${transDirection === "" ? "active" : ""}`}
-                            type="button"
-                            onClick={() => onSetTransDirection("")}
-                          >
-                            Auto-detect
-                          </button>
-                          <button
-                            id="btn-direction-hi-en"
-                            data-dir="hi_en"
-                            class={`direction-seg-btn ${transDirection === "hi_en" ? "active" : ""}`}
-                            type="button"
-                            onClick={() => onSetTransDirection("hi_en")}
-                          >
-                            Hindi → English
-                          </button>
-                          <button
-                            id="btn-direction-en-hi"
-                            data-dir="en_hi"
-                            class={`direction-seg-btn ${transDirection === "en_hi" ? "active" : ""}`}
-                            type="button"
-                            onClick={() => onSetTransDirection("en_hi")}
-                          >
-                            English → Hindi
-                          </button>
+                        {/* Direction */}
+                        <div class="ocr-feature-box">
+                          <span class="ocr-feature-box-header">Direction</span>
+                          <div class="translation-direction-toolbar" role="group" aria-label="Translation Direction">
+                            <button
+                              id="btn-direction-auto"
+                              data-dir=""
+                              class={`direction-seg-btn ${transDirection === "" ? "active" : ""}`}
+                              type="button"
+                              onClick={() => onSetTransDirection("")}
+                            >
+                              Auto-detect
+                            </button>
+                            <button
+                              id="btn-direction-hi-en"
+                              data-dir="hi_en"
+                              class={`direction-seg-btn ${transDirection === "hi_en" ? "active" : ""}`}
+                              type="button"
+                              onClick={() => onSetTransDirection("hi_en")}
+                            >
+                              Hindi → English
+                            </button>
+                            <button
+                              id="btn-direction-en-hi"
+                              data-dir="en_hi"
+                              class={`direction-seg-btn ${transDirection === "en_hi" ? "active" : ""}`}
+                              type="button"
+                              onClick={() => onSetTransDirection("en_hi")}
+                            >
+                              English → Hindi
+                            </button>
+                          </div>
                         </div>
 
-                        {/* Legal Invariants Toggles in Front */}
-                        <div class="translation-add-ons-section">
-                          <span class="ocr-section-subtitle">Legal Fidelity &amp; Terminology Protection</span>
+                        {/* Legal Fidelity */}
+                        <div class="ocr-feature-box">
+                          <span class="ocr-feature-box-header">Legal Fidelity</span>
                           <div class="ocr-toggles-grid">
                             <label class="toggle-row mini" title="Normalize and align legal terms using on-device statutory glossaries">
                               <input
@@ -650,9 +655,7 @@ export function TaskSelector({
                                   onSetStatutoryEnabled(e.currentTarget.checked);
                                 }}
                               />
-                              <span>
-                                <strong>Statutory Terminology Harmonization</strong>
-                              </span>
+                              <span><strong>Statutory Terminology</strong></span>
                             </label>
                             <label class="toggle-row mini" title="Preserve Indian proper names and kinship designations from semantic hallucination">
                               <input
@@ -663,9 +666,7 @@ export function TaskSelector({
                                   if (onSetPreserveProperNouns) onSetPreserveProperNouns(e.currentTarget.checked);
                                 }}
                               />
-                              <span>
-                                <strong>Proper Noun &amp; Name Preservation</strong>
-                              </span>
+                              <span><strong>Proper Noun Preservation</strong></span>
                             </label>
                             {(() => {
                               const selEng = TRANSLATION_ENGINES.find((e) => e.id === currentSubtask);
@@ -679,9 +680,7 @@ export function TaskSelector({
                                       if (onSetTransFallbackToLocal) onSetTransFallbackToLocal(e.currentTarget.checked);
                                     }}
                                   />
-                                  <span>
-                                    <strong>Fallback to Local IndicTrans2</strong>
-                                  </span>
+                                  <span><strong>Fallback to Local IndicTrans2</strong></span>
                                 </label>
                               ) : null;
                             })()}
@@ -689,29 +688,32 @@ export function TaskSelector({
                         </div>
 
                         {/* Engine Choices */}
-                        <div class="subtasks-grid">
-                          {TRANSLATION_ENGINES.map((eng) => {
-                            const act = availableActions.find((a) => a.action_id === eng.actionId);
-                            const isEnabled = act ? act.is_enabled : false;
-                            const isSel = currentSubtask === eng.id;
-                            return (
-                              <div
-                                key={eng.id}
-                                id={`subtask-engine-${eng.id.replace(/_/g, "-")}`}
-                                data-subtask={eng.id}
-                                data-req={eng.actionId}
-                                class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                onClick={() => onSelectSubtask("translation", eng.id)}
-                                title={isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}
-                              >
-                                <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                  <span class="action-card-name">{eng.label}</span>
-                                  <span class={`action-tag ${isSel ? "active" : ""}`}>{eng.tag || (eng.isCloud ? "CLOUD AI" : "LOCAL NEURAL")}</span>
-                                </button>
-                                <p class="action-card-desc">{isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}</p>
-                              </div>
-                            );
-                          })}
+                        <div class="ocr-feature-box">
+                          <span class="ocr-feature-box-header">Translation Engine</span>
+                          <div class="subtasks-grid">
+                            {TRANSLATION_ENGINES.map((eng) => {
+                              const act = availableActions.find((a) => a.action_id === eng.actionId);
+                              const isEnabled = act ? act.is_enabled : false;
+                              const isSel = currentSubtask === eng.id;
+                              return (
+                                <div
+                                  key={eng.id}
+                                  id={`subtask-engine-${eng.id.replace(/_/g, "-")}`}
+                                  data-subtask={eng.id}
+                                  data-req={eng.actionId}
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => onSelectSubtask("translation", eng.id)}
+                                  title={isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                    <span class="action-card-name">{eng.label}</span>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>{eng.tag || (eng.isCloud ? "CLOUD AI" : "LOCAL NEURAL")}</span>
+                                  </button>
+                                  <p class="action-card-desc">{isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}</p>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -719,66 +721,73 @@ export function TaskSelector({
                     {/* Task 4: Bank Statement Consolidation & Audit */}
                     {task.id === "bank_consolidation" && (
                       <div class="subtasks-container">
-                        {/* Bank Statement Verification Bar */}
-                        <div class="bank-integrity-features-bar">
-                          <span class="integrity-chip">✓ Double-Entry Verified</span>
-                          <span class="integrity-chip">✓ UTR &amp; IFSC Auto-Repair</span>
-                          <span class="integrity-chip">✓ Deduplication</span>
-                          <span class="integrity-chip">📑 1-Page Audit Memo Included</span>
+                        {/* Capabilities Bar */}
+                        <div class="ocr-feature-box" style={{ background: "rgba(236, 253, 245, 0.5)" }}>
+                          <span class="ocr-feature-box-header">Verification</span>
+                          <div class="integrity-chips-row">
+                            <span class="integrity-chip">✓ Double-Entry Verified</span>
+                            <span class="integrity-chip">✓ UTR &amp; IFSC Auto-Repair</span>
+                            <span class="integrity-chip">✓ Deduplication</span>
+                            <span class="integrity-chip">📑 1-Page Audit Memo</span>
+                          </div>
                         </div>
 
-                        <div class="subtasks-grid">
-                          {/* 4.1 Accurate Consolidation & Reconciler */}
-                          {(() => {
-                            const act = availableActions.find((a) => a.action_id === "bank_statements");
-                            const isEnabled = act ? act.is_enabled : true;
-                            const isSel = currentSubtask === "accurate";
-                            return (
-                              <div
-                                key="accurate"
-                                id="subtask-accurate-consolidation"
-                                data-subtask="accurate"
-                                data-req="bank_statements"
-                                class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                onClick={() => onSelectSubtask("bank_consolidation", "accurate")}
-                                title={isEnabled ? "Strict double-entry verification and UTR repair." : (act?.disabled_reason || "Unavailable")}
-                              >
-                                <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                  <span class="action-card-name">Accurate Consolidation</span>
-                                  <span class={`action-tag ${isSel ? "active" : ""}`}>AUDIT-GRADE</span>
-                                </button>
-                                <p class="action-card-desc">
-                                  Strict double-entry balance arithmetic verification, UTR/IFSC auto-repair, and master Excel workbook with 1-page executive memo.
-                                </p>
-                              </div>
-                            );
-                          })()}
+                        {/* Mode */}
+                        <div class="ocr-feature-box">
+                          <span class="ocr-feature-box-header">Consolidation Mode</span>
+                          <div class="subtasks-grid">
+                            {/* 4.1 Accurate Consolidation & Reconciler */}
+                            {(() => {
+                              const act = availableActions.find((a) => a.action_id === "bank_statements");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "accurate";
+                              return (
+                                <div
+                                  key="accurate"
+                                  id="subtask-accurate-consolidation"
+                                  data-subtask="accurate"
+                                  data-req="bank_statements"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => onSelectSubtask("bank_consolidation", "accurate")}
+                                  title={isEnabled ? "Strict double-entry verification and UTR repair." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                    <span class="action-card-name">Accurate Consolidation</span>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>AUDIT-GRADE</span>
+                                  </button>
+                                  <p class="action-card-desc">
+                                    Strict double-entry balance arithmetic verification, UTR/IFSC auto-repair, and master Excel workbook with 1-page executive memo.
+                                  </p>
+                                </div>
+                              );
+                            })()}
 
-                          {/* 4.2 Fast Consolidation */}
-                          {(() => {
-                            const act = availableActions.find((a) => a.action_id === "bank_statements");
-                            const isEnabled = act ? act.is_enabled : true;
-                            const isSel = currentSubtask === "instant";
-                            return (
-                              <div
-                                key="instant"
-                                id="subtask-instant-consolidation"
-                                data-subtask="instant"
-                                data-req="bank_statements"
-                                class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                onClick={() => onSelectSubtask("bank_consolidation", "instant")}
-                                title={isEnabled ? "Throughput-optimized financial statement parsing." : (act?.disabled_reason || "Unavailable")}
-                              >
-                                <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                  <span class="action-card-name">Instant Consolidation</span>
-                                  <span class={`action-tag ${isSel ? "active" : ""}`}>FAST</span>
-                                </button>
-                                <p class="action-card-desc">
-                                  Throughput-optimized parsing across financial statements using standard layout heuristics.
-                                </p>
-                              </div>
-                            );
-                          })()}
+                            {/* 4.2 Fast Consolidation */}
+                            {(() => {
+                              const act = availableActions.find((a) => a.action_id === "bank_statements");
+                              const isEnabled = act ? act.is_enabled : true;
+                              const isSel = currentSubtask === "instant";
+                              return (
+                                <div
+                                  key="instant"
+                                  id="subtask-instant-consolidation"
+                                  data-subtask="instant"
+                                  data-req="bank_statements"
+                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
+                                  onClick={() => onSelectSubtask("bank_consolidation", "instant")}
+                                  title={isEnabled ? "Throughput-optimized financial statement parsing." : (act?.disabled_reason || "Unavailable")}
+                                >
+                                  <button class="action-card-header" type="button" aria-pressed={isSel}>
+                                    <span class="action-card-name">Instant Consolidation</span>
+                                    <span class={`action-tag ${isSel ? "active" : ""}`}>FAST</span>
+                                  </button>
+                                  <p class="action-card-desc">
+                                    Throughput-optimized parsing across financial statements using standard layout heuristics.
+                                  </p>
+                                </div>
+                              );
+                            })()}
+                          </div>
                         </div>
                       </div>
                     )}
