@@ -59,7 +59,7 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     expect(app_page.locator("#subtask-ocr")).to_be_visible()
     expect(app_page.locator(".primary-task-tab-btn")).to_have_count(1)
     expect(app_page.locator("#param-convert-legacy-fonts")).to_be_visible()
-    expect(app_page.locator("#param-convert-legacy-fonts")).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(app_page.locator("#param-convert-legacy-fonts")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#param-layout-analysis")).to_be_visible()
 
 
@@ -118,7 +118,7 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     lay_chk = app_page.locator("#param-preserve-layout")
     expect(lay_chk).to_be_visible()
     lay_chk.click()
-    expect(lay_chk).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(lay_chk).to_have_class(re.compile(r"\bactive\b"))
 
     # Switch to Bank Statements and back to Documents Extraction
     _choose_task(app_page, "bank-consolidation")
@@ -127,7 +127,7 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     _choose_task(app_page, "documents-extraction")
     lay_chk = app_page.locator("#param-preserve-layout")
     expect(lay_chk).to_be_visible()
-    expect(lay_chk).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(lay_chk).to_have_class(re.compile(r"\bactive\b"))
 
 
 def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
@@ -174,11 +174,11 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     card = app_page.locator("#subtask-ocr")
     card.locator(".action-card-header").click()
     chk_preserve = app_page.locator("#param-preserve-layout")
-    expect(chk_preserve).not_to_have_class(re.compile(r"\\bactive\\b"))
+    expect(chk_preserve).not_to_have_class(re.compile(r"\bactive\b"))
 
     # Click checkbox directly
     chk_preserve.click()
-    expect(chk_preserve).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(chk_preserve).to_have_class(re.compile(r"\bactive\b"))
 
     # Verify payload reflects layout_preserving profile
     payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
@@ -189,7 +189,7 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
 
     # Toggle the switch button off again.
     chk_preserve.click()
-    expect(chk_preserve).not_to_have_class(re.compile(r"\\bactive\\b"))
+    expect(chk_preserve).not_to_have_class(re.compile(r"\bactive\b"))
     payload_off = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
     )
@@ -200,10 +200,10 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     native_card.locator(".action-card-header").click()
     _open_settings(app_page, "native")
     chk_gnn = app_page.locator("#param-layout-analysis")
-    expect(chk_gnn).not_to_have_class(re.compile(r"\\bactive\\b"))
+    expect(chk_gnn).not_to_have_class(re.compile(r"\bactive\b"))
 
     chk_gnn.click()
-    expect(chk_gnn).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(chk_gnn).to_have_class(re.compile(r"\bactive\b"))
 
     native_payload = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
@@ -233,14 +233,14 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     _choose_task(app_page, "bank-consolidation")
     bank_accurate = app_page.locator("#btn-bank-mode-accurate")
     expect(bank_accurate).to_be_visible()
-    expect(bank_accurate).not_to_have_class(re.compile(r"\\bactive\\b"))
+    expect(bank_accurate).not_to_have_class(re.compile(r"\bactive\b"))
 
     # 3. Font Conversion: default legacy-to-Unicode plus explicit legacy-target controls.
     _choose_task(app_page, "font-conversion")
     expect(app_page.locator("#btn-font-source-hint")).to_be_visible()
     to_legacy = app_page.locator("#btn-font-to-legacy")
     expect(to_legacy).to_be_visible()
-    expect(to_legacy).not_to_have_class(re.compile(r"\\bactive\\b"))
+    expect(to_legacy).not_to_have_class(re.compile(r"\bactive\b"))
     to_legacy.click()
     expect(app_page.locator("#chip-font-krutidev")).to_be_visible()
     expect(app_page.locator("#chip-font-devlys")).to_be_visible()
@@ -252,7 +252,7 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     expect(app_page.locator("#btn-direction-en-hi")).to_be_visible()
     opus_toggle = app_page.locator("#btn-trans-opus")
     expect(opus_toggle).to_be_visible()
-    expect(opus_toggle).not_to_have_class(re.compile(r"\\bactive\\b"))
+    expect(opus_toggle).not_to_have_class(re.compile(r"\bactive\b"))
 
 
 
@@ -328,7 +328,7 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     _open_settings(app_page, "native")
     native_chk = app_page.locator("#param-skip-header-footer")
     expect(native_chk).to_be_visible()
-    expect(native_chk).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(native_chk).to_have_class(re.compile(r"\bactive\b"))
 
     payload_native = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
@@ -340,7 +340,7 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     app_page.locator("#subtask-ocr").click()
     ocr_chk = app_page.locator("#param-ocr-skip-header-footer")
     expect(ocr_chk).to_be_visible()
-    expect(ocr_chk).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(ocr_chk).to_have_class(re.compile(r"\bactive\b"))
 
     payload_ocr = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
@@ -407,7 +407,7 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
     # Verify cloud chips and local fallback checkbox appear
     expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
     expect(app_page.locator("#param-ocr-fallback-to-local")).to_be_visible()
-    expect(app_page.locator("#param-ocr-fallback-to-local")).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(app_page.locator("#param-ocr-fallback-to-local")).to_have_class(re.compile(r"\bactive\b"))
 
     payload_cloud = app_page.evaluate("() => window.__sarathi_build_request()")
     assert payload_cloud["requirement"] == "mistral_ocr"
@@ -421,7 +421,7 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
     stamp_chk = app_page.locator("#param-ocr-remove-stamps")
     expect(stamp_chk).to_be_visible()
     stamp_chk.click()
-    expect(stamp_chk).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(stamp_chk).to_have_class(re.compile(r"\bactive\b"))
 
     payload_tuned = app_page.evaluate("() => window.__sarathi_build_request()")
     assert payload_tuned["custom_options"]["remove_stamps"] is True
@@ -439,9 +439,9 @@ def test_translation_in_front_toggles_and_legal_integrity_bar(app_page: Page) ->
     stat_chk = app_page.locator("#param-trans-statutory")
     pn_chk = app_page.locator("#param-trans-proper-nouns")
     expect(stat_chk).to_be_visible()
-    expect(stat_chk).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(stat_chk).to_have_class(re.compile(r"\bactive\b"))
     expect(pn_chk).to_be_visible()
-    expect(pn_chk).to_have_class(re.compile(r"\\bactive\\b"))
+    expect(pn_chk).to_have_class(re.compile(r"\bactive\b"))
 
     # 3. Default payload carries statutory and proper noun flags
     payload = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
