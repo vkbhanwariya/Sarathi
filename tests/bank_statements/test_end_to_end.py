@@ -29,6 +29,7 @@ from sarathi.shakti.bank_statements.models import (
     BankStatement,
     BankStatementConsolidationResult,
     Transaction,
+    ValidationStatus,
     create_account_identity,
 )
 
@@ -347,3 +348,40 @@ def test_e2e_hdfc_multiline_narration_consolidation(tmp_path: Path) -> None:
 
     assert consolidation.total_debit == Decimal("1500.00")
     assert consolidation.total_credit == Decimal("100000.00")
+
+
+def test_zero_transactions_fails_closed_in_e2e(tmp_path: Path) -> None:
+    """Document recognized as bank statement but with 0 transactions extracted must report FAILED outcome."""
+    # A CSV with SBI header and metadata, but empty transaction table
+    content = (
+        "State Bank of India\n"
+        "Account Statement for Account: 30123456789\n"
+        "IFSC: SBIN0001234\n"
+        "Txn Date,Description,Ref No,Debit,Credit,Balance\n"
+    )
+    empty_csv = tmp_path / "empty_sbi.csv"
+    empty_csv.write_text(content, encoding="utf-8")
+
+    from sarathi.sankalpa import ExecutionProfile, InputRef, Request, Result
+
+    agni = Agni(
+        runtime_root=tmp_path / "Runtime",
+        output_root=tmp_path / "Output",
+        darpana=Darpana(capacity=200),
+    )
+    req = Request(
+        request_id="req-empty-1",
+        requirement="bank_statements",
+        inputs=(InputRef("i-empty", empty_csv, "empty_sbi.csv", empty_csv.stat().st_size),),
+        profile=ExecutionProfile.ACCURATE,
+    )
+    ctx = ExecutionContext("run-empty-1", "req-empty-1", "t1", "s1")
+
+    res = agni.execute(req, ctx)
+    assert isinstance(res, Result)
+    assert res.metadata.get("input_outcomes", {}).get("i-empty") == "FAILED"
+    consolidation = res.data
+    assert len(consolidation.statements) == 1
+    stmt = consolidation.statements[0]
+    assert stmt.status == ValidationStatus.INVALID
+    assert any(w.code == "ZERO_TRANSACTIONS_EXTRACTED" for w in res.warnings)

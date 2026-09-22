@@ -352,7 +352,7 @@ def test_indictrans2_native_engine_missing_assets_fails_dependency_unavailable(t
     with pytest.raises(DoshError) as excinfo:
         native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="indictrans2")
     assert excinfo.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
-    assert "Model assets for translation direction 'hi-en' are missing or incomplete." == excinfo.value.message
+    assert "Model assets for IndicTrans2 translation direction 'hi-en' are missing or incomplete." == excinfo.value.message
 
 
 def test_translate_batch_multi_sentence_batching_and_ordering(test_backend: Any) -> None:

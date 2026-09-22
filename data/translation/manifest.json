@@ -1,21 +1,151 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": "indictrans2",
   "runtime": "ctranslate2",
   "license": "MIT",
-  "description": "IndicTrans2 distilled 200M bilingual translation models for Hindi <-> English",
+  "description": "IndicTrans2 200M & OPUS-MT bilingual translation models for Hindi <-> English",
+  "engines": {
+    "indictrans2": {
+      "hi-en": {
+        "model_id": "ai4bharat/indictrans2-indic-en-dist-200M",
+        "source_lang": "hin_Deva",
+        "target_lang": "eng_Latn",
+        "quantization": "int8",
+        "files": {
+          "model.bin": {
+            "sha256": "a88c1c56918d267c4003279b2b3d4ed47f7e18a859d38ebb8491da6c422e4de8",
+            "size": 847167702
+          },
+          "model.SRC": {
+            "sha256": "ac9257c8e76b8b607705b959cc3d075656ea33032f7a974e467b8941df6e98d4",
+            "size": 3256903
+          },
+          "model.TGT": {
+            "sha256": "3cedc5cbcc740369b76201942a0f096fec7287fee039b55bdb956f301235b914",
+            "size": 759425
+          },
+          "source_vocabulary.json": {
+            "sha256": "26d1ba4b6e918bef2bdccf1e0370130a3d641d30f7a945898a00f56043a9d8ad",
+            "size": 4532115
+          },
+          "target_vocabulary.json": {
+            "sha256": "debadde275c3afb460bf97913d02959537a4e24350376b93f1cba878e3661453",
+            "size": 543196
+          }
+        }
+      },
+      "en-hi": {
+        "model_id": "ai4bharat/indictrans2-en-indic-dist-200M",
+        "source_lang": "eng_Latn",
+        "target_lang": "hin_Deva",
+        "quantization": "int8",
+        "files": {
+          "model.bin": {
+            "sha256": "2b4b4c195008f27e97f39be503f470b583c22fd670e67a9a886431df61348eba",
+            "size": 847151318
+          },
+          "model.SRC": {
+            "sha256": "3cedc5cbcc740369b76201942a0f096fec7287fee039b55bdb956f301235b914",
+            "size": 759425
+          },
+          "model.TGT": {
+            "sha256": "ac9257c8e76b8b607705b959cc3d075656ea33032f7a974e467b8941df6e98d4",
+            "size": 3256903
+          },
+          "source_vocabulary.json": {
+            "sha256": "66919522447d51be41250cc780c656e2ef495c403f96a7e4294dc36472524b8d",
+            "size": 543560
+          },
+          "target_vocabulary.json": {
+            "sha256": "7f28e3f24fcd0a203eb307e8c56ac0b99350a6a1562c25b6e8ffd97d6016878c",
+            "size": 4531604
+          }
+        }
+      }
+    },
+    "opus_mt": {
+      "hi-en": {
+        "model_id": "Helsinki-NLP/opus-mt-hi-en",
+        "source_lang": "hi",
+        "target_lang": "en",
+        "quantization": "int8",
+        "files": {
+          "model.bin": {
+            "sha256": "d6230c2d1789548608efcc79e93fd34e04e8b3204c61e2ddd8e14c15c12d10f9",
+            "size": 77553155
+          },
+          "spm.model": {
+            "sha256": "dd20c408ec4568361d32b41080e3f6fa5b82895135bd25c2747b2c145e42d07b",
+            "size": 1057690
+          },
+          "shared_vocabulary.json": {
+            "sha256": "8a3899651f1e77c19851fb9981981b7fc02c72e7e53cbed6458d1be051cdd581",
+            "size": 1762919
+          }
+        }
+      },
+      "en-hi": {
+        "model_id": "Helsinki-NLP/opus-mt-en-hi",
+        "source_lang": "en",
+        "target_lang": "hi",
+        "quantization": "int8",
+        "files": {
+          "model.bin": {
+            "sha256": "29c1207b3ee52185d4e2cc8333d7a1d9b277b103747b9e0c1efbfc29828f6250",
+            "size": 77981115
+          },
+          "spm.model": {
+            "sha256": "fd4e951487aed00bae6a6c2ee4ef5d8d1db05fd098b19b608046c9334b58d24d",
+            "size": 812240
+          },
+          "shared_vocabulary.json": {
+            "sha256": "076550916e3005e2d5d2255b918d56b77b0b125f837f92a927c972a7d532defb",
+            "size": 1799187
+          }
+        }
+      }
+    }
+  },
   "models": {
     "hi-en": {
       "model_id": "ai4bharat/indictrans2-indic-en-dist-200M",
       "source_lang": "hin_Deva",
       "target_lang": "eng_Latn",
-      "quantization": "int8"
+      "quantization": "int8",
+      "files": {
+        "model.bin": {
+          "sha256": "a88c1c56918d267c4003279b2b3d4ed47f7e18a859d38ebb8491da6c422e4de8",
+          "size": 847167702
+        },
+        "model.SRC": {
+          "sha256": "ac9257c8e76b8b607705b959cc3d075656ea33032f7a974e467b8941df6e98d4",
+          "size": 3256903
+        },
+        "model.TGT": {
+          "sha256": "3cedc5cbcc740369b76201942a0f096fec7287fee039b55bdb956f301235b914",
+          "size": 759425
+        }
+      }
     },
     "en-hi": {
       "model_id": "ai4bharat/indictrans2-en-indic-dist-200M",
       "source_lang": "eng_Latn",
       "target_lang": "hin_Deva",
-      "quantization": "int8"
+      "quantization": "int8",
+      "files": {
+        "model.bin": {
+          "sha256": "2b4b4c195008f27e97f39be503f470b583c22fd670e67a9a886431df61348eba",
+          "size": 847151318
+        },
+        "model.SRC": {
+          "sha256": "3cedc5cbcc740369b76201942a0f096fec7287fee039b55bdb956f301235b914",
+          "size": 759425
+        },
+        "model.TGT": {
+          "sha256": "ac9257c8e76b8b607705b959cc3d075656ea33032f7a974e467b8941df6e98d4",
+          "size": 3256903
+        }
+      }
     }
   }
 }

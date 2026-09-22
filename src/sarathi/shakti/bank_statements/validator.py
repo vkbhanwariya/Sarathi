@@ -58,7 +58,19 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
     statement_issues: list[ValidationIssue] = list(statement.issues)
 
     if not transactions:
-        return statement
+        if not any(i.code == "ZERO_TRANSACTIONS_EXTRACTED" for i in statement_issues):
+            statement_issues.append(
+                ValidationIssue(
+                    code="ZERO_TRANSACTIONS_EXTRACTED",
+                    message="Statement recognized as bank statement but zero transaction rows could be extracted.",
+                    severity="error",
+                )
+            )
+        return replace(
+            statement,
+            status=ValidationStatus.INVALID,
+            issues=tuple(statement_issues),
+        )
 
     # Check if transactions appear in reverse chronological order (strictly descending dates required)
     has_strictly_descending = any(

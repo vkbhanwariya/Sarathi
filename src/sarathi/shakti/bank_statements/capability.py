@@ -184,12 +184,20 @@ class BankStatementCapability:
 
         input_outcomes: dict[str, str] = {}
         for s in statements:
+            all_warnings.extend(
+                WarningRecord(code=i.code, message=i.message, stage="validation") for i in s.issues
+            )
             for p in s.provenance:
                 if p.source_input_id:
-                    input_outcomes[p.source_input_id] = "SUCCESS"
+                    outcome = (
+                        "SUCCESS"
+                        if (len(s.transactions) > 0 and s.status != ValidationStatus.INVALID)
+                        else "FAILED"
+                    )
+                    input_outcomes[p.source_input_id] = outcome
         for doc in docs:
-            if doc.source_input_id:
-                input_outcomes.setdefault(doc.source_input_id, "SUCCESS")
+            if doc.source_input_id and doc.source_input_id not in input_outcomes:
+                input_outcomes[doc.source_input_id] = "FAILED"
 
         res_metadata = {
             "input_outcomes": input_outcomes,

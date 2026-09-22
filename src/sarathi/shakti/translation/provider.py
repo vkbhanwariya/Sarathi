@@ -73,8 +73,6 @@ class TranslationProvider(PluginProvider):
             manifest_exists = manifest_file.is_file()
 
             trans_models = base_data / "models"
-            hi_en_model = trans_models / "hi-en"
-            en_hi_model = trans_models / "en-hi"
 
             def _is_complete_model(p: Path) -> bool:
                 has_vocab = (p / "shared_vocabulary.json").is_file() or (
@@ -92,11 +90,8 @@ class TranslationProvider(PluginProvider):
             indic_hi_en = trans_models / "indictrans2" / "hi-en"
             indic_en_hi = trans_models / "indictrans2" / "en-hi"
 
-            has_default_models = _is_complete_model(hi_en_model) and _is_complete_model(en_hi_model)
             has_opus_models = _is_complete_model(opus_hi_en) and _is_complete_model(opus_en_hi)
-            has_indic_models = (
-                _is_complete_model(indic_hi_en) and _is_complete_model(indic_en_hi)
-            ) or has_default_models
+            has_indic_models = _is_complete_model(indic_hi_en) and _is_complete_model(indic_en_hi)
 
             models_ready = trans_models.is_dir() and (has_indic_models or has_opus_models)
             trans_installed = ctranslate2_spec is not None and sentencepiece_spec is not None

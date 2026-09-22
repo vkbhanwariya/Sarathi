@@ -280,6 +280,7 @@ class CTranslate2NativeBackend:
         self._manifest = manifest
         self._translators: dict[str, Any] = {}
         self._spms: dict[str, Any] = {}
+        self._verified_models: set[str] = set()
         self._lock: threading.Lock = threading.Lock()
         self._cuda_device_count: int | None = None
 
@@ -297,6 +298,65 @@ class CTranslate2NativeBackend:
                 self._cuda_device_count = 0
         return self._cuda_device_count
 
+    def _verify_model_integrity(self, model_path: Path, expected_files: dict[str, Any] | None) -> None:
+        """Verify checksums and regular file attributes of translation model assets."""
+        import hashlib
+        import stat
+
+        try:
+            m_stat = model_path.lstat()
+        except OSError as exc:
+            raise DoshError(
+                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                message=f"Translation model path cannot be accessed: {model_path.name}",
+            ) from exc
+
+        if stat.S_ISLNK(m_stat.st_mode) or not stat.S_ISDIR(m_stat.st_mode):
+            raise DoshError(
+                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                message=f"Translation model directory '{model_path.name}' is invalid or a symlink.",
+            )
+
+        if not expected_files or not isinstance(expected_files, dict):
+            return
+
+        for fname, entry in expected_files.items():
+            expected_sha = entry.get("sha256") if isinstance(entry, dict) else entry
+            if not expected_sha:
+                continue
+            fpath = model_path / str(fname)
+            try:
+                fstat = fpath.lstat()
+            except OSError as exc:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Required translation model asset '{fname}' is missing.",
+                ) from exc
+
+            if stat.S_ISLNK(fstat.st_mode) or not stat.S_ISREG(fstat.st_mode):
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Translation model asset '{fname}' is not a regular file.",
+                )
+
+            h = hashlib.sha256()
+            try:
+                with open(fpath, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+            except OSError as exc:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Failed to read translation model asset '{fname}'.",
+                ) from exc
+
+            actual_sha = h.hexdigest().lower()
+            if actual_sha != expected_sha.lower():
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Translation model asset '{fname}' checksum mismatch (expected {expected_sha[:8]}..., got {actual_sha[:8]}...).",
+                )
+
     def translate_sentences(
         self,
         sentences: Sequence[str],
@@ -313,39 +373,39 @@ class CTranslate2NativeBackend:
         norm_engine = str(engine or "indictrans2").lower().strip()
         if norm_engine == "opus_mt":
             model_path = self._root / "models" / "opus_mt" / dir_key
-            if not model_path.exists():
-                model_path = self._root / "models" / f"opus_{dir_key}"
-            if not model_path.exists():
-                model_path = self._root / "models" / dir_key
             spm_src_path = model_path / "spm.model"
             spm_tgt_path = spm_src_path
-            if not model_path.exists() or not spm_src_path.exists():
+            if not model_path.is_dir() or not (model_path / "model.bin").is_file() or not spm_src_path.is_file():
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message=f"Model assets for OPUS-MT translation direction '{dir_key}' are missing or incomplete.",
                 )
-            model_info: dict[str, Any] = {}
-        else:
-            model_info = self._manifest.get("models", {}).get(dir_key) or {}
-            if not model_info and dir_key not in ("hi-en", "en-hi"):
+            model_info: dict[str, Any] = self._manifest.get("engines", {}).get("opus_mt", {}).get(dir_key) or {}
+        elif norm_engine == "indictrans2":
+            model_info = (
+                self._manifest.get("engines", {}).get("indictrans2", {}).get(dir_key)
+                or self._manifest.get("models", {}).get(dir_key)
+                or {}
+            )
+            model_path = self._root / "models" / "indictrans2" / dir_key
+            if not model_path.is_dir() or not (model_path / "model.bin").is_file():
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model for direction '{dir_key}' not declared in manifest.",
+                    message=f"Model assets for IndicTrans2 translation direction '{dir_key}' are missing or incomplete.",
                 )
-            # Check indictrans2 subdirectory first, then fallback to root models
-            model_path = self._root / "models" / "indictrans2" / dir_key
-            if not (
-                model_path.exists() and any((model_path / f).exists() for f in ("model.bin", "model.SRC", "spm.model"))
-            ):
-                model_path = self._root / "models" / dir_key
 
             # Resolve source SentencePiece model
             if (model_path / "model.SRC").is_file():
                 spm_src_path = model_path / "model.SRC"
             elif (model_path / "src_spm.model").is_file():
                 spm_src_path = model_path / "src_spm.model"
-            else:
+            elif (model_path / "spm.model").is_file():
                 spm_src_path = model_path / "spm.model"
+            else:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Model assets for IndicTrans2 translation direction '{dir_key}' are missing or incomplete.",
+                )
 
             # Resolve target SentencePiece model
             if (model_path / "model.TGT").is_file():
@@ -354,12 +414,11 @@ class CTranslate2NativeBackend:
                 spm_tgt_path = model_path / "tgt_spm.model"
             else:
                 spm_tgt_path = spm_src_path
-
-            if not model_path.exists() or not spm_src_path.exists():
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model assets for translation direction '{dir_key}' are missing or incomplete.",
-                )
+        else:
+            raise DoshError(
+                code=FailureCode.INVALID_CONFIGURATION,
+                message=f"Unsupported translation engine '{engine}'. Supported engines are 'indictrans2' and 'opus_mt'.",
+            )
 
         device = "cpu"
         device_index = 0
@@ -383,6 +442,11 @@ class CTranslate2NativeBackend:
         spm_src_key = f"src:{spm_src_path.resolve()}"
         spm_tgt_key = f"tgt:{spm_tgt_path.resolve()}"
         with self._lock:
+            model_verified_key = f"{norm_engine}:{dir_key}:{model_path.resolve()}"
+            if model_verified_key not in self._verified_models:
+                self._verify_model_integrity(model_path, model_info.get("files"))
+                self._verified_models.add(model_verified_key)
+
             if trans_key not in self._translators:
                 cpu_fn = getattr(os, "process_cpu_count", None)
                 cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
@@ -523,6 +587,7 @@ class CTranslate2NativeBackend:
         with self._lock:
             self._translators.clear()
             self._spms.clear()
+            self._verified_models.clear()
 
 
 _CTranslate2NativeBackend = CTranslate2NativeBackend

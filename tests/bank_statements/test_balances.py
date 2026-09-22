@@ -248,3 +248,20 @@ def test_debit_credit_inversion_detected_and_healed() -> None:
     assert txns[0].credit == Decimal("2000.00") and txns[0].debit is None
     assert txns[1].debit == Decimal("1000.00") and txns[1].credit is None
     assert txns[2].credit == Decimal("5000.00") and txns[2].debit is None
+
+
+def test_empty_transactions_fails_closed_with_invalid_status() -> None:
+    """Zero extracted transactions must result in INVALID status and ZERO_TRANSACTIONS_EXTRACTED issue."""
+    ident = create_account_identity("State Bank of India", "30123456789")
+    statement = BankStatement(
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        opening_balance=Decimal("10000.00"),
+        closing_balance=Decimal("10000.00"),
+        transactions=(),
+    )
+
+    validated = validate_statement_balances(statement)
+    assert validated.status == ValidationStatus.INVALID
+    assert any(i.code == "ZERO_TRANSACTIONS_EXTRACTED" for i in validated.issues)

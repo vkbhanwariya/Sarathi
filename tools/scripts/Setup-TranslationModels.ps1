@@ -389,8 +389,8 @@ $grandTotal = 0
 $grandValid = 0
 
 if ($Engine -eq 'opus_mt' -or $Engine -eq 'all') {
-    # OPUS-MT is also mapped to default hi-en and en-hi for instant out-of-the-box translation
-    $res = Provision-ModelGroup -GroupName "OPUS-MT (Marian INT8)" -Catalog $opusCatalog -TargetSubdir 'opus_mt' -AlsoPopulateDefault $true
+    # OPUS-MT models are strictly isolated to data/translation/models/opus_mt/
+    $res = Provision-ModelGroup -GroupName "OPUS-MT (Marian INT8)" -Catalog $opusCatalog -TargetSubdir 'opus_mt' -AlsoPopulateDefault $false
     $grandTotal += $res.Total
     $grandValid += $res.Valid
 }
