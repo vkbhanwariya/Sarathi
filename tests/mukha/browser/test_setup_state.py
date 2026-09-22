@@ -59,7 +59,7 @@ def test_app_loads_and_displays_home_screen(app_page: Page) -> None:
     expect(app_page.locator("#subtask-ocr")).to_be_visible()
     expect(app_page.locator(".primary-task-tab-btn")).to_have_count(1)
     expect(app_page.locator("#param-convert-legacy-fonts")).to_be_visible()
-    expect(app_page.locator("#param-convert-legacy-fonts")).to_be_checked()
+    expect(app_page.locator("#param-convert-legacy-fonts")).to_have_class(re.compile(r"\bactive\b"))
     expect(app_page.locator("#param-layout-analysis")).to_be_visible()
 
 
@@ -117,8 +117,8 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     # Toggle preserve layout checkbox
     lay_chk = app_page.locator("#param-preserve-layout")
     expect(lay_chk).to_be_visible()
-    lay_chk.check()
-    expect(lay_chk).to_be_checked()
+    lay_chk.click()
+    expect(lay_chk).to_have_class(re.compile(r"\bactive\b"))
 
     # Switch to Bank Statements and back to Documents Extraction
     _choose_task(app_page, "bank-consolidation")
@@ -127,7 +127,7 @@ def test_toggle_value_survives_capability_switching(app_page: Page) -> None:
     _choose_task(app_page, "documents-extraction")
     lay_chk = app_page.locator("#param-preserve-layout")
     expect(lay_chk).to_be_visible()
-    expect(lay_chk).to_be_checked()
+    expect(lay_chk).to_have_class(re.compile(r"\bactive\b"))
 
 
 def test_parameter_selection_survives_screen_navigation(app_page: Page) -> None:
@@ -174,11 +174,11 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     card = app_page.locator("#subtask-ocr")
     card.locator(".action-card-header").click()
     chk_preserve = app_page.locator("#param-preserve-layout")
-    expect(chk_preserve).not_to_be_checked()
+    expect(chk_preserve).not_to_have_class(re.compile(r"\bactive\b"))
 
     # Click checkbox directly
     chk_preserve.click()
-    expect(chk_preserve).to_be_checked()
+    expect(chk_preserve).to_have_class(re.compile(r"\bactive\b"))
 
     # Verify payload reflects layout_preserving profile
     payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
@@ -187,10 +187,9 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     assert payload["profile"] == "layout_preserving"
     assert payload["custom_options"].get("preserve_layout") is True
 
-    # Click label to toggle off
-    label_preserve = app_page.locator("label:has(#param-preserve-layout)")
-    label_preserve.click()
-    expect(chk_preserve).not_to_be_checked()
+    # Toggle off
+    chk_preserve.click()
+    expect(chk_preserve).not_to_have_class(re.compile(r"\bactive\b"))
     payload_off = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
     )
@@ -201,10 +200,10 @@ def test_preserve_layout_and_layout_analysis_toggles(app_page: Page) -> None:
     native_card.locator(".action-card-header").click()
     _open_settings(app_page, "native")
     chk_gnn = app_page.locator("#param-layout-analysis")
-    expect(chk_gnn).not_to_be_checked()
+    expect(chk_gnn).not_to_have_class(re.compile(r"\bactive\b"))
 
     chk_gnn.click()
-    expect(chk_gnn).to_be_checked()
+    expect(chk_gnn).to_have_class(re.compile(r"\bactive\b"))
 
     native_payload = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
@@ -324,7 +323,7 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     _open_settings(app_page, "native")
     native_chk = app_page.locator("#param-skip-header-footer")
     expect(native_chk).to_be_visible()
-    expect(native_chk).to_be_checked()
+    expect(native_chk).to_have_class(re.compile(r"\bactive\b"))
 
     payload_native = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
@@ -336,7 +335,7 @@ def test_clean_output_header_footer_toggle(app_page: Page) -> None:
     app_page.locator("#subtask-ocr").click()
     ocr_chk = app_page.locator("#param-ocr-skip-header-footer")
     expect(ocr_chk).to_be_visible()
-    expect(ocr_chk).to_be_checked()
+    expect(ocr_chk).to_have_class(re.compile(r"\bactive\b"))
 
     payload_ocr = app_page.evaluate(
         """() => window.__sarathi_build_request ? window.__sarathi_build_request() : null"""
@@ -403,7 +402,7 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
     # Verify cloud chips and local fallback checkbox appear
     expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
     expect(app_page.locator("#param-ocr-fallback-to-local")).to_be_visible()
-    expect(app_page.locator("#param-ocr-fallback-to-local")).to_be_checked()
+    expect(app_page.locator("#param-ocr-fallback-to-local")).to_have_class(re.compile(r"\bactive\b"))
 
     payload_cloud = app_page.evaluate("() => window.__sarathi_build_request()")
     assert payload_cloud["requirement"] == "mistral_ocr"
@@ -416,8 +415,8 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
 
     stamp_chk = app_page.locator("#param-ocr-remove-stamps")
     expect(stamp_chk).to_be_visible()
-    stamp_chk.check()
-    expect(stamp_chk).to_be_checked()
+    stamp_chk.click()
+    expect(stamp_chk).to_have_class(re.compile(r"\bactive\b"))
 
     payload_tuned = app_page.evaluate("() => window.__sarathi_build_request()")
     assert payload_tuned["custom_options"]["remove_stamps"] is True
@@ -438,9 +437,9 @@ def test_translation_in_front_toggles_and_legal_integrity_bar(app_page: Page) ->
     stat_chk = app_page.locator("#param-trans-statutory")
     pn_chk = app_page.locator("#param-trans-proper-nouns")
     expect(stat_chk).to_be_visible()
-    expect(stat_chk).to_be_checked()
+    expect(stat_chk).to_have_class(re.compile(r"\bactive\b"))
     expect(pn_chk).to_be_visible()
-    expect(pn_chk).to_be_checked()
+    expect(pn_chk).to_have_class(re.compile(r"\bactive\b"))
 
     # 3. Default payload carries statutory and proper noun flags
     payload = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
