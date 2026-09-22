@@ -494,102 +494,92 @@ export function TaskSelector({
                     {/* Task 2: Font Standardizer (Word & Excel) */}
                     {task.id === "font_conversion" && (
                       <div class="subtasks-container">
-                        <div class="subtasks-grid">
-                          {/* 2.1 Legacy to Unicode */}
-                          {(() => {
-                            const act = availableActions.find((a) => a.action_id === "font_conversion");
-                            const isEnabled = act ? act.is_enabled : true;
-                            const isSel = currentSubtask === "legacy_to_unicode";
-                            return (
-                              <div
-                                key="legacy_to_unicode"
-                                id="subtask-legacy-to-unicode"
-                                data-subtask="legacy_to_unicode"
-                                data-req="font_conversion"
-                                class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                onClick={() => onSelectSubtask("font_conversion", "legacy_to_unicode")}
-                                title={isEnabled ? "Auto-detects legacy Hindi font encodings and converts to Unicode." : (act?.disabled_reason || "Unavailable")}
-                              >
-                                <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                  <span class="action-card-name">Auto detect to Unicode</span>
-                                </button>
-                                <p class="action-card-desc">
-                                  Convert legacy Hindi fonts in Word and Excel to Unicode.
-                                </p>
-                                {isSel && (
-                                  <div class="ocr-card-details" onClick={(e) => e.stopPropagation()}>
-                                    <div class="ocr-feature-box">
-                                      <span class="ocr-feature-box-header">Source Font</span>
-                                      <label class="field mini" style={{ margin: 0 }}>
-                                        <select
-                                          id="param-source-font"
-                                          value={sourceFont}
-                                          onChange={(e) => onSetSourceFont(e.currentTarget.value)}
-                                          style={{ padding: "4px 8px", fontSize: "11px", borderRadius: "6px", border: "1px solid #e2e8f0" }}
-                                        >
-                                          <option value="">Auto-Detect</option>
-                                          <option value="krutidev010">KrutiDev 010 / DevLys</option>
-                                          <option value="chanakya010">Chanakya</option>
-                                          <option value="shusha010">Shusha</option>
-                                          <option value="shivaji010">Shivaji</option>
-                                        </select>
-                                      </label>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
+                        {/* Box 1: Source Font */}
+                        <div class="ocr-feature-box">
+                          <span class="ocr-feature-box-header">Source Font</span>
+                          <div class="ocr-group-toggles">
+                            <button
+                              id="btn-font-source-hint"
+                              type="button"
+                              class={`toggle-row mini toggle-switch-btn ${sourceFont ? "active" : ""}`}
+                              title="Specify source font instead of auto-detecting"
+                              onClick={() => {
+                                onSetSourceFont(sourceFont ? "" : "krutidev010");
+                              }}
+                            >
+                              <span class="toggle-switch-slider"></span>
+                              <span><strong>Manual Font Hint</strong></span>
+                            </button>
+                          </div>
 
-                          {/* 2.2 Unicode to KrutiDev */}
-                          {(() => {
-                            const act = availableActions.find((a) => a.action_id === "font_conversion");
-                            const isEnabled = act ? act.is_enabled : true;
-                            const isSel = currentSubtask === "unicode_to_krutidev";
-                            return (
-                              <div
-                                key="unicode_to_krutidev"
-                                id="subtask-unicode-to-krutidev"
-                                data-subtask="unicode_to_krutidev"
-                                data-req="font_conversion"
-                                class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                onClick={() => onSelectSubtask("font_conversion", "unicode_to_krutidev")}
-                                title={isEnabled ? "Reverses Unicode text into legacy KrutiDev 010." : (act?.disabled_reason || "Unavailable")}
-                              >
-                                <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                  <span class="action-card-name">Convert to KrutiDev</span>
-                                </button>
-                                <p class="action-card-desc">
-                                  Transduces Unicode text back into legacy KrutiDev 010 for older government printing portals or typewriter submissions.
-                                </p>
+                          {sourceFont && (
+                            <div class="cloud-pill-row">
+                              <div class="cloud-provider-pills" role="group" aria-label="Source Font">
+                                {[
+                                  { id: "krutidev010", label: "KrutiDev" },
+                                  { id: "chanakya010", label: "Chanakya" },
+                                  { id: "shusha010", label: "Shusha" },
+                                  { id: "shivaji010", label: "Shivaji" },
+                                ].map((f) => (
+                                  <button
+                                    key={f.id}
+                                    id={`chip-font-${f.id}`}
+                                    type="button"
+                                    class={`cloud-pill-btn ${sourceFont === f.id ? "active" : ""}`}
+                                    onClick={() => onSetSourceFont(f.id)}
+                                  >
+                                    {f.label}
+                                  </button>
+                                ))}
                               </div>
-                            );
-                          })()}
+                            </div>
+                          )}
+                        </div>
 
-                          {/* 2.3 Unicode to DevLys */}
-                          {(() => {
-                            const act = availableActions.find((a) => a.action_id === "font_conversion");
-                            const isEnabled = act ? act.is_enabled : true;
-                            const isSel = currentSubtask === "unicode_to_devlys";
-                            return (
-                              <div
-                                key="unicode_to_devlys"
-                                id="subtask-unicode-to-devlys"
-                                data-subtask="unicode_to_devlys"
-                                data-req="font_conversion"
-                                class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                onClick={() => onSelectSubtask("font_conversion", "unicode_to_devlys")}
-                                title={isEnabled ? "Reverses Unicode text into legacy DevLys 010." : (act?.disabled_reason || "Unavailable")}
-                              >
-                                <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                  <span class="action-card-name">Convert to DevLys</span>
+                        {/* Box 2: Conversion Direction */}
+                        <div class="ocr-feature-box">
+                          <span class="ocr-feature-box-header">Conversion</span>
+                          <div class="ocr-group-toggles">
+                            <button
+                              id="btn-font-to-legacy"
+                              type="button"
+                              class={`toggle-row mini toggle-switch-btn ${currentSubtask !== "legacy_to_unicode" ? "active" : ""}`}
+                              title="Toggle Convert to Legacy (default is Legacy → Unicode)"
+                              onClick={() => {
+                                if (currentSubtask === "legacy_to_unicode") {
+                                  onSelectSubtask("font_conversion", "unicode_to_krutidev");
+                                } else {
+                                  onSelectSubtask("font_conversion", "legacy_to_unicode");
+                                }
+                              }}
+                            >
+                              <span class="toggle-switch-slider"></span>
+                              <span><strong>Convert to Legacy</strong></span>
+                            </button>
+                          </div>
+
+                          {currentSubtask !== "legacy_to_unicode" && (
+                            <div class="cloud-pill-row">
+                              <div class="cloud-provider-pills" role="group" aria-label="Legacy Target">
+                                <button
+                                  id="chip-font-krutidev"
+                                  type="button"
+                                  class={`cloud-pill-btn ${currentSubtask === "unicode_to_krutidev" ? "active" : ""}`}
+                                  onClick={() => onSelectSubtask("font_conversion", "unicode_to_krutidev")}
+                                >
+                                  KrutiDev
                                 </button>
-                                <p class="action-card-desc">
-                                  Transduces Unicode text back into legacy DevLys 010 for governmental typewriter compatibility.
-                                </p>
+                                <button
+                                  id="chip-font-devlys"
+                                  type="button"
+                                  class={`cloud-pill-btn ${currentSubtask === "unicode_to_devlys" ? "active" : ""}`}
+                                  onClick={() => onSelectSubtask("font_conversion", "unicode_to_devlys")}
+                                >
+                                  DevLys
+                                </button>
                               </div>
-                            );
-                          })()}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
