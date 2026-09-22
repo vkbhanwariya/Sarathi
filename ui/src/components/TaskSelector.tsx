@@ -587,17 +587,6 @@ export function TaskSelector({
                     {/* Task 3: Document Translation (Word, PDF & Excel) */}
                     {task.id === "translation" && (
                       <div class="subtasks-container">
-                        {/* Capabilities Bar */}
-                        <div class="ocr-feature-box" style={{ background: "rgba(238, 242, 255, 0.5)" }}>
-                          <span class="ocr-feature-box-header">Capabilities</span>
-                          <div class="integrity-chips-row">
-                            <span class="integrity-chip trans">✓ Statutory Legal Glossaries</span>
-                            <span class="integrity-chip trans">✓ Proper Noun Preservation</span>
-                            <span class="integrity-chip trans">✓ Case Law &amp; Citation Protector</span>
-                            <span class="integrity-chip trans">⚡ AVX-VNNI Neural Speed</span>
-                          </div>
-                        </div>
-
                         {/* Direction */}
                         <div class="ocr-feature-box">
                           <span class="ocr-feature-box-header">Direction</span>
@@ -632,6 +621,83 @@ export function TaskSelector({
                           </div>
                         </div>
 
+                        {/* Engine */}
+                        <div class="ocr-feature-box">
+                          <span class="ocr-feature-box-header">Engine</span>
+                          <div class="ocr-group-toggles">
+                            {/* Cloud Translation toggle */}
+                            <button
+                              id="btn-trans-cloud"
+                              type="button"
+                              class={`toggle-row mini toggle-switch-btn ${TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud ? "active" : ""}`}
+                              title="Switch to a Cloud AI translation engine"
+                              onClick={() => {
+                                const isCloud = TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud;
+                                if (isCloud) {
+                                  onSelectSubtask("translation", "indictrans2");
+                                } else {
+                                  onSelectSubtask("translation", "gemini");
+                                }
+                              }}
+                            >
+                              <span class="toggle-switch-slider"></span>
+                              <span><strong>☁️ Cloud Translation</strong></span>
+                            </button>
+
+                            {/* OPUS-MT toggle — only visible when NOT cloud */}
+                            {!TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud && (
+                              <button
+                                id="btn-trans-opus"
+                                type="button"
+                                class={`toggle-row mini toggle-switch-btn ${currentSubtask === "opus_mt" ? "active" : ""}`}
+                                title="Switch to Helsinki OPUS-MT local engine"
+                                onClick={() => {
+                                  onSelectSubtask("translation", currentSubtask === "opus_mt" ? "indictrans2" : "opus_mt");
+                                }}
+                              >
+                                <span class="toggle-switch-slider"></span>
+                                <span><strong>OPUS-MT (Helsinki)</strong></span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Cloud engine pills — shown when cloud is active */}
+                          {TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud && (
+                            <div class="cloud-pill-row">
+                              <div class="cloud-provider-pills" role="group" aria-label="Cloud Engine">
+                                {TRANSLATION_ENGINES.filter((e) => e.isCloud).map((eng) => {
+                                  const act = availableActions.find((a) => a.action_id === eng.actionId);
+                                  const isAvail = act ? act.is_enabled : false;
+                                  return (
+                                    <button
+                                      key={eng.id}
+                                      id={`chip-trans-${eng.id}`}
+                                      type="button"
+                                      class={`cloud-pill-btn ${currentSubtask === eng.id ? "active" : ""}`}
+                                      disabled={!isAvail}
+                                      title={isAvail ? eng.desc : (act?.disabled_reason || "Unavailable")}
+                                      onClick={() => onSelectSubtask("translation", eng.id)}
+                                    >
+                                      {eng.tag}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <button
+                                id="param-trans-fallback-local"
+                                type="button"
+                                class={`toggle-row mini toggle-switch-btn ${transFallbackToLocal ? "active" : ""}`}
+                                title="Automatically fall back to local IndicTrans2 if cloud API rate limits or network issues occur"
+                                onClick={() => { if (onSetTransFallbackToLocal) onSetTransFallbackToLocal(!transFallbackToLocal); }}
+                              >
+                                <span class="toggle-switch-slider"></span>
+                                <span><strong>Fallback to Local</strong></span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
                         {/* Legal Fidelity */}
                         <div class="ocr-feature-box">
                           <span class="ocr-feature-box-header">Legal Fidelity</span>
@@ -656,50 +722,6 @@ export function TaskSelector({
                               <span class="toggle-switch-slider"></span>
                               <span><strong>Proper Noun Preservation</strong></span>
                             </button>
-                            {(() => {
-                              const selEng = TRANSLATION_ENGINES.find((e) => e.id === currentSubtask);
-                              return Boolean(selEng?.isCloud) ? (
-                                <button
-                                  id="param-trans-fallback-local"
-                                  type="button"
-                                  class={`toggle-row mini toggle-switch-btn ${transFallbackToLocal ? "active" : ""}`}
-                                  title="Automatically fall back to local IndicTrans2 if cloud API rate limits or network issues occur"
-                                  onClick={() => { if (onSetTransFallbackToLocal) onSetTransFallbackToLocal(!transFallbackToLocal); }}
-                                >
-                                  <span class="toggle-switch-slider"></span>
-                                  <span><strong>Fallback to Local IndicTrans2</strong></span>
-                                </button>
-                              ) : null;
-                            })()}
-                          </div>
-                        </div>
-
-                        {/* Engine Choices */}
-                        <div class="ocr-feature-box">
-                          <span class="ocr-feature-box-header">Translation Engine</span>
-                          <div class="subtasks-grid">
-                            {TRANSLATION_ENGINES.map((eng) => {
-                              const act = availableActions.find((a) => a.action_id === eng.actionId);
-                              const isEnabled = act ? act.is_enabled : false;
-                              const isSel = currentSubtask === eng.id;
-                              return (
-                                <div
-                                  key={eng.id}
-                                  id={`subtask-engine-${eng.id.replace(/_/g, "-")}`}
-                                  data-subtask={eng.id}
-                                  data-req={eng.actionId}
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => onSelectSubtask("translation", eng.id)}
-                                  title={isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                    <span class="action-card-name">{eng.label}</span>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>{eng.tag || (eng.isCloud ? "CLOUD AI" : "LOCAL NEURAL")}</span>
-                                  </button>
-                                  <p class="action-card-desc">{isEnabled ? eng.desc : (act?.disabled_reason || "Unavailable")}</p>
-                                </div>
-                              );
-                            })}
                           </div>
                         </div>
                       </div>
