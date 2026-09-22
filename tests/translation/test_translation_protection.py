@@ -459,7 +459,7 @@ def test_bug_T5_redundant_translation() -> None:
     assert out_doc.pages[1].text == "TRANS_दूसरा वाक्य।"
 
 
-def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
+def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any, tmp_path: Any) -> None:
     """T6: translate_batch must pass explicit beam_size and max_decoding_length, and warn on truncation."""
     from types import SimpleNamespace
 
@@ -495,7 +495,19 @@ def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
     monkeypatch.setattr(ctranslate2, "Translator", FakeTranslator)
     monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", FakeSPM)
 
-    engine = CTranslate2TranslationEngine()
+    data_root = tmp_path / "translation"
+    (data_root / "models" / "hi-en").mkdir(parents=True)
+    (data_root / "models" / "en-hi").mkdir(parents=True)
+    (data_root / "manifest.json").write_text(
+        '{"version":"test","engine":"indictrans2","models":{"hi-en":{},"en-hi":{}}}',
+        encoding="utf-8",
+    )
+    for direction in ("hi-en", "en-hi"):
+        model_dir = data_root / "models" / direction
+        (model_dir / "model.bin").write_bytes(b"test")
+        (model_dir / "spm.model").write_bytes(b"test")
+
+    engine = CTranslate2TranslationEngine(data_root=data_root)
     result = engine.translate("परीक्षण वाक्य।", direction=TranslationDirection.HI_TO_EN)
 
     # 1. Assert kwargs include explicit beam_size and max_decoding_length
@@ -538,7 +550,7 @@ def test_bug_T7_anubhava_word_boundary() -> None:
     assert captured_sentences[0] == "कार्य X परिणाम", f"Expected 'कार्य X परिणाम', got {captured_sentences[0]}"
 
 
-def test_bug_T8_model_cache_deduplication(monkeypatch: Any) -> None:
+def test_bug_T8_model_cache_deduplication(monkeypatch: Any, tmp_path: Any) -> None:
     """T8: Two translate_sentences calls with different approved_concurrency must construct one translator."""
     from types import SimpleNamespace
 
@@ -572,7 +584,19 @@ def test_bug_T8_model_cache_deduplication(monkeypatch: Any) -> None:
     monkeypatch.setattr(ctranslate2, "Translator", CountingTranslator)
     monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", FakeSPM)
 
-    engine = CTranslate2TranslationEngine()
+    data_root = tmp_path / "translation"
+    (data_root / "models" / "hi-en").mkdir(parents=True)
+    (data_root / "models" / "en-hi").mkdir(parents=True)
+    (data_root / "manifest.json").write_text(
+        '{"version":"test","engine":"indictrans2","models":{"hi-en":{},"en-hi":{}}}',
+        encoding="utf-8",
+    )
+    for direction in ("hi-en", "en-hi"):
+        model_dir = data_root / "models" / direction
+        (model_dir / "model.bin").write_bytes(b"test")
+        (model_dir / "spm.model").write_bytes(b"test")
+
+    engine = CTranslate2TranslationEngine(data_root=data_root)
     backend = engine._ensure_backend()
 
     binding1 = ExecutionBinding(
