@@ -137,7 +137,9 @@ class MukhaWebServer:
             roots.extend(self._registered_input_directories)
             for p in self._runner._input_path_registry.values():
                 if p.is_file():
-                    roots.append(p.parent.resolve())
+                    # Authorize an explicitly selected file itself, never its parent
+                    # directory: sibling files were not selected and must not become
+                    # previewable merely because they share a directory.
                     roots.append(p.resolve())
                 elif p.is_dir():
                     roots.append(p.resolve())
