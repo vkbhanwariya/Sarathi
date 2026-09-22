@@ -49,9 +49,7 @@ export interface CloudOcrProviderDef {
 }
 
 export const CLOUD_OCR_PROVIDERS: readonly CloudOcrProviderDef[] = [
-  { id: "gemini_ocr", label: "Gemini" },
   { id: "mistral_ocr", label: "Mistral" },
-  { id: "azure_ocr", label: "Azure" },
 ];
 
 export interface TranslationEngineDef {
@@ -139,7 +137,7 @@ export function resolveBackendMapping(
     if (currentSubtask === "ocr") {
       if (options.ocrEngineType === "cloud") {
         return {
-          requirement: options.cloudOcrProvider || "gemini_ocr",
+          requirement: options.cloudOcrProvider || "mistral_ocr",
           profile: "instant",
         };
       }
@@ -159,7 +157,7 @@ export function resolveBackendMapping(
     }
     if (currentSubtask === "cloud_ocr") {
       return {
-        requirement: options.cloudOcrProvider || "gemini_ocr",
+        requirement: options.cloudOcrProvider || "mistral_ocr",
         profile: "instant",
       };
     }

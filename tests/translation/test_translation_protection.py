@@ -1,5 +1,7 @@
 """Tests for Translation Span Protection and Restoration."""
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -7,6 +9,19 @@ import pytest
 from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
 from sarathi.shakti.translation.models import TranslationDirection
 from sarathi.shakti.translation.protector import TranslationProtector
+
+
+def _fake_translation_data_root(tmp_path: Path) -> Path:
+    """Create the minimal on-disk asset shape required by mocked native-backend tests."""
+    root = tmp_path / "translation"
+    model_dir = root / "models" / "hi-en"
+    model_dir.mkdir(parents=True)
+    (model_dir / "spm.model").write_bytes(b"test-sentencepiece-placeholder")
+    (root / "manifest.json").write_text(
+        json.dumps({"models": {"hi-en": {"source_lang": "hin_Deva", "target_lang": "eng_Latn"}}}),
+        encoding="utf-8",
+    )
+    return root
 
 
 def test_factual_spans_and_identifiers_preserved_byte_for_byte(test_backend: Any) -> None:
@@ -459,7 +474,7 @@ def test_bug_T5_redundant_translation() -> None:
     assert out_doc.pages[1].text == "TRANS_दूसरा वाक्य।"
 
 
-def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
+def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any, tmp_path: Path) -> None:
     """T6: translate_batch must pass explicit beam_size and max_decoding_length, and warn on truncation."""
     from types import SimpleNamespace
 
@@ -495,7 +510,7 @@ def test_bug_T6_silent_truncation_warning_and_params(monkeypatch: Any) -> None:
     monkeypatch.setattr(ctranslate2, "Translator", FakeTranslator)
     monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", FakeSPM)
 
-    engine = CTranslate2TranslationEngine()
+    engine = CTranslate2TranslationEngine(data_root=_fake_translation_data_root(tmp_path))
     result = engine.translate("परीक्षण वाक्य।", direction=TranslationDirection.HI_TO_EN)
 
     # 1. Assert kwargs include explicit beam_size and max_decoding_length
@@ -538,7 +553,7 @@ def test_bug_T7_anubhava_word_boundary() -> None:
     assert captured_sentences[0] == "कार्य X परिणाम", f"Expected 'कार्य X परिणाम', got {captured_sentences[0]}"
 
 
-def test_bug_T8_model_cache_deduplication(monkeypatch: Any) -> None:
+def test_bug_T8_model_cache_deduplication(monkeypatch: Any, tmp_path: Path) -> None:
     """T8: Two translate_sentences calls with different approved_concurrency must construct one translator."""
     from types import SimpleNamespace
 
@@ -572,7 +587,7 @@ def test_bug_T8_model_cache_deduplication(monkeypatch: Any) -> None:
     monkeypatch.setattr(ctranslate2, "Translator", CountingTranslator)
     monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", FakeSPM)
 
-    engine = CTranslate2TranslationEngine()
+    engine = CTranslate2TranslationEngine(data_root=_fake_translation_data_root(tmp_path))
     backend = engine._ensure_backend()
 
     binding1 = ExecutionBinding(

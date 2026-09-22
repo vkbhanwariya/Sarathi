@@ -178,7 +178,17 @@ def intake_from_paths(
 
             folder_added = 0
             for df in sorted(dir_files):
-                df_resolved = df.resolve()
+                try:
+                    df_resolved = df.resolve()
+                except OSError:
+                    issues.append((df.name, "cannot resolve path"))
+                    continue
+                # Directory discovery must not follow a symlink outside the selected directory.
+                # Explicit single-file selections are handled separately, but recursive intake
+                # must remain confined to the directory the user selected.
+                if not _is_subpath(df_resolved, resolved):
+                    issues.append((df.name, "path escapes selected directory"))
+                    continue
                 if _is_hidden_or_temporary(df):
                     continue
                 if _is_subpath(df_resolved, runtime_root) or _is_subpath(df_resolved, output_root):

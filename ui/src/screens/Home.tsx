@@ -92,7 +92,7 @@ export function Home({
   const [ocrFallbackToLocal, setOcrFallbackToLocal] = useState<boolean>(true);
 
   const [cloudOcrProvider, setCloudOcrProvider] = useState<string>(
-    state.requirement.endsWith("_ocr") ? state.requirement : "gemini_ocr"
+    state.requirement.endsWith("_ocr") && state.requirement !== "ocr" ? state.requirement : "mistral_ocr"
   );
   const [transDirection, setTransDirection] = useState<string>("");
   const [statutoryEnabled, setStatutoryEnabled] = useState<boolean>(true);
@@ -202,17 +202,12 @@ export function Home({
 
     if (primaryTask === "documents_extraction") {
       if (currentSubtask === "native") {
-        const statEl = typeof document !== "undefined" ? (document.getElementById("param-statutory") as HTMLInputElement | null) : null;
-        customOptions.statutory = statEl ? statEl.checked : statutoryEnabled;
-        const legacyEl = typeof document !== "undefined" ? (document.getElementById("param-convert-legacy-fonts") as HTMLInputElement | null) : null;
-        customOptions.convert_legacy_fonts = legacyEl ? legacyEl.checked : convertLegacyFonts;
-        const layoutEl = typeof document !== "undefined" ? (document.getElementById("param-layout-analysis") as HTMLInputElement | null) : null;
-        const isLayout = layoutEl ? layoutEl.checked : layoutAnalysis;
-        if (isLayout) {
+        customOptions.statutory = statutoryEnabled;
+        customOptions.convert_legacy_fonts = convertLegacyFonts;
+        if (layoutAnalysis) {
           customOptions.layout_analysis = true;
         }
-        const skipHdrEl = typeof document !== "undefined" ? (document.getElementById("param-skip-header-footer") as HTMLInputElement | null) : null;
-        customOptions.skip_header_footer = skipHdrEl ? skipHdrEl.checked : skipHeaderFooter;
+        customOptions.skip_header_footer = skipHeaderFooter;
       } else if (
         currentSubtask === "ocr" ||
         currentSubtask === "accurate_ocr" ||
@@ -220,31 +215,25 @@ export function Home({
         currentSubtask === "custom_ocr" ||
         currentSubtask === "cloud_ocr"
       ) {
-        const layEl = typeof document !== "undefined" ? (document.getElementById("param-preserve-layout") as HTMLInputElement | null) : null;
-        if (layEl ? layEl.checked : preserveLayout) {
+        if (preserveLayout) {
           customOptions.preserve_layout = true;
         }
-        const ocrSkipHdrEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-skip-header-footer") as HTMLInputElement | null) : null;
-        customOptions.skip_header_footer = ocrSkipHdrEl ? ocrSkipHdrEl.checked : skipHeaderFooter;
+        customOptions.skip_header_footer = skipHeaderFooter;
 
-        const ocrStatEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-statutory") as HTMLInputElement | null) : null;
-        if (ocrStatEl ? ocrStatEl.checked : statutoryEnabled) {
+        if (statutoryEnabled) {
           customOptions.statutory = true;
         }
-        const ocrLegEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-convert-legacy-fonts") as HTMLInputElement | null) : null;
-        if (ocrLegEl ? ocrLegEl.checked : convertLegacyFonts) {
+        if (convertLegacyFonts) {
           customOptions.convert_legacy_fonts = true;
         }
-        const ocrStampEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-remove-stamps") as HTMLInputElement | null) : null;
-        if (ocrStampEl ? ocrStampEl.checked : removeStamps) {
+        if (removeStamps) {
           customOptions.remove_stamps = true;
           customOptions.stamp_mode = "remove";
         }
 
         if (ocrEngineType === "cloud" || currentSubtask === "cloud_ocr") {
           customOptions.engine = cloudOcrProvider;
-          const fbEl = typeof document !== "undefined" ? (document.getElementById("param-ocr-fallback-to-local") as HTMLInputElement | null) : null;
-          if (fbEl ? fbEl.checked : ocrFallbackToLocal) {
+          if (ocrFallbackToLocal) {
             customOptions.fallback_to_local = true;
           }
         } else {
@@ -281,9 +270,7 @@ export function Home({
         customOptions.target_profile_id = "to_devlys";
       } else {
         customOptions.font_mode = "auto_unicode";
-        const fontEl = typeof document !== "undefined" ? (document.getElementById("param-source-font") as HTMLSelectElement | null) : null;
-        const fontVal = fontEl ? fontEl.value : sourceFont;
-        if (fontVal) customOptions.source_font = fontVal;
+        if (sourceFont) customOptions.source_font = sourceFont;
       }
     } else if (primaryTask === "translation") {
       if (transDirection) {
