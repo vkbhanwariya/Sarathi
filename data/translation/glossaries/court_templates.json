@@ -1,0 +1,172 @@
+{
+  "version": "1.0",
+  "description": "Standard Indian Court Orders, Statutory Boilerplate, and Section Formulas for Bilingual Translation",
+  "boilerplate_en_to_hi": {
+    "Heard learned counsel for the petitioner and learned counsel for the respondent": "याचिकाकर्ता के विद्वान अधिवक्ता एवं प्रतिवादी के विद्वान अधिवक्ता को सुना गया",
+    "Heard learned counsel for the petitioner and learned counsel for the respondents": "याचिकाकर्ता के विद्वान अधिवक्ता एवं प्रतिवादियों के विद्वान अधिवक्ता को सुना गया",
+    "Heard learned counsel for the applicant and learned Public Prosecutor for the State": "आवेदक के विद्वान अधिवक्ता एवं राज्य की ओर से विद्वान लोक अभियोजक को सुना गया",
+    "Heard learned counsel for the appellant and learned counsel for the respondents": "अपीलार्थी के विद्वान अधिवक्ता एवं प्रतिवादियों के विद्वान अधिवक्ता को सुना गया",
+    "Heard learned counsel for the appellant and learned counsel for the respondent": "अपीलार्थी के विद्वान अधिवक्ता एवं प्रतिवादी के विद्वान अधिवक्ता को सुना गया",
+    "Heard learned counsel for the parties": "पक्षकारों के विद्वान अधिवक्ताओं को सुना गया",
+    "Heard learned counsel for the parties at length": "पक्षकारों के विद्वान अधिवक्ताओं को विस्तार से सुना गया",
+    "None appeared for the respondent": "प्रतिवादी की ओर से कोई उपस्थित नहीं हुआ",
+    "None appears on behalf of the respondent": "प्रतिवादी की ओर से कोई उपस्थित नहीं हुआ",
+    "None appeared for the petitioner": "याचिकाकर्ता की ओर से कोई उपस्थित नहीं हुआ",
+    "None appears on behalf of the petitioner": "याचिकाकर्ता की ओर से कोई उपस्थित नहीं हुआ",
+    "Perused the record": "अभिलेख का अवलोकन किया गया",
+    "Perused the case diary": "केस डायरी का अवलोकन किया गया",
+    "Perused the impugned order": "आक्षेपित आदेश का अवलोकन किया गया",
+    "Perused the material available on record": "अभिलेख पर उपलब्ध सामग्री का परिशीलन किया गया",
+    "This is an application for grant of anticipatory bail under Section 438 Cr.P.C": "यह दंड प्रक्रिया संहिता की धारा 438 के तहत अग्रिम जमानत देने हेतु आवेदन है",
+    "This is an application for grant of anticipatory bail under Section 438 of the Code of Criminal Procedure": "यह दंड प्रक्रिया संहिता की धारा 438 के तहत अग्रिम जमानत देने हेतु आवेदन है",
+    "This is an application for grant of regular bail under Section 439 Cr.P.C": "यह दंड प्रक्रिया संहिता की धारा 439 के तहत नियमित जमानत देने हेतु आवेदन है",
+    "This is an application for grant of regular bail under Section 439 of the Code of Criminal Procedure": "यह दंड प्रक्रिया संहिता की धारा 439 के तहत नियमित जमानत देने हेतु आवेदन है",
+    "The bail application is allowed": "जमानत आवेदन स्वीकार किया जाता है",
+    "The application for bail is allowed": "जमानत आवेदन स्वीकार किया जाता है",
+    "The bail application is rejected": "जमानत आवेदन खारिज किया जाता है",
+    "The bail application is dismissed": "जमानत आवेदन खारिज किया जाता है",
+    "The application for bail is dismissed": "जमानत आवेदन खारिज किया जाता है",
+    "The applicant shall be released on bail on furnishing a personal bond with two sureties": "आवेदक को दो प्रतिभुओं सहित एक व्यक्तिगत बंधपत्र प्रस्तुत करने पर जमानत पर रिहा किया जाएगा",
+    "The applicant is directed to be released on bail on furnishing a personal bond with two sureties to the satisfaction of the trial court": "आवेदक को विचारण न्यायालय के संतोषप्रद दो प्रतिभुओं सहित एक व्यक्तिगत बंधपत्र प्रस्तुत करने पर जमानत पर रिहा करने का निर्देश दिया जाता है",
+    "Let notice be issued to the respondent, returnable within four weeks": "प्रतिवादी को नोटिस जारी किया जाए, जो चार सप्ताह के भीतर वापस योग्य हो",
+    "Let notice be issued to the respondents, returnable within four weeks": "प्रतिवादियों को नोटिस जारी किया जाए, जो चार सप्ताह के भीतर वापस योग्य हो",
+    "Issue notice to the respondent, returnable within four weeks": "प्रतिवादी को नोटिस जारी किया जाए, जो चार सप्ताह के भीतर वापस योग्य हो",
+    "Issue notice to the respondents, returnable within four weeks": "प्रतिवादियों को नोटिस जारी किया जाए, जो चार सप्ताह के भीतर वापस योग्य हो",
+    "Issue notice to the respondent": "प्रतिवादी को नोटिस जारी किया जाए",
+    "Issue notice to the respondents": "प्रतिवादियों को नोटिस जारी किया जाए",
+    "Notice is accepted by learned counsel for the respondent": "प्रतिवादी के विद्वान अधिवक्ता द्वारा नोटिस स्वीकार किया जाता है",
+    "Notice is accepted by learned counsel for the State": "राज्य के विद्वान अधिवक्ता द्वारा नोटिस स्वीकार किया जाता है",
+    "Requisites be filed within one week": "एक सप्ताह के भीतर आवश्यक औपचारिकताएं/तलबाना दाखिल की जाएं",
+    "Requisites to be filed within a week": "एक सप्ताह के भीतर आवश्यक तलबाना दाखिल किया जाए",
+    "The petition is dismissed as withdrawn": "याचिका वापस लिए जाने के आधार पर खारिज की जाती है",
+    "The writ petition is dismissed as withdrawn": "रिट याचिका वापस लिए जाने के आधार पर खारिज की जाती है",
+    "The appeal is allowed and the impugned judgment is set aside": "अपील स्वीकार की जाती है तथा आक्षेपित निर्णय निरस्त किया जाता है",
+    "The criminal revision petition is dismissed": "आपराधिक पुनरीक्षण याचिका खारिज की जाती है",
+    "List the matter after four weeks": "मामले को चार सप्ताह बाद सूचीबद्ध करें",
+    "List the matter on next date of hearing": "मामले को सुनवाई की अगली तिथि पर सूचीबद्ध करें",
+    "Interim order granted earlier shall continue till the next date of hearing": "पूर्व में पारित अंतरिम आदेश सुनवाई की अगली तिथि तक जारी रहेगा",
+    "Interim relief granted earlier to continue until further orders": "पूर्व में प्रदान की गई अंतरिम राहत आगामी आदेश तक जारी रहेगी",
+    "There shall be stay of further proceedings in the trial court": "विचारण न्यायालय में आगामी कार्यवाहियों पर रोक रहेगी",
+    "Stay of execution of the impugned order until the next date of hearing": "सुनवाई की अगली तिथि तक आक्षेपित आदेश के निष्पादन पर रोक रहेगी",
+    "No order as to costs": "लागत/खर्चे के संबंध में कोई आदेश नहीं",
+    "Certified copy of this order be supplied to the parties on payment of requisite charges": "आवश्यक शुल्क के भुगतान पर इस आदेश की प्रमाणित प्रति पक्षकारों को उपलब्ध कराई जाए",
+    "The present petition is disposed of accordingly": "तदनुसार वर्तमान याचिका निस्तारित की जाती है",
+    "The matter is disposed of": "मामले का निस्तारण किया जाता है",
+    "Application stands disposed of": "आवेदन निस्तारित किया जाता है",
+    "Leave to appeal is granted": "अपील की अनुमति प्रदान की जाती है",
+    "Leave to appeal is refused": "अपील की अनुमति से इनकार किया जाता है"
+  },
+  "boilerplate_hi_to_en": {
+    "याचिकाकर्ता के विद्वान अधिवक्ता एवं प्रतिवादी के विद्वान अधिवक्ता को सुना गया": "Heard learned counsel for the petitioner and learned counsel for the respondent",
+    "याचिकाकर्ता के विद्वान अधिवक्ता एवं प्रतिवादियों के विद्वान अधिवक्ता को सुना गया": "Heard learned counsel for the petitioner and learned counsel for the respondents",
+    "आवेदक के विद्वान अधिवक्ता एवं राज्य की ओर से विद्वान लोक अभियोजक को सुना गया": "Heard learned counsel for the applicant and learned Public Prosecutor for the State",
+    "अपीलार्थी के विद्वान अधिवक्ता एवं प्रतिवादियों के विद्वान अधिवक्ता को सुना गया": "Heard learned counsel for the appellant and learned counsel for the respondents",
+    "अपीलार्थी के विद्वान अधिवक्ता एवं प्रतिवादी के विद्वान अधिवक्ता को सुना गया": "Heard learned counsel for the appellant and learned counsel for the respondent",
+    "पक्षकारों के विद्वान अधिवक्ताओं को सुना गया": "Heard learned counsel for the parties",
+    "पक्षकारों के विद्वान अधिवक्ताओं को विस्तार से सुना गया": "Heard learned counsel for the parties at length",
+    "प्रतिवादी की ओर से कोई उपस्थित नहीं हुआ": "None appeared for the respondent",
+    "याचिकाकर्ता की ओर से कोई उपस्थित नहीं हुआ": "None appeared for the petitioner",
+    "अभिलेख का अवलोकन किया गया": "Perused the record",
+    "केस डायरी का अवलोकन किया गया": "Perused the case diary",
+    "आक्षेपित आदेश का अवलोकन किया गया": "Perused the impugned order",
+    "अभिलेख पर उपलब्ध सामग्री का परिशीलन किया गया": "Perused the material available on record",
+    "जमानत आवेदन स्वीकार किया जाता है": "The bail application is allowed",
+    "जमानत आवेदन खारिज किया जाता है": "The bail application is dismissed",
+    "प्रतिवादी को नोटिस जारी किया जाए, जो चार सप्ताह के भीतर वापस योग्य हो": "Let notice be issued to the respondent, returnable within four weeks",
+    "प्रतिवादियों को नोटिस जारी किया जाए, जो चार सप्ताह के भीतर वापस योग्य हो": "Issue notice to the respondents, returnable within four weeks",
+    "प्रतिवादी को नोटिस जारी किया जाए": "Issue notice to the respondent",
+    "प्रतिवादियों को नोटिस जारी किया जाए": "Issue notice to the respondents",
+    "प्रतिवादी के विद्वान अधिवक्ता द्वारा नोटिस स्वीकार किया जाता है": "Notice is accepted by learned counsel for the respondent",
+    "राज्य के विद्वान अधिवक्ता द्वारा नोटिस स्वीकार किया जाता है": "Notice is accepted by learned counsel for the State",
+    "याचिका वापस लिए जाने के आधार पर खारिज की जाती है": "The petition is dismissed as withdrawn",
+    "रिट याचिका वापस लिए जाने के आधार पर खारिज की जाती है": "The writ petition is dismissed as withdrawn",
+    "अपील स्वीकार की जाती है तथा आक्षेपित निर्णय निरस्त किया जाता है": "The appeal is allowed and the impugned judgment is set aside",
+    "आपराधिक पुनरीक्षण याचिका खारिज की जाती है": "The criminal revision petition is dismissed",
+    "मामले को चार सप्ताह बाद सूचीबद्ध करें": "List the matter after four weeks",
+    "पूर्व में पारित अंतरिम आदेश सुनवाई की अगली तिथि तक जारी रहेगा": "Interim order granted earlier shall continue till the next date of hearing",
+    "विचारण न्यायालय में आगामी कार्यवाहियों पर रोक रहेगी": "There shall be stay of further proceedings in the trial court",
+    "लागत/खर्चे के संबंध में कोई आदेश नहीं": "No order as to costs",
+    "आवश्यक शुल्क के भुगतान पर इस आदेश की प्रमाणित प्रति पक्षकारों को उपलब्ध कराई जाए": "Certified copy of this order be supplied to the parties on payment of requisite charges",
+    "तदनुसार वर्तमान याचिका निस्तारित की जाती है": "The present petition is disposed of accordingly",
+    "मामले का निस्तारण किया जाता है": "The matter is disposed of",
+    "आवेदन निस्तारित किया जाता है": "Application stands disposed of",
+    "अपील की अनुमति प्रदान की जाती है": "Leave to appeal is granted",
+    "अपील की अनुमति से इनकार किया जाता है": "Leave to appeal is refused"
+  },
+  "statutory_patterns_en_to_hi": [
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:indian\\s+penal\\s+code|ipc)\\b",
+      "template": "भारतीय दंड संहिता की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:code\\s+of\\s+criminal\\s+procedure(?:,\\s*1973)?|cr\\.?p\\.?c\\.?)\\b",
+      "template": "दंड प्रक्रिया संहिता की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:bharatiya\\s+nyaya\\s+sanhita(?:,\\s*2023)?|bns)\\b",
+      "template": "भारतीय न्याय संहिता की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:bharatiya\\s+nagarik\\s+suraksha\\s+sanhita(?:,\\s*2023)?|bnss)\\b",
+      "template": "भारतीय नागरिक सुरक्षा संहिता की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:bharatiya\\s+sakshya\\s+adhiniyam(?:,\\s*2023)?|bsa)\\b",
+      "template": "भारतीय साक्ष्य अधिनियम की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:negotiable\\s+instruments\\s+act(?:,\\s*1881)?|ni\\s+act)\\b",
+      "template": "परक्राम्य लिखत अधिनियम की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?article\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:constitution\\s+of\\s+india|constitution)\\b",
+      "template": "भारत के संविधान का अनुच्छेद \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:prevention\\s+of\\s+money\\s+laundering\\s+act(?:,\\s*2002)?|pmla)\\b",
+      "template": "धन-शोधन निवारण अधिनियम की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:protection\\s+of\\s+children\\s+from\\s+sexual\\s+offences\\s+act(?:,\\s*2012)?|pocso\\s+act)\\b",
+      "template": "लैंगिक अपराधों से बालकों का संरक्षण अधिनियम की धारा \\1"
+    },
+    {
+      "pattern": "^(?:under\\s+)?section\\s+([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s+(?:of\\s+(?:the\\s+)?)?(?:narcotic\\s+drugs\\s+and\\s+psychotropic\\s+substances\\s+act(?:,\\s*1985)?|ndps\\s+act)\\b",
+      "template": "स्वापक औषधि और मनःप्रभावी पदार्थ अधिनियम की धारा \\1"
+    }
+  ],
+  "statutory_patterns_hi_to_en": [
+    {
+      "pattern": "^(?:भारतीय\\s+दंड\\s+संहिता|भा\\.?\\s*दं\\.?\\s*सं\\.?)\\s*की\\s*धारा\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Section \\1 of the Indian Penal Code"
+    },
+    {
+      "pattern": "^(?:दंड\\s+प्रक्रिया\\s+संहिता(?:,\\s*1973)?|दं\\.?\\s*प्र\\.?\\s*सं\\.?)\\s*की\\s*धारा\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Section \\1 of the Code of Criminal Procedure"
+    },
+    {
+      "pattern": "^(?:भारतीय\\s+न्याय\\s+संहिता(?:,\\s*2023)?|बी\\.?\\s*एन\\.?\\s*एस\\.?)\\s*की\\s*धारा\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Section \\1 of the Bharatiya Nyaya Sanhita"
+    },
+    {
+      "pattern": "^(?:भारतीय\\s+नागरिक\\s+सुरक्षा\\s+संहिता(?:,\\s*2023)?|बी\\.?\\s*एन\\.?\\s*एस\\.?\\s*एस\\.?)\\s*की\\s*धारा\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Section \\1 of the Bharatiya Nagarik Suraksha Sanhita"
+    },
+    {
+      "pattern": "^(?:भारतीय\\s+साक्ष्य\\s+अधिनियम(?:,\\s*2023)?|बी\\.?\\s*एस\\.?\\s*ए\\.?)\\s*की\\s*धारा\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Section \\1 of the Bharatiya Sakshya Adhiniyam"
+    },
+    {
+      "pattern": "^(?:परक्राम्य\\s+लिखत\\s+अधिनियम(?:,\\s*1881)?|एन\\.?\\s*आई\\.?\\s*एक्ट)\\s*की\\s*धारा\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Section \\1 of the Negotiable Instruments Act"
+    },
+    {
+      "pattern": "^(?:भारत\\s+के\\s+संविधान|भारतीय\\s+संविधान)\\s*का\\s*अनुच्छेद\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Article \\1 of the Constitution of India"
+    },
+    {
+      "pattern": "^(?:धन-शोधन\\s+निवारण\\s+अधिनियम(?:,\\s*2002)?|पीएमएलए)\\s*की\\s*धारा\\s*([0-9A-Za-z]+(?:\\s*\\([0-9a-zA-Z]+\\))*)\\s*(?:के\\s*(?:तहत|अंतर्गत))?",
+      "template": "Section \\1 of the Prevention of Money Laundering Act, 2002"
+    }
+  ]
+}

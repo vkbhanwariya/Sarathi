@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import DeviceType, ExecutionBinding
+from sarathi.sankalpa import DeviceType, ExecutionBinding, ExecutionProfile
+from sarathi.shakti.translation.court_templates import CourtTemplateMatcher
 from sarathi.shakti.translation.glossary import GlossaryStore
 from sarathi.shakti.translation.harmonizer import GlossaryHarmonizer
 from sarathi.shakti.translation.models import (
@@ -363,6 +364,8 @@ class CTranslate2NativeBackend:
         direction: TranslationDirection,
         execution_binding: ExecutionBinding | None = None,
         engine: str = "indictrans2",
+        execution_profile: ExecutionProfile | None = None,
+        beam_size: int | None = None,
         **kwargs: Any,
     ) -> BackendTranslationResult:
         import ctranslate2
@@ -531,16 +534,42 @@ class CTranslate2NativeBackend:
 
         piece_input_truncations = [len(tok) >= 1024 for tok in tokenized]
 
-        # Token-based batching bounds token count per forward pass, eliminating tail latency
-        # on uneven sentence lengths while distributing work across worker threads.
-        results = translator.translate_batch(
-            tokenized,
+        # Determine effective beam size: instant profile uses greedy beam_size=1 (~2.5x speedup)
+        if beam_size is not None and beam_size > 0:
+            eff_beam_size = int(beam_size)
+        elif kwargs.get("beam_size") is not None and int(kwargs["beam_size"]) > 0:
+            eff_beam_size = int(kwargs["beam_size"])
+        elif execution_profile is not None and (
+            execution_profile == ExecutionProfile.INSTANT or str(execution_profile).lower() == "instant"
+        ):
+            eff_beam_size = 1
+        else:
+            eff_beam_size = DEFAULT_BEAM_SIZE
+
+        # Length-based bucketing: sort tokenized sequences by length to minimize padding overhead in CTranslate2
+        if len(tokenized) > 1:
+            sorted_order = sorted(range(len(tokenized)), key=lambda i: len(tokenized[i]))
+            reordered_tokenized = [tokenized[i] for i in sorted_order]
+        else:
+            sorted_order = list(range(len(tokenized)))
+            reordered_tokenized = tokenized
+
+        raw_results = translator.translate_batch(
+            reordered_tokenized,
             batch_type="tokens",
             max_batch_size=1024,
-            beam_size=DEFAULT_BEAM_SIZE,
+            beam_size=eff_beam_size,
             max_decoding_length=DEFAULT_MAX_DECODING_LENGTH,
             max_input_length=1024,
         )
+
+        # Restore original sentence sequence order
+        if len(tokenized) > 1:
+            results = [None] * len(tokenized)
+            for orig_pos, r in zip(sorted_order, raw_results):
+                results[orig_pos] = r
+        else:
+            results = raw_results
 
         decoded_pieces: list[str] = []
         piece_truncations: list[bool] = []
@@ -604,10 +633,12 @@ class CTranslate2TranslationEngine:
         protector: TranslationProtector | None = None,
         proper_noun_guard: ProperNounGuard | None = None,
         harmonizer: GlossaryHarmonizer | None = None,
+        court_templates: CourtTemplateMatcher | None = None,
     ) -> None:
         self._data_root = (data_root or _CANONICAL_TRANSLATION_DATA_DIR).resolve()
         self._backend = backend
         self._glossary = glossary or GlossaryStore(glossary_dir=self._data_root)
+        self._court_templates = court_templates or CourtTemplateMatcher(data_root=self._data_root)
         self._anubhava_corrections = _load_translation_anubhava(self._data_root)
         for dir_corrections in self._anubhava_corrections.values():
             for src in dir_corrections:
@@ -748,16 +779,20 @@ class CTranslate2TranslationEngine:
         engine: str = "indictrans2",
         glossary_terms: Mapping[str, str] | None = None,
         custom_terms: Sequence[str] = (),
+        execution_profile: ExecutionProfile | None = None,
     ) -> TranslationResult:
         """Translate normalized Unicode text via CTranslate2 with span protection and glossary."""
-        return self.translate_batch(
-            texts=[text],
-            direction=direction,
-            execution_binding=execution_binding,
-            engine=engine,
-            glossary_terms=glossary_terms,
-            custom_terms=custom_terms,
-        )[0]
+        kwargs: dict[str, Any] = {
+            "texts": [text],
+            "direction": direction,
+            "execution_binding": execution_binding,
+            "engine": engine,
+            "glossary_terms": glossary_terms,
+            "custom_terms": custom_terms,
+        }
+        if execution_profile is not None:
+            kwargs["execution_profile"] = execution_profile
+        return self.translate_batch(**kwargs)[0]
 
     def translate_batch(
         self,
@@ -767,6 +802,7 @@ class CTranslate2TranslationEngine:
         engine: str = "indictrans2",
         glossary_terms: Mapping[str, str] | None = None,
         custom_terms: Sequence[str] = (),
+        execution_profile: ExecutionProfile | None = None,
     ) -> list[TranslationResult]:
         """Translate a batch of normalized texts via CTranslate2 with multi-core batch decoder."""
         if not texts:
@@ -782,12 +818,18 @@ class CTranslate2TranslationEngine:
         active_glossary = glossary_terms if glossary_terms is not None else self._glossary.get_terms(direction)
         dir_key = direction.value
 
-        text_slices: list[tuple[int, int, list[tuple[str, str]], int, list[str], list[tuple[str, str]]]] = []
+        text_slices: list[
+            tuple[
+                int,
+                list[tuple[bool, str | int, list[tuple[str, str]], str]],
+                list[tuple[str, str]],
+            ]
+        ] = []
         all_prepared_sentences: list[str] = []
 
         for idx, text in enumerate(texts):
             if not text or not text.strip():
-                text_slices.append((idx, 0, [], 0, [], []))
+                text_slices.append((idx, [], []))
                 continue
 
             guarded_text = text
@@ -798,23 +840,32 @@ class CTranslate2TranslationEngine:
                 if name_placeholders:
                     effective_custom_terms.extend(ph for ph, _ in name_placeholders)
 
-            protected_text, spans = self._protector.protect(
-                guarded_text,
-                custom_terms=tuple(effective_custom_terms),
-                glossary_mappings=active_glossary,
-            )
-            split_units = split_sentences(protected_text)
+            split_units = split_sentences(guarded_text)
             if not split_units:
-                split_units = [(protected_text, "")]
+                split_units = [(guarded_text, "")]
 
-            raw_sentences = [seg for seg, _ in split_units]
-            separators = [sep for _, sep in split_units]
+            sent_records: list[tuple[bool, str | int, list[tuple[str, str]], str]] = []
+            for seg, sep in split_units:
+                # 1. Zero-latency match against standard court boilerplate & statutory formulas
+                tmpl_match = (
+                    self._court_templates.match_sentence(seg, direction)
+                    if self._court_templates is not None
+                    else None
+                )
+                if tmpl_match is not None:
+                    sent_records.append((True, tmpl_match, [], sep))
+                else:
+                    # 2. Sentences requiring neural translation go through protection and anubhava
+                    prot_seg, spans = self._protector.protect(
+                        seg,
+                        custom_terms=tuple(effective_custom_terms),
+                        glossary_mappings=active_glossary,
+                    )
+                    neural_idx = len(all_prepared_sentences)
+                    all_prepared_sentences.append(self._apply_anubhava(prot_seg, dir_key))
+                    sent_records.append((False, neural_idx, spans, sep))
 
-            start_idx = len(all_prepared_sentences)
-            for sent in raw_sentences:
-                all_prepared_sentences.append(self._apply_anubhava(sent, dir_key))
-
-            text_slices.append((idx, len(raw_sentences), spans, start_idx, separators, name_placeholders))
+            text_slices.append((idx, sent_records, name_placeholders))
 
         factual_device = target_device
         all_translated_sentences: list[str] = []
@@ -836,7 +887,11 @@ class CTranslate2TranslationEngine:
 
             backend = self._ensure_backend()
             backend_res = backend.translate_sentences(
-                unique_sentences, direction, execution_binding=execution_binding, engine=norm_engine
+                unique_sentences,
+                direction,
+                execution_binding=execution_binding,
+                engine=norm_engine,
+                execution_profile=execution_profile,
             )
 
             unique_translated: Sequence[str] = []
@@ -864,15 +919,15 @@ class CTranslate2TranslationEngine:
 
             # Broadcast model outputs back to full sentence positions
             all_translated_sentences = [unique_translated[i] for i in sentence_map]
-            if unique_truncations:
+            if any(unique_truncations):
                 truncation_flags = [unique_truncations[i] for i in sentence_map]
-            if unique_input_truncations:
+            if any(unique_input_truncations):
                 input_truncation_flags = [unique_input_truncations[i] for i in sentence_map]
 
         results: list[TranslationResult] = []
-        for idx, sent_count, spans, start_idx, separators, name_placeholders in text_slices:
+        for idx, sent_records, name_placeholders in text_slices:
             orig_text = texts[idx]
-            if sent_count == 0 or not orig_text or not orig_text.strip():
+            if not sent_records or not orig_text or not orig_text.strip():
                 results.append(
                     TranslationResult(
                         translated_text=orig_text,
@@ -885,39 +940,62 @@ class CTranslate2TranslationEngine:
                 )
                 continue
 
-            sents = all_translated_sentences[start_idx : start_idx + sent_count]
-            item_truncations = truncation_flags[start_idx : start_idx + sent_count] if truncation_flags else []
-            item_input_truncations = (
-                input_truncation_flags[start_idx : start_idx + sent_count] if input_truncation_flags else []
-            )
-            truncation_suspected = any(item_truncations)
-            input_truncation_suspected = any(item_input_truncations)
-            translated_body = "".join(ts + sep for ts, sep in zip(sents, separators))
-            final_text, span_issues = self._protector.restore_with_validation(translated_body, spans)
+            translated_parts: list[str] = []
+            all_spans_count = 0
+            all_span_issues: list[str] = []
+            truncation_suspected = False
+            input_truncation_suspected = False
+
+            for is_tmpl, val, spans, sep in sent_records:
+                if is_tmpl:
+                    translated_parts.append(str(val) + sep)
+                else:
+                    neural_idx = int(val)
+                    raw_trans = (
+                        all_translated_sentences[neural_idx]
+                        if neural_idx < len(all_translated_sentences)
+                        else ""
+                    )
+                    if truncation_flags and neural_idx < len(truncation_flags) and truncation_flags[neural_idx]:
+                        truncation_suspected = True
+                    if (
+                        input_truncation_flags
+                        and neural_idx < len(input_truncation_flags)
+                        and input_truncation_flags[neural_idx]
+                    ):
+                        input_truncation_suspected = True
+                    restored_seg, issues = self._protector.restore_with_validation(raw_trans, spans)
+                    all_spans_count += len(spans)
+                    if issues:
+                        all_span_issues.extend(issues)
+                    translated_parts.append(restored_seg + sep)
+
+            translated_body = "".join(translated_parts).strip()
+            final_text = translated_body
             if name_placeholders and self._proper_noun_guard is not None:
                 final_text = self._proper_noun_guard.restore(final_text, name_placeholders)
             if self._harmonizer is not None:
                 final_text = self._harmonizer.harmonize(final_text, direction)
 
             metadata: dict[str, Any] = {
-                "sentences_count": sent_count,
+                "sentences_count": len(sent_records),
                 "device": factual_device,
                 "backend": "ctranslate2",
                 "engine": norm_engine,
             }
             warnings_list: list[str] = []
             if truncation_suspected:
-                span_issues.append("TRANSLATION_TRUNCATION_SUSPECTED")
+                all_span_issues.append("TRANSLATION_TRUNCATION_SUSPECTED")
                 metadata["truncation_suspected"] = True
                 warnings_list.append("TRANSLATION_TRUNCATION_SUSPECTED")
             if input_truncation_suspected:
-                span_issues.append("TRANSLATION_INPUT_TRUNCATED")
+                all_span_issues.append("TRANSLATION_INPUT_TRUNCATED")
                 metadata["input_truncation_suspected"] = True
                 warnings_list.append("TRANSLATION_INPUT_TRUNCATED")
             if warnings_list:
                 metadata["warnings"] = tuple(warnings_list)
-            if span_issues:
-                metadata["span_protection_issues"] = tuple(span_issues)
+            if all_span_issues:
+                metadata["span_protection_issues"] = tuple(all_span_issues)
 
             results.append(
                 TranslationResult(
@@ -925,7 +1003,7 @@ class CTranslate2TranslationEngine:
                     source_language=src_lang,
                     target_language=tgt_lang,
                     direction=direction,
-                    protected_spans_count=len(spans),
+                    protected_spans_count=all_spans_count,
                     metadata=metadata,
                 )
             )

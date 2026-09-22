@@ -146,6 +146,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/text/typography.py` | Shared output typography primitives for Shakti document capabilities | **Standard Logic** | `contains_devanagari()`, `synthesize_akshara_unicode()`, `heal_devanagari_matra_spacing()`, `normalize_text_spacing()`, `reconstruct_line_from_spans()` |
 | `shakti/text/usability.py` | Canonical page and document usability arbitration logic shared across Shakti capabilities | **Standard Logic** | `is_usable_page()`, `is_usable_document()` |
 | `shakti/translation/capability.py` | Executable Translation Capability for Sarathi | **Multi-core CPU (Neural AVX2)** | `TranslationCapability` |
+| `shakti/translation/court_templates.py` | Standard Indian Court Orders, Statutory Boilerplate, and Section Formulas Matcher | **Standard Logic** | `CourtTemplateMatcher` |
 | `shakti/translation/detector.py` | Script and Language Identification for Translation | **Standard Logic** | `LanguageDetector` |
 | `shakti/translation/engine.py` | Locked CTranslate2 + IndicTrans2 + SentencePiece Translation Engine for Sarathi | **Multi-core CPU (Neural AVX2)** | `BackendTranslationResult`, `TranslatorBackend`, `CTranslate2NativeBackend`, `CTranslate2TranslationEngine`, `split_sentences()` |
 | `shakti/translation/glossary.py` | Domain Glossary and Terminology Manager for Translation | **Standard Logic** | `GlossaryStore` |

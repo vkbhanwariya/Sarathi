@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
@@ -432,26 +432,48 @@ class TranslationCapability:
 
             active_glossary = legal_context.matched_glossary_terms
 
+            import inspect
+
+            def _takes_profile(func: Any) -> bool:
+                try:
+                    sig = inspect.signature(func)
+                    return "execution_profile" in sig.parameters or any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                    )
+                except (ValueError, TypeError):
+                    return True
+
+            single_takes_prof = (
+                _takes_profile(self._engine.translate) if hasattr(self._engine, "translate") else False
+            )
+            batch_takes_prof = (
+                _takes_profile(self._engine.translate_batch) if hasattr(self._engine, "translate_batch") else False
+            )
+
             def _call_engine_translate_single(text_s: str) -> TranslationResult:
-                return self._engine.translate(
-                    text_s,
-                    direction=direction,
-                    execution_binding=context.execution_binding,
-                    engine=req_engine,
-                    glossary_terms=active_glossary,
-                    custom_terms=verbatim_citations,
-                )
+                kwargs: dict[str, Any] = {
+                    "direction": direction,
+                    "execution_binding": context.execution_binding,
+                    "engine": req_engine,
+                    "glossary_terms": active_glossary,
+                    "custom_terms": verbatim_citations,
+                }
+                if single_takes_prof:
+                    kwargs["execution_profile"] = context.profile
+                return self._engine.translate(text_s, **kwargs)
 
             def _call_engine_translate_batch(batch: Sequence[str]) -> list[TranslationResult]:
                 if hasattr(self._engine, "translate_batch"):
-                    return self._engine.translate_batch(
-                        batch,
-                        direction=direction,
-                        execution_binding=context.execution_binding,
-                        engine=req_engine,
-                        glossary_terms=active_glossary,
-                        custom_terms=verbatim_citations,
-                    )
+                    kwargs: dict[str, Any] = {
+                        "direction": direction,
+                        "execution_binding": context.execution_binding,
+                        "engine": req_engine,
+                        "glossary_terms": active_glossary,
+                        "custom_terms": verbatim_citations,
+                    }
+                    if batch_takes_prof:
+                        kwargs["execution_profile"] = context.profile
+                    return self._engine.translate_batch(batch, **kwargs)
                 return [_call_engine_translate_single(s) for s in batch]
 
             scope = (
