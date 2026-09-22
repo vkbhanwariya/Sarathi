@@ -156,7 +156,6 @@ def test_memory_cache_preserves_frozen_dataclass_identity() -> None:
     assert retrieved.data.pages[0].spans[0] is span
 
 
-
 def test_smriti_l2_to_l1_promotion_preserves_created_at(tmp_path: Path) -> None:
     """Verify promotion from L2 to L1 preserves the original creation timestamp."""
     import time
@@ -611,3 +610,41 @@ def test_sqlite_cache_store_artifact_refs_junction_table_shared_reclamation(tmp_
     assert len(list(artifacts_dir.glob("*.bin"))) == 0
 
     store.close()
+
+
+def test_memory_cache_byte_budget_eviction() -> None:
+    """Verify MemoryCache enforces max_bytes_l1 byte budget and evicts LRU items."""
+    from sarathi.sankalpa import ArtifactIntent, ArtifactPayload, CanonicalDocument, Result
+    from sarathi.smriti.key import CacheKey
+    from sarathi.smriti.memory import MemoryCache
+    from sarathi.smriti.policy import CachePolicy
+
+    # Policy with 3000 bytes budget (room for at most 2 items of ~1200 bytes)
+    policy = CachePolicy(max_entries_l1=100, max_bytes_l1=3000)
+    cache = MemoryCache(policy=policy)
+
+    p1 = ArtifactPayload(intent=ArtifactIntent("p1.bin", "export", "application/octet-stream"), content=b"A" * 1000)
+    res1 = Result(data=CanonicalDocument("doc-1", text="result-1"), artifact_payloads=(p1,))
+    key1 = CacheKey(capability_id="test", fingerprint="fp1", profile="instant", key_hash="k1")
+
+    p2 = ArtifactPayload(intent=ArtifactIntent("p2.bin", "export", "application/octet-stream"), content=b"B" * 1000)
+    res2 = Result(data=CanonicalDocument("doc-2", text="result-2"), artifact_payloads=(p2,))
+    key2 = CacheKey(capability_id="test", fingerprint="fp2", profile="instant", key_hash="k2")
+
+    cache.put(key1, res1)
+    cache.put(key2, res2)
+    assert len(cache) == 2
+    assert cache.get(key1) is not None
+    assert cache.get(key2) is not None
+
+    # Adding a 3rd item of 1000 bytes will exceed 3000 bytes budget (each item is ~1256 bytes)
+    p3 = ArtifactPayload(intent=ArtifactIntent("p3.bin", "export", "application/octet-stream"), content=b"C" * 1000)
+    res3 = Result(data=CanonicalDocument("doc-3", text="result-3"), artifact_payloads=(p3,))
+    key3 = CacheKey(capability_id="test", fingerprint="fp3", profile="instant", key_hash="k3")
+    cache.put(key3, res3)
+
+    # Key 1 was LRU, so it must have been evicted despite max_entries_l1=100
+    assert cache.get(key1) is None
+    assert cache.get(key2) is not None
+    assert cache.get(key3) is not None
+    assert cache.current_bytes <= 3000

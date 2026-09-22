@@ -9,9 +9,11 @@ Classifies extracted tables in a CanonicalDocument into:
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from enum import StrEnum
 
-from sarathi.sankalpa import TableData
+from sarathi.sankalpa import TableData, TextSpan
 
 
 class TableType(StrEnum):
@@ -100,3 +102,137 @@ def classify_table(table: TableData) -> TableType:
         return TableType.SUMMARY_TABLE
 
     return TableType.UNRELATED_TABLE
+
+
+def reconstruct_table_from_spans(spans: Sequence[TextSpan]) -> TableData | None:
+    """Reconstruct a tabular grid structure from spatially positioned text spans."""
+    valid_spans = [s for s in spans if s.bounding_box is not None and s.text.strip()]
+    if len(valid_spans) < 4:
+        return None
+
+    # Group spans into rows by vertical proximity
+    sorted_spans = sorted(valid_spans, key=lambda s: (s.bounding_box[1], s.bounding_box[0]))  # type: ignore[index]
+
+    rows_spans: list[list[TextSpan]] = []
+    for s in sorted_spans:
+        bbox = s.bounding_box
+        assert bbox is not None
+        placed = False
+        for row in rows_spans:
+            ref_bbox = row[0].bounding_box
+            assert ref_bbox is not None
+            row_h = max(10.0, ref_bbox[3] - ref_bbox[1])
+            y_mid_s = (bbox[1] + bbox[3]) / 2
+            y_mid_ref = (ref_bbox[1] + ref_bbox[3]) / 2
+            if abs(y_mid_s - y_mid_ref) <= row_h * 0.6:
+                row.append(s)
+                placed = True
+                break
+        if not placed:
+            rows_spans.append([s])
+
+    if len(rows_spans) < 2:
+        return None
+
+    # Sort each row horizontally by x0
+    for row in rows_spans:
+        row.sort(key=lambda s: s.bounding_box[0] if s.bounding_box else 0.0)
+
+    # Find the header row matching transaction indicators
+    header_idx = -1
+    for r_i, row in enumerate(rows_spans):
+        row_text = " ".join(s.text.lower().strip() for s in row)
+        if _is_transaction_header_text(row_text) and len(row) >= 3:
+            header_idx = r_i
+            break
+
+    if header_idx < 0:
+        return None
+
+    header_spans = rows_spans[header_idx]
+    headers = tuple(s.text.strip() for s in header_spans)
+    col_centers = [(s.bounding_box[0] + s.bounding_box[2]) / 2 for s in header_spans if s.bounding_box]
+
+    data_rows: list[tuple[str, ...]] = []
+    for row in rows_spans[header_idx + 1 :]:
+        if not row:
+            continue
+        cells = [""] * len(col_centers)
+        for s in row:
+            if not s.bounding_box:
+                continue
+            s_center = (s.bounding_box[0] + s.bounding_box[2]) / 2
+            closest_col = min(range(len(col_centers)), key=lambda c_i: abs(col_centers[c_i] - s_center))
+            if cells[closest_col]:
+                cells[closest_col] += " " + s.text.strip()
+            else:
+                cells[closest_col] = s.text.strip()
+        if any(c for c in cells):
+            data_rows.append(tuple(cells))
+
+    if not data_rows:
+        return None
+
+    return TableData(
+        name="scanned_ocr_table",
+        headers=headers,
+        rows=tuple(data_rows),
+    )
+
+
+def reconstruct_table_from_text(text: str) -> TableData | None:
+    """Reconstruct TableData from delimiter-separated or tabular text."""
+    if not text or not text.strip():
+        return None
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+
+    parsed_rows: list[list[str]] = []
+    for line in lines:
+        if "," in line:
+            import csv
+
+            try:
+                parts = [p.strip() for p in next(csv.reader([line]))]
+            except (csv.Error, StopIteration):
+                parts = [p.strip() for p in line.split(",")]
+        elif "\t" in line:
+            parts = [p.strip() for p in line.split("\t")]
+        elif "  " in line:
+            parts = [p.strip() for p in re.split(r"\s{2,}", line)]
+        else:
+            parts = [line]
+        parsed_rows.append(parts)
+
+    header_idx = -1
+    for r_i, r in enumerate(parsed_rows):
+        r_str = " ".join(c.lower() for c in r)
+        if _is_transaction_header_text(r_str) and len([c for c in r if c]) >= 3:
+            header_idx = r_i
+            break
+
+    if header_idx < 0:
+        return None
+
+    headers = tuple(parsed_rows[header_idx])
+    col_count = len(headers)
+    data_rows: list[tuple[str, ...]] = []
+    for r in parsed_rows[header_idx + 1 :]:
+        if not any(r):
+            continue
+        if len(r) < col_count:
+            r = r + [""] * (col_count - len(r))
+        elif len(r) > col_count:
+            r = r[: col_count - 1] + [" ".join(r[col_count - 1 :])]
+        data_rows.append(tuple(r))
+
+    if not data_rows:
+        return None
+
+    return TableData(
+        name="text_table",
+        headers=headers,
+        rows=tuple(data_rows),
+    )

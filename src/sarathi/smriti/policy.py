@@ -13,6 +13,7 @@ class CachePolicy:
     ttl_seconds: int | None = 86400  # Default 24 hours
     max_entries_l1: int = 200  # Max items in L1 memory
     max_entries_l2: int = 2000  # Max items in L2 SQLite
+    max_bytes_l1: int = 512 * 1024 * 1024  # Default 512 MiB byte budget in L1 memory
 
     def is_valid(self, created_at: float, current_time: float | None = None) -> bool:
         """Check whether a cached item remains valid under TTL policy."""

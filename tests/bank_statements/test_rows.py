@@ -5,12 +5,14 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionContext,
     InputRef,
+    PageData,
     Request,
     Result,
     TableData,
+    TextSpan,
 )
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
-from sarathi.shakti.bank_statements.models import BankStatement, Transaction
+from sarathi.shakti.bank_statements.models import BankStatement, Transaction, ValidationStatus
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 
 
@@ -430,3 +432,79 @@ def test_bank_models_expose_canonical_veda_properties() -> None:
         posting_date=d_start,
     )
     assert tx.posting_datetime == datetime(2026, 1, 1, 0, 0)
+
+
+def test_scanned_ocr_table_reconstruction_from_spans(tmp_path: Path) -> None:
+    """Scanned OCR document without explicit tables must reconstruct table grid from bounding box spans."""
+    from decimal import Decimal
+
+    # Header metadata spans
+    spans = [
+        TextSpan(text="State Bank of India", bounding_box=(20.0, 30.0, 180.0, 45.0)),
+        TextSpan(text="Account Number: 30123456789", bounding_box=(20.0, 50.0, 220.0, 65.0)),
+        TextSpan(text="IFSC: SBIN0001234", bounding_box=(20.0, 70.0, 150.0, 85.0)),
+        # Column headers row (y ~ 100)
+        TextSpan(text="Txn Date", bounding_box=(20.0, 100.0, 80.0, 115.0)),
+        TextSpan(text="Narration", bounding_box=(90.0, 100.0, 250.0, 115.0)),
+        TextSpan(text="Withdrawal (Dr)", bounding_box=(260.0, 100.0, 360.0, 115.0)),
+        TextSpan(text="Deposit (Cr)", bounding_box=(370.0, 100.0, 470.0, 115.0)),
+        TextSpan(text="Closing Balance", bounding_box=(480.0, 100.0, 580.0, 115.0)),
+        # Transaction row 1 (y ~ 140)
+        TextSpan(text="05/01/2026", bounding_box=(20.0, 140.0, 80.0, 155.0)),
+        TextSpan(text="ATM CASH WDL", bounding_box=(90.0, 140.0, 240.0, 155.0)),
+        TextSpan(text="2000.00", bounding_box=(260.0, 140.0, 330.0, 155.0)),
+        TextSpan(text="18000.00", bounding_box=(480.0, 140.0, 550.0, 155.0)),
+        # Transaction row 2 (y ~ 180)
+        TextSpan(text="10/01/2026", bounding_box=(20.0, 180.0, 80.0, 195.0)),
+        TextSpan(text="SALARY CREDIT", bounding_box=(90.0, 180.0, 240.0, 195.0)),
+        TextSpan(text="50000.00", bounding_box=(370.0, 180.0, 440.0, 195.0)),
+        TextSpan(text="68000.00", bounding_box=(480.0, 180.0, 550.0, 195.0)),
+    ]
+
+    doc_text = (
+        "State Bank of India\n"
+        "Account Statement for Account Number: 30123456789\n"
+        "IFSC: SBIN0001234\n"
+        "Available Balance: 68000.00\n"
+        "Closing Balance: 68000.00\n"
+        "Txn Date Narration Withdrawal Deposit Closing Balance\n"
+    )
+    page = PageData(page_number=1, text=doc_text, spans=tuple(spans), tables=())
+    doc = CanonicalDocument(
+        document_id="doc-scanned-1",
+        source_input_id="in-scanned-1",
+        pages=(page,),
+        tables=(),  # No tables extracted natively (OCR output)
+        text=doc_text,
+    )
+
+    cap = BankStatementCapability()
+    dummy_file = tmp_path / "dummy.pdf"
+    dummy_file.write_bytes(b"dummy")
+    req = Request(
+        request_id="req-scanned-1",
+        requirement="bank_statements",
+        inputs=(InputRef("in-scanned-1", dummy_file, "dummy.pdf", dummy_file.stat().st_size),),
+    )
+    ctx = ExecutionContext("run-1", "req-scanned-1", "t1", "s1")
+
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res, Result)
+    assert res.metadata["input_outcomes"]["in-scanned-1"] == "SUCCESS"
+    consolidation = res.data
+    assert len(consolidation.statements) == 1
+    stmt = consolidation.statements[0]
+    assert stmt.status == ValidationStatus.VALID
+    assert len(stmt.transactions) == 2
+
+    # Check parsed transaction values
+    tx1, tx2 = stmt.transactions
+    assert tx1.transaction_date == date(2026, 1, 5)
+    assert tx1.debit == Decimal("2000.00")
+    assert tx1.credit is None
+    assert tx1.running_balance == Decimal("18000.00")
+
+    assert tx2.transaction_date == date(2026, 1, 10)
+    assert tx2.credit == Decimal("50000.00")
+    assert tx2.debit is None
+    assert tx2.running_balance == Decimal("68000.00")

@@ -66,7 +66,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/bank_statements/plugin.py` | Bank Statement Consolidation Plugin Declaration for Sarathi | **In-Memory / Polars Columnar** | `PLUGIN_INFO`, `CAPABILITY_DECLARATION` |
 | `shakti/bank_statements/provider.py` | Provider implementation for Bank Statement Consolidation | **In-Memory / Polars Columnar** | `BankStatementsProvider` |
 | `shakti/bank_statements/row_classifier.py` | Raw Row Classifier for Bank Statement Tables | **In-Memory / Polars Columnar** | `RowType`, `classify_row()` |
-| `shakti/bank_statements/table_locator.py` | Table Locator and Classifier for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `TableType`, `find_header_row_index()`, `get_table_header_and_data_rows()`, `classify_table()` |
+| `shakti/bank_statements/table_locator.py` | Table Locator and Classifier for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `TableType`, `find_header_row_index()`, `get_table_header_and_data_rows()`, `classify_table()`, `reconstruct_table_from_spans()` |
 | `shakti/bank_statements/utr_repair.py` | Banking Identifier Syntax Extraction, OCR Auto-Repair, and Balance Integrity | **In-Memory / Polars Columnar** | `BalanceDiscrepancy`, `is_valid_ifsc()`, `repair_ifsc()`, `repair_utr()`, `verify_mathematical_double_entry_balance()` |
 | `shakti/bank_statements/validator.py` | Financial Validator for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `validate_transaction()`, `validate_statement_balances()` |
 | `shakti/cloud/http.py` | Unified pooled HTTP transport for cloud provider capabilities | **Standard Logic** | `RateLimiter`, `CloudHttpClient`, `get_user_agent()`, `redact_text()`, `interruptible_sleep()` |

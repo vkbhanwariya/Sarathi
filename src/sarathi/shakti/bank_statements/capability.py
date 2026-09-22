@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 from collections.abc import Sequence
 from contextlib import nullcontext
 from dataclasses import replace
@@ -43,6 +42,8 @@ from sarathi.shakti.bank_statements.table_locator import (
     TableType,
     classify_table,
     get_table_header_and_data_rows,
+    reconstruct_table_from_spans,
+    reconstruct_table_from_text,
 )
 from sarathi.shakti.bank_statements.utr_repair import repair_utr
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
@@ -183,18 +184,14 @@ class BankStatementCapability:
         )
 
         input_outcomes: dict[str, str] = {}
-        for s in statements:
-            all_warnings.extend(
-                WarningRecord(code=i.code, message=i.message, stage="validation") for i in s.issues
-            )
+        for s, doc in zip(statements, docs, strict=False):
+            all_warnings.extend(WarningRecord(code=i.code, message=i.message, stage="validation") for i in s.issues)
+            outcome = "SUCCESS" if (len(s.transactions) > 0 and s.status != ValidationStatus.INVALID) else "FAILED"
             for p in s.provenance:
                 if p.source_input_id:
-                    outcome = (
-                        "SUCCESS"
-                        if (len(s.transactions) > 0 and s.status != ValidationStatus.INVALID)
-                        else "FAILED"
-                    )
                     input_outcomes[p.source_input_id] = outcome
+            if doc.source_input_id:
+                input_outcomes[doc.source_input_id] = outcome
         for doc in docs:
             if doc.source_input_id and doc.source_input_id not in input_outcomes:
                 input_outcomes[doc.source_input_id] = "FAILED"
@@ -226,30 +223,19 @@ class BankStatementCapability:
         ]
         all_tables.extend((1, t) for t in doc.tables if not any(t == e[1] for e in all_tables))
 
-        if not all_tables and doc.text:
-            import csv
+        if not all_tables:
+            # 1. Attempt geometric table reconstruction from bounding box spans (scanned OCR)
+            for p_idx, p in enumerate(doc.pages):
+                if p.spans:
+                    recon_t = reconstruct_table_from_spans(p.spans)
+                    if recon_t is not None and recon_t.rows:
+                        all_tables.append((p_idx + 1, recon_t))
 
-            try:
-                reader = csv.reader(io.StringIO(doc.text))
-                rows = [r for r in reader if any(cell.strip() for cell in r)]
-                for r_idx, r in enumerate(rows):
-                    r_str = " ".join(str(c).lower() for c in r)
-                    if ("date" in r_str or "txn" in r_str) and any(
-                        k in r_str for k in ("debit", "credit", "balance", "amount")
-                    ):
-                        all_tables.append(
-                            (
-                                1,
-                                TableData(
-                                    name="text_table",
-                                    headers=tuple(rows[r_idx]),
-                                    rows=tuple(tuple(x) for x in rows[r_idx + 1 :]),
-                                ),
-                            )
-                        )
-                        break
-            except (csv.Error, ValueError):
-                pass
+            # 2. Attempt delimiter / tabular column reconstruction from document text
+            if not all_tables and doc.text:
+                recon_t = reconstruct_table_from_text(doc.text)
+                if recon_t is not None and recon_t.rows:
+                    all_tables.append((1, recon_t))
 
         raw_txns: list[Transaction] = []
         issues: list[ValidationIssue] = []

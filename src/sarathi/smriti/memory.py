@@ -71,20 +71,45 @@ def _defensive_copy(value: Any) -> Any:
     return value
 
 
+def _estimate_result_bytes(res: Result) -> int:
+    """Estimate in-memory byte size of a Result object."""
+    total = 256
+    if res.artifact_payloads:
+        for p in res.artifact_payloads:
+            if hasattr(p, "content") and p.content:
+                total += len(p.content)
+    if isinstance(res.data, str):
+        total += len(res.data.encode("utf-8", errors="ignore"))
+    elif hasattr(res.data, "text") and isinstance(res.data.text, str):
+        total += len(res.data.text.encode("utf-8", errors="ignore"))
+    elif hasattr(res.data, "pages") and isinstance(res.data.pages, (list, tuple)):
+        for p in res.data.pages:
+            if hasattr(p, "text") and isinstance(p.text, str):
+                total += len(p.text.encode("utf-8", errors="ignore"))
+    return max(512, total)
+
+
 @dataclass(slots=True)
 class MemoryCacheEntry:
     key: CacheKey
     result: Result
     created_at: float
+    size_bytes: int = 0
 
 
 class MemoryCache:
-    """Thread-safe in-memory LRU cache."""
+    """Thread-safe in-memory LRU cache bounded by count and byte budget."""
 
     def __init__(self, policy: CachePolicy | None = None) -> None:
         self._policy = policy or CachePolicy()
         self._lock = threading.RLock()
         self._cache: OrderedDict[str, MemoryCacheEntry] = OrderedDict()
+        self._current_bytes: int = 0
+
+    @property
+    def current_bytes(self) -> int:
+        with self._lock:
+            return self._current_bytes
 
     def get(self, key: CacheKey) -> Result | None:
         """Retrieve result from memory if present and unexpired."""
@@ -95,6 +120,7 @@ class MemoryCache:
 
             now = time.time()
             if not self._policy.is_valid(entry.created_at, now):
+                self._current_bytes = max(0, self._current_bytes - entry.size_bytes)
                 del self._cache[key.key_hash]
                 return None
 
@@ -102,7 +128,7 @@ class MemoryCache:
             return _defensive_copy(entry.result)
 
     def put(self, key: CacheKey, result: Result, created_at: float | None = None) -> None:
-        """Store result in memory, evicting LRU items if at capacity."""
+        """Store result in memory, evicting LRU items if at count or byte capacity."""
         if not is_cacheable_result(result):
             return
 
@@ -110,41 +136,57 @@ class MemoryCache:
             now = time.time()
             entry_created_at = created_at if created_at is not None else now
             result_copy = _defensive_copy(result)
+            est_size = _estimate_result_bytes(result_copy)
+
             if key.key_hash in self._cache:
+                old_entry = self._cache[key.key_hash]
+                self._current_bytes = max(0, self._current_bytes - old_entry.size_bytes)
                 self._cache.move_to_end(key.key_hash)
                 self._cache[key.key_hash] = MemoryCacheEntry(
                     key=key,
                     result=result_copy,
                     created_at=entry_created_at,
+                    size_bytes=est_size,
                 )
+                self._current_bytes += est_size
                 return
 
-            if len(self._cache) >= self._policy.max_entries_l1:
-                self._cache.popitem(last=False)
+            # Evict LRU items if at count capacity or byte capacity
+            while self._cache and (
+                len(self._cache) >= self._policy.max_entries_l1
+                or (self._current_bytes + est_size > self._policy.max_bytes_l1 and self._current_bytes > 0)
+            ):
+                _, evicted = self._cache.popitem(last=False)
+                self._current_bytes = max(0, self._current_bytes - evicted.size_bytes)
 
             self._cache[key.key_hash] = MemoryCacheEntry(
                 key=key,
                 result=result_copy,
                 created_at=entry_created_at,
+                size_bytes=est_size,
             )
+            self._current_bytes += est_size
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
         """Invalidate specific key, entire capability, or all entries."""
         with self._lock:
             if key is not None:
                 if key.key_hash in self._cache:
-                    del self._cache[key.key_hash]
+                    entry = self._cache.pop(key.key_hash)
+                    self._current_bytes = max(0, self._current_bytes - entry.size_bytes)
                     return 1
                 return 0
 
             if capability_id is not None:
                 to_del = [k for k, e in self._cache.items() if e.key.capability_id == capability_id]
                 for k in to_del:
-                    del self._cache[k]
+                    entry = self._cache.pop(k)
+                    self._current_bytes = max(0, self._current_bytes - entry.size_bytes)
                 return len(to_del)
 
             count = len(self._cache)
             self._cache.clear()
+            self._current_bytes = 0
             return count
 
     def __len__(self) -> int:
