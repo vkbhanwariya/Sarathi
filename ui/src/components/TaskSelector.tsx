@@ -198,9 +198,6 @@ export function TaskSelector({
                                   <span class="action-card-name">Native Extraction</span>
                                   <span class={`action-tag ${isSel ? "active" : ""}`}>FAST · VECTOR</span>
                                 </button>
-                                <p class="action-card-desc">
-                                  Extract text and tables directly from digital PDFs, Word, and Excel without OCR.
-                                </p>
                                 {isSel && (
                                   <div class="ocr-card-details" onClick={(e) => e.stopPropagation()}>
                                     <div class="ocr-feature-box">
@@ -730,18 +727,6 @@ export function TaskSelector({
                     {/* Task 4: Bank Statement Consolidation & Audit */}
                     {task.id === "bank_consolidation" && (
                       <div class="subtasks-container">
-                        {/* Capabilities Bar */}
-                        <div class="ocr-feature-box" style={{ background: "rgba(236, 253, 245, 0.5)" }}>
-                          <span class="ocr-feature-box-header">Verification</span>
-                          <div class="integrity-chips-row">
-                            <span class="integrity-chip">✓ Double-Entry Verified</span>
-                            <span class="integrity-chip">✓ UTR &amp; IFSC Auto-Repair</span>
-                            <span class="integrity-chip">✓ Deduplication</span>
-                            <span class="integrity-chip">📑 1-Page Audit Memo</span>
-                          </div>
-                        </div>
-
-                        {/* Mode */}
                         <div class="ocr-feature-box">
                           <span class="ocr-feature-box-header">Consolidation Mode</span>
                           <div class="ocr-group-toggles">
