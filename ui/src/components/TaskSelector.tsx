@@ -732,58 +732,17 @@ export function TaskSelector({
                         {/* Mode */}
                         <div class="ocr-feature-box">
                           <span class="ocr-feature-box-header">Consolidation Mode</span>
-                          <div class="subtasks-grid">
-                            {/* 4.1 Accurate Consolidation & Reconciler */}
-                            {(() => {
-                              const act = availableActions.find((a) => a.action_id === "bank_statements");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "accurate";
-                              return (
-                                <div
-                                  key="accurate"
-                                  id="subtask-accurate-consolidation"
-                                  data-subtask="accurate"
-                                  data-req="bank_statements"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => onSelectSubtask("bank_consolidation", "accurate")}
-                                  title={isEnabled ? "Strict double-entry verification and UTR repair." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                    <span class="action-card-name">Accurate Consolidation</span>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>AUDIT-GRADE</span>
-                                  </button>
-                                  <p class="action-card-desc">
-                                    Strict double-entry balance arithmetic verification, UTR/IFSC auto-repair, and master Excel workbook with 1-page executive memo.
-                                  </p>
-                                </div>
-                              );
-                            })()}
-
-                            {/* 4.2 Fast Consolidation */}
-                            {(() => {
-                              const act = availableActions.find((a) => a.action_id === "bank_statements");
-                              const isEnabled = act ? act.is_enabled : true;
-                              const isSel = currentSubtask === "instant";
-                              return (
-                                <div
-                                  key="instant"
-                                  id="subtask-instant-consolidation"
-                                  data-subtask="instant"
-                                  data-req="bank_statements"
-                                  class={`subtask-card req-card ${isSel ? "selected" : ""} ${!isEnabled ? "disabled" : ""}`}
-                                  onClick={() => onSelectSubtask("bank_consolidation", "instant")}
-                                  title={isEnabled ? "Throughput-optimized financial statement parsing." : (act?.disabled_reason || "Unavailable")}
-                                >
-                                  <button class="action-card-header" type="button" aria-pressed={isSel}>
-                                    <span class="action-card-name">Instant Consolidation</span>
-                                    <span class={`action-tag ${isSel ? "active" : ""}`}>FAST</span>
-                                  </button>
-                                  <p class="action-card-desc">
-                                    Throughput-optimized parsing across financial statements using standard layout heuristics.
-                                  </p>
-                                </div>
-                              );
-                            })()}
+                          <div class="ocr-group-toggles">
+                            <button
+                              id="btn-bank-mode-accurate"
+                              type="button"
+                              class={`toggle-row mini toggle-switch-btn ${currentSubtask === "accurate" ? "active" : ""}`}
+                              title="Toggle Accurate mode (default is Instant)"
+                              onClick={() => onSelectSubtask("bank_consolidation", currentSubtask === "accurate" ? "instant" : "accurate")}
+                            >
+                              <span class="toggle-switch-slider"></span>
+                              <span><strong>🎯 Accurate (Audit-Grade)</strong></span>
+                            </button>
                           </div>
                         </div>
                       </div>
