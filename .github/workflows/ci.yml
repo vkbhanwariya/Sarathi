@@ -53,10 +53,10 @@ jobs:
         run: uv python install 3.13
 
       - name: Install dev dependencies
-        run: uv sync --group dev
+        run: uv sync --all-extras --group dev
 
       - name: Run architecture tests only
-        run: uv run --group dev pytest tests/architecture -q
+        run: uv run --group dev --all-extras pytest tests/architecture -q
 
   frontend:
     name: Mukha UI TypeScript
