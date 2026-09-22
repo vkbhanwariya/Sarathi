@@ -137,7 +137,9 @@ class MukhaWebServer:
             roots.extend(self._registered_input_directories)
             for p in self._runner._input_path_registry.values():
                 if p.is_file():
-                    roots.append(p.parent.resolve())
+                    # An individually registered input authorizes only that
+                    # file. Its parent may be outside input_root when intake
+                    # encountered a symlink, so never widen the sandbox here.
                     roots.append(p.resolve())
                 elif p.is_dir():
                     roots.append(p.resolve())
