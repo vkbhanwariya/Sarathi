@@ -81,33 +81,6 @@ export const TRANSLATION_ENGINES: readonly TranslationEngineDef[] = [
     desc: "Fast Marian-based neural translation engine running fully offline and local.",
     code: "translation:opus_mt",
   },
-  {
-    id: "gemini",
-    actionId: "gemini_translation",
-    label: "Google Gemini (Cloud)",
-    tag: "GEMINI",
-    isCloud: true,
-    desc: "Google Gemini multimodal translation adapter. High context multilingual reasoning.",
-    code: "gemini_translation",
-  },
-  {
-    id: "mistral",
-    actionId: "mistral_translation",
-    label: "Mistral (Cloud)",
-    tag: "MISTRAL",
-    isCloud: true,
-    desc: "Mistral AI European cloud translation adapter. Authorized by Kavacha.",
-    code: "mistral_translation",
-  },
-  {
-    id: "azure",
-    actionId: "azure_translation",
-    label: "Azure AI (Cloud)",
-    tag: "AZURE",
-    isCloud: true,
-    desc: "Microsoft Azure AI Translator cloud service. Enterprise translation backbone.",
-    code: "azure_translation",
-  },
 ];
 
 export interface BackendMapping {
@@ -179,10 +152,6 @@ export function resolveBackendMapping(
     return { requirement: "font_conversion", profile: "instant" };
   }
   if (primaryTask === "translation") {
-    if (currentSubtask === "opus_mt") return { requirement: "translation", profile: "instant" };
-    if (currentSubtask === "gemini") return { requirement: "gemini_translation", profile: "instant" };
-    if (currentSubtask === "mistral") return { requirement: "mistral_translation", profile: "instant" };
-    if (currentSubtask === "azure") return { requirement: "azure_translation", profile: "instant" };
     return { requirement: "translation", profile: "instant" };
   }
   return { requirement: "read_native", profile: "instant" };

@@ -15,7 +15,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 | **Bank Statements** | `bank_statements` | Financial Reconciler & Polars Vectorizer (CPU) | Tabular bank statements (PDF, XLSX, CSV) | Consolidated `.xlsx`, `.parquet`, audit summary |
 | **Statutory Extraction** | `statutory` | Algorithmic Checksum Engine (CPU) | `CanonicalDocument`, legal/tax documents | Validated GSTIN, PAN, TAN, CIN, CNR, DIN metadata |
 | **DOCX Exporter** | `docx_exporter` | OpenXML WordprocessingML Packager (CPU) | `CanonicalDocument`, raw DOCX packages | Formatted Word `.docx` with bilingual typography |
-| **Cloud Adapters** | `azure`, `gemini`, `mistral` | REST APIs (Authorized Egress Only) | Images, PDFs, text payloads | Remote OCR and translation fallbacks |
+| **Cloud Adapters** | `mistral` | REST APIs (Authorized Egress Only) | Images, PDFs | Remote OCR fallback (Mistral OCR) |
 
 ---
 
@@ -84,9 +84,9 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 
 ---
 
-## 8. Optional Cloud Providers (`azure`, `gemini`, `mistral`)
+## 8. Optional Cloud OCR Providers (`mistral`)
 - **Engine**: REST clients implementing `CloudHttpClient` with per-provider connection pools and token-bucket rate limiters.
-- **Fail-Closed Security**: Blocked by default. Enabled only when `[security]` grants explicit network access and secret permission. Fails fast without leaking plain text or paths.
+- **Fail-Closed Security**: Blocked by default. Enabled only when `[security]` grants explicit network access and secret permission (`MISTRAL_API_KEY`). Fails fast without leaking plain text or paths.
 
 ---
 

@@ -26,7 +26,6 @@ export interface TaskSelectorProps {
   ocrFallbackToLocal: boolean;
   removeStamps?: boolean;
   preserveProperNouns?: boolean;
-  transFallbackToLocal?: boolean;
   onSelectPrimaryTask: (task: PrimaryTaskId | null) => void;
   onSelectSubtask: (primary: PrimaryTaskId, subtask: string) => void;
   onSetCloudOcrProvider: (provider: string) => void;
@@ -39,7 +38,6 @@ export interface TaskSelectorProps {
   onSetSkipHeaderFooter: (enabled: boolean) => void;
   onSetRemoveStamps?: (enabled: boolean) => void;
   onSetPreserveProperNouns?: (enabled: boolean) => void;
-  onSetTransFallbackToLocal?: (fallback: boolean) => void;
   ocrProfile?: "accurate" | "instant";
   onSetOcrProfile?: (profile: "accurate" | "instant") => void;
   onSetOcrCustomParam: (key: string, value: unknown) => void;
@@ -66,7 +64,6 @@ export function TaskSelector({
   ocrModelLang,
   ocrFallbackToLocal,
   preserveProperNouns = true,
-  transFallbackToLocal = true,
   onSelectPrimaryTask,
   onSelectSubtask,
   onSetCloudOcrProvider,
@@ -79,7 +76,6 @@ export function TaskSelector({
   onSetSkipHeaderFooter,
   onSetRemoveStamps,
   onSetPreserveProperNouns,
-  onSetTransFallbackToLocal,
   ocrProfile = "instant",
   onSetOcrProfile,
   onSetOcrCustomParam,
@@ -620,79 +616,34 @@ export function TaskSelector({
 
                         {/* Engine */}
                         <div class="ocr-feature-box">
-                          <span class="ocr-feature-box-header">Engine</span>
+                          <span class="ocr-feature-box-header">Inference Engine</span>
                           <div class="ocr-group-toggles">
-                            {/* Cloud Translation toggle */}
                             <button
-                              id="btn-trans-cloud"
+                              id="btn-trans-indictrans2"
                               type="button"
-                              class={`toggle-row mini toggle-switch-btn ${TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud ? "active" : ""}`}
-                              title="Switch to a Cloud AI translation engine"
+                              class={`toggle-row mini toggle-switch-btn ${currentSubtask !== "opus_mt" ? "active" : ""}`}
+                              title="Switch to AI4Bharat IndicTrans2 local model (Default)"
                               onClick={() => {
-                                const isCloud = TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud;
-                                if (isCloud) {
-                                  onSelectSubtask("translation", "indictrans2");
-                                } else {
-                                  onSelectSubtask("translation", "gemini");
-                                }
+                                onSelectSubtask("translation", "indictrans2");
                               }}
                             >
                               <span class="toggle-switch-slider"></span>
-                              <span><strong>☁️ Cloud Translation</strong></span>
+                              <span><strong>IndicTrans2</strong></span>
                             </button>
 
-                            {/* OPUS-MT toggle — only visible when NOT cloud */}
-                            {!TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud && (
-                              <button
-                                id="btn-trans-opus"
-                                type="button"
-                                class={`toggle-row mini toggle-switch-btn ${currentSubtask === "opus_mt" ? "active" : ""}`}
-                                title="Switch to Helsinki OPUS-MT local engine"
-                                onClick={() => {
-                                  onSelectSubtask("translation", currentSubtask === "opus_mt" ? "indictrans2" : "opus_mt");
-                                }}
-                              >
-                                <span class="toggle-switch-slider"></span>
-                                <span><strong>OPUS-MT (Helsinki)</strong></span>
-                              </button>
-                            )}
+                            <button
+                              id="btn-trans-opus"
+                              type="button"
+                              class={`toggle-row mini toggle-switch-btn ${currentSubtask === "opus_mt" ? "active" : ""}`}
+                              title="Switch to Helsinki OPUS-MT local engine"
+                              onClick={() => {
+                                onSelectSubtask("translation", currentSubtask === "opus_mt" ? "indictrans2" : "opus_mt");
+                              }}
+                            >
+                              <span class="toggle-switch-slider"></span>
+                              <span><strong>OPUS-MT (Helsinki)</strong></span>
+                            </button>
                           </div>
-
-                          {/* Cloud engine pills — shown when cloud is active */}
-                          {TRANSLATION_ENGINES.find((e) => e.id === currentSubtask)?.isCloud && (
-                            <div class="cloud-pill-row">
-                              <div class="cloud-provider-pills" role="group" aria-label="Cloud Engine">
-                                {TRANSLATION_ENGINES.filter((e) => e.isCloud).map((eng) => {
-                                  const act = availableActions.find((a) => a.action_id === eng.actionId);
-                                  const isAvail = act ? act.is_enabled : false;
-                                  return (
-                                    <button
-                                      key={eng.id}
-                                      id={`chip-trans-${eng.id}`}
-                                      type="button"
-                                      class={`cloud-pill-btn ${currentSubtask === eng.id ? "active" : ""}`}
-                                      disabled={!isAvail}
-                                      title={isAvail ? eng.desc : (act?.disabled_reason || "Unavailable")}
-                                      onClick={() => onSelectSubtask("translation", eng.id)}
-                                    >
-                                      {eng.tag}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-
-                              <button
-                                id="param-trans-fallback-local"
-                                type="button"
-                                class={`toggle-row mini toggle-switch-btn ${transFallbackToLocal ? "active" : ""}`}
-                                title="Automatically fall back to local IndicTrans2 if cloud API rate limits or network issues occur"
-                                onClick={() => { if (onSetTransFallbackToLocal) onSetTransFallbackToLocal(!transFallbackToLocal); }}
-                              >
-                                <span class="toggle-switch-slider"></span>
-                                <span><strong>Fallback to Local</strong></span>
-                              </button>
-                            </div>
-                          )}
                         </div>
 
                         {/* Legal Fidelity */}

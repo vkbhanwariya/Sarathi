@@ -22,7 +22,7 @@ The Home screen user-facing processing choices are structured into **Four Primar
 | | **Auto-detect to Krutidev** | Transduces Unicode $\rightarrow$ Kruti Dev 010 typewriter | `font_conversion` | `custom` (`font_mode: to_krutidev`) |
 | **4. Translation** | **Hindi → English** | IndicTrans2 / OPUS-MT neural translation | `translation` | `instant` (or `accurate` with glossaries) |
 | | **English → Hindi** | Neural translation with Proper Noun Guard | `translation` | `instant` |
-| | **Custom Translation** | Glossary selection, cloud engine overrides | `translation` | `custom` |
+| | **Custom Translation** | Glossary selection, engine selection (IndicTrans2 / OPUS-MT) | `translation` | `custom` |
 
 ---
 

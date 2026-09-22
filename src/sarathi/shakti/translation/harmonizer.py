@@ -1,7 +1,7 @@
 """On-Device Statutory Terminology Harmonizer for Sarathi Translation.
 
 Provides post-translation normalization and alignment of colloquial, informal, or
-inconsistent cloud-generated translations into canonical statutory terms (e.g.
+inconsistent machine-generated translations into canonical statutory terms (e.g.
 PMLA, Banking & Financial, Criminal Law, and Judicial designations).
 """
 

@@ -241,7 +241,7 @@ _STATUTORY_CITATION_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 @dataclass(frozen=True)
 class LegalDocumentContext:
-    """Document-level legal metadata grounding cloud translation."""
+    """Document-level legal metadata grounding translation."""
 
     court_name: str | None = None
     case_number: str | None = None
