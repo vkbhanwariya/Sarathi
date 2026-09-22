@@ -247,7 +247,7 @@ def test_custom_profile_executes_valid_options(tmp_path: Path) -> None:
         requirement="ocr",
         inputs=(inp,),
         profile=ExecutionProfile.CUSTOM,
-        custom_options={"engine": "rapidocr", "binarize": True},
+        custom_options={"engine": "rapidocr", "clahe": True},
     )
 
     result = cap.execute(valid_req, ctx)
