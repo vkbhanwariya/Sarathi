@@ -52,8 +52,8 @@ jobs:
       - name: Set up Python 3.13
         run: uv python install 3.13
 
-      - name: Install dev dependencies
-        run: uv sync --group dev
+      - name: Install architecture test dependencies
+        run: uv sync --all-extras --group dev
 
       - name: Run architecture tests only
         run: uv run --group dev pytest tests/architecture -q
