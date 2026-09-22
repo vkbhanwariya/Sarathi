@@ -127,6 +127,36 @@ def test_memory_cache_defensive_deep_copy() -> None:
     assert second.data.metadata["items"] == ["original"]
 
 
+def test_memory_cache_preserves_frozen_dataclass_identity() -> None:
+    """L1 fast path returns frozen dataclasses directly without reallocation when internal state is immutable."""
+    from sarathi.sankalpa.document import PageData, TextSpan
+    from sarathi.smriti.memory import MemoryCache
+
+    span = TextSpan(text="hello", confidence=0.99, bounding_box=(0.0, 0.0, 10.0, 10.0))
+    page = PageData(page_number=1, text="hello", spans=(span,))
+    doc = CanonicalDocument(
+        document_id="d-fast",
+        source_input_id="inp-1",
+        pages=(page,),
+        text="hello",
+    )
+    inp = InputRef(input_id="inp-1", source_path=Path("dummy.txt"), display_name="dummy.txt", size_bytes=10)
+    req = Request(request_id="r-fast", requirement="read_native", inputs=(inp,))
+    key = compute_cache_key(req, "read_native", "1.0.0")
+
+    cache = MemoryCache()
+    res = Result(data=doc)
+    cache.put(key, res)
+
+    retrieved = cache.get(key)
+    assert retrieved is not None
+    assert retrieved is res
+    assert retrieved.data is doc
+    assert retrieved.data.pages[0] is page
+    assert retrieved.data.pages[0].spans[0] is span
+
+
+
 def test_smriti_l2_to_l1_promotion_preserves_created_at(tmp_path: Path) -> None:
     """Verify promotion from L2 to L1 preserves the original creation timestamp."""
     import time
@@ -536,4 +566,48 @@ def test_sqlite_cache_store_reclaims_unreferenced_artifact_blobs(tmp_path: Path)
     # Blob must be reclaimed because no entries reference it
     bin_files_after = list(artifacts_dir.glob("*.bin"))
     assert len(bin_files_after) == 0, "Orphaned artifact blob must be unlinked"
+    store.close()
+
+
+def test_sqlite_cache_store_artifact_refs_junction_table_shared_reclamation(tmp_path: Path) -> None:
+    """Verify junction table handles shared artifact blobs across multiple cache entries."""
+    from sarathi.sankalpa import ArtifactIntent, ArtifactPayload, CanonicalDocument, Result
+    from sarathi.smriti.key import CacheKey
+    from sarathi.smriti.store import SQLiteCacheStore
+
+    store = SQLiteCacheStore(db_path=tmp_path / "cache_shared.db")
+    doc = CanonicalDocument(document_id="doc_shared", text="Shared test")
+    large_bytes = b"shared_blob_content_bytes_for_testing" * 500
+    payload = ArtifactPayload(
+        intent=ArtifactIntent(name="shared.bin", role="document_export", media_type="application/octet-stream"),
+        content=large_bytes,
+    )
+    result = Result(data=doc, artifact_payloads=(payload,))
+    key1 = CacheKey(capability_id="test", fingerprint="fp1", profile="instant", key_hash="kh_001")
+    key2 = CacheKey(capability_id="test", fingerprint="fp2", profile="instant", key_hash="kh_002")
+
+    store.put(key1, result)
+    store.put(key2, result)
+
+    # Check that junction table has 2 rows (one for each key_hash)
+    conn = store._get_connection()
+    count = conn.execute("SELECT COUNT(*) FROM smriti_artifact_refs").fetchone()[0]
+    assert count == 2
+
+    artifacts_dir = tmp_path / "artifacts"
+    bin_files = list(artifacts_dir.glob("*.bin"))
+    assert len(bin_files) == 1
+
+    # Invalidate first entry -> blob should NOT be unlinked because key2 still references it
+    store.invalidate(key1)
+    refs_left = conn.execute("SELECT COUNT(*) FROM smriti_artifact_refs").fetchone()[0]
+    assert refs_left == 1
+    assert len(list(artifacts_dir.glob("*.bin"))) == 1
+
+    # Invalidate second entry -> blob should now be reclaimed
+    store.invalidate(key2)
+    refs_none = conn.execute("SELECT COUNT(*) FROM smriti_artifact_refs").fetchone()[0]
+    assert refs_none == 0
+    assert len(list(artifacts_dir.glob("*.bin"))) == 0
+
     store.close()

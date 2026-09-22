@@ -7,6 +7,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
+from types import MappingProxyType
 from typing import Any
 
 from sarathi.sankalpa import Result
@@ -14,21 +15,58 @@ from sarathi.smriti.key import CacheKey
 from sarathi.smriti.policy import CachePolicy
 from sarathi.smriti.serialization import is_cacheable_result
 
+_IMMUTABLE_TYPES = (int, float, str, bytes, bool, type(None))
+
 
 def _defensive_copy(value: Any) -> Any:
     """Copy canonical cache values without process-global deepcopy hooks."""
-    if isinstance(value, Mapping):
-        return {_defensive_copy(key): _defensive_copy(item) for key, item in value.items()}
+    if isinstance(value, _IMMUTABLE_TYPES):
+        return value
     if isinstance(value, list):
         return [_defensive_copy(item) for item in value]
+    if isinstance(value, dict):
+        return {_defensive_copy(key): _defensive_copy(item) for key, item in value.items()}
     if isinstance(value, tuple):
-        return tuple(_defensive_copy(item) for item in value)
+        if not value:
+            return value
+        copied_items = [_defensive_copy(item) for item in value]
+        if any(c is not orig for c, orig in zip(copied_items, value)):
+            return tuple(copied_items)
+        return value
+    if isinstance(value, MappingProxyType):
+        if not value:
+            return value
+        copied_mapping = {_defensive_copy(key): _defensive_copy(item) for key, item in value.items()}
+        if any(copied_mapping[key] is not item for key, item in value.items()):
+            return MappingProxyType(copied_mapping)
+        return value
+    if isinstance(value, Mapping):
+        return {_defensive_copy(key): _defensive_copy(item) for key, item in value.items()}
+    if isinstance(value, frozenset):
+        if not value:
+            return value
+        copied_set = [_defensive_copy(item) for item in value]
+        if any(c is not orig for c, orig in zip(copied_set, value)):
+            return frozenset(copied_set)
+        return value
     if isinstance(value, set):
         return {_defensive_copy(item) for item in value}
-    if isinstance(value, frozenset):
-        return frozenset(_defensive_copy(item) for item in value)
     if is_dataclass(value) and not isinstance(value, type):
-        updates = {field.name: _defensive_copy(getattr(value, field.name)) for field in fields(value) if field.init}
+        is_frozen = getattr(getattr(value, "__dataclass_params__", None), "frozen", False)
+        updates: dict[str, Any] = {}
+        has_changes = False
+        for field in fields(value):
+            if not field.init:
+                continue
+            orig = getattr(value, field.name)
+            copied = _defensive_copy(orig)
+            if copied is not orig:
+                has_changes = True
+                updates[field.name] = copied
+            else:
+                updates[field.name] = orig
+        if is_frozen and not has_changes:
+            return value
         return replace(value, **updates)
     return value
 

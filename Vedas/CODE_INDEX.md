@@ -56,11 +56,6 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | Component / Module | Responsibility | Compute / Optimization Profile | Key Symbols |
 | :--- | :--- | :--- | :--- |
 | `shakti/artifact_naming.py` | Canonical Artifact Naming utilities for Shakti Capabilities | **Standard Logic** | `sanitize_filename_component()`, `format_artifact_filename()`, `infer_cloud_media_type()`, `resolve_source_input()` |
-| `shakti/azure/client.py` | Direct REST client for Microsoft Azure AI Services with sanitized error handling | **Standard Logic** | `AzureClient` |
-| `shakti/azure/ocr.py` | Microsoft Azure Document Intelligence Cloud OCR Capability implementation for Sarathi | **Standard Logic** | `AzureOCRCapability` |
-| `shakti/azure/plugin.py` | Plugin and Capability declarations for Microsoft Azure Cloud Plugin | **Standard Logic** | `AZURE_SECURITY`, `PLUGIN_INFO`, `AZURE_OCR_DECLARATION` |
-| `shakti/azure/provider.py` | Provider implementation for Shakti Microsoft Azure Plugin | **Standard Logic** | `AzureProvider` |
-| `shakti/azure/translation.py` | Microsoft Azure Cloud Translation Capability implementation for Sarathi | **Standard Logic** | `AzureTranslationCapability` |
 | `shakti/bank_statements/capability.py` | Bank Statement Consolidation Executable Capability for Sarathi | **In-Memory / Polars Columnar** | `BankStatementCapability` |
 | `shakti/bank_statements/consolidator.py` | Consolidator and Canonical Output Exporter for Bank Statements | **In-Memory / Polars Columnar** | `consolidate_statements()`, `build_parquet_artifact()`, `build_xlsx_artifact()` |
 | `shakti/bank_statements/converter.py` | Financial Value Converter for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `parse_decimal_amount()`, `parse_date()`, `parse_time()` |
@@ -99,16 +94,10 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/font_conversion/telemetry.py` | Telemetry recording helpers for FontConversionCapability | **CPU (Font Engine / TTF)** | `emit_conversion_telemetry()` |
 | `shakti/font_conversion/validator.py` | Integrity and Devanagari Structural Validator for Roopa Font Conversion | **CPU (Font Engine / TTF)** | `MappingMetrics`, `FontConversionValidator`, `validate_devanagari_structure()`, `validate_residual_legacy()`, `calculate_mapping_coverage()` |
 | `shakti/font_conversion/visual_resolver.py` | OpenVINO Visual Font Fallback and Metric Prototype Retrieval for Roopa | **CPU (Font Engine / TTF)** | `VisualFontCandidate`, `VisualFontEvidence`, `VisualFontResolver`, `generate_seed_prototype()`, `serialize_prototypes_bin()` |
-| `shakti/gemini/client.py` | Direct REST client for Google Gemini API with sanitized error handling | **Standard Logic** | `GeminiClient` |
-| `shakti/gemini/ocr.py` | Google Gemini Cloud OCR Capability implementation for Sarathi | **Native PDF Vector / PyMuPDF** | `GeminiOCRCapability` |
-| `shakti/gemini/plugin.py` | Plugin and Capability declarations for Google Gemini Cloud Plugin | **Standard Logic** | `GEMINI_SECURITY`, `PLUGIN_INFO`, `GEMINI_OCR_DECLARATION` |
-| `shakti/gemini/provider.py` | Provider implementation for Shakti Google Gemini Plugin | **Standard Logic** | `GeminiProvider` |
-| `shakti/gemini/translation.py` | Google Gemini Cloud Translation Capability implementation for Sarathi | **Standard Logic** | `GeminiTranslationCapability` |
 | `shakti/mistral/client.py` | Direct REST client for Mistral AI APIs with sanitized error handling and pooled transport | **Standard Logic** | `MistralClient` |
 | `shakti/mistral/ocr.py` | Mistral Cloud OCR Capability implementation for Sarathi | **Standard Logic** | `MistralOCRCapability` |
-| `shakti/mistral/plugin.py` | Plugin metadata and capability declarations for Shakti Mistral AI | **Standard Logic** | `PLUGIN_INFO`, `MISTRAL_OCR_DECLARATION`, `MISTRAL_TRANSLATION_DECLARATION` |
+| `shakti/mistral/plugin.py` | Plugin metadata and capability declarations for Shakti Mistral AI | **Standard Logic** | `PLUGIN_INFO`, `MISTRAL_OCR_DECLARATION` |
 | `shakti/mistral/provider.py` | Provider implementation for Shakti Mistral AI Plugin | **Standard Logic** | `MistralProvider` |
-| `shakti/mistral/translation.py` | Mistral Cloud Translation Capability implementation for Sarathi | **Standard Logic** | `MistralTranslationCapability` |
 | `shakti/native_extraction/capability.py` | Shruti - Native Extraction Executable Capability | **Native PDF Vector / PyMuPDF** | `NativeExtractionCapability`, `read_pdf()` |
 | `shakti/native_extraction/detector.py` | Actual content format detection for Shruti Native Extraction | **Standard Logic** | `DetectedFormat`, `detect_content_format()` |
 | `shakti/native_extraction/plugin.py` | Plugin information and capability declaration for Shruti Native Extraction | **Standard Logic** | `PLUGIN_INFO`, `CAPABILITY_DECLARATION` |
@@ -157,7 +146,6 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/text/typography.py` | Shared output typography primitives for Shakti document capabilities | **Standard Logic** | `contains_devanagari()`, `synthesize_akshara_unicode()`, `heal_devanagari_matra_spacing()`, `normalize_text_spacing()`, `reconstruct_line_from_spans()` |
 | `shakti/text/usability.py` | Canonical page and document usability arbitration logic shared across Shakti capabilities | **Standard Logic** | `is_usable_page()`, `is_usable_document()` |
 | `shakti/translation/capability.py` | Executable Translation Capability for Sarathi | **Multi-core CPU (Neural AVX2)** | `TranslationCapability` |
-| `shakti/translation/cloud_orchestration.py` | Canonical Cloud Translation Orchestration Runner for Sarathi | **Standard Logic** | `is_structural_placeholder()`, `execute_cloud_translation()` |
 | `shakti/translation/detector.py` | Script and Language Identification for Translation | **Standard Logic** | `LanguageDetector` |
 | `shakti/translation/engine.py` | Locked CTranslate2 + IndicTrans2 + SentencePiece Translation Engine for Sarathi | **Multi-core CPU (Neural AVX2)** | `BackendTranslationResult`, `TranslatorBackend`, `CTranslate2NativeBackend`, `CTranslate2TranslationEngine`, `split_sentences()` |
 | `shakti/translation/glossary.py` | Domain Glossary and Terminology Manager for Translation | **Standard Logic** | `GlossaryStore` |

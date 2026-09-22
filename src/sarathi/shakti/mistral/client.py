@@ -8,7 +8,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
@@ -19,7 +18,7 @@ _DEFAULT_TIMEOUT_SECONDS = 60.0
 
 
 class MistralClient:
-    """HTTP client for Mistral AI OCR and Chat Completion APIs."""
+    """HTTP client for Mistral AI OCR API."""
 
     def __init__(
         self,
@@ -116,163 +115,3 @@ class MistralClient:
         }
 
         return self._post("ocr", payload)
-
-    def chat_translate(
-        self,
-        text: str,
-        source_lang: str,
-        target_lang: str,
-        model: str = "mistral-medium-latest",
-        system_prompt: str | None = None,
-        **kwargs: Any,
-    ) -> str:
-        """Translate text using Mistral Chat Completion API preserving protected tokens and legal context."""
-        clean_text = text.strip()
-        if not clean_text:
-            return ""
-
-        effective_system_prompt = system_prompt or (
-            f"You are a professional legal, administrative, and technical translator.\n"
-            f"Translate the provided text from {source_lang} to {target_lang}.\n"
-            f"Guidelines:\n"
-            f"- Strictly preserve formatting, line breaks, and whitespace structure.\n"
-            f"- Strictly preserve all tokens enclosed in '__PROTECTED_SPAN_' (e.g. '__PROTECTED_SPAN_0__'), "
-            f"legal citations, section numbers, dates, and currency without translation or alteration.\n"
-            f"- Output ONLY the translated text without commentary, pleasantries, or preamble."
-        )
-
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": effective_system_prompt},
-                {"role": "user", "content": clean_text},
-            ],
-            "temperature": 0.0,
-        }
-
-        resp_dict = self._post("chat/completions", payload)
-        try:
-            choices = resp_dict["choices"]
-            if not choices:
-                raise KeyError("empty choices")
-            return choices[0]["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError) as err:
-            raise DoshError(
-                code=FailureCode.EXECUTION_FAILED,
-                message="Mistral translation response missing expected completion choice.",
-            ) from err
-
-    def batch_translate(
-        self,
-        texts: list[str],
-        source_lang: str,
-        target_lang: str,
-        model: str = "mistral-medium-latest",
-        system_prompt: str | None = None,
-        batch_size: int = 16,
-        **kwargs: Any,
-    ) -> list[str]:
-        """Translate a sequence of texts using Mistral Chat Completion, grouping them into multi-segment batches."""
-        if not texts:
-            return []
-        if len(texts) == 1:
-            return [
-                self.chat_translate(
-                    texts[0],
-                    source_lang,
-                    target_lang,
-                    model=model,
-                    system_prompt=system_prompt,
-                    **kwargs,
-                )
-            ]
-
-        results: list[str] = [""] * len(texts)
-        for batch_start in range(0, len(texts), batch_size):
-            batch_indices = list(range(batch_start, min(batch_start + batch_size, len(texts))))
-            batch_items = [(idx, texts[idx]) for idx in batch_indices]
-
-            non_empty = [(idx, text) for idx, text in batch_items if text and text.strip()]
-            if not non_empty:
-                for idx, text in batch_items:
-                    results[idx] = text
-                continue
-
-            if len(non_empty) == 1:
-                idx, text = non_empty[0]
-                results[idx] = self.chat_translate(
-                    text,
-                    source_lang,
-                    target_lang,
-                    model=model,
-                    system_prompt=system_prompt,
-                    **kwargs,
-                )
-                for i, t in batch_items:
-                    if i != idx:
-                        results[i] = t
-                continue
-
-            segment_blocks = "\n".join(f'<segment id="{idx}">\n{text}\n</segment>' for idx, text in non_empty)
-            effective_system_prompt = system_prompt or (
-                f"You are a professional legal, administrative, and technical translator.\n"
-                f"Translate each text segment faithfully from {source_lang} to {target_lang}.\n"
-                f"Strict Rules:\n"
-                f'- Return every segment enclosed in its exact matching `<segment id="...">` and `</segment>` tags.\n'
-                f"- Do not omit, combine, or reorder segments.\n"
-                f"- Strictly preserve formatting, line breaks, and tokens enclosed in '__PROTECTED_SPAN_'.\n"
-                f"- Output ONLY the tagged translated segments without preamble or commentary."
-            )
-
-            user_prompt = f"Translate the following segments faithfully:\n\n{segment_blocks}"
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": effective_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.0,
-            }
-
-            try:
-                resp_dict = self._post("chat/completions", payload)
-                choices = resp_dict.get("choices", [])
-                raw_out = choices[0]["message"]["content"].strip() if choices else ""
-
-                parsed_segments: dict[int, str] = {}
-                for m in re.finditer(r'<segment\s+id=["\']?(\d+)["\']?\s*>(.*?)</segment>', raw_out, re.DOTALL):
-                    seg_id = int(m.group(1))
-                    parsed_segments[seg_id] = m.group(2).strip()
-
-                for idx, text in non_empty:
-                    if idx in parsed_segments and parsed_segments[idx]:
-                        results[idx] = parsed_segments[idx]
-                    else:
-                        results[idx] = self.chat_translate(
-                            text,
-                            source_lang,
-                            target_lang,
-                            model=model,
-                            system_prompt=system_prompt,
-                            **kwargs,
-                        )
-
-                for idx, text in batch_items:
-                    if not text or not text.strip():
-                        results[idx] = text
-
-            except Exception:
-                for idx, text in non_empty:
-                    results[idx] = self.chat_translate(
-                        text,
-                        source_lang,
-                        target_lang,
-                        model=model,
-                        system_prompt=system_prompt,
-                        **kwargs,
-                    )
-                for idx, text in batch_items:
-                    if not text or not text.strip():
-                        results[idx] = text
-
-        return results

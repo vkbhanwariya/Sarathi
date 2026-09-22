@@ -253,8 +253,6 @@ def test_bug_S2_shipped_settings_security_defaults() -> None:
     """S2: Verify shipped config/settings.toml disables PII, network, and external processing by default."""
     from sarathi.dosh import DoshError, FailureCode
     from sarathi.kavacha import Kavacha, SecurityPolicy
-    from sarathi.shakti.azure.plugin import AZURE_SECURITY
-    from sarathi.shakti.gemini.plugin import GEMINI_SECURITY
     from sarathi.shakti.mistral.plugin import PLUGIN_INFO as MISTRAL_PLUGIN_INFO
 
     settings_path = Path("config/settings.toml")
@@ -277,10 +275,10 @@ def test_bug_S2_shipped_settings_security_defaults() -> None:
     )
     kavacha = Kavacha(policy)
 
-    for decl in (GEMINI_SECURITY, MISTRAL_PLUGIN_INFO.security, AZURE_SECURITY):
-        with pytest.raises(DoshError) as exc_info:
-            kavacha.authorize(decl)
-        assert exc_info.value.code is FailureCode.SECURITY_DENIED
+    with pytest.raises(DoshError) as exc_info:
+        kavacha.authorize(MISTRAL_PLUGIN_INFO.security)
+    assert exc_info.value.code is FailureCode.SECURITY_DENIED
+
 
 
 def test_limits_settings_accessors() -> None:

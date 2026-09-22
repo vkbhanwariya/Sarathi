@@ -22,7 +22,6 @@ __all__ = [
     "TranslationCapability",
     "TranslationDirection",
     "TranslationResult",
-    "execute_cloud_translation",
     "ProperNounGuard",
     "transliterate_devanagari_to_latin",
 ]
@@ -39,6 +38,5 @@ lazy_exports(
         "CTranslate2TranslationEngine": ".engine:CTranslate2TranslationEngine",
         "LegalContextBuilder": ".legal_context:LegalContextBuilder",
         "LegalDocumentContext": ".legal_context:LegalDocumentContext",
-        "execute_cloud_translation": ".cloud_orchestration:execute_cloud_translation",
     },
 )

@@ -129,13 +129,11 @@
       "role": "document-processing-capabilities-and-provider-adapters",
       "components": [
         "artifact_naming",
-        "azure",
         "bank_statements",
         "cloud",
         "darshana",
         "docx_exporter",
         "font_conversion",
-        "gemini",
         "mistral",
         "native_extraction",
         "ocr",
@@ -204,8 +202,6 @@
         "sarathi.shakti.ocr",
         "sarathi.shakti.translation",
         "sarathi.shakti.mistral",
-        "sarathi.shakti.gemini",
-        "sarathi.shakti.azure",
         "sarathi.shakti.statutory"
       ],
       "mutually_independent": false

@@ -19,6 +19,19 @@ from sarathi.smriti.serialization import (
 )
 
 
+def _extract_content_hashes(data_json: str) -> set[str]:
+    """Extract set of artifact content hashes referenced in a serialized result JSON."""
+    try:
+        data = json.loads(data_json)
+        return {
+            p["content_hash"]
+            for p in data.get("artifact_payloads", [])
+            if isinstance(p, dict) and p.get("content_hash")
+        }
+    except Exception:
+        return set()
+
+
 class SQLiteCacheStore:
     """Thread-safe SQLite persistent cache for Smriti."""
 
@@ -57,6 +70,25 @@ class SQLiteCacheStore:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_smriti_accessed ON smriti_entries(accessed_at);
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS smriti_artifact_refs (
+                    key_hash TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    PRIMARY KEY (key_hash, content_hash)
+                );
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_smriti_art_ch ON smriti_artifact_refs(content_hash);
+            """)
+            ref_count = conn.execute("SELECT COUNT(*) FROM smriti_artifact_refs").fetchone()[0]
+            if ref_count == 0:
+                rows = conn.execute("SELECT key_hash, data_json FROM smriti_entries").fetchall()
+                for kh, dj in rows:
+                    for ch in _extract_content_hashes(dj):
+                        conn.execute(
+                            "INSERT OR IGNORE INTO smriti_artifact_refs (key_hash, content_hash) VALUES (?, ?)",
+                            (kh, ch),
+                        )
 
     def _reclaim_unreferenced_artifacts(self, conn: sqlite3.Connection, deleted_data_jsons: list[str]) -> None:
         """Remove artifact blob files that are no longer referenced by any remaining cache entries."""
@@ -64,20 +96,12 @@ class SQLiteCacheStore:
             return
         candidate_hashes: set[str] = set()
         for dj in deleted_data_jsons:
-            try:
-                data = json.loads(dj)
-                for p in data.get("artifact_payloads", []):
-                    ch = p.get("content_hash")
-                    if ch:
-                        candidate_hashes.add(ch)
-            except Exception:
-                continue
+            candidate_hashes.update(_extract_content_hashes(dj))
 
         for ch in candidate_hashes:
-            pattern = f'%"{ch}"%'
             ref_count = conn.execute(
-                "SELECT COUNT(*) FROM smriti_entries WHERE data_json LIKE ?",
-                (pattern,),
+                "SELECT COUNT(*) FROM smriti_artifact_refs WHERE content_hash = ?",
+                (ch,),
             ).fetchone()[0]
             if ref_count == 0:
                 bin_path = self._artifacts_dir / f"{ch}.bin"
@@ -101,6 +125,7 @@ class SQLiteCacheStore:
             now = time.time()
             if not self._policy.is_valid(created_at, now):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
+                conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
                 self._reclaim_unreferenced_artifacts(conn, [data_json])
                 return None, None
 
@@ -113,6 +138,7 @@ class SQLiteCacheStore:
                 return res, float(created_at)
             except (json.JSONDecodeError, ValueError, KeyError, TypeError):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
+                conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
                 self._reclaim_unreferenced_artifacts(conn, [data_json])
                 return None, None
 
@@ -142,6 +168,12 @@ class SQLiteCacheStore:
             """,
                 (key.key_hash, key.capability_id, key.fingerprint, key.profile, data_json, now, now),
             )
+            conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
+            for ch in _extract_content_hashes(data_json):
+                conn.execute(
+                    "INSERT OR IGNORE INTO smriti_artifact_refs (key_hash, content_hash) VALUES (?, ?)",
+                    (key.key_hash, ch),
+                )
 
             count = conn.execute("SELECT COUNT(*) FROM smriti_entries").fetchone()[0]
             if count > self._policy.max_entries_l2:
@@ -155,6 +187,7 @@ class SQLiteCacheStore:
                     evicted_jsons = [r[1] for r in evicted_rows]
                     placeholders = ",".join("?" for _ in evicted_keys)
                     conn.execute(f"DELETE FROM smriti_entries WHERE key_hash IN ({placeholders})", evicted_keys)
+                    conn.execute(f"DELETE FROM smriti_artifact_refs WHERE key_hash IN ({placeholders})", evicted_keys)
                     self._reclaim_unreferenced_artifacts(conn, evicted_jsons)
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
@@ -165,17 +198,24 @@ class SQLiteCacheStore:
                     "SELECT data_json FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)
                 ).fetchone()
                 cur = conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
+                conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
                 if row:
                     self._reclaim_unreferenced_artifacts(conn, [row[0]])
                 return cur.rowcount
             if capability_id is not None:
                 rows = conn.execute(
-                    "SELECT data_json FROM smriti_entries WHERE capability_id = ?", (capability_id,)
+                    "SELECT key_hash, data_json FROM smriti_entries WHERE capability_id = ?", (capability_id,)
                 ).fetchall()
-                cur = conn.execute("DELETE FROM smriti_entries WHERE capability_id = ?", (capability_id,))
-                self._reclaim_unreferenced_artifacts(conn, [r[0] for r in rows])
-                return cur.rowcount
+                if rows:
+                    keys = [r[0] for r in rows]
+                    placeholders = ",".join("?" for _ in keys)
+                    conn.execute(f"DELETE FROM smriti_artifact_refs WHERE key_hash IN ({placeholders})", keys)
+                    cur = conn.execute(f"DELETE FROM smriti_entries WHERE key_hash IN ({placeholders})", keys)
+                    self._reclaim_unreferenced_artifacts(conn, [r[1] for r in rows])
+                    return cur.rowcount
+                return 0
             rows = conn.execute("SELECT data_json FROM smriti_entries").fetchall()
+            conn.execute("DELETE FROM smriti_artifact_refs")
             cur = conn.execute("DELETE FROM smriti_entries")
             self._reclaim_unreferenced_artifacts(conn, [r[0] for r in rows])
             return cur.rowcount

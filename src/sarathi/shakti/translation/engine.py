@@ -281,6 +281,21 @@ class CTranslate2NativeBackend:
         self._translators: dict[str, Any] = {}
         self._spms: dict[str, Any] = {}
         self._lock: threading.Lock = threading.Lock()
+        self._cuda_device_count: int | None = None
+
+    def _get_cuda_device_count(self) -> int:
+        """Cache and return the available CUDA device count for CTranslate2."""
+        if self._cuda_device_count is None:
+            try:
+                import ctranslate2
+
+                if hasattr(ctranslate2, "get_cuda_device_count"):
+                    self._cuda_device_count = int(ctranslate2.get_cuda_device_count())
+                else:
+                    self._cuda_device_count = 0
+            except Exception:
+                self._cuda_device_count = 0
+        return self._cuda_device_count
 
     def translate_sentences(
         self,
@@ -349,18 +364,15 @@ class CTranslate2NativeBackend:
         device = "cpu"
         device_index = 0
         if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
-            try:
-                if hasattr(ctranslate2, "get_cuda_device_count") and ctranslate2.get_cuda_device_count() > 0:
-                    device = "cuda"
-                    dev_str = str(execution_binding.backend_device_id).strip()
-                    if ":" in dev_str:
-                        dev_str = dev_str.split(":")[-1]
-                    try:
-                        device_index = int(dev_str)
-                    except ValueError:
-                        device_index = 0
-            except Exception:
-                device = "cpu"
+            if self._get_cuda_device_count() > 0:
+                device = "cuda"
+                dev_str = str(execution_binding.backend_device_id).strip()
+                if ":" in dev_str:
+                    dev_str = dev_str.split(":")[-1]
+                try:
+                    device_index = int(dev_str)
+                except ValueError:
+                    device_index = 0
 
         # Explicit compute type: int8_float32 for AVX2/AVX-VNNI neural acceleration on Core Ultra CPU
         compute_type = model_info.get("compute_type")

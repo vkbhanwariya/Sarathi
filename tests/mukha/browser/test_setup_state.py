@@ -224,13 +224,11 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     expect(app_page.locator(".subtask-card")).to_have_count(2)
 
     # Providers appear after Cloud OCR is selected.
-    expect(app_page.locator("#chip-gemini-ocr")).not_to_be_visible()
+    expect(app_page.locator("#chip-mistral-ocr")).not_to_be_visible()
     app_page.locator("#subtask-ocr .action-card-header").click()
     app_page.locator("#btn-ocr-engine-cloud").click()
     # Verify cloud provider chips in Cloud Document AI
-    expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
     expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
-    expect(app_page.locator("#chip-azure-ocr")).to_be_visible()
 
     # 2. Bank Account Consolidation: Instant Consolidation, Accurate Consolidation
     _choose_task(app_page, "bank-consolidation")
@@ -245,7 +243,7 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     _open_settings(app_page, "legacy-to-unicode")
     expect(app_page.locator("#param-source-font")).to_be_visible()
 
-    # 4. Translation: Direction selector first, then 5 engines in exact order
+    # 4. Translation: Direction selector first, then local engines
     _choose_task(app_page, "translation")
     expect(app_page.locator("#btn-direction-auto")).to_be_visible()
     expect(app_page.locator("#btn-direction-hi-en")).to_be_visible()
@@ -253,9 +251,7 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
 
     expect(app_page.locator("#subtask-engine-indictrans2")).to_be_visible()
     expect(app_page.locator("#subtask-engine-opus-mt")).to_be_visible()
-    expect(app_page.locator("#subtask-engine-gemini")).to_be_visible()
-    expect(app_page.locator("#subtask-engine-mistral")).to_be_visible()
-    expect(app_page.locator("#subtask-engine-azure")).to_be_visible()
+
 
 
 def test_translation_direction_and_engine_payload(app_page: Page) -> None:
@@ -405,18 +401,18 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
     expect(btn_cloud).to_have_class(re.compile(r"\bactive\b"))
 
     # Verify cloud chips and local fallback checkbox appear
-    expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
+    expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
     expect(app_page.locator("#param-ocr-fallback-to-local")).to_be_visible()
     expect(app_page.locator("#param-ocr-fallback-to-local")).to_be_checked()
 
     payload_cloud = app_page.evaluate("() => window.__sarathi_build_request()")
-    assert payload_cloud["requirement"] == "gemini_ocr"
-    assert payload_cloud["custom_options"]["engine"] == "gemini_ocr"
+    assert payload_cloud["requirement"] == "mistral_ocr"
+    assert payload_cloud["custom_options"]["engine"] == "mistral_ocr"
     assert payload_cloud["custom_options"]["fallback_to_local"] is True
 
     # 4. In-front inference engines and stamp suppression toggle
     expect(app_page.locator("#btn-ocr-lang-devanagari")).to_be_visible()
-    expect(app_page.locator("#chip-gemini-ocr")).to_be_visible()
+    expect(app_page.locator("#chip-mistral-ocr")).to_be_visible()
 
     stamp_chk = app_page.locator("#param-ocr-remove-stamps")
     expect(stamp_chk).to_be_visible()
@@ -428,7 +424,7 @@ def test_ocr_document_recognition_add_ons_and_engine_switching(app_page: Page) -
 
 
 def test_translation_in_front_toggles_and_legal_integrity_bar(app_page: Page) -> None:
-    """Verify Translation in-front toggles, legal integrity chips, and cloud fallback configuration."""
+    """Verify Translation in-front toggles and legal integrity chips."""
     _choose_task(app_page, "translation")
 
     # 1. Verify Legal Integrity Bar
@@ -452,18 +448,13 @@ def test_translation_in_front_toggles_and_legal_integrity_bar(app_page: Page) ->
     assert payload["custom_options"]["statutory"] is True
     assert payload["custom_options"]["preserve_proper_nouns"] is True
 
-    # 4. Select Cloud AI engine (Gemini)
-    gemini_card = app_page.locator("#subtask-engine-gemini")
-    expect(gemini_card).to_be_visible()
-    gemini_card.click()
-    expect(gemini_card).to_have_class(re.compile(r"\bselected\b"))
+    # 4. Select OPUS-MT engine
+    opus_card = app_page.locator("#subtask-engine-opus-mt")
+    expect(opus_card).to_be_visible()
+    opus_card.click()
+    expect(opus_card).to_have_class(re.compile(r"\bselected\b"))
 
-    # Cloud fallback checkbox appears and is checked
-    fallback_chk = app_page.locator("#param-trans-fallback-local")
-    expect(fallback_chk).to_be_visible()
-    expect(fallback_chk).to_be_checked()
-
-    payload_cloud = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
-    assert payload_cloud is not None
-    assert payload_cloud["requirement"] == "gemini_translation"
-    assert payload_cloud["custom_options"]["fallback_to_local"] is True
+    payload_opus = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
+    assert payload_opus is not None
+    assert payload_opus["requirement"] == "translation"
+    assert payload_opus["custom_options"]["engine"] == "opus_mt"

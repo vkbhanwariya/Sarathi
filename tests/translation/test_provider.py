@@ -215,3 +215,20 @@ def test_native_backend_exports_and_translate_delegation() -> None:
         glossary_terms=None,
         custom_terms=(),
     )
+
+
+def test_ctranslate2_native_backend_caches_cuda_probe(tmp_path: Path) -> None:
+    """Verify CTranslate2NativeBackend caches the CUDA device count probe."""
+    from sarathi.shakti.translation.engine import CTranslate2NativeBackend
+
+    backend = CTranslate2NativeBackend(root=tmp_path, manifest={})
+    assert backend._cuda_device_count is None
+
+    with patch("ctranslate2.get_cuda_device_count", return_value=0) as mock_probe:
+        count1 = backend._get_cuda_device_count()
+        count2 = backend._get_cuda_device_count()
+        assert count1 == 0
+        assert count2 == 0
+        assert backend._cuda_device_count == 0
+        # Probe must only have been invoked once and cached
+        assert mock_probe.call_count <= 1

@@ -259,15 +259,10 @@ class TestKavachaService:
 class TestCloudPluginAuthorization:
     @staticmethod
     def _cloud_security_declarations() -> tuple[SecurityDeclaration, ...]:
-        from sarathi.shakti.azure.plugin import PLUGIN_INFO as azure
-        from sarathi.shakti.gemini.plugin import PLUGIN_INFO as gemini
         from sarathi.shakti.mistral.plugin import PLUGIN_INFO as mistral
 
-        return (
-            azure.security,
-            gemini.security,
-            mistral.security,
-        )
+        return (mistral.security,)
+
 
     def test_cloud_plugins_declare_external_network_and_secret_requirements(self) -> None:
         for declaration in self._cloud_security_declarations():

@@ -17,10 +17,8 @@ from sarathi.shakti.mistral.client import MistralClient
 from sarathi.shakti.mistral.ocr import MistralOCRCapability
 from sarathi.shakti.mistral.plugin import (
     MISTRAL_OCR_DECLARATION,
-    MISTRAL_TRANSLATION_DECLARATION,
     PLUGIN_INFO,
 )
-from sarathi.shakti.mistral.translation import MistralTranslationCapability
 
 
 def _build_client(services: PluginServices | None) -> MistralClient:
@@ -52,26 +50,20 @@ class MistralProvider(PluginProvider):
 
     @property
     def declarations(self) -> tuple[CapabilityDeclaration, ...]:
-        return (MISTRAL_OCR_DECLARATION, MISTRAL_TRANSLATION_DECLARATION)
+        return (MISTRAL_OCR_DECLARATION,)
 
     def create_capabilities(self, services: PluginServices) -> Mapping[str, Capability]:
         client = _build_client(services)
         model_ocr = "mistral-ocr-latest"
-        model_trans = "mistral-medium-latest"
         if services is not None and getattr(services, "settings", None) is not None:
             sec = services.settings.get_section("mistral")
             if sec:
                 model_ocr = str(sec.get("model_ocr", model_ocr))
-                model_trans = str(sec.get("model_translation", model_trans))
         return {
             "mistral_ocr": MistralOCRCapability(
                 client=client,
                 darpana=services.darpana,
                 default_model=model_ocr,
-            ),
-            "mistral_translation": MistralTranslationCapability(
-                client=client,
-                default_model=model_trans,
             ),
         }
 
@@ -84,7 +76,7 @@ class MistralProvider(PluginProvider):
                 status=ReadinessStatus.DEPENDENCY_UNAVAILABLE,
                 reason="HTTP transport dependency (httpx) is not installed.",
             )
-            return {"mistral_ocr": unavail, "mistral_translation": unavail}
+            return {"mistral_ocr": unavail}
 
         client = _build_client(services)
         if client.is_configured:
@@ -102,5 +94,4 @@ class MistralProvider(PluginProvider):
 
         return {
             "mistral_ocr": ready_res,
-            "mistral_translation": ready_res,
         }

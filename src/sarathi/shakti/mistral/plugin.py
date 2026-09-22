@@ -22,7 +22,7 @@ PLUGIN_INFO = PluginInfo(
         external_processing=True,
         required_secrets=("MISTRAL_API_KEY",),
     ),
-    capabilities=("mistral_ocr", "mistral_translation"),
+    capabilities=("mistral_ocr",),
 )
 
 MISTRAL_OCR_DECLARATION = CapabilityDeclaration(
@@ -41,22 +41,4 @@ MISTRAL_OCR_DECLARATION = CapabilityDeclaration(
         ExecutionProfile.LAYOUT_PRESERVING,
         ExecutionProfile.CUSTOM,
     ),
-)
-
-MISTRAL_TRANSLATION_DECLARATION = CapabilityDeclaration(
-    capability_id="mistral_translation",
-    plugin_id="shakti.mistral",
-    version="1.0.0",
-    display_name="Mistral Cloud Translation",
-    device_requirement=DeviceRequirement(
-        preferred_devices=(DeviceType.NETWORK,),
-        supported_devices=(DeviceType.NETWORK, DeviceType.CPU),
-        network_provider="mistral",
-    ),
-    supported_profiles=(
-        ExecutionProfile.INSTANT,
-        ExecutionProfile.ACCURATE,
-        ExecutionProfile.CUSTOM,
-    ),
-    prerequisites=("read_native",),
 )

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -325,8 +325,6 @@ class Yantra:
                     break
 
                 # 3. Wait for at least one in-flight future to complete (poll boundedly to check cancellation)
-                from concurrent.futures import FIRST_COMPLETED, wait
-
                 done, _ = wait(in_flight.keys(), return_when=FIRST_COMPLETED, timeout=0.05)
                 for f in done:
                     task_idx = in_flight.pop(f)
