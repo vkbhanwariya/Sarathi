@@ -39,16 +39,19 @@ class DeterministicTestBackend:
         self._glossary = GlossaryStore()
         self._protector = TranslationProtector()
 
+        from sarathi.shakti.translation.legal_context import LegalContextBuilder
+
+        self._legal_builder = LegalContextBuilder(self._glossary)
         self._precomputed: dict[str, list[dict[str, Any]]] = {}
         for direction in (TranslationDirection.HI_TO_EN, TranslationDirection.EN_TO_HI):
-            terms = self._glossary.get_terms(direction)
             items = []
             for raw_item in self._corpus:
                 if raw_item["direction"] != direction.value:
                     continue
                 src = raw_item["source"].strip()
                 tgt = raw_item["target"].strip()
-                p_src, p_spans = self._protector.protect(src, glossary_mappings=terms)
+                ctx = self._legal_builder.extract_context(src, direction=direction)
+                p_src, p_spans = self._protector.protect(src, glossary_mappings=ctx.matched_glossary_terms)
                 norm_p_src = _PLACEHOLDER_RE.sub("__SLOT__", p_src.strip())
                 norm_src = _slotize(src)
                 glossary_applied = self._glossary.apply_glossary(src, direction)

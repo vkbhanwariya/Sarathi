@@ -53,3 +53,17 @@ mapping_type = "post_conversion"
 source = "तोड् मरोड्"
 target = "तोड़-मरोड़"
 verified = true
+
+[[corrections]]
+profile_id = "generic"
+mapping_type = "post_conversion"
+source = "प्राधिकरण्ा"
+target = "प्राधिकरण"
+verified = true
+
+[[corrections]]
+profile_id = "generic"
+mapping_type = "regex"
+source = "([णखधथभशषग])्ा"
+target = "\\1"
+verified = true

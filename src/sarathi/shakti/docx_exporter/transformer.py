@@ -595,6 +595,79 @@ def _merge_adjacent_compatible_runs(container: ET.Element) -> None:
         i += 1
 
 
+_KRUTI_HALF_STEM_CHARS: frozenset[str] = frozenset(
+    {".", "F", "H", "[", "/", "è", "‘", "“", '"', "'", "X", "L", "P", "Y", "C", "U", "D", "?", "{"}
+)
+
+
+def _heal_split_legacy_syllables(container: ET.Element) -> None:
+    """Heal legacy font syllables and stems accidentally split across run boundaries.
+
+    In Remington/KrutiDev/DevLys typesetting, half-consonants (e.g. '.' for half-Nna)
+    require a vertical bar 'k' to form full consonants (e.g. '.k' for 'ण'). When typists
+    apply formatting (such as bold or italics) starting mid-word, Word splits the character
+    across <w:r> boundaries (e.g. 'izkf/kdj.' in run 1, 'k ls...' in run 2).
+    Transferring the completing stem 'k' back to run 1 ensures correct font conversion
+    without producing severed half-consonants or floating matras (e.g. 'प्राधिकरण्ा').
+    """
+    r_tag = f"{{{_W_NS}}}r"
+    t_tag = f"{{{_W_NS}}}t"
+
+    children = list(container)
+    if len(children) < 2:
+        return
+
+    runs = [c for c in children if c.tag == r_tag]
+    for i in range(len(runs) - 1):
+        r1 = runs[i]
+        r2 = runs[i + 1]
+
+        t1_elems = [t for t in r1.findall(t_tag) if t.text]
+        t2_elems = [t for t in r2.findall(t_tag) if t.text]
+        if not t1_elems or not t2_elems:
+            continue
+
+        text1 = t1_elems[-1].text or ""
+        text2 = t2_elems[0].text or ""
+
+        if text1 and text2 and text1[-1] in _KRUTI_HALF_STEM_CHARS and text2.startswith("k"):
+            t1_elems[-1].text = text1 + "k"
+            t2_elems[0].text = text2[1:]
+
+
+def _heal_split_unicode_matras(container: ET.Element) -> None:
+    """Heal Devanagari virama + vowel matra collisions across adjacent run boundaries.
+
+    In Unicode Devanagari, a run ending in virama (\\u094d) followed by a run starting with
+    aa-matra (\\u093e) is an invalid syllable collision ('्ा'). In KrutiDev typist logic,
+    half-consonant + 'k' forms the base consonant, so virama + aa-matra collapse to the base
+    consonant without virama or floating matra.
+    """
+    r_tag = f"{{{_W_NS}}}r"
+    t_tag = f"{{{_W_NS}}}t"
+
+    children = list(container)
+    if len(children) < 2:
+        return
+
+    runs = [c for c in children if c.tag == r_tag]
+    for i in range(len(runs) - 1):
+        r1 = runs[i]
+        r2 = runs[i + 1]
+
+        t1_elems = [t for t in r1.findall(t_tag) if t.text]
+        t2_elems = [t for t in r2.findall(t_tag) if t.text]
+        if not t1_elems or not t2_elems:
+            continue
+
+        text1 = t1_elems[-1].text or ""
+        text2 = t2_elems[0].text or ""
+
+        if text1.endswith("\u094d") and text2.startswith("\u093e"):
+            t1_elems[-1].text = text1[:-1]
+            t2_elems[0].text = text2[1:]
+
+
 def _classify_run_font(
     font_name: str | None,
     profiles: Mapping[str, Any] | None = None,
@@ -681,8 +754,10 @@ def _transform_xml_tree(
     for p in tree.iter(p_tag):
         # Merge runs at paragraph level and within sub-containers like w:hyperlink
         _merge_adjacent_compatible_runs(p)
+        _heal_split_legacy_syllables(p)
         for sub_container in p.findall(f"{{{_W_NS}}}hyperlink"):
             _merge_adjacent_compatible_runs(sub_container)
+            _heal_split_legacy_syllables(sub_container)
 
         # Iterate all runs in paragraph (including nested)
         for parent in [p] + p.findall(f"{{{_W_NS}}}hyperlink"):
@@ -859,6 +934,10 @@ def _transform_xml_tree(
                         new_t.text = sanitize_xml_text(chunk)
                         new_r.append(new_t)
                         parent.insert(c_idx + offset, new_r)
+
+        _heal_split_unicode_matras(p)
+        for sub_container in p.findall(f"{{{_W_NS}}}hyperlink"):
+            _heal_split_unicode_matras(sub_container)
 
 
 def _apply_font_to_rpr(

@@ -6,9 +6,10 @@ Provisions and verifies declared CTranslate2 neural translation model assets for
 Downloads, copies, and verifies required CTranslate2 translation models into data/translation/models/.
 Strictly verifies SHA-256 checksums and file sizes to ensure deterministic, fail-closed integrity.
 
-Supports two high-performance offline engine variants:
+Supports three high-performance offline engine variants:
 1. OPUS-MT (Helsinki-NLP INT8 quantized, ~160MB total for hi-en + en-hi) - Default, fast, lightweight.
 2. IndicTrans2 (AI4Bharat 200M distilled CT2, ~1.7GB total for hi-en + en-hi) - High-fidelity Indic NMT.
+3. Krutrim-Translate (Krutrim AI Labs distilled CT2, 4096 context, ~1.7GB total for hi-en + en-hi) - Full legal clause context.
 
 .PARAMETER ProjectRoot
 Optional path to Sarathi repository root. Defaults to script parent's parent.
@@ -44,7 +45,7 @@ param(
     [string] $SourceDir = '',
 
     [Parameter()]
-    [ValidateSet('opus_mt', 'indictrans2', 'all')]
+    [ValidateSet('opus_mt', 'indictrans2', 'krutrim', 'all')]
     [string] $Engine = 'opus_mt',
 
     [Parameter()]
@@ -212,6 +213,57 @@ $indicCatalog = @{
     }
 }
 
+$krutrimCatalog = @{
+    'hi-en' = @{
+        files = @(
+            @{
+                filename = 'model.bin'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_indic_english/model.bin'
+            },
+            @{
+                filename = 'model.SRC'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_indic_english/vocab/model.SRC'
+            },
+            @{
+                filename = 'model.TGT'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_indic_english/vocab/model.TGT'
+            },
+            @{
+                filename = 'source_vocabulary.json'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_indic_english/source_vocabulary.json'
+            },
+            @{
+                filename = 'target_vocabulary.json'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_indic_english/target_vocabulary.json'
+            }
+        )
+    }
+    'en-hi' = @{
+        files = @(
+            @{
+                filename = 'model.bin'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_english_indic/model.bin'
+            },
+            @{
+                filename = 'model.SRC'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_english_indic/vocab/model.SRC'
+            },
+            @{
+                filename = 'model.TGT'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_english_indic/vocab/model.TGT'
+            },
+            @{
+                filename = 'source_vocabulary.json'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_english_indic/source_vocabulary.json'
+            },
+            @{
+                filename = 'target_vocabulary.json'
+                url      = 'https://huggingface.co/krutrim-ai-labs/Krutrim-Translate/resolve/main/ct_model_english_indic/target_vocabulary.json'
+            }
+        )
+    }
+}
+
 function Provision-ModelGroup {
     param(
         [string] $GroupName,
@@ -243,8 +295,8 @@ function Provision-ModelGroup {
             $fname = $fileEntry.filename
             $dest = Join-Path $targetDir $fname
             $expectedSha = ''
-            if ($fileEntry.sha256) {
-                $expectedSha = $fileEntry.sha256.ToLowerInvariant()
+            if ($fileEntry.ContainsKey('sha256') -and $fileEntry['sha256']) {
+                $expectedSha = $fileEntry['sha256'].ToLowerInvariant()
             }
 
             Write-Host "[$GroupName / $dirKey] Checking $fname... " -NoNewline
@@ -302,21 +354,73 @@ function Provision-ModelGroup {
                 if (-not $sourced) {
                     $url = $fileEntry.url
                     Write-Host "Downloading from $url... " -NoNewline
-                    try {
-                        $headers = @{}
-                        if ($HfToken) {
-                            $headers['Authorization'] = "Bearer $HfToken"
+
+                    $hasCurl = [bool](Get-Command curl.exe -ErrorAction SilentlyContinue)
+                    $maxRetries = 5
+                    $downloadOk = $false
+                    $lastError = ""
+
+                    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+                        try {
+                            if ($hasCurl) {
+                                # Use -C - to auto-resume partial downloads, --retry-all-errors to retry exit code 18
+                                $curlArgs = @('-s', '-S', '-L', '--fail', '-C', '-', '--retry', '5', '--retry-delay', '3', '--retry-all-errors')
+                                if ($HfToken) {
+                                    $curlArgs += @('-H', "Authorization: Bearer $HfToken")
+                                }
+                                $curlArgs += @('-o', $dest, $url)
+                                $errOutput = (& curl.exe @curlArgs 2>&1) | Out-String
+                                if ($LASTEXITCODE -ne 0) {
+                                    # If -C - failed because range is not satisfiable or not supported, try fresh download
+                                    if ($LASTEXITCODE -eq 33 -or $LASTEXITCODE -eq 36) {
+                                        if (Test-Path -LiteralPath $dest -PathType Leaf) {
+                                            Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+                                        }
+                                        $curlArgs = @('-s', '-S', '-L', '--fail', '--retry', '5', '--retry-delay', '3', '--retry-all-errors')
+                                        if ($HfToken) {
+                                            $curlArgs += @('-H', "Authorization: Bearer $HfToken")
+                                        }
+                                        $curlArgs += @('-o', $dest, $url)
+                                        $errOutput = (& curl.exe @curlArgs 2>&1) | Out-String
+                                    }
+                                }
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "curl download failed (exit code $LASTEXITCODE): $errOutput"
+                                }
+                            } else {
+                                $headers = @{}
+                                if ($HfToken) {
+                                    $headers['Authorization'] = "Bearer $HfToken"
+                                }
+                                if ($headers.Count -gt 0) {
+                                    Invoke-WebRequest -Uri $url -OutFile $dest -Headers $headers -UseBasicParsing -TimeoutSec 1200
+                                } else {
+                                    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 1200
+                                }
+                            }
+                            $downloadOk = $true
+                            $sourced = $true
+                            break
+                        } catch {
+                            $lastError = $_.Exception.Message
+                            if ($lastError -match '401' -or $lastError -match 'Unauthorized' -or $lastError -match '403') {
+                                break
+                            }
+                            if ($attempt -lt $maxRetries) {
+                                Write-Host "[Interrupted, resuming attempt $($attempt + 1)/$maxRetries]... " -ForegroundColor Yellow -NoNewline
+                                Start-Sleep -Seconds 3
+                            }
                         }
-                        if ($headers.Count -gt 0) {
-                            Invoke-WebRequest -Uri $url -OutFile $dest -Headers $headers -UseBasicParsing -TimeoutSec 900
-                        } else {
-                            Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 900
+                    }
+
+                    if (-not $downloadOk) {
+                        Write-Host "FAILED ($lastError)" -ForegroundColor Red
+                        if ($lastError -match '401' -or $lastError -match 'Unauthorized' -or $lastError -match '403') {
+                            Write-Host "  [Authentication Required] Krutrim-Translate is a gated model on HuggingFace." -ForegroundColor Yellow
+                            Write-Host "  1. Accept license at: https://huggingface.co/krutrim-ai-labs/Krutrim-Translate" -ForegroundColor Yellow
+                            Write-Host "  2. Ensure your Hugging Face Token is valid: https://huggingface.co/settings/tokens" -ForegroundColor Yellow
                         }
-                        $sourced = $true
-                    } catch {
-                        Write-Host "FAILED ($($_.Exception.Message))" -ForegroundColor Red
-                        $msg = $_.Exception.Message
-                        throw "Failed to download $fname for direction $($dirKey): $msg"
+                        throw "Failed to download $fname for direction $($dirKey): $lastError"
                     }
                 }
 
@@ -384,6 +488,11 @@ if ($VerifyOnly) {
 } else {
     Write-Host "Mode: Online Fetch & SHA-256 Verification" -ForegroundColor Green
 }
+if ($HfToken) {
+    Write-Host "Authentication: Hugging Face Token Detected" -ForegroundColor Green
+} else {
+    Write-Host "Authentication: None (Anonymous)" -ForegroundColor Yellow
+}
 
 $grandTotal = 0
 $grandValid = 0
@@ -397,6 +506,12 @@ if ($Engine -eq 'opus_mt' -or $Engine -eq 'all') {
 
 if ($Engine -eq 'indictrans2' -or $Engine -eq 'all') {
     $res = Provision-ModelGroup -GroupName "IndicTrans2 (AI4Bharat 200M)" -Catalog $indicCatalog -TargetSubdir 'indictrans2' -AlsoPopulateDefault $false
+    $grandTotal += $res.Total
+    $grandValid += $res.Valid
+}
+
+if ($Engine -eq 'krutrim' -or $Engine -eq 'all') {
+    $res = Provision-ModelGroup -GroupName "Krutrim-Translate (4096 Context)" -Catalog $krutrimCatalog -TargetSubdir 'krutrim' -AlsoPopulateDefault $false
     $grandTotal += $res.Total
     $grandValid += $res.Valid
 }

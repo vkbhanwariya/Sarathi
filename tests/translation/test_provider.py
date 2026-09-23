@@ -313,3 +313,26 @@ def test_translation_model_sha256_verification(tmp_path: Path) -> None:
         backend_corrupt._verify_model_integrity(indic_dir, manifest_corrupt["models"]["hi-en"]["files"])
     assert exc_info.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
     assert "checksum mismatch" in exc_info.value.message
+
+
+def test_provider_readiness_krutrim_models(tmp_path: Path) -> None:
+    """Verify TranslationProvider recognizes Krutrim-Translate models and reports 4096 readiness."""
+    prov = TranslationProvider()
+    trans_dir = tmp_path / "translation"
+    trans_dir.mkdir(parents=True, exist_ok=True)
+    (trans_dir / "manifest.json").write_text('{"version": "1.1.0"}', encoding="utf-8")
+
+    models_dir = trans_dir / "models"
+    for direction in ("hi-en", "en-hi"):
+        d = models_dir / "krutrim" / direction
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "model.bin").write_bytes(b"dummy-bin")
+        (d / "spm.model").write_bytes(b"dummy-spm")
+        (d / "shared_vocabulary.json").write_text("{}", encoding="utf-8")
+
+    services = PluginServices(data_root=tmp_path)
+    with patch("importlib.util.find_spec", return_value=object()):
+        res = prov.readiness(services)["translation"]
+        assert res.ready
+        assert res.status == ReadinessStatus.READY
+        assert "Krutrim-Translate 4096" in res.reason

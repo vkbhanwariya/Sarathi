@@ -626,3 +626,29 @@ def test_number_protection_unformatted_and_decimal() -> None:
     assert "12345678" in protected_vals
     assert "₹ 1,50,000.50" in protected_vals
     assert "25%" in protected_vals
+
+
+def test_trailing_zero_absorption_prevents_leakage() -> None:
+    """Verify restore_with_validation absorbs extra trailing zeroes hallucinated by NMT."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class DummySpan:
+        placeholder: str
+        original_text: str
+
+    protector = TranslationProtector()
+    spans = [
+        DummySpan(placeholder="9990000", original_text="Prosecution"),
+        DummySpan(placeholder="9990001", original_text="Complainant"),
+        DummySpan(placeholder="9990002", original_text="07-10-2019"),
+    ]
+
+    # Model hallucinated extra zeroes at the end of numeric placeholders
+    model_output = "The 99900000 was filed by 9990001000 on date 999000200."
+    restored, _ = protector.restore_with_validation(model_output, spans)
+
+    assert "Prosecution0" not in restored
+    assert "Complainant0" not in restored
+    assert "07-10-201900" not in restored
+    assert restored == "The Prosecution was filed by Complainant on date 07-10-2019."

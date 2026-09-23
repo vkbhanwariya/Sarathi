@@ -77,28 +77,30 @@ echo ------------------------------------------------------------------------
 echo Choose Translation Engine Variant:
 echo   [1] OPUS-MT (Marian INT8, ~160MB) - Fast, lightweight, recommended
 echo   [2] IndicTrans2 (AI4Bharat 200M, ~1.7GB) - High-fidelity Indic NMT
-echo   [3] Both (Complete offline suite)
+echo   [3] Krutrim-Translate (Ola 4096-context, ~1.7GB) - Extended legal context
+echo   [4] All (Complete offline suite)
 echo ------------------------------------------------------------------------
-set /p "TRANS_CHOICE=Select variant [1-3] (Default: 1): "
+set /p "TRANS_CHOICE=Select variant [1-4] (Default: 1): "
 if "%TRANS_CHOICE%"=="" set "TRANS_CHOICE=1"
 
 set "ENGINE_ARG=opus_mt"
 if "%TRANS_CHOICE%"=="2" set "ENGINE_ARG=indictrans2"
-if "%TRANS_CHOICE%"=="3" set "ENGINE_ARG=all"
+if "%TRANS_CHOICE%"=="3" set "ENGINE_ARG=krutrim"
+if "%TRANS_CHOICE%"=="4" set "ENGINE_ARG=all"
 
 set "TOKEN_PARAM="
 if not "%ENGINE_ARG%"=="opus_mt" (
     if "%HF_TOKEN%"=="" if "%HUGGING_FACE_HUB_TOKEN%"=="" (
         echo.
-        echo [Optional] Hugging Face token is recommended for large IndicTrans2 downloads.
+        echo [Required for Krutrim / IndicTrans2] Hugging Face token:
         set /p "USER_HF_TOKEN=Enter Hugging Face Token (press Enter to skip): "
         if not "!USER_HF_TOKEN!"=="" set "TOKEN_PARAM=-HfToken !USER_HF_TOKEN!"
     )
 )
 
 echo.
-echo [*] Running Translation model provisioning (Engine: %ENGINE_ARG%)...
-"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-TranslationModels.ps1" -Engine %ENGINE_ARG% %TOKEN_PARAM%
+echo [*] Running Translation model provisioning (Engine: !ENGINE_ARG!)...
+"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-TranslationModels.ps1" -Engine !ENGINE_ARG! !TOKEN_PARAM!
 goto AFTER_OP
 
 :RUN_ALL

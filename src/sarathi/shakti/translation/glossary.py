@@ -88,9 +88,15 @@ class GlossaryStore:
                         clean_v = v.strip()
                         if clean_k and clean_v:
                             self._add_term(TranslationDirection.EN_TO_HI, clean_k, clean_v)
-                            # Split composite synonyms (e.g. "शब्द 1 / शब्द 2") so each maps back to English
-                            synonyms = [s.strip() for s in re.split(r"[/,]", clean_v) if s.strip()]
-                            for syn in synonyms:
+                            # Register clean reverse synonyms if valid multi-word / substantial terms
+                            # Never split on comma! Commas in titles like 'SARFAESI Act, 2002' are part of the title.
+                            synonyms = [clean_v]
+                            if "/" in clean_v:
+                                parts = [s.strip() for s in clean_v.split("/") if s.strip()]
+                                for p in parts:
+                                    if len(p) >= 4 and not p.isdigit() and len(p.split()) >= 2:
+                                        synonyms.append(p)
+                            for syn in dict.fromkeys(synonyms):
                                 self._add_term(TranslationDirection.HI_TO_EN, syn, clean_k)
         elif isinstance(raw_data, list):
             for item in raw_data:
@@ -103,12 +109,40 @@ class GlossaryStore:
             )
 
     def _add_term(self, direction: TranslationDirection, source: str, target: str) -> None:
+        clean_src = source.strip()
+        if not clean_src:
+            return
+        # Guard: never register pure numbers or isolated grammatical particles in reverse translation
+        if clean_src.isdigit() or bool(re.match(r"^\d+([.-]\d+)*$", clean_src)):
+            return
+        if direction == TranslationDirection.HI_TO_EN:
+            if clean_src in {
+                "आदि",
+                "मूल",
+                "इत्यादि",
+                "अन्य",
+                "एवं",
+                "तथा",
+                "का",
+                "की",
+                "के",
+                "में",
+                "पर",
+                "से",
+                "द्वारा",
+                "को",
+                "होना",
+                "करना",
+            }:
+                return
+            if len(clean_src) < 3:
+                return
         table = self._entries[direction]
-        if source in table and table[source] != target:
+        if clean_src in table and table[clean_src] != target:
             coll = {
                 "direction": direction.value,
-                "source": source,
-                "existing_target": table[source],
+                "source": clean_src,
+                "existing_target": table[clean_src],
                 "conflicting_target": target,
             }
             self._collisions.append(coll)
@@ -116,12 +150,12 @@ class GlossaryStore:
                 raise DoshError(
                     code=FailureCode.INVALID_CONFIGURATION,
                     message=(
-                        f"Translation glossary conflict for '{source}' in direction '{direction.value}': "
-                        f"existing '{table[source]}' vs conflicting '{target}'"
+                        f"Translation glossary conflict for '{clean_src}' in direction '{direction.value}': "
+                        f"existing '{table[clean_src]}' vs conflicting '{target}'"
                     ),
                 )
             return
-        table[source] = target
+        table[clean_src] = target
 
     def _add_entry(self, raw: dict[str, str]) -> None:
         src = raw.get("source", "").strip()

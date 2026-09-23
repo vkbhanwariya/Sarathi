@@ -449,6 +449,7 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
                 default_value="indictrans2",
                 options=(
                     ("indictrans2", "IndicTrans2 (Local CTranslate2)"),
+                    ("krutrim", "Krutrim-Translate (Local 4096 CTranslate2)"),
                     ("opus_mt", "OPUS-MT (Local Marian CTranslate2)"),
                 ),
                 description="Local neural translation engine",

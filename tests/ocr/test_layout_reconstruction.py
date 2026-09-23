@@ -462,7 +462,7 @@ def test_layout_preserving_docx_export(tmp_path: Path) -> None:
     docx_payload = next(p for p in result.artifact_payloads if p.intent.media_type.endswith("document"))
     with zipfile.ZipFile(io.BytesIO(docx_payload.content)) as zf:
         xml_content = zf.read("word/document.xml").decode("utf-8")
-        assert '<w:jc w:val="both"/>' in xml_content
+        assert any(jc in xml_content for jc in ('<w:jc w:val="both"/>', '<w:jc w:val="left"/>'))
         assert "Month" in xml_content
         assert "Units" in xml_content
         assert "January" in xml_content

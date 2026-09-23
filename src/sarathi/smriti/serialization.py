@@ -32,6 +32,8 @@ def _serialize_metadata_value(v: Any) -> Any:
     """Losslessly encode metadata values into JSON-compatible tagged representations."""
     if v is None or isinstance(v, (bool, int, float, str)):
         return v
+    if isinstance(v, bytes):
+        return {"__stype__": "bytes", "val": base64.b64encode(v).decode("ascii")}
     if isinstance(v, Path):
         return {"__stype__": "Path", "val": str(v)}
     if isinstance(v, datetime.datetime):
@@ -61,6 +63,8 @@ def _deserialize_metadata_value(v: Any) -> Any:
         if "__stype__" in v and "val" in v:
             tag = v["__stype__"]
             raw_val = v["val"]
+            if tag == "bytes" and isinstance(raw_val, str):
+                return base64.b64decode(raw_val.encode("ascii"))
             if tag == "dict" and isinstance(raw_val, dict):
                 return {k: _deserialize_metadata_value(val) for k, val in raw_val.items()}
             if tag == "Path":

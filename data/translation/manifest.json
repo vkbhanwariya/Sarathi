@@ -104,6 +104,22 @@
           }
         }
       }
+    },
+    "krutrim": {
+      "hi-en": {
+        "model_id": "krutrim-ai-labs/Krutrim-Translate",
+        "source_lang": "hin_Deva",
+        "target_lang": "eng_Latn",
+        "max_context_tokens": 4096,
+        "quantization": "int8"
+      },
+      "en-hi": {
+        "model_id": "krutrim-ai-labs/Krutrim-Translate",
+        "source_lang": "eng_Latn",
+        "target_lang": "hin_Deva",
+        "max_context_tokens": 4096,
+        "quantization": "int8"
+      }
     }
   },
   "models": {

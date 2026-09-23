@@ -278,6 +278,8 @@ export function Home({
       }
       if (currentSubtask === "opus_mt") {
         customOptions.engine = "opus_mt";
+      } else if (currentSubtask === "krutrim" || currentSubtask === "krutrim_translate") {
+        customOptions.engine = "krutrim";
       } else if (currentSubtask === "indictrans2") {
         customOptions.engine = "indictrans2";
       }

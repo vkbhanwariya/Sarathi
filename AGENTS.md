@@ -58,10 +58,12 @@ Sarathi's authoritative reference hardware deployment profile is pinned below.
 ## Core Rules
 
 1. **Plan before editing.** Identify canonical owner, contracts, callers, wiring, caches, and tests. Get explicit approval before editing.
-2. **Overengineering & ROI Check.** Never introduce speculative abstractions, redundant wrappers, or unvetted dependencies. Implementation proposals MUST show:
-   - What it replaces vs. introduces (dependency footprint, memory, maintenance).
-   - Concrete ROI: measurable correctness, speed, security, or maintainability gain.
-   - Simpler alternatives explored and why repository tools are insufficient.
+2. **Pragmatic ROI & Dependency Discipline.** Prefer direct implementations over framework bloat, but do not reinvent the wheel where specialized libraries provide decisive value:
+   - **Allowed / Encouraged**: Battle-tested, high-performance, mature libraries (e.g. C/Rust-backed accelerators like `rapidfuzz`, `openvino`, `ctranslate2`, or complex domain parsers) where hand-rolling in pure Python would be slow, brittle, or bug-prone.
+   - **Disallowed**: Redundant wrappers, speculative frameworks (e.g. LangChain, heavy ORMs), or micro-libraries for tasks the Python standard library (`re`, `unicodedata`, `xml.etree`, `pathlib`) accomplishes cleanly in ~10–20 lines.
+   - **Check**: Proposals introducing a dependency must show:
+     - What it introduces vs. replaces (dependency footprint, packaging impact on Windows, memory).
+     - Concrete ROI: measurable correctness gain, significant speedup, or elimination of severe maintenance burdens.
 3. **One owner, one path.** Single canonical implementation. Delete superseded managers, contracts, stores, and execution paths in the same change — old and new never coexist.
 4. **Propagate completely.** A change is incomplete until contracts, callers, wiring, serializers, and tests agree.
 5. **Preserve state across paths.** Fresh run, cache hit, retry, and serialize/deserialize must yield identical results.

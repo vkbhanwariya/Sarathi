@@ -621,7 +621,7 @@ export function TaskSelector({
                             <button
                               id="btn-trans-indictrans2"
                               type="button"
-                              class={`toggle-row mini toggle-switch-btn ${currentSubtask !== "opus_mt" ? "active" : ""}`}
+                              class={`toggle-row mini toggle-switch-btn ${currentSubtask === "indictrans2" || (!currentSubtask || (currentSubtask !== "krutrim" && currentSubtask !== "opus_mt")) ? "active" : ""}`}
                               title="Switch to AI4Bharat IndicTrans2 local model (Default)"
                               onClick={() => {
                                 onSelectSubtask("translation", "indictrans2");
@@ -632,12 +632,25 @@ export function TaskSelector({
                             </button>
 
                             <button
+                              id="btn-trans-krutrim"
+                              type="button"
+                              class={`toggle-row mini toggle-switch-btn ${currentSubtask === "krutrim" ? "active" : ""}`}
+                              title="Switch to Krutrim-Translate 4096-token CTranslate2 engine (Extended legal context)"
+                              onClick={() => {
+                                onSelectSubtask("translation", "krutrim");
+                              }}
+                            >
+                              <span class="toggle-switch-slider"></span>
+                              <span><strong>Krutrim (4096)</strong></span>
+                            </button>
+
+                            <button
                               id="btn-trans-opus"
                               type="button"
                               class={`toggle-row mini toggle-switch-btn ${currentSubtask === "opus_mt" ? "active" : ""}`}
                               title="Switch to Helsinki OPUS-MT local engine"
                               onClick={() => {
-                                onSelectSubtask("translation", currentSubtask === "opus_mt" ? "indictrans2" : "opus_mt");
+                                onSelectSubtask("translation", "opus_mt");
                               }}
                             >
                               <span class="toggle-switch-slider"></span>

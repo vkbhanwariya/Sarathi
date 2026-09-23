@@ -73,6 +73,15 @@ export const TRANSLATION_ENGINES: readonly TranslationEngineDef[] = [
     code: "translation:indictrans2",
   },
   {
+    id: "krutrim",
+    actionId: "translation",
+    label: "Krutrim-Translate (Local)",
+    tag: "KRUTRIM (4096)",
+    isCloud: false,
+    desc: "Krutrim-Translate 4096-token CTranslate2 Transformer. Extended context for legal clauses.",
+    code: "translation:krutrim",
+  },
+  {
     id: "opus_mt",
     actionId: "translation",
     label: "Helsinki OPUS-MT (Local)",

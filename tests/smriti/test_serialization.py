@@ -408,3 +408,23 @@ def test_canonical_document_with_rich_table_cells_roundtrips_losslessly() -> Non
     assert t.rows[0][4] == 1
     assert t.rows[1][2] == Decimal("250.00")
     assert t.rows[1][3] == ""
+
+
+def test_metadata_bytes_round_trips_losslessly() -> None:
+    raw_bytes = b"PK\x03\x04\x14\x00\x00\x00DOCX_BINARY_CONTENT"
+    doc = CanonicalDocument(
+        document_id="doc-bytes-meta",
+        source_input_id="inp-001",
+        text="Sample document text",
+        metadata=MappingProxyType({"converted_docx_bytes": raw_bytes, "status": "converted"}),
+    )
+    res = Result(data=doc)
+
+    assert is_cacheable_result(res) is True
+    serialized = serialize_result(res)
+    assert '"bytes"' in serialized
+
+    restored = deserialize_result(serialized)
+    assert isinstance(restored.data, CanonicalDocument)
+    assert restored.data.metadata["converted_docx_bytes"] == raw_bytes
+    assert restored.data.metadata["status"] == "converted"

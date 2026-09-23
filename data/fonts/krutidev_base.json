@@ -10,7 +10,7 @@
   "postfix_reph": "Z",
   "reph_unicode": "र्",
   "preserve_ascii_digits": true,
-  "cluster_pattern": "(?:[DPRFYOCLHUI\\xb6\\xd9\\x27\\u2018\\u2019\\u201c\\u201d]|E(?!$)|x~|\\{|\\&|J~|\\.)*(?:\\[k|\\?k|Fk|/k|Hk|'k|\\\"k|\\.k|\\{k|[\\u2018\\u2019\\u201c\\u201d]k|\\xd9k|[ldixptTVBMrnuc;jyo\\?ghKsQeJK\\xe7\\xe4\\xf1\\xf2\\xf3\\xf4\\xf5\\xf6\\xf7\\xf8\\xf9\\xfa\\xfb\\xfc\\xfd\\xfe=\\}\\xd8\\)])z?",
+  "cluster_pattern": "(?:[DPRFYOCLHUIX\\xb6\\xd9\\x27\\u2018\\u2019\\u201c\\u201d]|E(?!$)|x~|\\{|\\&|J~|\\.)*(?:\\[k|\\?k|Fk|/k|Hk|'k|\\\"k|\\.k|\\{k|[\\u2018\\u2019\\u201c\\u201d]k|\\xd9k|[ldixptTVBMrnuc;jyo\\?ghKsQeJK\\xe7\\xe4\\xf1\\xf2\\xf3\\xf4\\xf5\\xf6\\xf7\\xf8\\xf9\\xfa\\xfb\\xfc\\xfd\\xfe=\\}\\xd8\\)])z?",
   "canonicalization_rules": [
     [
       "§",
@@ -63,6 +63,8 @@
     "d": "क",
     "[k": "ख",
     "x": "ग",
+    "X": "ग्",
+    "Xk": "ग",
     "?k": "घ",
     "³": "ङ",
     "p": "च",

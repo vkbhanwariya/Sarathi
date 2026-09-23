@@ -681,3 +681,57 @@ def test_translation_resumption_after_font_conversion_never_repeats_font_convers
     assert isinstance(res2.data, CanonicalDocument)
     # Translated text is produced
     assert res2.data.text
+
+
+def test_translation_with_legacy_docx_artifact_normalizes_to_english(
+    test_backend: Any, tmp_path: Path
+) -> None:
+    import io
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    from sarathi.shakti.docx_exporter import build_docx_payload
+
+    # Create a source CanonicalDocument with KrutiDev text and build a DOCX payload
+    raw_kruti = "Hkkjrh; fjtoZ cSad"
+    doc_kruti = CanonicalDocument(
+        document_id="doc-kruti",
+        source_input_id="inp-kruti",
+        text=raw_kruti,
+    )
+    docx_payload = build_docx_payload(
+        doc=doc_kruti,
+        filename="Normalized.docx",
+        role="converted_document",
+        legacy_target_font="Kruti Dev 010",
+    )
+    docx_file = tmp_path / "legacy.docx"
+    docx_file.write_bytes(docx_payload.content)
+
+    trans_cap = TranslationCapability(backend=test_backend)
+    req = Request(
+        request_id="req-docx-trans",
+        requirement="translation",
+        inputs=(InputRef("inp-kruti", docx_file, "legacy.docx", len(docx_payload.content)),),
+    )
+    ctx = ExecutionContext("run-docx", "req-docx-trans", "t-docx", "s-docx")
+    # Feed doc with converted Hindi text and legacy docx bytes in metadata
+    hindi_doc = CanonicalDocument(
+        document_id="doc-kruti",
+        source_input_id="inp-kruti",
+        text="भारतीय रिजर्व बैंक",
+        metadata={"converted_docx_bytes": docx_payload.content},
+    )
+    res = trans_cap.execute(req, ctx, prior_result=Result(data=hindi_doc))
+
+    assert isinstance(res.data, CanonicalDocument)
+    docx_arts = [p for p in res.artifact_payloads if p.intent.role == "translated_document"]
+    assert len(docx_arts) == 1
+
+    with zipfile.ZipFile(io.BytesIO(docx_arts[0].content)) as z:
+        tree = ET.fromstring(z.read("word/document.xml"))
+    texts = [node.text for node in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t") if node.text]
+    joined = " ".join(texts)
+    # Must contain English translation and not raw KrutiDev ASCII
+    assert "Reserve Bank" in joined or "Bank" in joined
+    assert "Hkkjrh;" not in joined

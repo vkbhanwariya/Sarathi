@@ -163,3 +163,38 @@ def test_glossary_composite_synonym_splitting() -> None:
     assert "खाता फ्रीज" in hi_to_en
     assert hi_to_en["खाता लेन-देन रोक"] == "Account Freeze"
     assert hi_to_en["खाता फ्रीज"] == "Account Freeze"
+
+
+def test_glossary_does_not_split_on_comma_or_create_numeric_terms() -> None:
+    """Verify statutory titles with years never produce pure numeric reverse glossary entries."""
+    store = GlossaryStore()
+    store._parse_raw_data(
+        {
+            "SARFAESI Act, 2002": "सरफेसी अधिनियम, 2002",
+            "Code of Civil Procedure, 1908": "सिविल प्रक्रिया संहिता, 1908",
+        },
+        "statutes.json",
+    )
+    hi_to_en = store.get_terms(TranslationDirection.HI_TO_EN)
+    assert "2002" not in hi_to_en
+    assert "1908" not in hi_to_en
+    assert "सरफेसी अधिनियम, 2002" in hi_to_en
+    assert hi_to_en["सरफेसी अधिनियम, 2002"] == "SARFAESI Act, 2002"
+
+
+def test_glossary_does_not_register_isolated_stopwords() -> None:
+    """Verify single adjectives or grammatical particles are never mapped to full statutory titles."""
+    store = GlossaryStore()
+    store._parse_raw_data(
+        {
+            "Predicate Offence": "मूल / आधार अपराध",
+            "Members, etc., to be public servants": "सदस्यों, आदि का लोक सेवक होना",
+        },
+        "pmla_sample.json",
+    )
+    hi_to_en = store.get_terms(TranslationDirection.HI_TO_EN)
+    assert "मूल" not in hi_to_en
+    assert "आदि" not in hi_to_en
+    assert "सदस्यों" not in hi_to_en
+    assert "आधार अपराध" in hi_to_en
+    assert hi_to_en["आधार अपराध"] == "Predicate Offence"

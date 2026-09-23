@@ -475,7 +475,7 @@ class NativeExtractionCapability:
                             if p.is_file():
                                 try:
                                     from sarathi.shakti.docx_exporter import transform_docx_artifact
-                                    from sarathi.shakti.text.legacy_detection import resolve_profile_from_font_name
+                                    from sarathi.shakti.text.legacy_fonts import resolve_profile_from_font_name
 
                                     raw_docx = p.read_bytes()
                                     docx_payload = transform_docx_artifact(

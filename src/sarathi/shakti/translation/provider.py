@@ -89,15 +89,20 @@ class TranslationProvider(PluginProvider):
             opus_en_hi = trans_models / "opus_mt" / "en-hi"
             indic_hi_en = trans_models / "indictrans2" / "hi-en"
             indic_en_hi = trans_models / "indictrans2" / "en-hi"
+            krutrim_hi_en = trans_models / "krutrim" / "hi-en"
+            krutrim_en_hi = trans_models / "krutrim" / "en-hi"
 
             has_opus_models = _is_complete_model(opus_hi_en) and _is_complete_model(opus_en_hi)
             has_indic_models = _is_complete_model(indic_hi_en) and _is_complete_model(indic_en_hi)
+            has_krutrim_models = _is_complete_model(krutrim_hi_en) and _is_complete_model(krutrim_en_hi)
 
-            models_ready = trans_models.is_dir() and (has_indic_models or has_opus_models)
+            models_ready = trans_models.is_dir() and (has_krutrim_models or has_indic_models or has_opus_models)
             trans_installed = ctranslate2_spec is not None and sentencepiece_spec is not None
 
             if trans_installed and manifest_exists and models_ready:
-                if has_indic_models and has_opus_models:
+                if has_krutrim_models:
+                    reason_str = "Ready (Krutrim-Translate 4096 CTranslate2)"
+                elif has_indic_models and has_opus_models:
                     reason_str = "Ready (IndicTrans2 CTranslate2 / OPUS-MT)"
                 elif has_indic_models:
                     reason_str = "Ready (IndicTrans2 CTranslate2)"

@@ -607,6 +607,44 @@ def test_transform_docx_merges_adjacent_runs_across_word_boundaries() -> None:
         assert "Devanagari" in full_text
 
 
+def test_transform_docx_heals_split_remington_syllables_across_formatting_boundaries() -> None:
+    """Verify transform_docx_artifact heals Remington split stems across formatting boundaries."""
+    from sarathi.shakti.font_conversion.converter import FontConverter
+
+    p_xml = (
+        f'<w:p xmlns:w="{_W_NS}">'
+        f'<w:r><w:rPr><w:rFonts w:ascii="Kruti Dev 010"/></w:rPr><w:t>izkf/kdj.</w:t></w:r>'
+        f'<w:r><w:rPr><w:b/><w:rFonts w:ascii="Kruti Dev 010"/></w:rPr><w:t>k ls</w:t></w:r>'
+        f"</w:p>"
+    )
+    doc_xml = (
+        f'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="{_W_NS}"><w:body>{p_xml}</w:body></w:document>'
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", doc_xml.encode("utf-8"))
+
+    fc = FontConverter()
+    res = transform_docx_artifact(
+        input_bytes=buf.getvalue(),
+        converter_fn=lambda s: fc.convert(s, "krutidev010"),
+        filename="transformed.docx",
+    )
+
+    with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+        out_xml = zf.read("word/document.xml")
+        root = ET.fromstring(out_xml)
+        runs = root.findall(f".//{{{_W_NS}}}r")
+        all_run_texts = ["".join(t.text for t in r.findall(f".//{{{_W_NS}}}t") if t.text) for r in runs]
+        assert "प्राधिकरण" in all_run_texts
+        assert any("से" in t for t in all_run_texts)
+        full_text = "".join(t.text for t in root.findall(f".//{{{_W_NS}}}t") if t.text)
+        assert full_text == "प्राधिकरण से"
+        assert "प्राधिकरण्ा" not in full_text
+        assert "्ा" not in full_text
+
+
 def test_transform_docx_artifact_fails_on_corrupt_body() -> None:
     out_buf = io.BytesIO()
     with zipfile.ZipFile(out_buf, "w") as zf:

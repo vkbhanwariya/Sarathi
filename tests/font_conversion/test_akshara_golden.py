@@ -45,6 +45,8 @@ def test_krutidev_akshara_golden_corpus() -> None:
         "lEiw.kZ": "सम्पूर्ण",
         'okf"kZd': "वार्षिक",
         "vUrxZr": "अन्तर्गत",
+        "layXu": "संलग्न",
+        ";ksX;": "योग्य",
     }
 
     for legacy_in, expected_out in golden_cases.items():
@@ -326,3 +328,14 @@ def test_keyboard_slip_and_halant_nukta_corrections() -> None:
 
     # Stray ZWNJ before dependent vowel matra
     assert synthesize_akshara_unicode("क\u094d\u200cा") == "का"
+
+
+def test_krutidev_devlys_half_ga_and_syllable_healing() -> None:
+    """Verify half-Ga 'X' in KrutiDev and DevLys, and post-conversion half-stem typo healing."""
+    converter = FontConverter()
+    assert converter.convert("layXu", profile_id="krutidev010") == "संलग्न"
+    assert converter.convert(";ksX;", profile_id="krutidev010") == "योग्य"
+    assert converter.convert("layXu", profile_id="devlys010") == "संलग्न"
+    assert converter.convert(";ksX;", profile_id="devlys010") == "योग्य"
+    assert converter.convert("प्राधिकरण्ा", profile_id="krutidev010") == "प्राधिकरण"
+    assert converter.convert("प्राधिकरण्ा", profile_id="devlys010") == "प्राधिकरण"

@@ -40,12 +40,16 @@ class _CompiledTermGroup:
     is_ignore_case: bool
 
 
+# Devanagari character class including vowel signs, matras, viramas, anusvaras
+_DEV_WORD_CHARS = r"\w\u0900-\u0963\u0966-\u096f\u0971-\u097f"
+
+
 @lru_cache(maxsize=1024)
 def _compile_term_pattern(term: str) -> re.Pattern[str]:
     """Compile boundary-aware regex pattern for a single term."""
     esc = re.escape(term)
-    prefix = r"(?<!\w)" if term and term[0].isalnum() else ""
-    suffix = r"(?!\w)" if term and term[-1].isalnum() else ""
+    prefix = rf"(?<![{_DEV_WORD_CHARS}])" if term and term[0].isalnum() else ""
+    suffix = rf"(?![{_DEV_WORD_CHARS}])" if term and term[-1].isalnum() else ""
     flags = re.IGNORECASE if any(ord(c) < 128 and c.isalpha() for c in term) else 0
     return re.compile(f"{prefix}{esc}{suffix}", flags)
 
@@ -58,16 +62,16 @@ def _compile_glossary_groups(entries: tuple[tuple[str, str], ...]) -> tuple[_Com
         src_clean = src.strip()
         if not src_clean:
             continue
-        p = bool(src_clean[0].isalnum())
-        s = bool(src_clean[-1].isalnum())
+        p = bool(src_clean[0].isalnum() or ("\u0900" <= src_clean[0] <= "\u097f"))
+        s = bool(src_clean[-1].isalnum() or ("\u0900" <= src_clean[-1] <= "\u097f"))
         i = any(ord(c) < 128 and c.isalpha() for c in src_clean)
         buckets[(p, s, i)].append((src_clean, tgt))
 
     compiled: list[_CompiledTermGroup] = []
     for (p, s, i), items in buckets.items():
         items.sort(key=lambda x: len(x[0]), reverse=True)
-        prefix = r"(?<!\w)" if p else ""
-        suffix = r"(?!\w)" if s else ""
+        prefix = rf"(?<![{_DEV_WORD_CHARS}])" if p else ""
+        suffix = rf"(?![{_DEV_WORD_CHARS}])" if s else ""
         flags = re.IGNORECASE if i else 0
         pattern_str = f"{prefix}(?:{'|'.join(re.escape(k) for k, _ in items)}){suffix}"
         rgx = re.compile(pattern_str, flags)
@@ -85,16 +89,16 @@ def _compile_custom_term_groups(terms: tuple[str, ...]) -> tuple[_CompiledTermGr
         t_clean = term.strip()
         if not t_clean:
             continue
-        p = bool(t_clean[0].isalnum())
-        s = bool(t_clean[-1].isalnum())
+        p = bool(t_clean[0].isalnum() or ("\u0900" <= t_clean[0] <= "\u097f"))
+        s = bool(t_clean[-1].isalnum() or ("\u0900" <= t_clean[-1] <= "\u097f"))
         i = any(ord(c) < 128 and c.isalpha() for c in t_clean)
         buckets[(p, s, i)].append(t_clean)
 
     compiled: list[_CompiledTermGroup] = []
     for (p, s, i), items in buckets.items():
         items.sort(key=len, reverse=True)
-        prefix = r"(?<!\w)" if p else ""
-        suffix = r"(?!\w)" if s else ""
+        prefix = rf"(?<![{_DEV_WORD_CHARS}])" if p else ""
+        suffix = rf"(?![{_DEV_WORD_CHARS}])" if s else ""
         flags = re.IGNORECASE if i else 0
         pattern_str = f"{prefix}(?:{'|'.join(re.escape(k) for k in items)}){suffix}"
         rgx = re.compile(pattern_str, flags)
@@ -206,13 +210,18 @@ class TranslationProtector(BaseSpanProtector):
             original_text = getattr(s, "original_text", "")
             if not placeholder:
                 continue
-            count = text.count(placeholder)
+
+            # Absorb any model-hallucinated trailing zero digits attached to the placeholder
+            pat = re.compile(rf"{re.escape(placeholder)}0*")
+            matches = list(pat.finditer(text))
+            count = len(matches)
+
             if count == 0:
                 # Resilient recovery: check if tokenizer collapsed consecutive 9s (e.g. 990003 instead of 9990003)
                 # or separated with whitespace
                 if placeholder.startswith("999") and len(placeholder) == 7:
                     idx_suffix = placeholder[3:]
-                    loose_pat = re.compile(rf"9{{2,4}}\s*{re.escape(idx_suffix)}")
+                    loose_pat = re.compile(rf"9{{2,4}}\s*{re.escape(idx_suffix)}0*")
                     m = loose_pat.search(text)
                     if m:
                         text = text[: m.start()] + original_text + text[m.end() :]
@@ -235,9 +244,9 @@ class TranslationProtector(BaseSpanProtector):
                         "count": count,
                     }
                 )
-                text = text.replace(placeholder, original_text)
+                text = pat.sub(lambda _: original_text, text)
             else:
-                text = text.replace(placeholder, original_text)
+                text = pat.sub(lambda _: original_text, text)
         return text, issues
 
 

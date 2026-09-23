@@ -173,6 +173,95 @@ def split_sentences(text: str) -> list[tuple[str, str]]:
     return splits
 
 
+def split_legal_clauses(text: str, max_chars: int = 3500) -> list[tuple[str, str]]:
+    """Split text into paragraph and legal-clause level units for long-context models.
+
+    Preserves whole paragraphs and multi-sentence legal clauses within max_chars,
+    ensuring discourse context, pronoun antecedents, and provisos remain unified.
+    Maintains "".join(seg + sep for seg, sep in split_legal_clauses(text)) == text.
+    """
+    if not text:
+        return []
+
+    # Match paragraph breaks (double newlines)
+    para_re = re.compile(r"(\n\s*\n+|\r\n\s*\r\n+)")
+    parts = para_re.split(text)
+
+    clauses: list[tuple[str, str]] = []
+    i = 0
+    while i < len(parts):
+        seg = parts[i]
+        sep = parts[i + 1] if i + 1 < len(parts) else ""
+        if len(seg) <= max_chars:
+            if seg or sep:
+                clauses.append((seg, sep))
+        else:
+            # Segment long paragraph on sentence boundaries
+            sub_sents = split_sentences(seg)
+            cur_text = ""
+            cur_sep = ""
+            for s_seg, s_sep in sub_sents:
+                if len(cur_text) + len(cur_sep) + len(s_seg) <= max_chars:
+                    cur_text = (cur_text + cur_sep + s_seg) if cur_text else s_seg
+                    cur_sep = s_sep
+                else:
+                    if cur_text:
+                        clauses.append((cur_text, cur_sep))
+                    cur_text = s_seg
+                    cur_sep = s_sep
+            if cur_text or sep:
+                clauses.append((cur_text, cur_sep + sep))
+        i += 2
+
+    return clauses
+
+
+def clean_krutrim_legal_text(text: str, is_hindi: bool = False) -> str:
+    """Post-process and detokenize Krutrim legal NMT output with correct typography."""
+    if not text:
+        return text
+
+    t = text
+    # Clean redundant whitespace around punctuation
+    t = re.sub(r"\s+([,.:;!?])", r"\1", t)
+    t = re.sub(r"([,;!?])(?=[^\s\d])", r"\1 ", t)
+    t = re.sub(r"\s+([।॥])", r"\1", t)
+
+    # Brackets & quotes padding
+    t = re.sub(r"\(\s+", "(", t)
+    t = re.sub(r"\s+\)", ")", t)
+    t = re.sub(r"\[\s+", "[", t)
+    t = re.sub(r"\s+\]", "]", t)
+
+    # Slashing in statutory references (e.g. 302 / 34 -> 302/34)
+    t = re.sub(r"(\d+)\s*/\s*(\d+)", r"\1/\2", t)
+
+    if is_hindi:
+        t = re.sub(r"\bयू\s*/\s*एस\b", "धारा", t)
+        t = re.sub(r"\bआर\s*/\s*डब्लू\b", "पठित", t)
+        t = re.sub(r"\bसी\s*\.\s*आर\s*\.\s*पी\s*\.\s*सी\s*\.\s*", "दंड प्रक्रिया संहिता ", t)
+        t = re.sub(r"\bआई\s*\.\s*पी\s*\.\s*सी\s*\.\s*", "भा.दं.सं. ", t)
+    else:
+        # Legal honorifics and terms
+        t = re.sub(r"\bHon\s*[''’]\s*ble\b", "Hon'ble", t, flags=re.IGNORECASE)
+        t = re.sub(r"\bu\s*/\s*s\b", "u/s", t, flags=re.IGNORECASE)
+        t = re.sub(r"\br\s*/\s*w\b", "r/w", t, flags=re.IGNORECASE)
+        t = re.sub(
+            r"\b(Sec|No|Art|Ltd|Pvt|Govt|Dept|Co|Inc|Dist|App|Para|Cl)\s*\.\s*",
+            r"\1. ",
+            t,
+        )
+        # Contractions
+        t = re.sub(r"\s*[''’]\s*(s|t|re|ve|ll|d|m)\b", r"'\1", t)
+        # Acronyms with periods (C . P . C . -> C.P.C.)
+        t = re.sub(r"\b([A-Za-z])\s*\.\s*([A-Za-z])\s*\.\s*([A-Za-z])\s*\.\s*", r"\1.\2.\3. ", t)
+        t = re.sub(r"\b([A-Za-z])\s*\.\s*([A-Za-z])\s*\.\s*", r"\1.\2. ", t)
+
+    # Collapse internal spaces
+    t = re.sub(r"[ \t]+", " ", t)
+    return t.strip()
+
+
 def _load_translation_anubhava(data_root: Path) -> dict[str, dict[str, str]]:
     """Load approved translation corrections directly from capability-owned anubhava.toml."""
     anubhava_file = data_root / "anubhava.toml"
@@ -417,10 +506,42 @@ class CTranslate2NativeBackend:
                 spm_tgt_path = model_path / "tgt_spm.model"
             else:
                 spm_tgt_path = spm_src_path
+        elif norm_engine in ("krutrim", "krutrim_translate"):
+            model_info = (
+                self._manifest.get("engines", {}).get("krutrim", {}).get(dir_key)
+                or {}
+            )
+            model_path = self._root / "models" / "krutrim" / dir_key
+            if not model_path.is_dir() or not (model_path / "model.bin").is_file():
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Model assets for Krutrim-Translate translation direction '{dir_key}' are missing or incomplete.",
+                )
+
+            # Resolve source SentencePiece model
+            if (model_path / "model.SRC").is_file():
+                spm_src_path = model_path / "model.SRC"
+            elif (model_path / "src_spm.model").is_file():
+                spm_src_path = model_path / "src_spm.model"
+            elif (model_path / "spm.model").is_file():
+                spm_src_path = model_path / "spm.model"
+            else:
+                raise DoshError(
+                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                    message=f"Model assets for Krutrim-Translate translation direction '{dir_key}' are missing or incomplete.",
+                )
+
+            # Resolve target SentencePiece model
+            if (model_path / "model.TGT").is_file():
+                spm_tgt_path = model_path / "model.TGT"
+            elif (model_path / "tgt_spm.model").is_file():
+                spm_tgt_path = model_path / "tgt_spm.model"
+            else:
+                spm_tgt_path = spm_src_path
         else:
             raise DoshError(
                 code=FailureCode.INVALID_CONFIGURATION,
-                message=f"Unsupported translation engine '{engine}'. Supported engines are 'indictrans2' and 'opus_mt'.",
+                message=f"Unsupported translation engine '{engine}'. Supported engines are 'indictrans2', 'krutrim', and 'opus_mt'.",
             )
 
         device = "cpu"
@@ -511,13 +632,18 @@ class CTranslate2NativeBackend:
             spm_src = self._spms[spm_src_key]
             spm_tgt = self._spms[spm_tgt_key]
 
-        # Split sentences longer than MAX_SENTENCE_TOKENS tokens into token-bounded chunks
+        is_krutrim = norm_engine in ("krutrim", "krutrim_translate") or "krutrim" in str(model_path).lower()
+        eff_max_tokens = 4096 if is_krutrim else MAX_SENTENCE_TOKENS
+        eff_max_decoding_len = 4096 if is_krutrim else DEFAULT_MAX_DECODING_LENGTH
+        eff_max_input_len = 4096 if is_krutrim else 1024
+
+        # Split sentences longer than eff_max_tokens tokens into token-bounded chunks
         sentence_chunks: list[list[tuple[str, str]]] = []
         flat_pieces: list[str] = []
         for s in sentences:
             raw_pieces = spm_src.encode_as_pieces(s)
-            if len(raw_pieces) > MAX_SENTENCE_TOKENS:
-                chunks = _chunk_long_sentence(s, spm_src, MAX_SENTENCE_TOKENS)
+            if len(raw_pieces) > eff_max_tokens:
+                chunks = _chunk_long_sentence(s, spm_src, eff_max_tokens)
                 sentence_chunks.append(chunks)
                 for txt, _ in chunks:
                     flat_pieces.append(txt)
@@ -525,14 +651,14 @@ class CTranslate2NativeBackend:
                 sentence_chunks.append([(s, "")])
                 flat_pieces.append(s)
 
-        if norm_engine == "indictrans2":
+        if norm_engine in ("indictrans2", "krutrim", "krutrim_translate") or is_krutrim:
             src_tag = model_info.get("source_lang", "hin_Deva" if dir_key == "hi-en" else "eng_Latn")
             tgt_tag = model_info.get("target_lang", "eng_Latn" if dir_key == "hi-en" else "hin_Deva")
             tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(p) for p in flat_pieces]
         else:
             tokenized = [spm_src.encode_as_pieces(p) for p in flat_pieces]
 
-        piece_input_truncations = [len(tok) >= 1024 for tok in tokenized]
+        piece_input_truncations = [len(tok) >= eff_max_input_len for tok in tokenized]
 
         # Determine effective beam size: instant profile uses greedy beam_size=1 (~2.5x speedup)
         if beam_size is not None and beam_size > 0:
@@ -543,8 +669,14 @@ class CTranslate2NativeBackend:
             execution_profile == ExecutionProfile.INSTANT or str(execution_profile).lower() == "instant"
         ):
             eff_beam_size = 1
+        elif is_krutrim:
+            eff_beam_size = 3
         else:
             eff_beam_size = DEFAULT_BEAM_SIZE
+
+        # Repetition penalty tuning: mild penalty for Krutrim to avoid penalizing recurring statutory phrasing
+        rep_penalty = 1.05 if is_krutrim else 1.15
+        no_repeat_ngram = 0 if is_krutrim else 4
 
         # Length-based bucketing: sort tokenized sequences by length to minimize padding overhead in CTranslate2
         if len(tokenized) > 1:
@@ -557,10 +689,13 @@ class CTranslate2NativeBackend:
         raw_results = translator.translate_batch(
             reordered_tokenized,
             batch_type="tokens",
-            max_batch_size=1024,
+            max_batch_size=4096 if is_krutrim else 1024,
             beam_size=eff_beam_size,
-            max_decoding_length=DEFAULT_MAX_DECODING_LENGTH,
-            max_input_length=1024,
+            max_decoding_length=eff_max_decoding_len,
+            max_input_length=eff_max_input_len,
+            repetition_penalty=rep_penalty,
+            no_repeat_ngram_size=no_repeat_ngram,
+            length_penalty=0.6 if eff_beam_size > 1 else 0.0,
         )
 
         # Restore original sentence sequence order
@@ -575,15 +710,16 @@ class CTranslate2NativeBackend:
         piece_truncations: list[bool] = []
         for r in results:
             hyp = r.hypotheses[0] if getattr(r, "hypotheses", None) else []
-            is_trunc = len(hyp) >= DEFAULT_MAX_DECODING_LENGTH
+            is_trunc = len(hyp) >= eff_max_decoding_len
             piece_truncations.append(is_trunc)
             text = spm_tgt.decode_pieces(hyp)
-            if norm_engine == "indictrans2":
+            if norm_engine in ("indictrans2", "krutrim", "krutrim_translate") or is_krutrim:
                 for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>", "\u2047", "Â"):
                     text = text.replace(tag, "")
             text = text.replace("\u2581", " ")
             text = " ".join(text.split())
-            decoded_pieces.append(text.strip())
+            clean_p = clean_krutrim_legal_text(text.strip(), is_hindi=(dir_key == "en-hi")) if is_krutrim else text.strip()
+            decoded_pieces.append(clean_p)
 
         decoded_sentences: list[str] = []
         sentence_truncations: list[bool] = []
@@ -840,7 +976,10 @@ class CTranslate2TranslationEngine:
                 if name_placeholders:
                     effective_custom_terms.extend(ph for ph, _ in name_placeholders)
 
-            split_units = split_sentences(guarded_text)
+            if norm_engine in ("krutrim", "krutrim_translate"):
+                split_units = split_legal_clauses(guarded_text)
+            else:
+                split_units = split_sentences(guarded_text)
             if not split_units:
                 split_units = [(guarded_text, "")]
 
@@ -976,6 +1115,10 @@ class CTranslate2TranslationEngine:
                 final_text = self._proper_noun_guard.restore(final_text, name_placeholders)
             if self._harmonizer is not None:
                 final_text = self._harmonizer.harmonize(final_text, direction)
+            if norm_engine in ("krutrim", "krutrim_translate"):
+                final_text = clean_krutrim_legal_text(
+                    final_text, is_hindi=(direction == TranslationDirection.EN_TO_HI)
+                )
 
             metadata: dict[str, Any] = {
                 "sentences_count": len(sent_records),

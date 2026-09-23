@@ -313,19 +313,44 @@ class LegalContextBuilder:
         if not available_terms or not text.strip():
             return {}
 
-        # Search for domain terms present in text (length >= 2)
+        # Search for domain terms present in text
+        # Filter out generic single-word vocabulary that NMT models translate naturally in context
+        generic_words = {
+            "court", "order", "appeal", "person", "table", "section", "member", "petition",
+            "subject", "trial", "hearing", "judge", "state", "case", "suit", "bench", "rule",
+            "rules", "act", "notice", "reply", "affidavit", "report", "police", "charge",
+            "न्यायालय", "धारा", "परिवादी", "परिवाद", "प्रार्थना", "आदेश", "निर्णय", "विचारण",
+            "व्यक्ति", "दिल्ली", "अपील", "वादी", "नियम", "विषय", "सदस्य", "अग्रिम", "कुर्की",
+            "याचिका", "निवेदन", "निदेशक", "सुनवाई", "विक्रय", "संज्ञान", "अभियोजन", "अधिनियम",
+            "दस्तावेज", "कथन", "हक", "छल", "ऋण", "सजा", "समन", "दान", "पीठ", "यान", "लूट",
+            "मूल", "आदि", "इत्यादि", "अन्य",
+        }
+
         if direction == TranslationDirection.EN_TO_HI:
             lower_doc = text.lower()
             candidates = []
             for t in available_terms.keys():
-                if len(t) < 2 or t.lower() not in lower_doc:
+                t_clean = t.strip()
+                if len(t_clean) < 2 or t_clean.lower() in generic_words:
                     continue
-                prefix = r"(?<!\w)" if t[0].isalnum() else ""
-                suffix = r"(?!\w)" if t[-1].isalnum() else ""
-                if re.search(f"{prefix}{re.escape(t)}{suffix}", text, re.IGNORECASE):
+                if len(t_clean.split()) == 1 and len(t_clean) < 6:
+                    continue
+                if t_clean.lower() not in lower_doc:
+                    continue
+                prefix = r"(?<!\w)" if t_clean[0].isalnum() else ""
+                suffix = r"(?!\w)" if t_clean[-1].isalnum() else ""
+                if re.search(f"{prefix}{re.escape(t_clean)}{suffix}", text, re.IGNORECASE):
                     candidates.append(t)
         else:
-            candidates = [t for t in available_terms.keys() if len(t) >= 2 and t in text]
+            candidates = []
+            for t in available_terms.keys():
+                t_clean = t.strip()
+                if len(t_clean) < 3 or t_clean in generic_words:
+                    continue
+                if len(t_clean.split()) == 1 and len(t_clean) < 6:
+                    continue
+                if t_clean in text:
+                    candidates.append(t)
 
         if not candidates:
             return {}
