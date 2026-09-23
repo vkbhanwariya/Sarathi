@@ -245,14 +245,14 @@ def test_progressive_task_hierarchy_and_second_level_choices(app_page: Page) -> 
     expect(app_page.locator("#chip-font-krutidev")).to_be_visible()
     expect(app_page.locator("#chip-font-devlys")).to_be_visible()
 
-    # 4. Translation: direction selector first, with OPUS-MT as a toggle from default IndicTrans2.
+    # 4. Translation: direction selector first, with Krutrim-Translate (4096 Context).
     _choose_task(app_page, "translation")
     expect(app_page.locator("#btn-direction-auto")).to_be_visible()
     expect(app_page.locator("#btn-direction-hi-en")).to_be_visible()
     expect(app_page.locator("#btn-direction-en-hi")).to_be_visible()
-    opus_toggle = app_page.locator("#btn-trans-opus")
-    expect(opus_toggle).to_be_visible()
-    expect(opus_toggle).not_to_have_class(re.compile(r"\bactive\b"))
+    krutrim_toggle = app_page.locator("#btn-trans-krutrim")
+    expect(krutrim_toggle).to_be_visible()
+    expect(krutrim_toggle).to_have_class(re.compile(r"\bactive\b"))
 
 
 
@@ -264,17 +264,17 @@ def test_translation_direction_and_engine_payload(app_page: Page) -> None:
     app_page.locator("#btn-direction-hi-en").click()
     expect(app_page.locator("#btn-direction-hi-en")).to_have_class(re.compile(r"\bactive\b"))
 
-    # Choose OPUS-MT engine
-    opus_toggle = app_page.locator("#btn-trans-opus")
-    opus_toggle.click()
-    expect(opus_toggle).to_have_class(re.compile(r"\bactive\b"))
+    # Canonical Krutrim engine is selected
+    krutrim_toggle = app_page.locator("#btn-trans-krutrim")
+    expect(krutrim_toggle).to_be_visible()
+    expect(krutrim_toggle).to_have_class(re.compile(r"\bactive\b"))
 
     payload = app_page.evaluate("""() => window.__sarathi_build_request ? window.__sarathi_build_request() : null""")
     assert payload is not None
     assert payload["requirement"] == "translation"
     assert payload["profile"] == "instant"
     assert payload["custom_options"]["direction"] == "hi_en"
-    assert payload["custom_options"]["engine"] == "opus_mt"
+    assert payload["custom_options"]["engine"] == "krutrim"
 
 
 def test_task_collapsible_accordion_toggling(app_page: Page) -> None:
@@ -449,13 +449,12 @@ def test_translation_in_front_toggles_and_legal_integrity_bar(app_page: Page) ->
     assert payload["custom_options"]["statutory"] is True
     assert payload["custom_options"]["preserve_proper_nouns"] is True
 
-    # 4. Select OPUS-MT engine
-    opus_card = app_page.locator("#btn-trans-opus")
-    expect(opus_card).to_be_visible()
-    opus_card.click()
-    expect(opus_card).to_have_class(re.compile(r"\bactive\b"))
+    # 4. Krutrim-Translate engine is canonical and active
+    krutrim_card = app_page.locator("#btn-trans-krutrim")
+    expect(krutrim_card).to_be_visible()
+    expect(krutrim_card).to_have_class(re.compile(r"\bactive\b"))
 
-    payload_opus = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
-    assert payload_opus is not None
-    assert payload_opus["requirement"] == "translation"
-    assert payload_opus["custom_options"]["engine"] == "opus_mt"
+    payload_krutrim = app_page.evaluate("() => window.__sarathi_build_request ? window.__sarathi_build_request() : null")
+    assert payload_krutrim is not None
+    assert payload_krutrim["requirement"] == "translation"
+    assert payload_krutrim["custom_options"]["engine"] == "krutrim"

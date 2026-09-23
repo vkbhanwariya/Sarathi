@@ -49,7 +49,7 @@ pytestmark = pytest.mark.skipif(
 
 class TestTranslationDeviceBinding:
     def test_translation_engine_uses_cuda_when_available(self, tmp_path) -> None:
-        models_dir = tmp_path / "models" / "indictrans2" / "hi-en"
+        models_dir = tmp_path / "models" / "krutrim" / "hi-en"
         models_dir.mkdir(parents=True)
         (models_dir / "model.bin").write_bytes(b"dummy")
         (models_dir / "spm.model").write_bytes(b"dummy")
@@ -93,7 +93,7 @@ class TestTranslationDeviceBinding:
             )
 
     def test_translation_engine_falls_back_to_cpu_when_cuda_unavailable(self, tmp_path) -> None:
-        models_dir = tmp_path / "models" / "indictrans2" / "hi-en"
+        models_dir = tmp_path / "models" / "krutrim" / "hi-en"
         models_dir.mkdir(parents=True)
         (models_dir / "model.bin").write_bytes(b"dummy")
         (models_dir / "spm.model").write_bytes(b"dummy")
@@ -138,7 +138,7 @@ class TestTranslationDeviceBinding:
             )
 
     def test_translation_engine_raises_on_gpu_init_failure_without_cpu_fallback(self, tmp_path) -> None:
-        models_dir = tmp_path / "models" / "indictrans2" / "hi-en"
+        models_dir = tmp_path / "models" / "krutrim" / "hi-en"
         models_dir.mkdir(parents=True)
         (models_dir / "model.bin").write_bytes(b"dummy")
         (models_dir / "spm.model").write_bytes(b"dummy")

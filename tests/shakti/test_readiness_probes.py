@@ -93,7 +93,7 @@ def test_translation_provider_readiness_probe(tmp_path: Path) -> None:
     assert "Unavailable" in res_empty["translation"].reason
 
     # Directory exists but model weights/vocabularies are missing
-    data_dir = tmp_path / "translation" / "models" / "indictrans2"
+    data_dir = tmp_path / "translation" / "models" / "krutrim"
     (data_dir / "hi-en").mkdir(parents=True)
     (data_dir / "en-hi").mkdir(parents=True)
     services = PluginServices(data_root=tmp_path)

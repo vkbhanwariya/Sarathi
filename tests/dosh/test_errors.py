@@ -99,7 +99,7 @@ class TestDoshError:
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
                     message="Model weights could not be loaded.",
-                    context={"engine": "indictrans2"},
+                    context={"engine": "krutrim"},
                 ) from original
         except DoshError as captured:
             assert isinstance(captured.__cause__, FileNotFoundError)

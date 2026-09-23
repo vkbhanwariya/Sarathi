@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         "--engine",
         type=str,
         default=None,
-        help="Target processing engine (e.g. 'indictrans2', 'ctranslate2', 'rapidocr')",
+        help="Target processing engine (e.g. 'krutrim', 'ctranslate2', 'rapidocr')",
     )
     parser.add_argument(
         "--param",

@@ -14,7 +14,7 @@ from sarathi.shakti.translation.protector import TranslationProtector
 def _fake_translation_data_root(tmp_path: Path) -> Path:
     """Create the minimal on-disk asset shape required by mocked native-backend tests."""
     root = tmp_path / "translation"
-    model_dir = root / "models" / "indictrans2" / "hi-en"
+    model_dir = root / "models" / "krutrim" / "hi-en"
     model_dir.mkdir(parents=True)
     (model_dir / "model.bin").write_bytes(b"test-ct2-placeholder")
     (model_dir / "spm.model").write_bytes(b"test-sentencepiece-placeholder")

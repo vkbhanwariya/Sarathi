@@ -1,4 +1,4 @@
-"""Locked CTranslate2 + IndicTrans2 + SentencePiece Translation Engine for Sarathi."""
+"""Locked CTranslate2 + Krutrim-Translate + SentencePiece Translation Engine for Sarathi."""
 
 from __future__ import annotations
 
@@ -463,101 +463,52 @@ class CTranslate2NativeBackend:
         # Native model inference using CTranslate2 and SentencePiece
         dir_key = direction.value
         norm_engine = str(engine or "krutrim").lower().strip()
-        if norm_engine == "opus_mt":
-            model_path = self._root / "models" / "opus_mt" / dir_key
-            spm_src_path = model_path / "spm.model"
-            spm_tgt_path = spm_src_path
-            if not model_path.is_dir() or not (model_path / "model.bin").is_file() or not spm_src_path.is_file():
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model assets for OPUS-MT translation direction '{dir_key}' are missing or incomplete.",
-                )
-            model_info: dict[str, Any] = self._manifest.get("engines", {}).get("opus_mt", {}).get(dir_key) or {}
-        elif norm_engine == "indictrans2":
-            model_info = (
-                self._manifest.get("engines", {}).get("indictrans2", {}).get(dir_key)
-                or self._manifest.get("models", {}).get(dir_key)
-                or {}
-            )
-            model_path = self._root / "models" / "indictrans2" / dir_key
-            if not model_path.is_dir() or not (model_path / "model.bin").is_file():
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model assets for IndicTrans2 translation direction '{dir_key}' are missing or incomplete.",
-                )
-
-            # Resolve source SentencePiece model
-            if (model_path / "model.SRC").is_file():
-                spm_src_path = model_path / "model.SRC"
-            elif (model_path / "src_spm.model").is_file():
-                spm_src_path = model_path / "src_spm.model"
-            elif (model_path / "spm.model").is_file():
-                spm_src_path = model_path / "spm.model"
-            else:
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model assets for IndicTrans2 translation direction '{dir_key}' are missing or incomplete.",
-                )
-
-            # Resolve target SentencePiece model
-            if (model_path / "model.TGT").is_file():
-                spm_tgt_path = model_path / "model.TGT"
-            elif (model_path / "tgt_spm.model").is_file():
-                spm_tgt_path = model_path / "tgt_spm.model"
-            else:
-                spm_tgt_path = spm_src_path
-        elif norm_engine in ("krutrim", "krutrim_translate", "default"):
-            model_info = (
-                self._manifest.get("engines", {}).get("krutrim", {}).get(dir_key)
-                or self._manifest.get("models", {}).get(dir_key)
-                or {}
-            )
-            krutrim_dir = self._root / "models" / "krutrim" / dir_key
-            root_dir = self._root / "models" / dir_key
-            indic_dir = self._root / "models" / "indictrans2" / dir_key
-            if krutrim_dir.is_dir() and (krutrim_dir / "model.bin").is_file():
-                model_path = krutrim_dir
-            elif root_dir.is_dir() and (root_dir / "model.bin").is_file():
-                model_path = root_dir
-            elif indic_dir.is_dir() and (indic_dir / "model.bin").is_file():
-                model_path = indic_dir
-                if not model_info:
-                    model_info = self._manifest.get("engines", {}).get("indictrans2", {}).get(dir_key) or {}
-            else:
-                model_path = krutrim_dir
-
-            if not model_path.is_dir() or not (model_path / "model.bin").is_file():
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model assets for Krutrim-Translate translation direction '{dir_key}' are missing or incomplete.",
-                )
-
-            # Resolve source SentencePiece model
-            if (model_path / "model.SRC").is_file():
-                spm_src_path = model_path / "model.SRC"
-            elif (model_path / "src_spm.model").is_file():
-                spm_src_path = model_path / "src_spm.model"
-            elif (model_path / "spm.model").is_file():
-                spm_src_path = model_path / "spm.model"
-            else:
-                eng_label = "IndicTrans2" if model_path == indic_dir else "Krutrim-Translate"
-                raise DoshError(
-                    code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model assets for {eng_label} translation direction '{dir_key}' are missing or incomplete.",
-                )
-
-            # Resolve target SentencePiece model
-            if (model_path / "model.TGT").is_file():
-                spm_tgt_path = model_path / "model.TGT"
-            elif (model_path / "tgt_spm.model").is_file():
-                spm_tgt_path = model_path / "tgt_spm.model"
-            else:
-                spm_tgt_path = spm_src_path
-        else:
+        if norm_engine not in ("krutrim", "krutrim_translate", "default", "ctranslate2"):
             raise DoshError(
                 code=FailureCode.INVALID_CONFIGURATION,
-                message=f"Unsupported translation engine '{engine}'. Supported engines are 'indictrans2', 'krutrim', and 'opus_mt'.",
+                message=f"Unsupported translation engine '{engine}'. Sarathi canonical engine is 'krutrim'.",
             )
+
+        model_info = (
+            self._manifest.get("engines", {}).get("krutrim", {}).get(dir_key)
+            or self._manifest.get("models", {}).get(dir_key)
+            or {}
+        )
+        krutrim_dir = self._root / "models" / "krutrim" / dir_key
+        root_dir = self._root / "models" / dir_key
+        if krutrim_dir.is_dir() and (krutrim_dir / "model.bin").is_file():
+            model_path = krutrim_dir
+        elif root_dir.is_dir() and (root_dir / "model.bin").is_file():
+            model_path = root_dir
+        else:
+            model_path = krutrim_dir
+
+        if not model_path.is_dir() or not (model_path / "model.bin").is_file():
+            raise DoshError(
+                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                message=f"Model assets for Krutrim-Translate translation direction '{dir_key}' are missing or incomplete.",
+            )
+
+        # Resolve source SentencePiece model
+        if (model_path / "model.SRC").is_file():
+            spm_src_path = model_path / "model.SRC"
+        elif (model_path / "src_spm.model").is_file():
+            spm_src_path = model_path / "src_spm.model"
+        elif (model_path / "spm.model").is_file():
+            spm_src_path = model_path / "spm.model"
+        else:
+            raise DoshError(
+                code=FailureCode.DEPENDENCY_UNAVAILABLE,
+                message=f"Model assets for Krutrim-Translate translation direction '{dir_key}' are missing or incomplete.",
+            )
+
+        # Resolve target SentencePiece model
+        if (model_path / "model.TGT").is_file():
+            spm_tgt_path = model_path / "model.TGT"
+        elif (model_path / "tgt_spm.model").is_file():
+            spm_tgt_path = model_path / "tgt_spm.model"
+        else:
+            spm_tgt_path = spm_src_path
 
         device = "cpu"
         device_index = 0
@@ -667,12 +618,9 @@ class CTranslate2NativeBackend:
                 sentence_chunks.append([(s, "")])
                 flat_pieces.append(s)
 
-        if norm_engine in ("indictrans2", "krutrim", "krutrim_translate") or is_krutrim:
-            src_tag = model_info.get("source_lang", "hin_Deva" if dir_key == "hi-en" else "eng_Latn")
-            tgt_tag = model_info.get("target_lang", "eng_Latn" if dir_key == "hi-en" else "hin_Deva")
-            tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(p) for p in flat_pieces]
-        else:
-            tokenized = [spm_src.encode_as_pieces(p) for p in flat_pieces]
+        src_tag = model_info.get("source_lang", "hin_Deva" if dir_key == "hi-en" else "eng_Latn")
+        tgt_tag = model_info.get("target_lang", "eng_Latn" if dir_key == "hi-en" else "hin_Deva")
+        tokenized = [[src_tag, tgt_tag] + spm_src.encode_as_pieces(p) for p in flat_pieces]
 
         # Dynamic decoding length: scale with input token length to eliminate runaway decoding latency
         max_in_tokens = max((len(tok) for tok in tokenized), default=100)
@@ -747,9 +695,8 @@ class CTranslate2NativeBackend:
             is_trunc = len(hyp) >= eff_max_decoding_len
             piece_truncations.append(is_trunc)
             text = spm_tgt.decode_pieces(hyp)
-            if norm_engine in ("indictrans2", "krutrim", "krutrim_translate") or is_krutrim:
-                for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>", "\u2047", "Â"):
-                    text = text.replace(tag, "")
+            for tag in ("hin_Deva", "eng_Latn", "<s>", "</s>", "<unk>", "\u2047", "Â"):
+                text = text.replace(tag, "")
             text = text.replace("\u2581", " ")
             text = " ".join(text.split())
             clean_p = clean_krutrim_legal_text(text.strip(), is_hindi=(dir_key == "en-hi")) if is_krutrim else text.strip()
@@ -813,7 +760,7 @@ _CTranslate2NativeBackend = CTranslate2NativeBackend
 
 
 class CTranslate2TranslationEngine:
-    """Instance-owned CTranslate2 + IndicTrans2 engine adapter."""
+    """Instance-owned CTranslate2 + Krutrim-Translate engine adapter."""
 
     def __init__(
         self,

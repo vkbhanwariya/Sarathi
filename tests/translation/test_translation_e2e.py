@@ -166,7 +166,7 @@ def test_translation_batch_documents_and_spans() -> None:
             sentences: list[str],
             direction,
             execution_binding: Any = None,
-            engine: str = "indictrans2",
+            engine: str = "krutrim",
             **kwargs: Any,
         ) -> list[str]:
             return [f"Translated({s})" for s in sentences]
@@ -215,8 +215,8 @@ def test_translation_batch_documents_and_spans() -> None:
     assert len(res.artifact_payloads) == 4
 
 
-def test_translation_opus_mt_engine_forwarding_and_dependency_check(tmp_path: Path) -> None:
-    """Verify TranslationCapability forwards engine='opus_mt' and engine fails closed if assets missing."""
+def test_translation_krutrim_engine_forwarding_and_dependency_check(tmp_path: Path) -> None:
+    """Verify TranslationCapability forwards engine='krutrim' and engine fails closed if assets missing."""
     from sarathi.dosh import DoshError, FailureCode
     from sarathi.shakti.translation.engine import CTranslate2TranslationEngine, TranslatorBackend
     from sarathi.shakti.translation.models import TranslationDirection
@@ -225,10 +225,10 @@ def test_translation_opus_mt_engine_forwarding_and_dependency_check(tmp_path: Pa
 
     class MockCustomBackend(TranslatorBackend):
         def translate_sentences(
-            self, sentences: list[str], direction, execution_binding=None, engine: str = "indictrans2", **kwargs
+            self, sentences: list[str], direction, execution_binding=None, engine: str = "krutrim", **kwargs
         ) -> tuple[list[str], str]:
             received_engine.append(engine)
-            return [f"OPUS:{s}" for s in sentences], "opus_model"
+            return [f"KRUTRIM:{s}" for s in sentences], "krutrim_model"
 
     mock_cap = TranslationCapability(backend=MockCustomBackend())
     doc = CanonicalDocument(document_id="d1", source_input_id="i1", text="परीक्षण")
@@ -236,24 +236,24 @@ def test_translation_opus_mt_engine_forwarding_and_dependency_check(tmp_path: Pa
         request_id="r1",
         requirement="translation",
         inputs=(InputRef("i1", Path("1.txt"), "1.txt", 10),),
-        custom_options={"engine": "opus_mt"},
+        custom_options={"engine": "krutrim"},
     )
     ctx = ExecutionContext("r1", "req1", "t1", "s1")
     res = mock_cap.execute(req, ctx, prior_result=Result(data=doc))
     assert res.data is not None
-    assert "opus_mt" in received_engine
-    assert "OPUS:परीक्षण" in res.data.text
+    assert "krutrim" in received_engine
+    assert "KRUTRIM:परीक्षण" in res.data.text
 
-    # Native engine validation without downloaded opus assets fails closed with DEPENDENCY_UNAVAILABLE
+    # Native engine validation without downloaded assets fails closed with DEPENDENCY_UNAVAILABLE
     empty_data_dir = tmp_path / "empty_trans"
     empty_data_dir.mkdir(parents=True, exist_ok=True)
     (empty_data_dir / "models").mkdir(parents=True, exist_ok=True)
     (empty_data_dir / "manifest.json").write_text('{"version": "1.0"}', encoding="utf-8")
     native_engine = CTranslate2TranslationEngine(data_root=empty_data_dir)
     with pytest.raises(DoshError) as excinfo:
-        native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="opus_mt")
+        native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="krutrim")
     assert excinfo.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
-    assert "OPUS-MT" in excinfo.value.message
+    assert "Krutrim-Translate" in excinfo.value.message
 
 
 def test_translation_telemetry_never_emits_fabricated_confidence(tmp_path: Path, test_backend: Any) -> None:
@@ -338,21 +338,21 @@ def test_bilingual_sentence_translation_directions(
     assert expected_fragment in res.translated_text
 
 
-def test_indictrans2_native_engine_missing_assets_fails_dependency_unavailable(tmp_path: Path) -> None:
-    """IndicTrans2 native engine fails closed with DEPENDENCY_UNAVAILABLE when assets missing."""
+def test_krutrim_native_engine_missing_assets_fails_dependency_unavailable(tmp_path: Path) -> None:
+    """Krutrim-Translate native engine fails closed with DEPENDENCY_UNAVAILABLE when assets missing."""
     from sarathi.dosh import DoshError, FailureCode
     from sarathi.shakti.translation.engine import CTranslate2TranslationEngine
     from sarathi.shakti.translation.models import TranslationDirection
 
-    empty_data_dir = tmp_path / "empty_indic"
+    empty_data_dir = tmp_path / "empty_krutrim"
     empty_data_dir.mkdir(parents=True, exist_ok=True)
     (empty_data_dir / "models").mkdir(parents=True, exist_ok=True)
     (empty_data_dir / "manifest.json").write_text('{"version": "1.0", "models": {"hi-en": {}}}', encoding="utf-8")
     native_engine = CTranslate2TranslationEngine(data_root=empty_data_dir)
     with pytest.raises(DoshError) as excinfo:
-        native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="indictrans2")
+        native_engine.translate("परीक्षण", direction=TranslationDirection.HI_TO_EN, engine="krutrim")
     assert excinfo.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
-    assert "Model assets for IndicTrans2 translation direction 'hi-en' are missing or incomplete." == excinfo.value.message
+    assert "Model assets for Krutrim-Translate translation direction 'hi-en' are missing or incomplete." == excinfo.value.message
 
 
 def test_translate_batch_multi_sentence_batching_and_ordering(test_backend: Any) -> None:

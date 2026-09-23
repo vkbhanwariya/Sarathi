@@ -28,7 +28,7 @@
       "local_dir": "data/ocr/models"
     },
     "translation_models": {
-      "provider": "Hugging Face (Helsinki-NLP & AI4Bharat IndicTrans2)",
+      "provider": "Hugging Face (Krutrim AI Labs Krutrim-Translate)",
       "manifest": "data/translation/manifest.json",
       "upstream_mirror": "https://huggingface.co",
       "local_dir": "data/translation/models"

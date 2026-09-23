@@ -88,7 +88,7 @@ def test_provider_readiness_ready_when_all_assets_and_packages_present(tmp_path:
     (trans_dir / "manifest.json").write_text('{"version": "1.0"}', encoding="utf-8")
 
     for model_name in ("hi-en", "en-hi"):
-        m_dir = trans_dir / "models" / "indictrans2" / model_name
+        m_dir = trans_dir / "models" / "krutrim" / model_name
         m_dir.mkdir(parents=True, exist_ok=True)
         (m_dir / "model.bin").write_bytes(b"dummy")
         (m_dir / "spm.model").write_bytes(b"dummy")
@@ -104,7 +104,7 @@ def test_provider_readiness_ready_when_all_assets_and_packages_present(tmp_path:
         res = readiness_map["translation"]
         assert res.ready
         assert res.status == ReadinessStatus.READY
-        assert "IndicTrans2 CTranslate2" in res.reason
+        assert "Krutrim-Translate 4096 CTranslate2" in res.reason
 
 
 def test_translation_engine_error_does_not_leak_paths(tmp_path: Path) -> None:
@@ -117,7 +117,7 @@ def test_translation_engine_error_does_not_leak_paths(tmp_path: Path) -> None:
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text('{"models": {"hi-en": {"path": "hi-en"}}}', encoding="utf-8")
-    models_dir = tmp_path / "models" / "indictrans2"
+    models_dir = tmp_path / "models" / "krutrim"
     models_dir.mkdir(parents=True)
     model_dir = models_dir / "hi-en"
     model_dir.mkdir()
@@ -135,7 +135,7 @@ def test_translation_engine_error_does_not_leak_paths(tmp_path: Path) -> None:
         backend.translate_sentences(["नमस्ते"], TranslationDirection.HI_TO_EN)
     err_msg = exc_info.value.message
     assert str(tmp_path) not in err_msg
-    assert "Model assets for IndicTrans2 translation direction 'hi-en' are missing or incomplete." == err_msg
+    assert "Model assets for Krutrim-Translate translation direction 'hi-en' are missing or incomplete." == err_msg
 
 
 def test_translation_anubhava_malformed_raises_invalid_configuration(tmp_path: Path) -> None:
@@ -151,15 +151,15 @@ def test_translation_anubhava_malformed_raises_invalid_configuration(tmp_path: P
     assert exc_info.value.code == FailureCode.INVALID_CONFIGURATION
 
 
-def test_provider_readiness_indictrans2_subfolder_with_dual_spm(tmp_path: Path) -> None:
-    """Readiness reports READY when indictrans2 models are stored in models/indictrans2 with dual SPM."""
+def test_provider_readiness_krutrim_subfolder_with_dual_spm(tmp_path: Path) -> None:
+    """Readiness reports READY when krutrim models are stored in models/krutrim with dual SPM."""
     prov = TranslationProvider()
     trans_dir = tmp_path / "translation"
     trans_dir.mkdir(parents=True, exist_ok=True)
     (trans_dir / "manifest.json").write_text('{"version": "1.0"}', encoding="utf-8")
 
     for model_name in ("hi-en", "en-hi"):
-        m_dir = trans_dir / "models" / "indictrans2" / model_name
+        m_dir = trans_dir / "models" / "krutrim" / model_name
         m_dir.mkdir(parents=True, exist_ok=True)
         (m_dir / "model.bin").write_bytes(b"dummy")
         (m_dir / "model.SRC").write_bytes(b"dummy")
@@ -174,7 +174,7 @@ def test_provider_readiness_indictrans2_subfolder_with_dual_spm(tmp_path: Path) 
         res = readiness_map["translation"]
         assert res.ready
         assert res.status == ReadinessStatus.READY
-        assert "IndicTrans2 CTranslate2" in res.reason
+        assert "Krutrim-Translate 4096 CTranslate2" in res.reason
 
 
 def test_native_backend_exports_and_translate_delegation() -> None:
@@ -236,31 +236,23 @@ def test_ctranslate2_native_backend_caches_cuda_probe(tmp_path: Path) -> None:
 
 
 def test_strict_engine_directory_isolation(tmp_path: Path) -> None:
-    """Verify indictrans2 never falls back to opus_mt directory or models root."""
+    """Verify unsupported engines fail closed with INVALID_CONFIGURATION and Krutrim requires canonical assets."""
     from sarathi.dosh import DoshError, FailureCode
     from sarathi.shakti.translation.engine import CTranslate2NativeBackend
     from sarathi.shakti.translation.models import TranslationDirection
 
-    # Set up OPUS-MT model only
-    opus_dir = tmp_path / "models" / "opus_mt" / "hi-en"
-    opus_dir.mkdir(parents=True)
-    (opus_dir / "model.bin").write_bytes(b"opus-model-binary")
-    (opus_dir / "spm.model").write_bytes(b"opus-spm-model")
-    (opus_dir / "shared_vocabulary.json").write_bytes(b"{}")
-
-    # Set up root models dir (legacy)
-    root_dir = tmp_path / "models" / "hi-en"
-    root_dir.mkdir(parents=True)
-    (root_dir / "model.bin").write_bytes(b"legacy-model-binary")
-    (root_dir / "spm.model").write_bytes(b"legacy-spm-model")
-
     backend = CTranslate2NativeBackend(root=tmp_path, manifest={"models": {"hi-en": {}}})
 
-    # Requesting indictrans2 MUST fail closed despite opus_mt and root models existing
+    # Requesting indictrans2 or opus_mt MUST fail with INVALID_CONFIGURATION
     with pytest.raises(DoshError) as exc_info:
         backend.translate_sentences(["परीक्षण"], TranslationDirection.HI_TO_EN, engine="indictrans2")
-    assert exc_info.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
-    assert "Model assets for IndicTrans2 translation direction 'hi-en' are missing or incomplete." in exc_info.value.message
+    assert exc_info.value.code == FailureCode.INVALID_CONFIGURATION
+    assert "Sarathi canonical engine is 'krutrim'" in exc_info.value.message
+
+    with pytest.raises(DoshError) as exc_info:
+        backend.translate_sentences(["परीक्षण"], TranslationDirection.HI_TO_EN, engine="opus_mt")
+    assert exc_info.value.code == FailureCode.INVALID_CONFIGURATION
+    assert "Sarathi canonical engine is 'krutrim'" in exc_info.value.message
 
     # Requesting unsupported engine MUST fail with INVALID_CONFIGURATION
     with pytest.raises(DoshError) as exc_info:
@@ -275,12 +267,12 @@ def test_translation_model_sha256_verification(tmp_path: Path) -> None:
     from sarathi.dosh import DoshError, FailureCode
     from sarathi.shakti.translation.engine import CTranslate2NativeBackend
 
-    indic_dir = tmp_path / "models" / "indictrans2" / "hi-en"
-    indic_dir.mkdir(parents=True)
+    krutrim_dir = tmp_path / "models" / "krutrim" / "hi-en"
+    krutrim_dir.mkdir(parents=True)
     bin_data = b"genuine-ct2-model-weights"
-    (indic_dir / "model.bin").write_bytes(bin_data)
-    (indic_dir / "spm.model").write_bytes(b"genuine-spm-model")
-    (indic_dir / "model.SRC").write_bytes(b"genuine-spm-model")
+    (krutrim_dir / "model.bin").write_bytes(bin_data)
+    (krutrim_dir / "spm.model").write_bytes(b"genuine-spm-model")
+    (krutrim_dir / "model.SRC").write_bytes(b"genuine-spm-model")
 
     correct_sha = hashlib.sha256(bin_data).hexdigest()
 
@@ -296,7 +288,7 @@ def test_translation_model_sha256_verification(tmp_path: Path) -> None:
     }
     backend_valid = CTranslate2NativeBackend(root=tmp_path, manifest=manifest_valid)
     # Integrity check directly
-    backend_valid._verify_model_integrity(indic_dir, manifest_valid["models"]["hi-en"]["files"])
+    backend_valid._verify_model_integrity(krutrim_dir, manifest_valid["models"]["hi-en"]["files"])
 
     # Case 2: Tampered model weights fail closed with DEPENDENCY_UNAVAILABLE
     manifest_corrupt = {
@@ -310,7 +302,7 @@ def test_translation_model_sha256_verification(tmp_path: Path) -> None:
     }
     backend_corrupt = CTranslate2NativeBackend(root=tmp_path, manifest=manifest_corrupt)
     with pytest.raises(DoshError) as exc_info:
-        backend_corrupt._verify_model_integrity(indic_dir, manifest_corrupt["models"]["hi-en"]["files"])
+        backend_corrupt._verify_model_integrity(krutrim_dir, manifest_corrupt["models"]["hi-en"]["files"])
     assert exc_info.value.code == FailureCode.DEPENDENCY_UNAVAILABLE
     assert "checksum mismatch" in exc_info.value.message
 

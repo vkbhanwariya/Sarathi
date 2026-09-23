@@ -23,8 +23,8 @@ uv sync --all-extras --group dev
 # Provision local RapidOCR ONNX models (det, cls, rec_devanagari, rec_v6_en)
 powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-OCRModels.ps1
 
-# Provision CTranslate2 neural translation models (IndicTrans2 / OPUS-MT)
-powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1 -Engine indictrans2
+# Provision CTranslate2 neural translation models (Krutrim-Translate 4096 Context)
+powershell -ExecutionPolicy Bypass -File .\tools\scripts\Setup-TranslationModels.ps1 -Engine krutrim
 
 # Verify all declared asset checksums offline
 uv run python tools/update_assets.py --check

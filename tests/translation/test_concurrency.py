@@ -46,7 +46,7 @@ class ThreadTrackingBackend:
         sentences: Sequence[str],
         direction: TranslationDirection,
         execution_binding: Any = None,
-        engine: str = "indictrans2",
+        engine: str = "krutrim",
         **kwargs: Any,
     ) -> list[str]:
         with self.cond:
@@ -327,7 +327,7 @@ def test_ctranslate2_concurrency_cache_key_reuses_model_instance() -> None:
     # (engine, model_path, device, device_index) to prevent duplicate allocations across differing concurrency configurations.
     keys = list(backend._translators.keys())
     assert len(keys) == 1, f"Expected 1 shared translator instance, got {len(keys)}: {keys}"
-    assert "indictrans2" in keys[0]
+    assert "krutrim" in keys[0]
     assert "en-hi" in keys[0]
     assert "cpu:0" in keys[0]
 
@@ -362,7 +362,7 @@ def test_translate_batch_deduplicates_identical_sentences() -> None:
     captured_batches: list[list[str]] = []
 
     class MockBackend:
-        def translate_sentences(self, sentences, direction, execution_binding=None, engine="indictrans2", **kwargs):
+        def translate_sentences(self, sentences, direction, execution_binding=None, engine="krutrim", **kwargs):
             captured_batches.append(list(sentences))
             # Echo translation uppercase for deterministic testing
             return [s.upper() for s in sentences]
@@ -442,7 +442,7 @@ def test_translate_token_bounded_chunking_and_input_truncation_warning(monkeypat
 
     monkeypatch.setattr(ctranslate2, "Translator", FakeTranslator)
 
-    model_dir = tmp_path / "models" / "indictrans2" / "hi-en"
+    model_dir = tmp_path / "models" / "krutrim" / "hi-en"
     model_dir.mkdir(parents=True)
     (model_dir / "spm.model").write_bytes(b"dummy")
     (model_dir / "model.bin").write_bytes(b"dummy")

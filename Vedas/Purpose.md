@@ -54,7 +54,7 @@ graph TD
 | :--- | :--- | :--- | :--- |
 | **1. 📄 Scan to Word** | Scanned PDF, Images (`.pdf`, `.png`, `.jpg`) | Microsoft Word (`.docx`) | OpenVINO RapidOCR on Intel Arc iGPU. Preserves geometry, tables, margins, and headings. Sub-modes: *Hindi Unicode* (with typewriter font repair) and *English Translated*. |
 | **2. 🔤 Font Standardizer** | Word (`.docx`), Excel (`.xlsx`, `.xls`) | Clean `_Unicode.docx` or `_Unicode.xlsx` | Non-destructive conversion of legacy 8-bit Hindi fonts (Kruti Dev, Devlys, Chanakya, Shusha, Shivaji) to standard Unicode. In Excel, numbers, dates, and formulas (`=SUM(...)`) remain 100% untouched. Supports reverse conversion to Kruti Dev. |
-| **3. 🌐 Document Translation** | Word (`.docx`), PDF (`.pdf`), Excel (`.xlsx`, `.csv`) | Translated Word, PDF, or Excel | CTranslate2 neural translation (IndicTrans2 / OPUS-MT). Preserves layout, tables, and formulas. Includes *Proper Noun Guard* (protects names via ISO 15919 transliteration) and *Statutory Legal Glossary* (PMLA, IPC, court titles). |
+| **3. 🌐 Document Translation** | Word (`.docx`), PDF (`.pdf`), Excel (`.xlsx`, `.csv`) | Translated Word, PDF, or Excel | CTranslate2 neural translation (Krutrim-Translate 4096 Context). Preserves layout, tables, and formulas. Includes *Proper Noun Guard* (protects names via ISO 15919 transliteration) and *Statutory Legal Glossary* (PMLA, IPC, BNS, court titles). |
 | **4. 📊 PDF Tables to Excel** | Digital or Scanned PDF | Excel Workbook (`.xlsx`) | Reconstructs borderless and ruled tables with cell alignments intact; auto-converts legacy fonts inside table cells to Unicode. |
 
 ---

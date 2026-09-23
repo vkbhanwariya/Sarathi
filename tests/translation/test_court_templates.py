@@ -204,7 +204,7 @@ def test_backend_length_bucketing_and_beam_size(tmp_path: Any, monkeypatch: Any)
 
     monkeypatch.setattr(ctranslate2, "Translator", FakeTranslator)
 
-    model_dir = tmp_path / "models" / "indictrans2" / "hi-en"
+    model_dir = tmp_path / "models" / "krutrim" / "hi-en"
     model_dir.mkdir(parents=True)
     (model_dir / "spm.model").write_bytes(b"dummy")
     (model_dir / "model.bin").write_bytes(b"dummy")

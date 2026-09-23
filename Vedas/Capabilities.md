@@ -10,7 +10,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 | :--- | :--- | :--- | :--- | :--- |
 | **Native Extraction** | `native_extraction` | PyMuPDF vector parser (CPU) | Digital PDF, DOCX, XLSX, XLS, HTML, CSV/TSV | `CanonicalDocument`, extracted tables, preview text |
 | **Local OCR** | `ocr` | RapidOCR on OpenVINO (Intel Arc iGPU) | Scanned PDF, PNG, JPEG, TIFF, BMP | `CanonicalDocument`, bounding boxes, DOCX preview |
-| **Neural Translation** | `translation` | CTranslate2 IndicTrans2 / OPUS-MT (14-Core CPU) | `CanonicalDocument`, Hindi / English text | Translated `CanonicalDocument`, bilingual DOCX |
+| **Neural Translation** | `translation` | CTranslate2 Krutrim-Translate (14-Core CPU, 4096 Context) | `CanonicalDocument`, Hindi / English text | Translated `CanonicalDocument`, bilingual DOCX |
 | **Font Conversion** | `font_conversion` | Declarative 7-pass Akshara Transducer (CPU) | Word (`.docx`), Excel (`.xlsx`), legacy font text | Clean Unicode Devanagari `.docx`, `.xlsx` |
 | **Bank Statements** | `bank_statements` | Financial Reconciler & Polars Vectorizer (CPU) | Tabular bank statements (PDF, XLSX, CSV) | Consolidated `.xlsx`, `.parquet`, audit summary |
 | **Statutory Extraction** | `statutory` | Algorithmic Checksum Engine (CPU) | `CanonicalDocument`, legal/tax documents | Validated GSTIN, PAN, TAN, CIN, CNR, DIN metadata |
@@ -43,11 +43,11 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 ---
 
 ## 3. Neural Machine Translation (`translation`)
-- **Engine**: CTranslate2 running IndicTrans2 (primary) and OPUS-MT across all 4 CPU P-cores (`intra_threads=4`, `OMP_NUM_THREADS=4`).
-- **Batching & Efficiency**: Pre-collects all unique strings across pages, tables, and spans to execute in a single batched CPU pass (`translate_batch`).
+- **Engine**: CTranslate2 running Krutrim-Translate (4096 Context INT8) across all 4 CPU P-cores (`intra_threads=4`, `inter_threads=1`, dynamic decoding length scaling). Dual-model RAM pre-warming ensures sub-second switching between Hindi → English and English → Hindi.
+- **Batching & Efficiency**: Pre-collects and length-buckets all unique strings across pages, tables, and spans to execute in a single batched CPU pass (`translate_batch`).
 - **Safeguards & Glossaries**:
   - **Proper Noun Guard**: Identifies kinship markers/titles (`Shri`, `Smt`, `S/o`) and applies ISO 15919 transliteration to prevent hallucinations of personal and village names.
-  - **Domain Glossaries**: Cached regex alternation groups for statutory legal terminology (PMLA, IPC, Banking).
+  - **Domain Glossaries**: Cached regex alternation groups for statutory legal terminology (PMLA, IPC, BNS, Banking).
   - **Entity Protection**: Automatically masks dates, numbers, URLs, and statutory IDs with opaque tokens during translation.
 
 ---

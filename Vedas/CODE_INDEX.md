@@ -150,7 +150,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/translation/capability.py` | Executable Translation Capability for Sarathi | **Multi-core CPU (Neural AVX2)** | `TranslationCapability` |
 | `shakti/translation/court_templates.py` | Standard Indian Court Orders, Statutory Boilerplate, and Section Formulas Matcher | **Standard Logic** | `CourtTemplateMatcher` |
 | `shakti/translation/detector.py` | Script and Language Identification for Translation | **Standard Logic** | `LanguageDetector` |
-| `shakti/translation/engine.py` | Locked CTranslate2 + IndicTrans2 + SentencePiece Translation Engine for Sarathi | **Multi-core CPU (Neural AVX2)** | `BackendTranslationResult`, `TranslatorBackend`, `CTranslate2NativeBackend`, `CTranslate2TranslationEngine`, `split_sentences()` |
+| `shakti/translation/engine.py` | Locked CTranslate2 + Krutrim-Translate + SentencePiece Translation Engine for Sarathi | **Multi-core CPU (Neural AVX2)** | `BackendTranslationResult`, `TranslatorBackend`, `CTranslate2NativeBackend`, `CTranslate2TranslationEngine`, `split_sentences()` |
 | `shakti/translation/glossary.py` | Domain Glossary and Terminology Manager for Translation | **Standard Logic** | `GlossaryStore` |
 | `shakti/translation/harmonizer.py` | On-Device Statutory Terminology Harmonizer for Sarathi Translation | **Standard Logic** | `GlossaryHarmonizer` |
 | `shakti/translation/legal_context.py` | Legal context extraction and judicial translation prompt synthesis for Sarathi | **Standard Logic** | `LegalDocumentContext`, `LegalContextBuilder` |
