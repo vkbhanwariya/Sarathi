@@ -34,7 +34,7 @@ dist/
 *.egg
 *.whl
 
-# Frontend
+# Frontend & Dependencies
 node_modules/
 ui/node_modules/
 ui/dist/
@@ -67,13 +67,19 @@ Runtime/
 .antigravity/
 .gemini/
 .system_generated/
+.user_uploaded/
 .cursor/
 .claude/
+.windsurf/
+.zed/
+scratch/
 
 # Environment & Secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 
 # Runtime Databases & Telemetry History
 history.jsonl
@@ -93,7 +99,6 @@ history.jsonl
 *.log
 *.tmp
 *.temp
-scratch/
 
 # Machine Learning Models & Binary Weights
 *.onnx
@@ -104,6 +109,8 @@ scratch/
 *.pth
 *.pb
 *.tflite
+*.model
+*.weights
 models/
-data/ocr/models/*.onnx
+data/ocr/models/
 data/translation/models/

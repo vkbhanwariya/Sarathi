@@ -1,3 +1,6 @@
+# Version Control
+.git/
+
 # Virtual Environments
 .venv/
 venv/
@@ -6,7 +9,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Python Bytecode & Caches
+# Python Bytecode & Testing Caches
 __pycache__/
 *.py[cod]
 *$py.class
@@ -38,13 +41,12 @@ ui/node_modules/
 ui/dist/
 .npm/
 
-
 # Sarathi Storage Roots (generated/test run outputs)
 Input/
 Output/
 Runtime/
 
-# IDE & OS Metadata
+# IDE, OS & Third-party Agent Metadata
 .vscode/
 .idea/
 *.swp
@@ -55,6 +57,8 @@ Runtime/
 .settings/
 .cursor/
 .claude/
+.windsurf/
+.zed/
 .DS_Store
 Thumbs.db
 Desktop.ini
@@ -65,12 +69,15 @@ $RECYCLE.BIN/
 .antigravity/
 .gemini/
 .system_generated/
+.user_uploaded/
 scratch/
 
 # Environment & Secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 
 # Runtime Databases & Telemetry History
 history.jsonl
@@ -91,7 +98,7 @@ history.jsonl
 *.tmp
 *.temp
 
-# Machine Learning Models & Binary Weights
+# Machine Learning Models, Binary Weights & Large Binary Blobs
 *.onnx
 *.onnx_data
 *.bin
@@ -100,6 +107,14 @@ history.jsonl
 *.pth
 *.pb
 *.tflite
+*.model
+*.weights
 models/
-data/ocr/models/*.onnx
+data/ocr/models/
 data/translation/models/
+*.pdf
+*.tiff
+*.zip
+*.tar
+*.gz
+*.7z
