@@ -31,7 +31,7 @@ Sarathi is engineered, tuned, and validated for this authoritative reference har
 | **CPU** | Intel Core Ultra 5 125H (14 Cores: 4P + 8E + 2LPE, 18 Threads) | **Primary Translation & Logic Host**: Multi-core x86 AVX2/AVX-VNNI neural acceleration. Parallel inference across P-cores. |
 | **GPU** | Intel Graphics (Meteor Lake Arc iGPU, 7 Xe Cores) | **Primary RapidOCR Accelerator**: Dedicated OpenVINO FP16/INT8 OCR inference with persistent shader cache (`Runtime/Cache/openvino_model_cache`). Zero CUDA dependence. |
 | **NPU** | Intel AI Boost (Meteor Lake NPU) | Managed via `yantra.devices` for static workloads. |
-| **RAM** | 24 GB Physical Memory | Concurrent in-memory OCR models and CTranslate2 weights without swapping. |
+| **RAM** | 24 GB Physical Memory | Concurrent in-memory OCR models and CTranslate2 weights without swapping. Guarded by `MemoryLeaseGuard` (18 GB process ceiling, 3 GB OS minimum headroom) preventing out-of-memory crashes. |
 | **Network** | Air-gapped / Local Loopback | All processing runs 100% locally over `127.0.0.1`. |
 
 ---
@@ -46,7 +46,7 @@ Sarathi is engineered, tuned, and validated for this authoritative reference har
 | **Manthan** | Planning | Dynamic requirement resolution and topological plan ordering (`sarathi.nabhi.manthan`). |
 | **Pravaha** | Execution | Step-level capability dispatch, retries, and quarantine (`sarathi.nabhi.pravaha`). |
 | **Shakti** | Capabilities | Document intelligence capabilities (OCR, Translation, Fonts, Banking, Statutory). |
-| **Yantra** | Hardware Concurrency | Generic hardware discovery and device capacity scheduling. |
+| **Yantra** | Hardware Concurrency & Governor | Hardware discovery, device capacity scheduling, and process memory lease governance. |
 | **Kavacha** | Security | Fail-closed authorization, path containment, and privacy enforcement. |
 | **Smriti** | Result Cache | Optional deterministic cryptographic result caching across runs. |
 | **Darpana** | Telemetry | Operational timing (Maruti) and quality observations (Pramana). |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pymupdf
@@ -349,6 +350,7 @@ def read_pdf(
     use_layout: bool = False,
     convert_legacy_fonts: bool = True,
     password: str | None = None,
+    source_path: Path | str | None = None,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract full text, pages, rich text spans, and tables from a native PDF document."""
     fallback_warning: WarningRecord | None = None
@@ -366,6 +368,7 @@ def read_pdf(
                     skip_header_footer=skip_header_footer,
                     convert_legacy_fonts=convert_legacy_fonts,
                     password=password,
+                    source_path=source_path,
                 )
 
             fallback_warning = WarningRecord(
@@ -396,7 +399,10 @@ def read_pdf(
 
     GLOBAL_PYMUPDF_LOCK.acquire()
     try:
-        doc = pymupdf.open(stream=data, filetype="pdf")
+        if source_path is not None and Path(source_path).is_file():
+            doc = pymupdf.open(str(source_path))
+        else:
+            doc = pymupdf.open(stream=data, filetype="pdf")
         if doc.is_encrypted:
             if password:
                 auth_success = bool(doc.authenticate(password))

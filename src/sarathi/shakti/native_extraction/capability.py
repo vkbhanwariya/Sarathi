@@ -41,6 +41,7 @@ def read_pdf(
     skip_header_footer: bool = False,
     convert_legacy_fonts: bool = True,
     password: str | None = None,
+    source_path: Path | str | None = None,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Load the PDF reader only when a PDF is actually processed."""
     from sarathi.shakti.native_extraction.readers.pdf import read_pdf as _read_pdf
@@ -52,6 +53,7 @@ def read_pdf(
         skip_header_footer=skip_header_footer,
         convert_legacy_fonts=convert_legacy_fonts,
         password=password,
+        source_path=source_path,
     )
 
 
@@ -371,7 +373,10 @@ class NativeExtractionCapability:
                         skip_header_footer=skip_header_footer,
                         convert_legacy_fonts=convert_legacy,
                         password=pw,
+                        source_path=inp.source_path,
                     )
+                elif fmt in (DetectedFormat.PPTX, DetectedFormat.RTF):
+                    doc, provs, warns = reader(data, inp.input_id, source_path=inp.source_path)
                 else:
                     doc, provs, warns = reader(data, inp.input_id)
 

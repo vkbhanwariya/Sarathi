@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from sarathi.sankalpa import (
@@ -61,6 +62,7 @@ def read_document_with_xberg(
     filename: str | None = None,
     skip_header_footer: bool = False,
     password: str | None = None,
+    source_path: Path | str | None = None,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract structured document content, pages, headings, and tables using Xberg."""
     import xberg
@@ -79,12 +81,20 @@ def read_document_with_xberg(
         pdf_options=pdf_cfg,
         output_format="plain",
     )
-    inp = xberg.ExtractInput(
-        kind="bytes",
-        bytes=data,
-        mime_type=mime_type or "application/pdf",
-        filename=filename,
-    )
+    if source_path is not None and Path(source_path).is_file():
+        inp = xberg.ExtractInput(
+            kind="uri",
+            uri=str(Path(source_path).resolve()),
+            mime_type=mime_type or "application/pdf",
+            filename=filename or Path(source_path).name,
+        )
+    else:
+        inp = xberg.ExtractInput(
+            kind="bytes",
+            bytes=data,
+            mime_type=mime_type or "application/pdf",
+            filename=filename,
+        )
 
     try:
         res = _run_coroutine_sync(xberg.extract(inp, config=cfg))
@@ -230,7 +240,6 @@ def read_document_with_xberg(
             page_number=p.page_number,
             evidence={
                 "reader": "xberg_layout",
-                "legacy_reader": "pymupdf_layout",
                 "engine": "xberg_rust",
                 "page_count": len(pages),
                 "layout_elements_count": len(p.spans),

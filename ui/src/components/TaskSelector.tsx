@@ -215,14 +215,14 @@ export function TaskSelector({
                                           id="param-layout-analysis"
                                           type="button"
                                           class={`toggle-row mini toggle-switch-btn ${layoutAnalysis ? "active" : ""}`}
-                                          title="Use Graph Neural Networks for multi-column flow, table grids, and semantic headers"
+                                          title="Use high-performance Rust layout engine for multi-column flow, table grids, and reading order"
                                           onClick={() => {
                                             onSetLayoutAnalysis(!layoutAnalysis);
                                             onSelectSubtask("documents_extraction", "native");
                                           }}
                                         >
                                           <span class="toggle-switch-slider"></span>
-                                          <span><strong>Deep Layout Analysis (GNN)</strong></span>
+                                          <span><strong>Deep Layout Analysis (Xberg)</strong></span>
                                         </button>
                                       </div>
                                     </div>

@@ -81,7 +81,7 @@ def test_canonical_document_round_trips_losslessly() -> None:
 
     json_str = serialize_result(orig_result)
     assert '"stage_name"' not in json_str
-    assert '"stage": "extraction"' in json_str
+    assert ('"stage":"extraction"' in json_str) or ('"stage": "extraction"' in json_str)
 
     restored = deserialize_result(json_str)
 
@@ -170,7 +170,7 @@ def test_multidocument_envelope_serialization_round_trip() -> None:
     assert is_cacheable_result(res) is True
 
     serialized = serialize_result(res)
-    assert '"_type": "MultiCanonicalDocument"' in serialized
+    assert ('"_type":"MultiCanonicalDocument"' in serialized) or ('"_type": "MultiCanonicalDocument"' in serialized)
 
     restored = deserialize_result(serialized)
     assert isinstance(restored.data, tuple)

@@ -15,6 +15,16 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+try:
+    import orjson
+
+    def _fast_json_dumps(data: Any) -> str:
+        return orjson.dumps(data).decode("utf-8")
+except ImportError:
+
+    def _fast_json_dumps(data: Any) -> str:
+        return json.dumps(data, ensure_ascii=False)
+
 from starlette.applications import Starlette
 from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
@@ -367,14 +377,13 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                     runner_revision = mukha.runner.state_revision
                     is_running = bool(state.active_run and state.active_run.status == "RUNNING")
                     if runner_revision != last_revision or is_running:
-                        serialized = json.dumps(
+                        serialized = _fast_json_dumps(
                             {
                                 "ok": True,
                                 "schema_version": state.schema_version,
                                 "state_revision": state.state_revision,
                                 "state": _serialize_dataclass(state),
-                            },
-                            ensure_ascii=False,
+                            }
                         )
                         if serialized != last_serialized or runner_revision != last_revision:
                             last_serialized = serialized

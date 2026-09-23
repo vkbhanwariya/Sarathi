@@ -19,6 +19,22 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    import orjson
+
+    def _history_dumps(obj: Any) -> str:
+        return orjson.dumps(obj).decode("utf-8")
+
+    def _history_loads(s: str | bytes) -> Any:
+        return orjson.loads(s)
+except ImportError:
+
+    def _history_dumps(obj: Any) -> str:
+        return json.dumps(obj, ensure_ascii=False)
+
+    def _history_loads(s: str | bytes) -> Any:
+        return json.loads(s)
+
 _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 _SAFE_ISO_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$")
 _SAFE_REL_PATH_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_.\-]+)*$")
@@ -203,7 +219,7 @@ class TerminalRunHistoryStore:
                                     tail_lines.append(stripped)
 
                     # Append new record (deque automatically maintains maxlen=self._max_records)
-                    new_line = json.dumps(summary.to_dict(), ensure_ascii=False)
+                    new_line = _history_dumps(summary.to_dict())
                     tail_lines.append(new_line)
 
                     # Atomic write
@@ -282,9 +298,9 @@ class TerminalRunHistoryStore:
 
                     for line in reversed(bounded_tail):
                         try:
-                            data = json.loads(line)
+                            data = _history_loads(line)
                             results.append(TerminalRunSummary.from_dict(data))
-                        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                        except Exception:
                             continue
                     return tuple(results)
 

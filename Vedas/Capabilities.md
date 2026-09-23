@@ -35,7 +35,10 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 - **Engine**: RapidOCR targeting Intel Arc iGPU via OpenVINO (`>=2026.4.0`) with persistent shader cache (`Runtime/Cache/openvino_model_cache`).
 - **Models**: PP-OCRv5 Devanagari (`rec_devanagari`, Hindi + English alphanumeric) and PP-OCRv6 English (`rec_v6_en`).
 - **Optimization & Layout**:
-  - Pure-Python Recursive XY-Cut partitioning for spatial reading order reconstruction.
+  - Pure-Python Recursive XY-Cut partitioning and spatial reading order reconstruction.
+  - Horizontal column-gutter isolation preventing cross-column row combining in multi-column layouts and borderless statements.
+  - Baseline-anchored vowel matra jitter tolerance preserving Devanagari word integrity.
+  - Terminal punctuation-aware paragraph continuity tracking across line boundaries.
   - Same-engine weak-crop retry on low-confidence spans with CLAHE/contrast enhancement.
   - Consequence-driven verification: elevated retry (0.85) and review (0.90) thresholds for currency, amounts, statutory IDs, dates, and legal sections.
   - Content-addressed per-page checkpoint cache (`Runtime/Cache/ocr_checkpoints/`) for instant recovery.
@@ -97,5 +100,5 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 | :--- | :--- | :--- | :--- |
 | **`INSTANT`** | Throughput-optimized single pass | Bypasses crop angle classifier (`use_cls=False`); standard RapidOCR resolution. | Fast single-pass native extraction; standard reconciliation heuristics. |
 | **`ACCURATE`** | Quality-optimized multi-pass | Full image preprocessing (CLAHE, deskew, binarization); full angle classification (`use_cls=True`); same-engine weak-crop retry. | Strict balance verification, bi-directional anchoring, inversion detection, deduplication. |
-| **`LAYOUT_PRESERVING`** | Spatial structure preservation | Full preprocessing, orientation classification, and Recursive XY-Cut spatial partitioning. | Multi-column flow preservation, block boundary isolation. |
+| **`LAYOUT_PRESERVING`** | Spatial structure preservation | Full preprocessing, orientation classification, and Recursive XY-Cut spatial partitioning. | Multi-column flow preservation, Xberg Rust reading-order recovery, table reconstruction, and block boundary isolation. |
 | **`CUSTOM`** | Parameter-controlled execution | Configured via `request.custom_options` (model overrides, angle thresholds, DPI). | Custom validation thresholds and options. |

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sarathi.sankalpa import (
     CanonicalDocument,
     ProvenanceRecord,
@@ -24,6 +26,7 @@ def read_pdf_with_layout(
     skip_header_footer: bool = False,
     convert_legacy_fonts: bool = True,
     password: str | None = None,
+    source_path: Path | str | None = None,
 ) -> tuple[CanonicalDocument, tuple[ProvenanceRecord, ...], tuple[WarningRecord, ...]]:
     """Extract structured document content, reading order, and tables using Xberg Rust layout analysis."""
     return read_document_with_xberg(
@@ -32,4 +35,5 @@ def read_pdf_with_layout(
         mime_type="application/pdf",
         skip_header_footer=skip_header_footer,
         password=password,
+        source_path=source_path,
     )

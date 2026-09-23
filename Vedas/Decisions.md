@@ -10,7 +10,7 @@ The Home screen user-facing processing choices are structured into **Four Primar
 
 | Parent Task | Second-Level Choice | Mode / Scope | Target Requirement | Target Profile / Custom Options |
 | :--- | :--- | :--- | :--- | :--- |
-| **1. Documents Extraction** | **Native Extraction** | Direct text & table extraction; auto-converts legacy fonts | `read_native` | `instant` (or `layout_preserving` with GNN layout analysis) |
+| **1. Documents Extraction** | **Native Extraction** | Direct text & table extraction; auto-converts legacy fonts | `read_native` | `instant` (or `layout_preserving` with Xberg Rust layout analysis) |
 | | **Instant OCR** | Speed-optimized single-pass OCR | `ocr` | `instant` |
 | | **Accurate OCR** | Multi-pass OCR with weak-crop retry | `ocr` | `accurate` |
 | | **Cloud OCR** | Delegated remote OCR (Gemini, Mistral, Azure) | `ocr` (cloud) | `custom` (`provider: gemini \| mistral \| azure`) |

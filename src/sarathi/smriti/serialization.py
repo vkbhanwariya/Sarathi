@@ -14,6 +14,22 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+try:
+    import orjson
+
+    def _fast_json_dumps(data: Any) -> str:
+        return orjson.dumps(data, option=orjson.OPT_SORT_KEYS).decode("utf-8")
+
+    def _fast_json_loads(data: str | bytes) -> Any:
+        return orjson.loads(data)
+except ImportError:
+
+    def _fast_json_dumps(data: Any) -> str:
+        return json.dumps(data, indent=None, sort_keys=True)
+
+    def _fast_json_loads(data: str | bytes) -> Any:
+        return json.loads(data)
+
 from sarathi.sankalpa import (
     ArtifactIntent,
     ArtifactPayload,
@@ -345,12 +361,12 @@ def serialize_result(result: Result, artifacts_dir: Path | None = None) -> str:
         "resume_self": result.resume_self,
         "metadata": _serialize_metadata(result.metadata),
     }
-    return json.dumps(raw, indent=None, sort_keys=True)
+    return _fast_json_dumps(raw)
 
 
 def deserialize_result(json_str: str, artifacts_dir: Path | None = None) -> Result:
     """Deserialize JSON string back into canonical Result dataclass."""
-    raw = json.loads(json_str)
+    raw = _fast_json_loads(json_str)
 
     d = raw.get("data")
     if not d or not isinstance(d, dict) or d.get("_type") not in ("CanonicalDocument", "MultiCanonicalDocument"):

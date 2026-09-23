@@ -8,6 +8,7 @@ dependencies = [
     "charset-normalizer>=3.5.1",
     "defusedxml>=0.7.1",
     "openpyxl>=3.1.5",
+    "orjson>=3.12.0",
     "polars>=1.44.2",
     "pymupdf==1.28.2",
     "python-calamine>=0.8.2",
@@ -78,7 +79,7 @@ markers = [
     "real_model: marks tests that require downloading or running real neural model weights (deselect with '-m \"not real_model\"')",
     "model_asset: marks tests that require local model asset files",
     "slow: marks intentionally slower integration or end-to-end tests",
-    "layout: marks CPU-intensive GNN layout analysis tests",
+    "layout: marks layout analysis tests",
 ]
 
 [tool.ruff]

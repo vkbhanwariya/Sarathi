@@ -29,8 +29,8 @@ class CacheKey:
 
 
 def compute_input_fingerprint(inputs: tuple[InputRef, ...]) -> str:
-    """Compute a stable, privacy-safe SHA-256 fingerprint from factual input content streamed in request order."""
-    hasher = hashlib.sha256()
+    """Compute a stable, privacy-safe 256-bit fingerprint from factual input content streamed in request order."""
+    hasher = hashlib.blake2b(digest_size=32)
     hasher.update(f"COUNT:{len(inputs)}:".encode())
     for idx, inp in enumerate(inputs):
         hasher.update(
@@ -77,7 +77,7 @@ def _to_digest_serializable(obj: Any) -> Any:
 
 def _hash_canonical_document(doc: CanonicalDocument) -> str:
     """Compute deterministic hash of a CanonicalDocument content, layout, and structure."""
-    doc_hasher = hashlib.sha256()
+    doc_hasher = hashlib.blake2b(digest_size=32)
     doc_hasher.update(doc.text.encode("utf-8"))
 
     for page in doc.pages:
@@ -131,24 +131,24 @@ def compute_prior_result_digest(prior_result: Result | None) -> str:
     if isinstance(prior_result.data, CanonicalDocument):
         doc_material = _hash_canonical_document(prior_result.data)
         material = f"{doc_material}:{prov_hash}"
-        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+        return hashlib.blake2b(material.encode("utf-8"), digest_size=32).hexdigest()
 
     if isinstance(prior_result.data, (tuple, list)) and all(
         isinstance(d, CanonicalDocument) for d in prior_result.data
     ):
         doc_hashes = "|".join(_hash_canonical_document(d) for d in prior_result.data)
         material = f"multi:{len(prior_result.data)}:{doc_hashes}:{prov_hash}"
-        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+        return hashlib.blake2b(material.encode("utf-8"), digest_size=32).hexdigest()
 
     # Deterministic factual serialization for dataclasses / dicts / sequences / generic types
     try:
         data_serializable = _to_digest_serializable(prior_result.data)
         data_str = json.dumps(data_serializable, sort_keys=True, default=str)
         material = f"{type(prior_result.data).__name__}:{data_str}:{prov_hash}"
-        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+        return hashlib.blake2b(material.encode("utf-8"), digest_size=32).hexdigest()
     except Exception:
         data_type_name = type(prior_result.data).__name__
-        return hashlib.sha256(f"{data_type_name}:{prov_hash}".encode()).hexdigest()
+        return hashlib.blake2b(f"{data_type_name}:{prov_hash}".encode(), digest_size=32).hexdigest()
 
 
 def compute_cache_key(
@@ -177,7 +177,7 @@ def compute_cache_key(
         f"{capability_id}:{plugin_version}:{request.requirement}:{request.profile.value}:{effective_asset_version}:"
         f"{fingerprint}:{options_str}:{metadata_str}:{prior_digest}"
     )
-    key_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    key_hash = hashlib.blake2b(content.encode("utf-8"), digest_size=32).hexdigest()
 
     return CacheKey(
         capability_id=capability_id,

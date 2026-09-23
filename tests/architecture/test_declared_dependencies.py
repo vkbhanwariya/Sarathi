@@ -17,6 +17,7 @@ KNOWN_IMPORT_MAPPING: dict[str, set[str]] = {
     "defusedxml": {"defusedxml"},
     "openpyxl": {"openpyxl"},
     "polars": {"polars"},
+    "orjson": {"orjson"},
     "pymupdf": {"pymupdf", "fitz"},
     "xberg": {"xberg"},
     "python-calamine": {"calamine", "python_calamine"},

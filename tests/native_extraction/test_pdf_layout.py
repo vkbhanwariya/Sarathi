@@ -60,14 +60,14 @@ def test_read_pdf_with_layout_extracts_headings_and_semantics(sample_pdf_bytes: 
     # Verify provenance records layout engine execution
     assert len(provs) == 1
     p = provs[0]
-    assert p.evidence["reader"] in ("xberg_layout", "pymupdf_layout")
+    assert p.evidence["reader"] == "xberg_layout"
     assert p.evidence["layout_elements_count"] > 0
 
 
 def test_read_pdf_layout_dispatch(sample_pdf_bytes: bytes) -> None:
     """read_pdf dispatches to read_pdf_with_layout when use_layout=True."""
     mock_doc = CanonicalDocument(document_id="inp-dispatch", text="Sample", pages=())
-    mock_prov = ProvenanceRecord(evidence={"reader": "pymupdf_layout"})
+    mock_prov = ProvenanceRecord(evidence={"reader": "xberg_layout"})
     with patch(
         "sarathi.shakti.native_extraction.readers.pdf_layout.read_pdf_with_layout",
         return_value=(mock_doc, [mock_prov], []),
@@ -75,7 +75,7 @@ def test_read_pdf_layout_dispatch(sample_pdf_bytes: bytes) -> None:
         doc, provs, warns = read_pdf(sample_pdf_bytes, "inp-dispatch", use_layout=True)
         assert mock_layout.called
         assert doc is mock_doc
-        assert any(p.evidence.get("reader") == "pymupdf_layout" for p in provs)
+        assert any(p.evidence.get("reader") == "xberg_layout" for p in provs)
         assert not any(w.code == "LAYOUT_PACKAGE_UNAVAILABLE" for w in warns)
 
 
@@ -96,10 +96,10 @@ def test_read_pdf_layout_fallback_when_unavailable(sample_pdf_bytes: bytes) -> N
 
 
 def test_read_pdf_layout_fallback_on_runtime_error(sample_pdf_bytes: bytes) -> None:
-    """read_pdf gracefully falls back to standard PyMuPDF if GNN execution raises an unexpected error."""
+    """read_pdf gracefully falls back to standard PyMuPDF if layout execution raises an unexpected error."""
     with patch(
         "sarathi.shakti.native_extraction.readers.pdf_layout.read_pdf_with_layout",
-        side_effect=RuntimeError("GNN inference failed unexpectedly"),
+        side_effect=RuntimeError("Layout extraction failed unexpectedly"),
     ):
         doc, provs, warns = read_pdf(sample_pdf_bytes, "inp-err-fallback", use_layout=True)
 
@@ -143,7 +143,7 @@ def test_native_extraction_capability_with_layout_analysis(tmp_path: Path) -> No
     assert "Executive Summary" in doc.text
 
     # Provenance confirms layout engine was used
-    assert any(p.evidence.get("reader") in ("xberg_layout", "pymupdf_layout") for p in res.provenance)
+    assert any(p.evidence.get("reader") == "xberg_layout" for p in res.provenance)
 
 
 def test_spatial_word_reconstruction_and_paragraph_breaks() -> None:
