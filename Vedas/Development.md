@@ -56,3 +56,20 @@ npm ci              # Install dependencies
 npm run build       # Compile single-page application to src/sarathi/mukha/web/ui/
 npm run dev         # Launch Vite loopback dev server on 127.0.0.1:5173
 ```
+
+---
+
+## 5. Cache & Runtime Workspace Maintenance
+
+To reset intermediate caches, shader caches, or clean test artifacts:
+
+```powershell
+# 1. Clean uv package download cache
+uv cache clean
+
+# 2. Reset OpenVINO shader cache & Sarathi runtime databases
+Remove-Item -Recurse -Force Runtime\Cache\openvino_model_cache\*, Runtime\Cache\artifacts\*, Runtime\Cache\smriti.db*, Runtime\Work\* -ErrorAction SilentlyContinue
+
+# 3. Clean Ruff and Pytest temporary caches
+Remove-Item -Recurse -Force .ruff_cache, .pytest_cache -ErrorAction SilentlyContinue
+```
