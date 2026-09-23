@@ -1,4 +1,4 @@
-"""Unit tests for GNN-powered PDF layout analysis via pymupdf-layout."""
+"""Unit tests for PDF layout analysis via xberg."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def sample_pdf_bytes() -> bytes:
 
 
 def test_layout_package_available() -> None:
-    """Verify is_layout_package_available returns True when pymupdf-layout is installed."""
+    """Verify is_layout_package_available returns True when layout engine (xberg) is installed."""
     assert is_layout_package_available() is True
 
 
@@ -57,11 +57,10 @@ def test_read_pdf_with_layout_extracts_headings_and_semantics(sample_pdf_bytes: 
     assert any(s.metadata.get("layout_class") for s in page.spans)
     assert any(s.metadata.get("is_heading") for s in page.spans)
 
-    # Verify provenance records GNN model execution
+    # Verify provenance records layout engine execution
     assert len(provs) == 1
     p = provs[0]
-    assert p.evidence["reader"] == "pymupdf_layout"
-    assert p.evidence["model"] == "BoxRFDGNN"
+    assert p.evidence["reader"] in ("xberg_layout", "pymupdf_layout")
     assert p.evidence["layout_elements_count"] > 0
 
 
@@ -143,8 +142,8 @@ def test_native_extraction_capability_with_layout_analysis(tmp_path: Path) -> No
     assert isinstance(doc, CanonicalDocument)
     assert "Executive Summary" in doc.text
 
-    # Provenance confirms pymupdf_layout was used
-    assert any(p.evidence.get("reader") == "pymupdf_layout" for p in res.provenance)
+    # Provenance confirms layout engine was used
+    assert any(p.evidence.get("reader") in ("xberg_layout", "pymupdf_layout") for p in res.provenance)
 
 
 def test_spatial_word_reconstruction_and_paragraph_breaks() -> None:

@@ -473,7 +473,17 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
         line_h = max(1.0, min(py1 - py0, sy1 - sy0))
         v_overlap = max(0.0, min(py1, sy1) - max(py0, sy0))
 
-        if v_overlap >= 0.45 * line_h:
+        # Check horizontal distance between prev span and current span
+        # If spans jump across columns (e.g. gutter gap > 35px or negative jump backwards), they cannot be in the same line!
+        h_gap = s.bounding_box[0] - prev_box[2]
+        is_same_column = -15.0 <= h_gap <= max(40.0, 3.0 * line_h)
+
+        # Vertical overlap check with Hindi matra and descender jitter tolerance:
+        # If horizontally contiguous (h_gap <= 25.0), allow slight vertical center deviation for matras
+        center_y_diff = abs((sy0 + sy1) / 2.0 - (py0 + py1) / 2.0)
+        is_vertically_aligned = (v_overlap >= 0.45 * line_h) or (h_gap <= 25.0 and center_y_diff <= 0.40 * line_h)
+
+        if is_vertically_aligned and is_same_column:
             curr_line_spans.append(s)
         else:
             sorted_line = sorted(
@@ -532,7 +542,7 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
     max_x1 = max((ln.x1 for ln in lines), default=100.0)
 
     # Infer headings and apply markdown prefix (# or ##) to visual lines
-    _TERMINAL_PUNCT = (".", "।", "!", "?", ";")
+    _TERMINAL_PUNCT = (".", "।", "!", "?", ";", ":")
     for ln in lines:
         if ln.text and not ln.text.startswith(("# ", "## ", "### ")):
             bbox = (ln.x0, ln.y0, ln.x1, ln.y1)
@@ -554,7 +564,7 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
                     else:
                         ln.text = f"## {ln.text}"
 
-    # 2. Join lines into paragraphs based on geometry
+    # 2. Join lines into paragraphs based on geometry and syntax
     para_blocks: list[str] = []
     curr_block: list[str] = [lines[0].text]
     prev = lines[0]
@@ -562,8 +572,8 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
     for curr in lines[1:]:
         gap = curr.y0 - prev.y1
 
-        # 1. Vertical gap exceeds paragraph pitch
-        is_large_gap = gap >= max(10.0, median_h * 1.25)
+        # 1. Genuine large vertical gap exceeds paragraph pitch
+        is_large_gap = gap >= max(10.0, median_h * 1.85)
 
         # 2. Heading line
         is_heading = (curr.max_h >= 1.35 * median_h) or curr.text.startswith(("# ", "## ", "### "))
@@ -572,21 +582,39 @@ def group_paragraphs(spans: Sequence[TextSpan]) -> str:
         # 3. List bullet item
         is_list_item = bool(_LIST_BULLET_RE.match(curr.text))
 
-        # 4. Previous line ended significantly early (terminal line of paragraph)
+        # 4. Previous line ended with terminal punctuation AND ended significantly early (terminal line of paragraph)
+        prev_has_terminal_punct = prev.text.strip().endswith(_TERMINAL_PUNCT)
         is_prev_short = (
-            (prev.x1 < max_x1 - 2.5 * median_h)
+            prev_has_terminal_punct
+            and (prev.x1 < max_x1 - 2.5 * median_h)
             and ((prev.x1 - prev.x0) < 0.70 * max_w)
             and (gap >= 0.3 * median_h)
             and not was_heading
         )
 
-        # 5. Indentation at the start of a paragraph
-        is_indented = (curr.x0 >= min_x0 + 1.5 * median_h) and (gap >= 0.5 * median_h)
+        # 5. Indentation at the start of a paragraph (requires prev line to have ended a thought or reasonable gap)
+        is_indented = (
+            (curr.x0 >= min_x0 + 1.5 * median_h)
+            and (gap >= 0.5 * median_h)
+            and (prev_has_terminal_punct or gap >= 0.85 * median_h)
+        )
 
         # 6. Horizontal column jump
         is_column_jump = (curr.x0 > prev.x1 + 30.0) or (curr.y0 < prev.y0 - 2.0 * median_h)
 
-        if is_large_gap or is_heading or was_heading or is_list_item or is_prev_short or is_indented or is_column_jump:
+        # 7. Moderate gap with terminal punctuation (gap between 1.20*median_h and 1.85*median_h)
+        is_moderate_gap_with_punct = (gap >= max(10.0, median_h * 1.20)) and prev_has_terminal_punct
+
+        if (
+            is_large_gap
+            or is_moderate_gap_with_punct
+            or is_heading
+            or was_heading
+            or is_list_item
+            or is_prev_short
+            or is_indented
+            or is_column_jump
+        ):
             para_blocks.append(" ".join(curr_block))
             curr_block = [curr.text]
         else:

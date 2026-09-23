@@ -334,7 +334,14 @@ class TestResourceAllocation:
         assert yantra._allocator.get_available_capacity("cpu-0") == 12
 
     def test_yantra_exports_only_public_symbols(self) -> None:
-        expected = {"Allocation", "DeviceInfo", "DeviceInventory", "Yantra"}
+        expected = {
+            "Allocation",
+            "DeviceInfo",
+            "DeviceInventory",
+            "MemoryLease",
+            "MemoryLeaseGuard",
+            "Yantra",
+        }
         assert set(yantra_module.__all__) == expected
         assert "ResourceAllocator" not in yantra_module.__all__
         for name in expected:

@@ -27,6 +27,8 @@ class DetectedFormat(Enum):
     HTML_TABLE = "html_table"
     SPREADSHEET_ML = "spreadsheet_ml"
     CSV_OR_TEXT = "csv_or_text"
+    PPTX = "pptx"
+    RTF = "rtf"
     UNKNOWN = "unknown"
 
 
@@ -49,7 +51,11 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
     if _PDF_MAGIC in header_1k:
         return DetectedFormat.PDF
 
-    # 2. OLE / Legacy BIFF .xls or Word .doc detection
+    # 2. RTF detection
+    if data.startswith(b"{\\rtf"):
+        return DetectedFormat.RTF
+
+    # 3. OLE / Legacy BIFF .xls or Word .doc detection
     # OLE magic alone proves compound container. Inspect directory stream names.
     if data.startswith(_OLE_MAGIC):
         scan_buf = data[:8192]
@@ -65,13 +71,15 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
     if data.startswith(b"\x09\x08") or data.startswith(b"\x09\x04") or data.startswith(b"\x09\x02"):
         return DetectedFormat.XLS_LEGACY
 
-    # 3. ZIP / DOCX / XLSX / XLSM detection
+    # 4. ZIP / DOCX / XLSX / PPTX detection
     if data.startswith(_ZIP_MAGIC):
         try:
             with open_zip_safely(data) as zf:
                 namelist = zf.namelist()
                 if "word/document.xml" in namelist:
                     return DetectedFormat.DOCX
+                if "ppt/presentation.xml" in namelist:
+                    return DetectedFormat.PPTX
                 if "[Content_Types].xml" in namelist and any(
                     "xl/workbook" in name or "xl/worksheets" in name for name in namelist
                 ):

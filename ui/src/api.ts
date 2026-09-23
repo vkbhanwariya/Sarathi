@@ -202,3 +202,12 @@ export async function fetchDocumentPreview(pathOrUrl: string): Promise<DocumentP
 export async function fetchPdfPage(pageUrl: string): Promise<DocumentPreviewData> {
   return getJson<DocumentPreviewData>(pageUrl);
 }
+
+export async function warmupTranslation(): Promise<boolean> {
+  try {
+    const payload = await postJson<ApiEnvelope>("/api/capabilities/translation/warmup");
+    return Boolean(payload.ok);
+  } catch {
+    return false;
+  }
+}

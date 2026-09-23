@@ -64,15 +64,6 @@ export interface TranslationEngineDef {
 
 export const TRANSLATION_ENGINES: readonly TranslationEngineDef[] = [
   {
-    id: "indictrans2",
-    actionId: "translation",
-    label: "IndicTrans2 (Local)",
-    tag: "INDICTRANS2",
-    isCloud: false,
-    desc: "AI4Bharat IndicTrans2 local Transformer. Optimized for high-fidelity 22 Indian languages.",
-    code: "translation:indictrans2",
-  },
-  {
     id: "krutrim",
     actionId: "translation",
     label: "Krutrim-Translate (Local)",
@@ -80,15 +71,6 @@ export const TRANSLATION_ENGINES: readonly TranslationEngineDef[] = [
     isCloud: false,
     desc: "Krutrim-Translate 4096-token CTranslate2 Transformer. Extended context for legal clauses.",
     code: "translation:krutrim",
-  },
-  {
-    id: "opus_mt",
-    actionId: "translation",
-    label: "Helsinki OPUS-MT (Local)",
-    tag: "OPUS-MT",
-    isCloud: false,
-    desc: "Fast Marian-based neural translation engine running fully offline and local.",
-    code: "translation:opus_mt",
   },
 ];
 

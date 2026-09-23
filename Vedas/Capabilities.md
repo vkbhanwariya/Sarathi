@@ -20,7 +20,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 ---
 
 ## 1. Native Extraction (`native_extraction`)
-- **Engine**: PyMuPDF (`pymupdf`) vector text and character bounding box extraction. Deep GNN layout recovery via `pymupdf-layout` under `layout_preserving` profile.
+- **Engine**: PyMuPDF (`pymupdf`) vector text and character bounding box extraction. High-performance Rust layout and reading-order recovery via `xberg` under `layout_preserving` profile (also powers native PPTX and RTF extraction).
 - **Format Coverage**:
   - *Spreadsheets*: Modern XLSX/XLSM (`python-calamine` / `openpyxl`), legacy BIFF8 XLS (Calamine / `xlrd`), XML SpreadsheetML 2003, and HTML tables disguised as `.xls`.
   - *Delimited Text*: CSV, TSV, semicolon, pipe (dialect auto-sniffed via `csv.Sniffer`, memory-efficient columnar parsing via `polars`).

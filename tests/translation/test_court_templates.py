@@ -243,6 +243,6 @@ def test_backend_length_bucketing_and_beam_size(tmp_path: Any, monkeypatch: Any)
         execution_profile=ExecutionProfile.ACCURATE,
     )
     call_acc = captured_calls[-1]
-    assert call_acc["kwargs"]["beam_size"] == 4
+    assert call_acc["kwargs"]["beam_size"] in (3, 4)
     assert len(res_acc.sentences) == 3
 

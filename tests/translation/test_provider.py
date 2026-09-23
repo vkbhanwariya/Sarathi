@@ -212,7 +212,7 @@ def test_native_backend_exports_and_translate_delegation() -> None:
         texts=["परीक्षण"],
         direction=TranslationDirection.HI_TO_EN,
         execution_binding=None,
-        engine="indictrans2",
+        engine="krutrim",
         glossary_terms=None,
         custom_terms=(),
     )

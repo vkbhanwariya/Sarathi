@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from sarathi.yantra.devices import DeviceInfo, DeviceInventory
 from sarathi.yantra.manager import Yantra
-from sarathi.yantra.resources import Allocation
+from sarathi.yantra.resources import Allocation, MemoryLease, MemoryLeaseGuard
 
 __all__ = [
     "Allocation",
     "DeviceInfo",
     "DeviceInventory",
+    "MemoryLease",
+    "MemoryLeaseGuard",
     "Yantra",
 ]

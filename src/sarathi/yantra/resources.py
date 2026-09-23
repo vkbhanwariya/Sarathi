@@ -67,6 +67,206 @@ class Allocation:
             yield
 
 
+def get_system_memory() -> tuple[int, int]:
+    """Return factual (total_physical_bytes, available_physical_bytes) for the host system."""
+    import os
+
+    # 1. Windows kernel32 GlobalMemoryStatusEx
+    try:
+        import ctypes
+
+        class _MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        stat = _MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+        if hasattr(ctypes, "windll") and hasattr(ctypes.windll, "kernel32"):
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return int(stat.ullTotalPhys), int(stat.ullAvailPhys)
+    except Exception:
+        pass
+
+    # 2. POSIX sysconf fallback
+    if hasattr(os, "sysconf"):
+        try:
+            pages = os.sysconf("SC_PHYS_PAGES")
+            avail_pages = os.sysconf("SC_AVPHYS_PAGES")
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            if (
+                isinstance(pages, int)
+                and isinstance(avail_pages, int)
+                and isinstance(page_size, int)
+                and pages > 0
+                and page_size > 0
+            ):
+                return pages * page_size, avail_pages * page_size
+        except Exception:
+            pass
+
+    # 3. Reference hardware default (24 GB physical, 12 GB available)
+    return 24 * 1024 * 1024 * 1024, 12 * 1024 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryLease:
+    """Immutable record of an approved memory lease."""
+
+    lease_id: str
+    bytes_granted: int
+    created_at_mono: float
+
+
+class MemoryLeaseGuard:
+    """Thread-safe global memory governor preventing process crash and out-of-memory errors.
+
+    Guards against memory saturation across concurrent rasterization, neural translation
+    inference, large tabular Polars extractions, and OCR operations.
+    Enforces an upper process memory budget (default 75% of physical RAM, or ~18 GiB on 24 GB host)
+    and preserves strict minimum headroom for the OS and background services.
+    """
+
+    def __init__(
+        self,
+        total_phys_bytes: int | None = None,
+        max_budget_bytes: int | None = None,
+        min_headroom_bytes: int = 3 * 1024 * 1024 * 1024,
+    ) -> None:
+        tot, _ = get_system_memory()
+        self._total_phys: int = total_phys_bytes if total_phys_bytes is not None else tot
+        if max_budget_bytes is not None:
+            self._max_budget: int = max_budget_bytes
+        else:
+            self._max_budget = int(self._total_phys * 0.75)
+
+        self._min_headroom: int = min_headroom_bytes
+        self._lock: threading.Lock = threading.Lock()
+        self._cv: threading.Condition = threading.Condition(self._lock)
+        self._active_leases: dict[str, int] = {}
+        self._counter: int = 0
+        self._is_closed: bool = False
+
+    @property
+    def total_physical_bytes(self) -> int:
+        """Return total physical system RAM in bytes."""
+        return self._total_phys
+
+    @property
+    def max_budget_bytes(self) -> int:
+        """Return maximum allowable process memory budget in bytes."""
+        return self._max_budget
+
+    @property
+    def min_headroom_bytes(self) -> int:
+        """Return minimum required free physical memory headroom in bytes."""
+        return self._min_headroom
+
+    @property
+    def active_leased_bytes(self) -> int:
+        """Return total bytes currently leased across active operations."""
+        with self._lock:
+            return sum(self._active_leases.values())
+
+    @property
+    def is_closed(self) -> bool:
+        """Return True if memory guard is closed."""
+        with self._lock:
+            return self._is_closed
+
+    def get_status(self) -> dict[str, int]:
+        """Return current factual memory governor metrics."""
+        _, avail = get_system_memory()
+        with self._lock:
+            leased = sum(self._active_leases.values())
+            return {
+                "total_physical_bytes": self._total_phys,
+                "available_physical_bytes": avail,
+                "active_leased_bytes": leased,
+                "max_budget_bytes": self._max_budget,
+                "min_headroom_bytes": self._min_headroom,
+                "active_lease_count": len(self._active_leases),
+            }
+
+    @contextmanager
+    def lease(self, bytes_needed: int, timeout: float | None = None):
+        """Acquire a temporary memory reservation, automatically releasing on context exit.
+
+        Raises:
+            DoshError(FailureCode.RESOURCE_UNAVAILABLE): If memory limit reached or timeout elapsed.
+            ValueError: If bytes_needed <= 0.
+        """
+        if not isinstance(bytes_needed, int) or isinstance(bytes_needed, bool) or bytes_needed <= 0:
+            raise ValueError("bytes_needed must be a positive integer.")
+
+        if bytes_needed > self._max_budget:
+            raise DoshError(
+                code=FailureCode.RESOURCE_UNAVAILABLE,
+                message=(
+                    f"Requested memory lease ({bytes_needed / (1024 * 1024):.1f} MB) exceeds maximum "
+                    f"configured budget ({self._max_budget / (1024 * 1024):.1f} MB)."
+                ),
+            )
+
+        start_time = time.monotonic()
+        with self._cv:
+            while True:
+                if self._is_closed:
+                    raise DoshError(
+                        code=FailureCode.RESOURCE_UNAVAILABLE,
+                        message="MemoryLeaseGuard is closed.",
+                    )
+
+                curr_leased = sum(self._active_leases.values())
+                _, avail_phys = get_system_memory()
+                headroom_ok = (avail_phys - bytes_needed) >= self._min_headroom if avail_phys > 0 else True
+                budget_ok = (curr_leased + bytes_needed) <= self._max_budget
+
+                if budget_ok and headroom_ok:
+                    self._counter += 1
+                    lease_id = f"lease-{self._counter}"
+                    self._active_leases[lease_id] = bytes_needed
+                    break
+
+                if timeout is not None:
+                    remaining = timeout - (time.monotonic() - start_time)
+                    if remaining <= 0:
+                        raise DoshError(
+                            code=FailureCode.RESOURCE_UNAVAILABLE,
+                            message=(
+                                f"Memory saturated; timed out waiting for {bytes_needed / (1024 * 1024):.1f} MB lease."
+                            ),
+                        )
+                    self._cv.wait(timeout=remaining)
+                else:
+                    self._cv.wait(timeout=0.2)
+
+        try:
+            yield MemoryLease(
+                lease_id=lease_id,
+                bytes_granted=bytes_needed,
+                created_at_mono=time.monotonic(),
+            )
+        finally:
+            with self._cv:
+                self._active_leases.pop(lease_id, None)
+                self._cv.notify_all()
+
+    def close(self) -> None:
+        """Close memory guard, waking all waiting lease requests."""
+        with self._cv:
+            self._is_closed = True
+            self._cv.notify_all()
+
+
 @dataclass
 class _WaitEntry:
     entry_id: str

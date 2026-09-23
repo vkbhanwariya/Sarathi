@@ -108,8 +108,9 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/native_extraction/readers/docx.py` | DOCX OpenXML document reader extracting paragraphs, rich text spans, and tables | **Standard Logic** | `read_docx()` |
 | `shakti/native_extraction/readers/html.py` | HTML table and markup reader leveraging BeautifulSoup | **Standard Logic** | `read_html_table()` |
 | `shakti/native_extraction/readers/pdf.py` | Native PDF format reader leveraging PyMuPDF | **Native PDF Vector / PyMuPDF** | `read_pdf()` |
-| `shakti/native_extraction/readers/pdf_layout.py` | GNN-powered PDF layout analysis reader leveraging pymupdf-layout | **Native PDF Vector / PyMuPDF** | `is_layout_package_available()`, `read_pdf_with_layout()` |
+| `shakti/native_extraction/readers/pdf_layout.py` | High-performance PDF layout analysis reader leveraging the Xberg Rust engine | **Native PDF Vector / PyMuPDF** | `is_layout_package_available()`, `read_pdf_with_layout()` |
 | `shakti/native_extraction/readers/spreadsheet.py` | Spreadsheet format readers supporting modern XLSX/XLSM, legacy binary XLS, and XML Spreadsheet 2003 | **Standard Logic** | `read_xlsx()`, `read_xls_legacy()`, `read_spreadsheet_ml()` |
+| `shakti/native_extraction/readers/xberg_reader.py` | High-performance document extraction reader leveraging the pure-Rust Xberg engine | **Native PDF Vector / PyMuPDF** | `is_xberg_available()`, `read_document_with_xberg()` |
 | `shakti/native_extraction/safe_zip.py` | Safe ZIP Archive and XML Processing Engine for Native Extraction | **Standard Logic** | — |
 | `shakti/ocr/capability.py` | Executable Capability for OCR Phase 1 | **Standard Logic** | `OCRCapability` |
 | `shakti/ocr/engine/checkpoint.py` | Content-addressed per-page OCR checkpoint cache for atomic resumption and crash recovery | **Primary iGPU (OpenVINO FP16)** | `get_default_checkpoint_dir()`, `compute_doc_hash()`, `compute_params_hash()`, `get_checkpoint_path()`, `serialize_page_data()` |
@@ -165,7 +166,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | :--- | :--- | :--- | :--- |
 | `yantra/devices.py` | Device inventory contracts for Yantra Resource Manager in Sarathi | **Multi-core CPU (Neural AVX2)** | `DeviceInfo`, `DeviceInventory` |
 | `yantra/manager.py` | Yantra - Resource & Execution Manager for Sarathi | **Hardware Scheduling** | `Yantra` |
-| `yantra/resources.py` | Resource allocation engine for Yantra in Sarathi | **Hardware Scheduling** | `Allocation` |
+| `yantra/resources.py` | Resource allocation engine for Yantra in Sarathi | **Hardware Scheduling** | `Allocation`, `MemoryLease`, `MemoryLeaseGuard`, `get_system_memory()` |
 
 ## Kavacha (Security Boundaries & Privacy Enforcement)
 

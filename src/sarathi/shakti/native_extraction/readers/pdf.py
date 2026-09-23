@@ -370,7 +370,7 @@ def read_pdf(
 
             fallback_warning = WarningRecord(
                 code="LAYOUT_PACKAGE_UNAVAILABLE",
-                message="pymupdf-layout package is not installed; falling back to standard PyMuPDF reader.",
+                message="Layout engine (xberg) is not installed; falling back to standard PyMuPDF reader.",
                 stage=CAPABILITY_ID,
             )
         except Exception as exc:

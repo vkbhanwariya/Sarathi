@@ -202,8 +202,8 @@ class TranslationProtector(BaseSpanProtector):
         spans: Sequence[Any],
     ) -> tuple[str, list[dict[str, Any]]]:
         """Restore all protected spans with integrity validation."""
-        # Normalize any whitespace inserted inside numeric placeholders by tokenizer/model
-        text = re.sub(r"9\s*9\s*9\s*(\d{4})", r"999\1", text)
+        # Normalize any whitespace or comma formatting inserted inside numeric placeholders by tokenizer/model
+        text = re.sub(r"9\s*9\s*9\s*[,.]?\s*(\d{3,4})", lambda m: f"999{m.group(1).zfill(4)}", text)
         issues: list[dict[str, Any]] = []
         for s in spans:
             placeholder = getattr(s, "placeholder", None)
@@ -218,10 +218,10 @@ class TranslationProtector(BaseSpanProtector):
 
             if count == 0:
                 # Resilient recovery: check if tokenizer collapsed consecutive 9s (e.g. 990003 instead of 9990003)
-                # or separated with whitespace
+                # or separated with whitespace/comma
                 if placeholder.startswith("999") and len(placeholder) == 7:
                     idx_suffix = placeholder[3:]
-                    loose_pat = re.compile(rf"9{{2,4}}\s*{re.escape(idx_suffix)}0*")
+                    loose_pat = re.compile(rf"9{{2,4}}\s*[,.]?\s*{re.escape(idx_suffix)}0*")
                     m = loose_pat.search(text)
                     if m:
                         text = text[: m.start()] + original_text + text[m.end() :]

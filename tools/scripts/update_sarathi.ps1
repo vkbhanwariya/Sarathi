@@ -177,7 +177,7 @@ Write-Host ""
 Write-Host "[3/4] Inspecting exact-pinned dependencies in pyproject.toml..." -ForegroundColor Cyan
 $tomlPath = Join-Path $ProjectRoot "pyproject.toml"
 $tomlContent = Get-Content -Path $tomlPath -Raw
-$pinnedPackages = @("pymupdf", "pymupdf-layout")
+$pinnedPackages = @("pymupdf")
 $availablePinBumps = @{}
 
 foreach ($pkg in $pinnedPackages) {

@@ -45,8 +45,8 @@ param(
     [string] $SourceDir = '',
 
     [Parameter()]
-    [ValidateSet('opus_mt', 'indictrans2', 'krutrim', 'all')]
-    [string] $Engine = 'opus_mt',
+    [ValidateSet('krutrim', 'indictrans2', 'opus_mt', 'all')]
+    [string] $Engine = 'krutrim',
 
     [Parameter()]
     [string] $HfToken = ''

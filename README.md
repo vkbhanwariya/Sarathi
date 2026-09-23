@@ -30,7 +30,7 @@ All changes are validated directly on `main` against the 5 permanent CI gates.
   - `ocr`: `rapidocr`, `openvino`, `opencv-python-headless`, `pillow`
   - `translation`: `ctranslate2`, `sentencepiece`
   - `font_conversion`: `fonttools`, `rapidfuzz`, `regex`
-  - `layout`: `pymupdf-layout`
+  - `layout`: `xberg`
   - `cloud`: `httpx`
 
 ---

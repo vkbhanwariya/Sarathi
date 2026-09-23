@@ -813,3 +813,40 @@ def test_xycut_prevents_column_interleaving() -> None:
 
     expected_order = [c1_1, c1_2, c1_3, c2_1, c2_2, c2_3]
     assert [s.text for s in ordered] == [s.text for s in expected_order]
+
+
+def test_column_gutter_prevents_horizontal_row_combining() -> None:
+    """Verify spans on the same vertical baseline separated by a gutter are never combined into one line."""
+    left_span = _make_span("Left Column Cell", (50.0, 100.0, 200.0, 120.0))
+    right_span = _make_span("Right Column Cell", (350.0, 101.0, 500.0, 121.0))
+
+    # Even if fed directly together, group_paragraphs must not merge them into a single line
+    result = group_paragraphs([left_span, right_span])
+    assert "Left Column Cell Right Column Cell" not in result
+    lines = [ln.strip() for ln in result.splitlines() if ln.strip()]
+    assert "Left Column Cell" in lines
+    assert "Right Column Cell" in lines
+
+
+def test_hindi_matra_jitter_keeps_words_in_same_line() -> None:
+    """Verify Hindi words with top and bottom matras with fluctuating heights stay on the same line."""
+    # Hindi phrase: 'वर्तमान स्थिति एवं सुविधा' with realistic vertical bounding box jitter
+    w1 = _make_span("वर्तमान", (50.0, 100.0, 110.0, 120.0))  # baseline 100..120
+    w2 = _make_span("स्थिति", (115.0, 96.0, 160.0, 122.0))  # top matra 'ि' pushes y0 to 96
+    w3 = _make_span("एवं", (165.0, 97.0, 195.0, 120.0))  # top bindi pushes y0 to 97
+    w4 = _make_span("सुविधा", (200.0, 100.0, 255.0, 125.0))  # bottom matra 'ु' pushes y1 to 125
+
+    result = group_paragraphs([w1, w2, w3, w4])
+    assert result.strip() == "वर्तमान स्थिति एवं सुविधा"
+
+
+def test_unpunctuated_lines_do_not_break_paragraphs() -> None:
+    """Verify wrapped lines in a continuous sentence without terminal punctuation stay in the same paragraph."""
+    line1 = _make_span("This is an unpunctuated sentence that continues without a period", (50.0, 50.0, 450.0, 70.0))
+    # Line 2 has a slightly wide gap (gap = 26px vs median 20px -> ratio 1.30)
+    line2 = _make_span("and properly completes the thought on the following line.", (50.0, 96.0, 420.0, 116.0))
+
+    result = group_paragraphs([line1, line2])
+    paragraphs = result.split("\n\n")
+    assert len(paragraphs) == 1
+    assert "without a period and properly completes" in paragraphs[0]

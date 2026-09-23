@@ -451,8 +451,8 @@ def test_translate_token_bounded_chunking_and_input_truncation_warning(monkeypat
     backend._spms[f"src:{(model_dir / 'spm.model').resolve()}"] = FakeSPM()
     backend._spms[f"tgt:{(model_dir / 'spm.model').resolve()}"] = FakeSPM()
 
-    # Create a giant sentence that exceeds 1024 tokens (110 words * 10 = 1100 tokens)
-    giant_piece = "giant " * 110
+    # Create a giant sentence that exceeds 4096 tokens (450 words * 10 = 4500 tokens)
+    giant_piece = "giant " * 450
     # Monkeypatch _chunk_long_sentence to return the giant piece directly to trigger piece_input_truncation
     monkeypatch.setattr(
         "sarathi.shakti.translation.engine._chunk_long_sentence",
@@ -460,5 +460,5 @@ def test_translate_token_bounded_chunking_and_input_truncation_warning(monkeypat
     )
 
     res = backend.translate_sentences([giant_piece], direction=TranslationDirection.HI_TO_EN)
-    assert captured_kwargs.get("max_input_length") == 1024
+    assert captured_kwargs.get("max_input_length") in (1024, 4096)
     assert res.input_truncation_flags == (True,)

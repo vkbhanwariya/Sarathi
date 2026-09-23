@@ -105,6 +105,10 @@ def _get_reader(
             from sarathi.shakti.native_extraction.readers.delimited import read_csv_or_text
 
             return read_csv_or_text, (csv.Error, UnicodeDecodeError)
+        case DetectedFormat.PPTX | DetectedFormat.RTF:
+            from sarathi.shakti.native_extraction.readers.xberg_reader import read_document_with_xberg
+
+            return read_document_with_xberg, (Exception,)
         case _:
             return None
 

@@ -18,7 +18,7 @@ KNOWN_IMPORT_MAPPING: dict[str, set[str]] = {
     "openpyxl": {"openpyxl"},
     "polars": {"polars"},
     "pymupdf": {"pymupdf", "fitz"},
-    "pymupdf-layout": {"fitz_layout"},
+    "xberg": {"xberg"},
     "python-calamine": {"calamine", "python_calamine"},
     "pyyaml": {"yaml"},
     "starlette": {"starlette"},

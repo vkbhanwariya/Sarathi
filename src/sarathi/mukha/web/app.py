@@ -737,6 +737,21 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
     async def clear_cache(_: Request) -> Response:
         return _json(200, {"ok": True, "cleared_entries": mukha.clear_cache()})
 
+    async def translation_warmup(_: Request) -> Response:
+        """Asynchronously warm up dual translation models in RAM on translation task selection."""
+        import threading
+
+        def _do_warmup() -> None:
+            try:
+                cap = mukha.agni._capabilities.get("translation")
+                if cap is not None and hasattr(cap, "warmup"):
+                    cap.warmup()
+            except Exception:
+                pass
+
+        threading.Thread(target=_do_warmup, name="sarathi-translation-web-warmup", daemon=True).start()
+        return _json(200, {"ok": True, "warming": True})
+
     async def api_not_found(_: Request) -> Response:
         return _json(404, {"ok": False, "error": "API resource not found."})
 
@@ -775,6 +790,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         Route("/api/runs/{run_id}/reveal", reveal_run, methods=["POST"]),
         Route("/api/history/clear", clear_history, methods=["POST"]),
         Route("/api/cache/clear", clear_cache, methods=["POST"]),
+        Route("/api/capabilities/translation/warmup", translation_warmup, methods=["POST"]),
         Route("/api/{path:path}", api_not_found),
     ]
     app = Starlette(routes=routes)

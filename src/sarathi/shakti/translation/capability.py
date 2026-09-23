@@ -333,10 +333,15 @@ class TranslationCapability:
     def asset_version(self) -> str:
         return getattr(self._engine, "asset_version", "")
 
-    def warmup(self, execution_binding: ExecutionBinding | None = None) -> bool:
-        """Pre-initialize translation engine and neural models."""
+    def warmup(
+        self,
+        execution_binding: ExecutionBinding | None = None,
+        directions: Sequence[TranslationDirection] = (TranslationDirection.HI_TO_EN, TranslationDirection.EN_TO_HI),
+        engine: str = "krutrim",
+    ) -> bool:
+        """Pre-initialize translation engine and dual neural models into RAM."""
         if hasattr(self._engine, "warmup"):
-            return bool(self._engine.warmup(execution_binding=execution_binding))
+            return bool(self._engine.warmup(execution_binding=execution_binding, directions=directions, engine=engine))
         return False
 
     def _record_telemetry(
@@ -505,9 +510,9 @@ class TranslationCapability:
                 else (request.custom_options.get("direction") if request.custom_options else None)
             )
             req_engine = (
-                str(request.custom_options.get("engine", "indictrans2")).lower().strip()
+                str(request.custom_options.get("engine", "krutrim")).lower().strip()
                 if request.custom_options
-                else "indictrans2"
+                else "krutrim"
             )
             direction = self._detector.resolve_direction(
                 combined_text, requested_direction=str(req_direction) if req_direction else None

@@ -23,7 +23,11 @@ from sarathi.sankalpa import (
     Result,
 )
 from sarathi.yantra.devices import DeviceInventory
-from sarathi.yantra.resources import Allocation, _ResourceAllocator
+from sarathi.yantra.resources import (
+    Allocation,
+    MemoryLeaseGuard,
+    _ResourceAllocator,
+)
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
@@ -64,6 +68,7 @@ class Yantra:
                 raise TypeError(f"darpana must be a Darpana instance or None, got {type(darpana).__name__}.")
 
         self._allocator = _ResourceAllocator(inventory, max_queue_depth=max_queue_depth)
+        self._memory_guard = MemoryLeaseGuard()
         self._darpana: Darpana | None = darpana
 
         # Decouple host worker pool from accelerator capacities:
@@ -95,6 +100,33 @@ class Yantra:
     def max_workers(self) -> int:
         """Return the maximum worker concurrency capacity of the execution pool."""
         return self._max_workers
+
+    @property
+    def memory_guard(self) -> MemoryLeaseGuard:
+        """Return the active global memory governor."""
+        return self._memory_guard
+
+    def lease_memory(self, bytes_needed: int, timeout: float | None = None):
+        """Acquire a temporary memory reservation from the global hardware governor."""
+        return self._memory_guard.lease(bytes_needed=bytes_needed, timeout=timeout)
+
+    def get_core_budget(self, workload: str) -> int:
+        """Return recommended concurrency budget tailored for the host silicon topology.
+
+        Tuned for the primary hardware profile (Intel Core Ultra 5 125H: 14 cores, 4P + 8E + 2LPE):
+        - 'translation' / 'neural': 4 cores (dedicated to P-cores for AVX2/AVX-VNNI throughput)
+        - 'layout' / 'native' / 'xberg' / 'font_conversion': 8 cores (parallel Rayon/Rust or CPU processing on E-cores)
+        - 'ocr' / 'openvino': 4 feeder threads (submitting inference frames to Intel Arc iGPU)
+        - Fallback / default: min(self._max_workers, 4)
+        """
+        norm = str(workload).strip().lower()
+        if norm in ("translation", "neural"):
+            return max(1, min(self._max_workers, 4))
+        if norm in ("layout", "native", "xberg", "font_conversion"):
+            return max(1, min(self._max_workers, 8))
+        if norm in ("ocr", "openvino"):
+            return max(1, min(self._max_workers, 4))
+        return max(1, min(self._max_workers, 4))
 
     @property
     def is_started(self) -> bool:
@@ -140,6 +172,7 @@ class Yantra:
 
         # Close allocator FIRST so any pending/new admissions are rejected immediately
         self._allocator.close()
+        self._memory_guard.close()
 
         if exec_to_close is not None:
             exec_to_close.shutdown(wait=True, cancel_futures=True)

@@ -85,29 +85,25 @@ class TranslationProvider(PluginProvider):
                 )
                 return p.is_dir() and (p / "model.bin").is_file() and has_spm and has_vocab
 
-            opus_hi_en = trans_models / "opus_mt" / "hi-en"
-            opus_en_hi = trans_models / "opus_mt" / "en-hi"
-            indic_hi_en = trans_models / "indictrans2" / "hi-en"
-            indic_en_hi = trans_models / "indictrans2" / "en-hi"
             krutrim_hi_en = trans_models / "krutrim" / "hi-en"
             krutrim_en_hi = trans_models / "krutrim" / "en-hi"
+            indic_hi_en = trans_models / "indictrans2" / "hi-en"
+            indic_en_hi = trans_models / "indictrans2" / "en-hi"
+            root_hi_en = trans_models / "hi-en"
+            root_en_hi = trans_models / "en-hi"
 
-            has_opus_models = _is_complete_model(opus_hi_en) and _is_complete_model(opus_en_hi)
-            has_indic_models = _is_complete_model(indic_hi_en) and _is_complete_model(indic_en_hi)
             has_krutrim_models = _is_complete_model(krutrim_hi_en) and _is_complete_model(krutrim_en_hi)
+            has_indic_models = _is_complete_model(indic_hi_en) and _is_complete_model(indic_en_hi)
+            has_root_models = _is_complete_model(root_hi_en) and _is_complete_model(root_en_hi)
 
-            models_ready = trans_models.is_dir() and (has_krutrim_models or has_indic_models or has_opus_models)
+            models_ready = trans_models.is_dir() and (has_krutrim_models or has_indic_models or has_root_models)
             trans_installed = ctranslate2_spec is not None and sentencepiece_spec is not None
 
             if trans_installed and manifest_exists and models_ready:
-                if has_krutrim_models:
+                if has_krutrim_models or has_root_models:
                     reason_str = "Ready (Krutrim-Translate 4096 CTranslate2)"
-                elif has_indic_models and has_opus_models:
-                    reason_str = "Ready (IndicTrans2 CTranslate2 / OPUS-MT)"
-                elif has_indic_models:
-                    reason_str = "Ready (IndicTrans2 CTranslate2)"
                 else:
-                    reason_str = "Ready (OPUS-MT CTranslate2)"
+                    reason_str = "Ready (IndicTrans2 CTranslate2)"
 
                 return {
                     "translation": CapabilityReadiness(

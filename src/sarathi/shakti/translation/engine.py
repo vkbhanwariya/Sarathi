@@ -452,7 +452,7 @@ class CTranslate2NativeBackend:
         sentences: Sequence[str],
         direction: TranslationDirection,
         execution_binding: ExecutionBinding | None = None,
-        engine: str = "indictrans2",
+        engine: str = "krutrim",
         execution_profile: ExecutionProfile | None = None,
         beam_size: int | None = None,
         **kwargs: Any,
@@ -462,7 +462,7 @@ class CTranslate2NativeBackend:
 
         # Native model inference using CTranslate2 and SentencePiece
         dir_key = direction.value
-        norm_engine = str(engine or "indictrans2").lower().strip()
+        norm_engine = str(engine or "krutrim").lower().strip()
         if norm_engine == "opus_mt":
             model_path = self._root / "models" / "opus_mt" / dir_key
             spm_src_path = model_path / "spm.model"
@@ -506,12 +506,26 @@ class CTranslate2NativeBackend:
                 spm_tgt_path = model_path / "tgt_spm.model"
             else:
                 spm_tgt_path = spm_src_path
-        elif norm_engine in ("krutrim", "krutrim_translate"):
+        elif norm_engine in ("krutrim", "krutrim_translate", "default"):
             model_info = (
                 self._manifest.get("engines", {}).get("krutrim", {}).get(dir_key)
+                or self._manifest.get("models", {}).get(dir_key)
                 or {}
             )
-            model_path = self._root / "models" / "krutrim" / dir_key
+            krutrim_dir = self._root / "models" / "krutrim" / dir_key
+            root_dir = self._root / "models" / dir_key
+            indic_dir = self._root / "models" / "indictrans2" / dir_key
+            if krutrim_dir.is_dir() and (krutrim_dir / "model.bin").is_file():
+                model_path = krutrim_dir
+            elif root_dir.is_dir() and (root_dir / "model.bin").is_file():
+                model_path = root_dir
+            elif indic_dir.is_dir() and (indic_dir / "model.bin").is_file():
+                model_path = indic_dir
+                if not model_info:
+                    model_info = self._manifest.get("engines", {}).get("indictrans2", {}).get(dir_key) or {}
+            else:
+                model_path = krutrim_dir
+
             if not model_path.is_dir() or not (model_path / "model.bin").is_file():
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
@@ -526,9 +540,10 @@ class CTranslate2NativeBackend:
             elif (model_path / "spm.model").is_file():
                 spm_src_path = model_path / "spm.model"
             else:
+                eng_label = "IndicTrans2" if model_path == indic_dir else "Krutrim-Translate"
                 raise DoshError(
                     code=FailureCode.DEPENDENCY_UNAVAILABLE,
-                    message=f"Model assets for Krutrim-Translate translation direction '{dir_key}' are missing or incomplete.",
+                    message=f"Model assets for {eng_label} translation direction '{dir_key}' are missing or incomplete.",
                 )
 
             # Resolve target SentencePiece model
@@ -585,8 +600,10 @@ class CTranslate2NativeBackend:
                     # On hybrid P+E architecture (e.g. Core Ultra 5 125H with 4 P-cores + 8 E-cores),
                     # pin intra-op parallelism to physical P-cores (4) with AVX2/AVX-VNNI acceleration
                     # to prevent barrier synchronization jitter across heterogeneous cores.
-                    inter_threads = max(1, min(2, approved))
+                    inter_threads = max(1, approved)
                     intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // inter_threads))
+                    os.environ.setdefault("KMP_BLOCKTIME", "0")
+                    os.environ.setdefault("OMP_PROC_BIND", "close")
                 else:
                     inter_threads = approved
                     intra_threads = 0
@@ -634,7 +651,6 @@ class CTranslate2NativeBackend:
 
         is_krutrim = norm_engine in ("krutrim", "krutrim_translate") or "krutrim" in str(model_path).lower()
         eff_max_tokens = 4096 if is_krutrim else MAX_SENTENCE_TOKENS
-        eff_max_decoding_len = 4096 if is_krutrim else DEFAULT_MAX_DECODING_LENGTH
         eff_max_input_len = 4096 if is_krutrim else 1024
 
         # Split sentences longer than eff_max_tokens tokens into token-bounded chunks
@@ -658,6 +674,9 @@ class CTranslate2NativeBackend:
         else:
             tokenized = [spm_src.encode_as_pieces(p) for p in flat_pieces]
 
+        # Dynamic decoding length: scale with input token length to eliminate runaway decoding latency
+        max_in_tokens = max((len(tok) for tok in tokenized), default=100)
+        eff_max_decoding_len = min(4096 if is_krutrim else DEFAULT_MAX_DECODING_LENGTH, max(256, int(max_in_tokens * 2.0)))
         piece_input_truncations = [len(tok) >= eff_max_input_len for tok in tokenized]
 
         # Determine effective beam size: instant profile uses greedy beam_size=1 (~2.5x speedup)
@@ -686,17 +705,32 @@ class CTranslate2NativeBackend:
             sorted_order = list(range(len(tokenized)))
             reordered_tokenized = tokenized
 
-        raw_results = translator.translate_batch(
-            reordered_tokenized,
-            batch_type="tokens",
-            max_batch_size=4096 if is_krutrim else 1024,
-            beam_size=eff_beam_size,
-            max_decoding_length=eff_max_decoding_len,
-            max_input_length=eff_max_input_len,
-            repetition_penalty=rep_penalty,
-            no_repeat_ngram_size=no_repeat_ngram,
-            length_penalty=0.6 if eff_beam_size > 1 else 0.0,
-        )
+        translate_kwargs: dict[str, Any] = {
+            "batch_type": "tokens",
+            "max_batch_size": 8192 if is_krutrim else 1024,
+            "beam_size": eff_beam_size,
+            "max_decoding_length": eff_max_decoding_len,
+            "max_input_length": eff_max_input_len,
+            "repetition_penalty": rep_penalty,
+            "no_repeat_ngram_size": no_repeat_ngram,
+            "length_penalty": 0.6 if eff_beam_size > 1 else 0.0,
+            "return_scores": False,
+        }
+        if is_krutrim:
+            translate_kwargs["replace_unknowns"] = True
+
+        try:
+            raw_results = translator.translate_batch(
+                reordered_tokenized,
+                **translate_kwargs,
+            )
+        except TypeError:
+            translate_kwargs.pop("replace_unknowns", None)
+            translate_kwargs.pop("return_scores", None)
+            raw_results = translator.translate_batch(
+                reordered_tokenized,
+                **translate_kwargs,
+            )
 
         # Restore original sentence sequence order
         if len(tokenized) > 1:
@@ -746,6 +780,26 @@ class CTranslate2NativeBackend:
             truncation_flags=tuple(sentence_truncations),
             input_truncation_flags=tuple(sentence_input_truncations),
         )
+
+    def prewarm_direction(
+        self,
+        direction: TranslationDirection,
+        execution_binding: ExecutionBinding | None = None,
+        engine: str = "krutrim",
+    ) -> bool:
+        """Preload model weights and tokenizers for direction into RAM dictionary."""
+        try:
+            warm_word = "नमस्ते" if direction == TranslationDirection.HI_TO_EN else "Hello"
+            self.translate_sentences(
+                [warm_word],
+                direction=direction,
+                execution_binding=execution_binding,
+                engine=engine,
+                beam_size=1,
+            )
+            return True
+        except Exception:
+            return False
 
     def clear_cache(self) -> None:
         """Clear cached CTranslate2 Translator and SentencePiece instances."""
@@ -850,10 +904,32 @@ class CTranslate2TranslationEngine:
     def asset_version(self) -> str:
         return self._asset_version
 
-    def warmup(self, execution_binding: ExecutionBinding | None = None) -> bool:
-        """Pre-initialize CTranslate2 engine and load neural weights."""
+    def warmup(
+        self,
+        execution_binding: ExecutionBinding | None = None,
+        directions: Sequence[TranslationDirection] = (TranslationDirection.HI_TO_EN, TranslationDirection.EN_TO_HI),
+        engine: str = "krutrim",
+        async_second: bool = True,
+    ) -> bool:
+        """Pre-initialize CTranslate2 engine and preload neural weights for both directions into RAM."""
         try:
-            self._ensure_backend()
+            backend = self._ensure_backend()
+            if hasattr(backend, "prewarm_direction"):
+                if directions:
+                    backend.prewarm_direction(directions[0], execution_binding=execution_binding, engine=engine)
+                if len(directions) > 1:
+                    def _warm_rest() -> None:
+                        for d in directions[1:]:
+                            try:
+                                backend.prewarm_direction(d, execution_binding=execution_binding, engine=engine)
+                            except Exception:
+                                pass
+
+                    if async_second:
+                        t = threading.Thread(target=_warm_rest, name="sarathi-translation-prewarm", daemon=True)
+                        t.start()
+                    else:
+                        _warm_rest()
             return True
         except Exception:
             return False
@@ -912,7 +988,7 @@ class CTranslate2TranslationEngine:
         text: str,
         direction: TranslationDirection = TranslationDirection.HI_TO_EN,
         execution_binding: ExecutionBinding | None = None,
-        engine: str = "indictrans2",
+        engine: str = "krutrim",
         glossary_terms: Mapping[str, str] | None = None,
         custom_terms: Sequence[str] = (),
         execution_profile: ExecutionProfile | None = None,
@@ -935,7 +1011,7 @@ class CTranslate2TranslationEngine:
         texts: Sequence[str],
         direction: TranslationDirection = TranslationDirection.HI_TO_EN,
         execution_binding: ExecutionBinding | None = None,
-        engine: str = "indictrans2",
+        engine: str = "krutrim",
         glossary_terms: Mapping[str, str] | None = None,
         custom_terms: Sequence[str] = (),
         execution_profile: ExecutionProfile | None = None,
@@ -950,7 +1026,7 @@ class CTranslate2TranslationEngine:
         if execution_binding is not None and execution_binding.device_type == DeviceType.GPU:
             target_device = execution_binding.backend_device_id or "cuda"
 
-        norm_engine = str(engine or "indictrans2").lower().strip()
+        norm_engine = str(engine or "krutrim").lower().strip()
         active_glossary = glossary_terms if glossary_terms is not None else self._glossary.get_terms(direction)
         dir_key = direction.value
 
@@ -1032,6 +1108,27 @@ class CTranslate2TranslationEngine:
                 engine=norm_engine,
                 execution_profile=execution_profile,
             )
+
+            # Lazy dual-model RAM pre-warming: asynchronously warm opposite direction so both models reside in memory
+            opposite_dir = (
+                TranslationDirection.EN_TO_HI
+                if direction == TranslationDirection.HI_TO_EN
+                else TranslationDirection.HI_TO_EN
+            )
+            translators_map = getattr(backend, "_translators", {})
+            if isinstance(translators_map, dict) and not any(f":{opposite_dir.value}:" in k for k in translators_map):
+                def _warm_opp() -> None:
+                    try:
+                        if hasattr(backend, "prewarm_direction"):
+                            backend.prewarm_direction(
+                                opposite_dir,
+                                execution_binding=execution_binding,
+                                engine=norm_engine,
+                            )
+                    except Exception:
+                        pass
+
+                threading.Thread(target=_warm_opp, name="sarathi-opposite-direction-warmup", daemon=True).start()
 
             unique_translated: Sequence[str] = []
             unique_truncations: Sequence[bool] = []

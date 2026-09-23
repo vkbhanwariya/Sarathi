@@ -38,7 +38,7 @@ font_conversion = [
     "regex>=2026.9.10",
 ]
 layout = [
-    "pymupdf-layout==1.28.2",
+    "xberg>=1.2.8",
 ]
 cloud = [
     "httpx>=0.28.1",

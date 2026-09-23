@@ -6,6 +6,7 @@ import {
   intakePaths,
   previewPlan,
   startRun,
+  warmupTranslation,
 } from "../api";
 import { actionDefaults } from "../components/Common";
 import { IntakeDropzone } from "../components/IntakeDropzone";
@@ -81,7 +82,7 @@ export function Home({
     font_conversion: "legacy_to_unicode",
     translation: state.requirement.endsWith("_translation")
       ? state.requirement.replace("_translation", "")
-      : "indictrans2",
+      : "krutrim",
   }));
 
   const [ocrEngineType, setOcrEngineType] = useState<"local" | "cloud">(
@@ -178,6 +179,12 @@ export function Home({
   }, [isIndeterminate]);
 
   useEffect(() => setPage(1), [query, filter]);
+
+  useEffect(() => {
+    if (primaryTask === "translation") {
+      void warmupTranslation();
+    }
+  }, [primaryTask]);
 
   const currentSubtask = primaryTask ? subtaskByPrimary[primaryTask] : undefined;
 

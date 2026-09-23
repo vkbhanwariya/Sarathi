@@ -446,13 +446,11 @@ def _build_action_parameters(act_id: str, decl: Any = None) -> tuple[ActionParam
                 parameter_id="engine",
                 display_name="Translation Engine",
                 kind="select",
-                default_value="indictrans2",
+                default_value="krutrim",
                 options=(
-                    ("indictrans2", "IndicTrans2 (Local CTranslate2)"),
                     ("krutrim", "Krutrim-Translate (Local 4096 CTranslate2)"),
-                    ("opus_mt", "OPUS-MT (Local Marian CTranslate2)"),
                 ),
-                description="Local neural translation engine",
+                description="Local Krutrim-Translate 4096-token neural translation engine",
             ),
         )
     return ()
@@ -634,16 +632,16 @@ def build_application_view_state(
             )
         )
 
-    # Defense-in-depth: Expose indictrans2_translation action matching translation readiness
+    # Defense-in-depth: Expose krutrim_translation action matching translation readiness
     trans_action = next((a for a in available_actions if a.action_id == "translation"), None)
-    if trans_action is not None and not any(a.action_id == "indictrans2_translation" for a in available_actions):
+    if trans_action is not None and not any(a.action_id == "krutrim_translation" for a in available_actions):
         available_actions.append(
             AvailableActionView(
-                action_id="indictrans2_translation",
-                label="IndicTrans2 Translation",
+                action_id="krutrim_translation",
+                label="Krutrim Translation",
                 is_enabled=trans_action.is_enabled,
                 disabled_reason=trans_action.disabled_reason,
-                description="Local AI4Bharat IndicTrans2 neural translation engine",
+                description="Local Krutrim-Translate 4096-token neural translation engine",
                 parameters=trans_action.parameters,
             )
         )
