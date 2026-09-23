@@ -6,13 +6,13 @@ import csv
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from datetime import UTC
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zipfile import BadZipFile
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
-
-from datetime import UTC
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
@@ -70,7 +70,7 @@ def _get_reader(
             import pymupdf
 
             return read_pdf, (pymupdf.FileDataError, pymupdf.EmptyFileError)
-        case DetectedFormat.DOCX:
+        case DetectedFormat.DOCX | DetectedFormat.DOC_LEGACY:
             from sarathi.shakti.native_extraction.readers.docx import read_docx
 
             return read_docx, (BadZipFile, ET.ParseError)
@@ -315,6 +315,35 @@ class NativeExtractionCapability:
                 )
             )
 
+            # Handle legacy .doc conversion to modern .docx
+            converted_docx_path = None
+            if fmt == DetectedFormat.DOC_LEGACY:
+                from sarathi.shakti.native_extraction.legacy_doc import (
+                    convert_doc_to_docx,
+                    is_word_converter_available,
+                )
+
+                if not is_word_converter_available():
+                    raise DoshError(
+                        code=FailureCode.UNSUPPORTED,
+                        message=(
+                            "Microsoft Word is required on Windows to convert legacy .doc files. "
+                            "Please save the document as .docx in Microsoft Word or upload a .docx file."
+                        ),
+                    )
+
+                work_base = Path("Runtime/Work") / context.run_id
+                work_base.mkdir(parents=True, exist_ok=True)
+
+                if inp.source_path and inp.source_path.is_file():
+                    doc_src = inp.source_path
+                else:
+                    doc_src = work_base / f"{inp.input_id}.doc"
+                    doc_src.write_bytes(data)
+
+                converted_docx_path = convert_doc_to_docx(doc_src, output_dir=work_base)
+                data = converted_docx_path.read_bytes()
+
             # Route to concrete native readers with honest parse error handling
             try:
                 t0 = time.perf_counter_ns()
@@ -341,6 +370,19 @@ class NativeExtractionCapability:
                     )
                 else:
                     doc, provs, warns = reader(data, inp.input_id)
+
+                if converted_docx_path is not None:
+                    from dataclasses import replace
+
+                    doc = replace(
+                        doc,
+                        metadata={
+                            **(doc.metadata or {}),
+                            "converted_docx_path": str(converted_docx_path),
+                            "source_format": "doc_legacy",
+                        },
+                    )
+
                 dur = max(0, time.perf_counter_ns() - t0)
                 extracted_docs.append(doc)
                 all_provenance.extend(provs)

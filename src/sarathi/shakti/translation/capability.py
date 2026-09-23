@@ -588,11 +588,20 @@ class TranslationCapability:
                 raw_size = doc.metadata.get("font_size_pt") if doc.metadata else None
                 doc_size = normalize_size(raw_size)
                 docx_payload = None
+                docx_source_path = None
                 if (
                     matching_inp
                     and matching_inp.source_path
                     and str(matching_inp.source_path).lower().endswith(".docx")
+                    and matching_inp.source_path.is_file()
                 ):
+                    docx_source_path = matching_inp.source_path
+                elif doc.metadata and doc.metadata.get("converted_docx_path"):
+                    p = Path(doc.metadata["converted_docx_path"])
+                    if p.is_file():
+                        docx_source_path = p
+
+                if docx_source_path is not None:
                     try:
 
                         def _batch_trans(batch: list[str]) -> list[str]:
@@ -612,7 +621,7 @@ class TranslationCapability:
                                     translation_cache[raw_t] = r
                             return [_trans_text(t) for t in batch]
 
-                        docx_bytes = matching_inp.source_path.read_bytes()
+                        docx_bytes = docx_source_path.read_bytes()
                         docx_payload = transform_docx_translation_artifact(
                             docx_bytes,
                             translate_fn=_batch_trans,

@@ -21,12 +21,19 @@ from sarathi.shakti.native_extraction.safe_zip import open_zip_safely
 class DetectedFormat(Enum):
     PDF = "pdf"
     DOCX = "docx"
+    DOC_LEGACY = "doc_legacy"
     XLSX = "xlsx"
     XLS_LEGACY = "xls_legacy"
     HTML_TABLE = "html_table"
     SPREADSHEET_ML = "spreadsheet_ml"
     CSV_OR_TEXT = "csv_or_text"
     UNKNOWN = "unknown"
+
+
+_WORD_STREAM_PATTERNS = (
+    b"WordDocument",
+    b"W\x00o\x00r\x00d\x00D\x00o\x00c\x00u\x00m\x00e\x00n\x00t",
+)
 
 
 def detect_content_format(data: bytes, file_path: Path | None = None) -> DetectedFormat:
@@ -42,13 +49,16 @@ def detect_content_format(data: bytes, file_path: Path | None = None) -> Detecte
     if _PDF_MAGIC in header_1k:
         return DetectedFormat.PDF
 
-    # 2. OLE / Legacy BIFF .xls detection
-    # OLE magic alone proves compound container, not specifically Excel.
-    # Require Excel stream / BOF signatures in header buffer to identify as XLS.
+    # 2. OLE / Legacy BIFF .xls or Word .doc detection
+    # OLE magic alone proves compound container. Inspect directory stream names.
     if data.startswith(_OLE_MAGIC):
         scan_buf = data[:8192]
         if any(pat in scan_buf for pat in _EXCEL_STREAM_PATTERNS):
             return DetectedFormat.XLS_LEGACY
+        if any(pat in scan_buf for pat in _WORD_STREAM_PATTERNS) or (
+            file_path is not None and file_path.suffix.lower() in (".doc", ".dot")
+        ):
+            return DetectedFormat.DOC_LEGACY
         return DetectedFormat.UNKNOWN
 
     # Standalone raw BIFF stream without OLE header

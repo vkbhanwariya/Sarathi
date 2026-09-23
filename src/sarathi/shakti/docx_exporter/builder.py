@@ -15,11 +15,16 @@ from sarathi.sankalpa import (
     TableData,
 )
 from sarathi.shakti.docx_exporter.constants import (
+    _A4_HEIGHT_DXA,
+    _A4_PRINTABLE_WIDTH_DXA,
+    _A4_WIDTH_DXA,
     _DEFAULT_HALF_PT,
+    _DEFAULT_MARGIN_DXA,
     _DEVANAGARI_CHAR_RE,
     _DOCX_MIME_TYPE,
     _ENGLISH_FONT,
     _HINDI_FONT,
+    is_indic_font,
     sanitize_xml_text,
 )
 from sarathi.shakti.docx_exporter.scripts import segment_text_by_script
@@ -55,12 +60,14 @@ def _format_run_xml(
     *,
     cs_font: str | None = None,
     size_cs_half_pt: int | None = None,
+    hint: str | None = None,
 ) -> str:
     """Format an OpenXML <w:r> run string with dual-channel font support."""
     eff_cs_font = cs_font or font
     eff_cs_size = size_cs_half_pt if size_cs_half_pt is not None else size_half_pt
+    hint_attr = f' w:hint="{hint}"' if hint else ""
     props: list[str] = [
-        f"<w:rFonts w:ascii={quoteattr(font)} w:hAnsi={quoteattr(font)} w:cs={quoteattr(eff_cs_font)}/>",
+        f"<w:rFonts w:ascii={quoteattr(font)} w:hAnsi={quoteattr(font)} w:cs={quoteattr(eff_cs_font)}{hint_attr}/>",
         f'<w:sz w:val="{size_half_pt}"/>',
         f'<w:szCs w:val="{eff_cs_size}"/>',
     ]
@@ -97,13 +104,23 @@ def _format_paragraph_xml(
     default_size_pt: float | None = None,
     legacy_target_font: str | None = None,
     add_spacing: bool = True,
+    space_before: int | None = None,
+    space_after: int = 160,
+    line_spacing: int = 276,
 ) -> str:
     """Format an OpenXML <w:p> paragraph adhering to canonical Sarathi typography policy."""
     clean_text = normalize_docx_text(text)
-    eff_alignment = alignment if alignment in ("center", "right", "both", "left") else "both"
+    if alignment in ("center", "right", "both", "left"):
+        eff_alignment = alignment
+    elif len(clean_text) < 60 and not clean_text.endswith((".", "।")):
+        eff_alignment = "left"
+    else:
+        eff_alignment = "both"
+
     p_pr_parts = [f'<w:jc w:val="{eff_alignment}"/>']
     if add_spacing:
-        p_pr_parts.append('<w:spacing w:after="160" w:line="276" w:lineRule="auto"/>')
+        before_attr = f' w:before="{space_before}"' if space_before is not None else ""
+        p_pr_parts.append(f'<w:spacing{before_attr} w:after="{space_after}" w:line="{line_spacing}" w:lineRule="auto"/>')
     p_pr = f"<w:pPr>{''.join(p_pr_parts)}</w:pPr>"
 
     if not clean_text:
@@ -124,6 +141,7 @@ def _format_paragraph_xml(
                     bold=bold,
                     italic=italic,
                     shadow=shadow,
+                    hint="cs" if is_dev else "default",
                 )
                 for chunk, is_dev in segments
             ]
@@ -142,27 +160,40 @@ def _format_paragraph_xml(
             ]
     else:
         # General Unicode DOCX policy:
-        # English-only -> Times New Roman with Nirmala UI complex script fallback
-        # Hindi-only or Hindi-English mixed -> Nirmala UI (unified run per §18)
-        has_devanagari = bool(_DEVANAGARI_CHAR_RE.search(text))
-        if default_font:
-            font = default_font
-            cs_font = default_font
-        else:
-            font = _HINDI_FONT if has_devanagari else _ENGLISH_FONT
-            cs_font = _HINDI_FONT
+        # Devanagari runs get Nirmala UI (or validated Indic font) with w:hint="cs"
+        # English/Latin runs get Times New Roman (or document default Latin font) with w:hint="default"
+        has_devanagari = bool(_DEVANAGARI_CHAR_RE.search(clean_text))
+        eff_latin_font = default_font if (default_font and not is_indic_font(default_font)) else _ENGLISH_FONT
+        eff_hindi_font = default_font if (default_font and is_indic_font(default_font)) else _HINDI_FONT
 
-        runs = [
-            _format_run_xml(
-                text,
-                font=font,
-                size_half_pt=size_half_pt,
-                bold=bold,
-                italic=italic,
-                shadow=shadow,
-                cs_font=cs_font,
-            )
-        ]
+        if has_devanagari:
+            segments = segment_text_by_script(clean_text)
+            runs = [
+                _format_run_xml(
+                    chunk,
+                    font=eff_hindi_font if is_dev else eff_latin_font,
+                    size_half_pt=size_half_pt,
+                    bold=bold,
+                    italic=italic,
+                    shadow=shadow,
+                    cs_font=eff_hindi_font,
+                    hint="cs" if is_dev else "default",
+                )
+                for chunk, is_dev in segments
+            ]
+        else:
+            runs = [
+                _format_run_xml(
+                    clean_text,
+                    font=eff_latin_font,
+                    size_half_pt=size_half_pt,
+                    bold=bold,
+                    italic=italic,
+                    shadow=shadow,
+                    cs_font=eff_hindi_font,
+                    hint="default",
+                )
+            ]
 
     return f"<w:p>{p_pr}{''.join(runs)}</w:p>"
 
@@ -251,7 +282,7 @@ def _format_table_xml(
     default_font: str | None = None,
     default_size_pt: float | None = None,
     legacy_target_font: str | None = None,
-    total_width_dxa: int = 9360,
+    total_width_dxa: int = _A4_PRINTABLE_WIDTH_DXA,
 ) -> str:
     """Format a TableData model into an OpenXML <w:tbl> table with proportional grid columns and cell margins."""
     num_cols = len(table.headers)
@@ -270,12 +301,12 @@ def _format_table_xml(
         f'<w:tblW w:w="{total_width_dxa}" w:type="dxa"/>',
         '<w:jc w:val="center"/>',
         "<w:tblBorders>",
-        '<w:top w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
-        '<w:left w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
-        '<w:bottom w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
-        '<w:right w:val="single" w:sz="6" w:space="0" w:color="D3D3D3"/>',
-        '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>',
-        '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="E5E7EB"/>',
+        '<w:top w:val="single" w:sz="6" w:space="0" w:color="CBD5E1"/>',
+        '<w:left w:val="single" w:sz="6" w:space="0" w:color="CBD5E1"/>',
+        '<w:bottom w:val="single" w:sz="6" w:space="0" w:color="CBD5E1"/>',
+        '<w:right w:val="single" w:sz="6" w:space="0" w:color="CBD5E1"/>',
+        '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="E2E8F0"/>',
+        '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="E2E8F0"/>',
         "</w:tblBorders>",
         "<w:tblCellMar>",
         '<w:top w:w="120" w:type="dxa"/>',
@@ -287,9 +318,10 @@ def _format_table_xml(
         f"<w:tblGrid>{grid_cols}</w:tblGrid>",
     ]
 
-    # Standard table typography: 11.0 pt standard, 10.0 pt for dense tables (>= 6 columns)
-    base_tbl_size_pt = 10.0 if num_cols >= 6 else 11.0
+    # Standard table typography: 10.5 pt header, 10.0 pt data (9.5 pt for dense tables >= 6 cols)
+    base_tbl_size_pt = 9.5 if num_cols >= 6 else 10.0
     eff_tbl_size_pt = default_size_pt if (default_size_pt is not None and default_size_pt < 12.0) else base_tbl_size_pt
+    header_tbl_size_pt = eff_tbl_size_pt + 0.5 if eff_tbl_size_pt <= 10.5 else eff_tbl_size_pt
 
     # Header Row
     if table.headers:
@@ -302,13 +334,13 @@ def _format_table_xml(
                 bold=True,
                 alignment="center",
                 default_font=default_font,
-                default_size_pt=eff_tbl_size_pt,
+                default_size_pt=header_tbl_size_pt,
                 legacy_target_font=legacy_target_font,
             )
             parts.append(
                 f"<w:tc><w:tcPr>"
                 f'<w:tcW w:w="{c_w}" w:type="dxa"/>'
-                f'<w:shd w:val="clear" w:color="auto" w:fill="F2F4F7"/>'
+                f'<w:shd w:val="clear" w:color="auto" w:fill="F1F5F9"/>'
                 f'<w:vAlign w:val="center"/>'
                 f"</w:tcPr>{p_xml}</w:tc>"
             )
@@ -323,6 +355,7 @@ def _format_table_xml(
             p_xml = _format_cell_content_xml(
                 cell_val,
                 bold=False,
+                alignment="left",
                 default_font=default_font,
                 default_size_pt=eff_tbl_size_pt,
                 legacy_target_font=legacy_target_font,
@@ -453,6 +486,9 @@ def build_docx_payload(
 
                     line_bold = False
                     line_size = default_size_pt
+                    line_space_before: int | None = None
+                    line_space_after: int = 160
+                    line_spacing: int = 276
                     clean_line = trimmed
                     if interpret_markdown_headings:
                         if trimmed.startswith("# "):
@@ -461,30 +497,51 @@ def build_docx_payload(
                                 clean_line = cand
                                 line_bold = True
                                 line_size = 16.0
+                                line_space_before = 240
+                                line_space_after = 120
+                                line_spacing = 288
                         elif trimmed.startswith("## "):
                             cand = trimmed[3:].strip()
                             if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
                                 clean_line = cand
                                 line_bold = True
                                 line_size = 14.0
+                                line_space_before = 180
+                                line_space_after = 100
+                                line_spacing = 288
                         elif trimmed.startswith("### "):
                             cand = trimmed[4:].strip()
                             if cand and not cand.endswith((".", "।", ";", ",", ":")) and len(cand.split()) <= 12:
                                 clean_line = cand
                                 line_bold = True
                                 line_size = 13.0
+                                line_space_before = 120
+                                line_space_after = 80
+                                line_spacing = 288
                     else:
                         if trimmed.startswith("### "):
                             clean_line = trimmed[4:].strip()
                             line_bold = True
+                            line_size = 13.0
+                            line_space_before = 120
+                            line_space_after = 80
+                            line_spacing = 288
                         elif trimmed.startswith("## "):
                             clean_line = trimmed[3:].strip()
                             line_bold = True
+                            line_size = 14.0
+                            line_space_before = 180
+                            line_space_after = 100
+                            line_spacing = 288
                         elif trimmed.startswith("# "):
                             clean_line = trimmed[2:].strip()
                             line_bold = True
+                            line_size = 16.0
+                            line_space_before = 240
+                            line_space_after = 120
+                            line_spacing = 288
 
-                    line_align = "left" if line_bold else "both"
+                    line_align = "left" if line_bold else None
                     body_parts.append(
                         _format_paragraph_xml(
                             clean_line,
@@ -493,6 +550,9 @@ def build_docx_payload(
                             default_font=default_font,
                             default_size_pt=line_size,
                             legacy_target_font=legacy_target_font,
+                            space_before=line_space_before,
+                            space_after=line_space_after,
+                            line_spacing=line_spacing,
                         )
                     )
 
@@ -691,11 +751,11 @@ def build_docx_payload(
 
     cols_xml = f'<w:cols w:num="{col_count}" w:space="720"/>' if col_count >= 2 else '<w:cols w:space="720"/>'
 
-    # Section properties
+    # Section properties: standard A4 page size (11906 x 16838 dxa) with 1440 dxa (1-inch) margins
     body_parts.append(
         "<w:sectPr>"
-        '<w:pgSz w:w="12240" w:h="15840"/>'
-        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
+        f'<w:pgSz w:w="{_A4_WIDTH_DXA}" w:h="{_A4_HEIGHT_DXA}"/>'
+        f'<w:pgMar w:top="{_DEFAULT_MARGIN_DXA}" w:right="{_DEFAULT_MARGIN_DXA}" w:bottom="{_DEFAULT_MARGIN_DXA}" w:left="{_DEFAULT_MARGIN_DXA}" w:header="720" w:footer="720" w:gutter="0"/>'
         f"{cols_xml}"
         "</w:sectPr>"
     )
@@ -735,7 +795,9 @@ def build_docx_payload(
     has_dev = bool(_DEVANAGARI_CHAR_RE.search(doc.text or "")) or any(
         bool(_DEVANAGARI_CHAR_RE.search(p.text or "")) for p in (doc.pages or ())
     )
-    eff_doc_font = default_font or (_HINDI_FONT if has_dev else _ENGLISH_FONT)
+    eff_latin_doc_font = default_font if (default_font and not is_indic_font(default_font)) else _ENGLISH_FONT
+    eff_cs_doc_font = default_font if (default_font and is_indic_font(default_font)) else _HINDI_FONT
+    eff_hint = "cs" if has_dev else "default"
 
     styles_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
@@ -745,7 +807,7 @@ def build_docx_payload(
         '      <w:pPr><w:jc w:val="both"/><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr>\n'
         "    </w:pPrDefault>\n"
         "    <w:rPrDefault>\n"
-        f'      <w:rPr><w:rFonts w:ascii="{eff_doc_font}" w:hAnsi="{eff_doc_font}" w:cs="{_HINDI_FONT}"/>'
+        f'      <w:rPr><w:rFonts w:ascii="{eff_latin_doc_font}" w:hAnsi="{eff_latin_doc_font}" w:cs="{eff_cs_doc_font}" w:hint="{eff_hint}"/>'
         f'<w:sz w:val="{_DEFAULT_HALF_PT}"/><w:szCs w:val="{_DEFAULT_HALF_PT}"/><w:lang w:val="en-US" w:bidi="hi-IN"/></w:rPr>\n'
         "    </w:rPrDefault>\n"
         "  </w:docDefaults>\n"
@@ -757,7 +819,7 @@ def build_docx_payload(
         '      <w:spacing w:after="160" w:line="276" w:lineRule="auto"/>\n'
         "    </w:pPr>\n"
         "    <w:rPr>\n"
-        f'      <w:rFonts w:ascii="{eff_doc_font}" w:hAnsi="{eff_doc_font}" w:cs="{_HINDI_FONT}"/>\n'
+        f'      <w:rFonts w:ascii="{eff_latin_doc_font}" w:hAnsi="{eff_latin_doc_font}" w:cs="{eff_cs_doc_font}" w:hint="{eff_hint}"/>\n'
         f'      <w:sz w:val="{_DEFAULT_HALF_PT}"/>\n'
         f'      <w:szCs w:val="{_DEFAULT_HALF_PT}"/>\n'
         '      <w:lang w:val="en-US" w:bidi="hi-IN"/>\n'

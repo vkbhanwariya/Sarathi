@@ -14,6 +14,10 @@ from sarathi.shakti.text.typography import (
 from sarathi.shakti.text.typography import (
     ENGLISH_FONT as _ENGLISH_FONT,
 )
+from sarathi.shakti.text.typography import (
+    KNOWN_INDIC_FONTS,
+    is_indic_font,
+)
 
 # OpenXML Namespaces
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -24,6 +28,13 @@ ET.register_namespace("r", _R_NS)
 
 # Typography constants per canonical Sarathi policy
 _DEFAULT_HALF_PT = 24  # 12 pt baseline
+
+# Canonical document geometry: standard A4 (210mm x 297mm) with 1-inch margins
+_A4_WIDTH_DXA = 11906
+_A4_HEIGHT_DXA = 16838
+_DEFAULT_MARGIN_DXA = 1440
+_A4_PRINTABLE_WIDTH_DXA = 9026
+_LETTER_PRINTABLE_WIDTH_DXA = 9360
 
 _DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -67,13 +78,20 @@ def sanitize_xml_text(text: str | None, preserve_form_feed: bool = False) -> str
 
 
 __all__ = [
+    "KNOWN_INDIC_FONTS",
+    "_A4_HEIGHT_DXA",
+    "_A4_PRINTABLE_WIDTH_DXA",
+    "_A4_WIDTH_DXA",
     "_DEFAULT_HALF_PT",
+    "_DEFAULT_MARGIN_DXA",
     "_DEVANAGARI_CHAR_RE",
     "_DOCX_MIME_TYPE",
     "_ENGLISH_FONT",
     "_HINDI_FONT",
+    "_LETTER_PRINTABLE_WIDTH_DXA",
     "_NON_DELETABLE_RUN_CHILDREN",
     "_R_NS",
     "_W_NS",
+    "is_indic_font",
     "sanitize_xml_text",
 ]

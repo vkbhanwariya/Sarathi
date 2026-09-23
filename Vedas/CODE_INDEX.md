@@ -100,6 +100,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/mistral/provider.py` | Provider implementation for Shakti Mistral AI Plugin | **Standard Logic** | `MistralProvider` |
 | `shakti/native_extraction/capability.py` | Shruti - Native Extraction Executable Capability | **Native PDF Vector / PyMuPDF** | `NativeExtractionCapability`, `read_pdf()` |
 | `shakti/native_extraction/detector.py` | Actual content format detection for Shruti Native Extraction | **Standard Logic** | `DetectedFormat`, `detect_content_format()` |
+| `shakti/native_extraction/legacy_doc.py` | Legacy Word 97-2003 (.doc) to OpenXML (.docx) converter for Windows hosts | **Standard Logic** | `is_word_converter_available()`, `convert_doc_to_docx()` |
 | `shakti/native_extraction/plugin.py` | Plugin information and capability declaration for Shruti Native Extraction | **Standard Logic** | `PLUGIN_INFO`, `CAPABILITY_DECLARATION` |
 | `shakti/native_extraction/provider.py` | Provider implementation for Shruti Native Extraction | **Standard Logic** | `NativeExtractionProvider` |
 | `shakti/native_extraction/readers/common.py` | Shared stage and capability identifiers for native extraction format readers | **Standard Logic** | `STAGE_NAME`, `PLUGIN_ID`, `CAPABILITY_ID` |
@@ -143,7 +144,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/text/span_protection.py` | Span Protection and Restoration Utilities for Shakti | **Standard Logic** | `BaseSpanProtector` |
 | `shakti/text/table.py` | Table text processing helpers | **Standard Logic** | `cell_text()` |
 | `shakti/text/transliteration.py` | Phonetic Transliteration Transducer from Romanized Hindi (Hinglish) to Unicode Devanagari | **Standard Logic** | `is_romanized_hindi()`, `transliterate_word()`, `transliterate_romanized_hindi()` |
-| `shakti/text/typography.py` | Shared output typography primitives for Shakti document capabilities | **Standard Logic** | `contains_devanagari()`, `synthesize_akshara_unicode()`, `heal_devanagari_matra_spacing()`, `normalize_text_spacing()`, `reconstruct_line_from_spans()` |
+| `shakti/text/typography.py` | Shared output typography primitives for Shakti document capabilities | **Standard Logic** | `is_indic_font()`, `contains_devanagari()`, `synthesize_akshara_unicode()`, `heal_devanagari_matra_spacing()`, `normalize_text_spacing()` |
 | `shakti/text/usability.py` | Canonical page and document usability arbitration logic shared across Shakti capabilities | **Standard Logic** | `is_usable_page()`, `is_usable_document()` |
 | `shakti/translation/capability.py` | Executable Translation Capability for Sarathi | **Multi-core CPU (Neural AVX2)** | `TranslationCapability` |
 | `shakti/translation/court_templates.py` | Standard Indian Court Orders, Statutory Boilerplate, and Section Formulas Matcher | **Standard Logic** | `CourtTemplateMatcher` |

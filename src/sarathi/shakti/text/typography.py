@@ -9,6 +9,42 @@ ENGLISH_FONT: str = "Times New Roman"
 DEVANAGARI_FONT: str = "Nirmala UI"
 DEFAULT_SIZE_PT: float = 12.0
 
+KNOWN_INDIC_FONTS: frozenset[str] = frozenset(
+    {
+        "nirmala ui",
+        "mangal",
+        "aparajita",
+        "kokila",
+        "utsaah",
+        "akshar unicode",
+        "kalimati",
+        "lohit devanagari",
+        "noto sans devanagari",
+        "noto serif devanagari",
+        "arial unicode ms",
+        "shree-dev",
+        "dv-ttyogesh",
+        "gautami",
+        "kartika",
+        "latha",
+        "raavi",
+        "shruti",
+        "tunga",
+        "vrinda",
+    }
+)
+
+
+def is_indic_font(font_name: str | None) -> bool:
+    """Return whether a font name corresponds to a genuine Indic/Devanagari font."""
+    if not font_name or not isinstance(font_name, str):
+        return False
+    norm = " ".join(font_name.strip().casefold().split())
+    if norm in KNOWN_INDIC_FONTS:
+        return True
+    return any(pfx in norm for pfx in ("nirmala", "mangal", "aparajita", "kokila", "utsaah", "devanagari", "akshar"))
+
+
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F\u1CD0-\u1CFF\uA8E0-\uA8FF]")
 DEVANAGARI_RE = _DEVANAGARI_RE
 
@@ -307,10 +343,12 @@ __all__ = [
     "DEVANAGARI_FONT",
     "DEVANAGARI_RE",
     "ENGLISH_FONT",
+    "KNOWN_INDIC_FONTS",
     "classify_page_lines",
     "contains_devanagari",
     "detect_running_headers_footers",
     "heal_devanagari_matra_spacing",
+    "is_indic_font",
     "normalize_devanagari_numerals",
     "normalize_header_template",
     "normalize_size",

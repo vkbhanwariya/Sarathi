@@ -628,13 +628,21 @@ class FontConversionCapability:
                         ("Kruti Dev 010" if target_mode == "to_krutidev" else "DevLys 010") if is_to_legacy else None
                     )
 
+                    docx_source_path = None
                     if (
                         matching_inp is not None
                         and matching_inp.source_path is not None
                         and matching_inp.source_path.suffix.lower() == ".docx"
                         and matching_inp.source_path.is_file()
                     ):
-                        raw_docx_bytes = matching_inp.source_path.read_bytes()
+                        docx_source_path = matching_inp.source_path
+                    elif converted_doc.metadata and converted_doc.metadata.get("converted_docx_path"):
+                        p = Path(converted_doc.metadata["converted_docx_path"])
+                        if p.is_file():
+                            docx_source_path = p
+
+                    if docx_source_path is not None:
+                        raw_docx_bytes = docx_source_path.read_bytes()
                         docx_payload = transform_docx_artifact(
                             input_bytes=raw_docx_bytes,
                             converter_fn=res.converter_fn or (lambda raw, font=None: raw),

@@ -40,6 +40,11 @@ _EXCEL_STREAM_PATTERNS = (
     b"Microsoft Excel",
 )
 
+_WORD_STREAM_PATTERNS = (
+    b"WordDocument",
+    b"W\x00o\x00r\x00d\x00D\x00o\x00c\x00u\x00m\x00e\x00n\x00t",
+)
+
 _HTML_TAG_REGEX = re.compile(rb"<\s*(html|!doctype\s+html|head|body|table|tr|td|th)\b", re.IGNORECASE)
 _HTML_TABLE_REGEX = re.compile(rb"<\s*table[^>]*>", re.IGNORECASE)
 _SPREADSHEET_ML_REGEX = re.compile(
@@ -179,9 +184,9 @@ def identify_bytes(data: bytes | bytearray, *, extension_hint: str | None = None
             extension_hint=extension_hint,
         )
 
-    # 3. OLE Compound File / Legacy Excel BIFF .xls
-    # OLE magic alone proves compound container, not specifically Excel.
-    # We require Excel stream / BOF signatures in the header buffer to identify as XLS.
+    # 3. OLE Compound File / Legacy Excel BIFF .xls / Word .doc
+    # OLE magic alone proves compound container, not specifically Excel or Word.
+    # We require stream / BOF signatures in the header buffer to identify.
     if clean_bytes.startswith(_OLE_MAGIC):
         if any(pat in clean_bytes for pat in _EXCEL_STREAM_PATTERNS):
             return IdentificationFacts(
@@ -189,6 +194,16 @@ def identify_bytes(data: bytes | bytearray, *, extension_hint: str | None = None
                 format_name="xls_legacy",
                 is_binary=True,
                 byte_signature="OLE_BIFF_XLS",
+                extension_hint=extension_hint,
+            )
+        if any(pat in clean_bytes for pat in _WORD_STREAM_PATTERNS) or (
+            extension_hint is not None and extension_hint.lower() in ("doc", "dot")
+        ):
+            return IdentificationFacts(
+                media_type="application/msword",
+                format_name="doc_legacy",
+                is_binary=True,
+                byte_signature="OLE_WORD_DOC",
                 extension_hint=extension_hint,
             )
         return IdentificationFacts(

@@ -433,3 +433,155 @@ def test_corrupt_or_empty_styles_xml_safe_degradation() -> None:
     r = ET.Element(f"{{{_W_NS}}}r")
     assert resolver_empty.resolve_run_font(r) is None
     assert resolver_corrupt.resolve_run_font(r) is None
+
+
+def test_get_primary_modern_cs_font_rejects_latin_fonts() -> None:
+    """Verify get_primary_modern_cs_font rejects Latin fonts (Times New Roman, Calibri) and accepts genuine Indic fonts."""
+    latin_styles = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:docDefaults>
+        <w:rPrDefault>
+          <w:rPr>
+            <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>
+          </w:rPr>
+        </w:rPrDefault>
+      </w:docDefaults>
+      <w:style w:type="paragraph" w:styleId="Normal">
+        <w:rPr>
+          <w:rFonts w:ascii="Calibri" w:cs="Calibri"/>
+        </w:rPr>
+      </w:style>
+    </w:styles>
+    """
+    resolver_latin = DocxStyleResolver(latin_styles)
+    assert resolver_latin.get_primary_modern_cs_font() is None
+
+    indic_styles = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:docDefaults>
+        <w:rPrDefault>
+          <w:rPr>
+            <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Mangal"/>
+          </w:rPr>
+        </w:rPrDefault>
+      </w:docDefaults>
+    </w:styles>
+    """
+    resolver_indic = DocxStyleResolver(indic_styles)
+    assert resolver_indic.get_primary_modern_cs_font() == "Mangal"
+
+
+def test_converted_docx_sets_w_hint_cs_and_never_times_new_roman() -> None:
+    """Verify legacy conversion tags Devanagari runs with w:hint='cs' and Nirmala UI even if styles declared Times New Roman."""
+    styles_xml = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:docDefaults>
+        <w:rPrDefault>
+          <w:rPr>
+            <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>
+          </w:rPr>
+        </w:rPrDefault>
+      </w:docDefaults>
+    </w:styles>"""
+
+    doc_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="{_W_NS}">
+      <w:body>
+        <w:p>
+          <w:r>
+            <w:rPr><w:rFonts w:ascii="Kruti Dev 010" w:hAnsi="Kruti Dev 010" w:cs="Times New Roman"/></w:rPr>
+            <w:t>Hkkjr</w:t>
+          </w:r>
+        </w:p>
+      </w:body>
+    </w:document>"""
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/document.xml", doc_xml.encode("utf-8"))
+        z.writestr("word/styles.xml", styles_xml)
+        z.writestr("[Content_Types].xml", b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+    input_bytes = buf.getvalue()
+
+    def _converter(text: str, **kw: object) -> str:
+        return text.replace("Hkkjr", "भारत")
+
+    payload = transform_docx_artifact(input_bytes, _converter, filename="converted.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as z:
+        out_tree = ET.fromstring(z.read("word/document.xml"))
+
+    r = out_tree.find(f".//{{{_W_NS}}}r")
+    assert r is not None
+    rfonts = r.find(f".//{{{_W_NS}}}rFonts")
+    assert rfonts is not None
+
+    # Crucial assertions: Must be Nirmala UI and have w:hint="cs", NEVER Times New Roman
+    assert rfonts.attrib.get(f"{{{_W_NS}}}ascii") == "Nirmala UI"
+    assert rfonts.attrib.get(f"{{{_W_NS}}}hAnsi") == "Nirmala UI"
+    assert rfonts.attrib.get(f"{{{_W_NS}}}cs") == "Nirmala UI"
+    assert rfonts.attrib.get(f"{{{_W_NS}}}hint") == "cs"
+    assert rfonts.attrib.get(f"{{{_W_NS}}}ascii") != "Times New Roman"
+
+
+def test_build_docx_payload_bilingual_segmentation_and_a4_layout() -> None:
+    """Verify build_docx_payload produces dual-channel runs with hint='cs' for Hindi, and A4 page geometry."""
+    from sarathi.sankalpa import CanonicalDocument, PageData, TableData
+    from sarathi.shakti.docx_exporter import build_docx_payload
+
+    doc = CanonicalDocument(
+        document_id="doc-test-bilingual",
+        text="# मुख्य पृष्ठ\nHello भारत 123",
+        pages=[
+            PageData(
+                page_number=1,
+                text="# मुख्य पृष्ठ\nHello भारत 123",
+                tables=[
+                    TableData(
+                        headers=["नाम", "राशि"],
+                        rows=[["राम", "1000"]],
+                    )
+                ],
+            )
+        ],
+    )
+
+    payload = build_docx_payload(doc, filename="bilingual.docx")
+    with zipfile.ZipFile(io.BytesIO(payload.content), "r") as z:
+        tree = ET.fromstring(z.read("word/document.xml"))
+
+    # Verify A4 page geometry
+    sectpr = tree.find(f".//{{{_W_NS}}}sectPr")
+    assert sectpr is not None
+    pgsz = sectpr.find(f"{{{_W_NS}}}pgSz")
+    assert pgsz is not None
+    assert pgsz.attrib.get(f"{{{_W_NS}}}w") == "11906"
+    assert pgsz.attrib.get(f"{{{_W_NS}}}h") == "16838"
+
+    # Verify runs in paragraph "Hello भारत 123"
+    paragraphs = tree.findall(f".//{{{_W_NS}}}p")
+    # Find paragraph containing both Hello and भारत
+    bilingual_p = None
+    for p in paragraphs:
+        p_text = "".join(t.text for t in p.iter(f"{{{_W_NS}}}t") if t.text)
+        if "Hello" in p_text and "भारत" in p_text:
+            bilingual_p = p
+            break
+    assert bilingual_p is not None
+
+    runs = bilingual_p.findall(f"{{{_W_NS}}}r")
+    assert len(runs) >= 2  # Separated into Latin and Devanagari runs
+
+    # Verify Devanagari run has hint="cs" and Nirmala UI
+    deva_run = next(r for r in runs if any("भारत" in (t.text or "") for t in r.findall(f"{{{_W_NS}}}t")))
+    rf_deva = deva_run.find(f".//{{{_W_NS}}}rFonts")
+    assert rf_deva is not None
+    assert rf_deva.attrib.get(f"{{{_W_NS}}}hint") == "cs"
+    assert rf_deva.attrib.get(f"{{{_W_NS}}}ascii") == "Nirmala UI"
+    assert rf_deva.attrib.get(f"{{{_W_NS}}}cs") == "Nirmala UI"
+
+    # Verify Latin run has hint="default"
+    latin_run = next(r for r in runs if any("Hello" in (t.text or "") for t in r.findall(f"{{{_W_NS}}}t")))
+    rf_latin = latin_run.find(f".//{{{_W_NS}}}rFonts")
+    assert rf_latin is not None
+    assert rf_latin.attrib.get(f"{{{_W_NS}}}hint") == "default"
+    assert rf_latin.attrib.get(f"{{{_W_NS}}}ascii") == "Times New Roman"

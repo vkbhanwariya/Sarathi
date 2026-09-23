@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
 
-from sarathi.shakti.docx_exporter.constants import _W_NS
+from sarathi.shakti.docx_exporter.constants import _W_NS, is_indic_font
 from sarathi.shakti.text.safe_zip import safe_fromstring
 
 
@@ -247,17 +247,22 @@ class DocxStyleResolver:
         return channels.get("cs") or channels.get("ascii") or channels.get("hAnsi")
 
     def get_primary_modern_cs_font(self) -> str | None:
-        """Inspect document defaults and styles to detect the declared modern complex script font."""
+        """Inspect document defaults and styles to detect the declared modern complex script font.
+
+        Guarantees that generic Latin fonts (such as 'Times New Roman', 'Calibri', 'Arial')
+        set as document defaults by Microsoft Word are never mistakenly identified as
+        valid Indic/Devanagari complex script fonts.
+        """
         cs = self.doc_default_fonts.get("cs")
-        if cs:
+        if cs and is_indic_font(cs):
             return cs
         normal_style = self.styles.get("Normal")
         if normal_style:
             cs = normal_style.get("fonts", {}).get("cs")
-            if cs:
+            if cs and is_indic_font(cs):
                 return cs
         for s_info in self.styles.values():
             cs = s_info.get("fonts", {}).get("cs")
-            if cs:
+            if cs and is_indic_font(cs):
                 return cs
         return None

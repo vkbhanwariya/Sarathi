@@ -368,15 +368,21 @@ def _reconstruct_translated_paragraph(
         else:
             new_rpr = ET.Element(f"{{{_W_NS}}}rPr")
 
-        # Ensure correct font family for Devanagari vs Latin
+        # Ensure correct font family and OpenXML script hint for Devanagari vs Latin
         is_dev = contains_devanagari(clean_chunk)
-        font = _HINDI_FONT if is_dev else _ENGLISH_FONT
         rfonts = new_rpr.find(f"{{{_W_NS}}}rFonts")
         if rfonts is None:
             rfonts = ET.SubElement(new_rpr, f"{{{_W_NS}}}rFonts")
-        rfonts.attrib[f"{{{_W_NS}}}ascii"] = font
-        rfonts.attrib[f"{{{_W_NS}}}hAnsi"] = font
-        rfonts.attrib[f"{{{_W_NS}}}cs"] = font
+        if is_dev:
+            rfonts.attrib[f"{{{_W_NS}}}ascii"] = _HINDI_FONT
+            rfonts.attrib[f"{{{_W_NS}}}hAnsi"] = _HINDI_FONT
+            rfonts.attrib[f"{{{_W_NS}}}cs"] = _HINDI_FONT
+            rfonts.attrib[f"{{{_W_NS}}}hint"] = "cs"
+        else:
+            rfonts.attrib[f"{{{_W_NS}}}ascii"] = _ENGLISH_FONT
+            rfonts.attrib[f"{{{_W_NS}}}hAnsi"] = _ENGLISH_FONT
+            rfonts.attrib[f"{{{_W_NS}}}cs"] = _HINDI_FONT
+            rfonts.attrib[f"{{{_W_NS}}}hint"] = "default"
 
         if len(new_rpr) > 0 or new_rpr.attrib:
             new_r.append(new_rpr)
@@ -877,7 +883,11 @@ def _apply_font_to_rpr(
         rfonts = ET.SubElement(rpr, rfonts_tag)
     rfonts.attrib[f"{{{_W_NS}}}ascii"] = font
     rfonts.attrib[f"{{{_W_NS}}}hAnsi"] = font
-    rfonts.attrib[f"{{{_W_NS}}}cs"] = font
+    rfonts.attrib[f"{{{_W_NS}}}cs"] = font if is_devanagari else (target_hindi if not legacy_target_font else font)
+    if is_devanagari:
+        rfonts.attrib[f"{{{_W_NS}}}hint"] = "cs"
+    else:
+        rfonts.attrib[f"{{{_W_NS}}}hint"] = "default"
 
     # Size: only standardize if preserve_typography is False
     if not preserve_typography:
