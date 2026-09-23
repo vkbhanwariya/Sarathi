@@ -51,6 +51,10 @@ from sarathi.shakti.translation.legal_context import LegalContextBuilder
 from sarathi.shakti.translation.models import TranslationDirection, TranslationResult
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
+from sarathi.shakti.translation.xlsx_transformer import (
+    build_xlsx_from_tables,
+    transform_xlsx_translation_artifact,
+)
 
 _STRUCTURAL_TAG_RE: re.Pattern[str] = re.compile(
     r"^(?:\{\{[A-Z_]+:[^}]+\}\}|<!--\s*[A-Z_]+:[^>]+-->|\[[A-Z_]+:[^\]]+\]|---\s*Page\s*\d+\s*---)$",
@@ -712,26 +716,25 @@ class TranslationCapability:
                 ):
                     docx_source_path = matching_inp.source_path
 
+                def _batch_trans(batch: list[str]) -> list[str]:
+                    missing = [
+                        t
+                        for t in set(batch)
+                        if t and t.strip() and not _is_structural_placeholder(t) and t not in translation_cache
+                    ]
+                    if missing:
+                        b_res = _call_engine_translate_batch(missing)
+                        if len(b_res) != len(missing):
+                            raise DoshError(
+                                code=FailureCode.EXECUTION_FAILED,
+                                message=f"Batch translation count mismatch: expected {len(missing)}, got {len(b_res)}",
+                            )
+                        for raw_t, r in zip(missing, b_res, strict=True):
+                            translation_cache[raw_t] = r
+                    return [_trans_text(t) for t in batch]
+
                 if docx_bytes is not None or docx_source_path is not None:
                     try:
-
-                        def _batch_trans(batch: list[str]) -> list[str]:
-                            missing = [
-                                t
-                                for t in set(batch)
-                                if t and t.strip() and not _is_structural_placeholder(t) and t not in translation_cache
-                            ]
-                            if missing:
-                                b_res = _call_engine_translate_batch(missing)
-                                if len(b_res) != len(missing):
-                                    raise DoshError(
-                                        code=FailureCode.EXECUTION_FAILED,
-                                        message=f"Batch translation count mismatch: expected {len(missing)}, got {len(b_res)}",
-                                    )
-                                for raw_t, r in zip(missing, b_res, strict=True):
-                                    translation_cache[raw_t] = r
-                            return [_trans_text(t) for t in batch]
-
                         raw_docx_bytes = docx_bytes if docx_bytes is not None else docx_source_path.read_bytes()
 
                         # Ensure source docx is normalized to Unicode if legacy font signatures remain
@@ -792,6 +795,65 @@ class TranslationCapability:
                         default_size_pt=doc_size,
                     )
 
+                # Process Excel / Spreadsheet translation artifacts
+                xlsx_payload = None
+                xlsx_source_path = None
+                is_spreadsheet_input = (
+                    (
+                        matching_inp
+                        and matching_inp.source_path
+                        and str(matching_inp.source_path).lower().endswith((".xlsx", ".xlsm", ".csv", ".tsv", ".xls"))
+                        and matching_inp.source_path.is_file()
+                    )
+                    or doc.detected_type in ("spreadsheet", "csv", "tabular")
+                )
+
+                if (
+                    matching_inp
+                    and matching_inp.source_path
+                    and str(matching_inp.source_path).lower().endswith((".xlsx", ".xlsm"))
+                    and matching_inp.source_path.is_file()
+                ):
+                    xlsx_source_path = matching_inp.source_path
+
+                if xlsx_source_path is not None:
+                    try:
+                        raw_xlsx_bytes = xlsx_source_path.read_bytes()
+                        xlsx_payload = transform_xlsx_translation_artifact(
+                            raw_xlsx_bytes,
+                            translate_fn=_batch_trans,
+                            filename=f"Translated_Document{suffix}.xlsx",
+                            role="translated_document",
+                            warnings=doc_warnings,
+                            is_hindi_target=(tgt_lang == "hi"),
+                        )
+                    except Exception as exc:
+                        doc_warnings.append(
+                            WarningRecord(
+                                code="XLSX_TRANSFORM_FAILED",
+                                message=f"Failed in-place XLSX translation: {exc}",
+                                stage="xlsx_transformer",
+                            )
+                        )
+                        xlsx_payload = None
+                elif is_spreadsheet_input and translated_doc.tables:
+                    try:
+                        xlsx_payload = build_xlsx_from_tables(
+                            tables=translated_doc.tables,
+                            filename=f"Translated_Document{suffix}.xlsx",
+                            role="translated_document",
+                            is_hindi_target=(tgt_lang == "hi"),
+                        )
+                    except Exception as exc:
+                        doc_warnings.append(
+                            WarningRecord(
+                                code="XLSX_BUILD_FAILED",
+                                message=f"Failed building XLSX from translated tables: {exc}",
+                                stage="xlsx_transformer",
+                            )
+                        )
+                        xlsx_payload = None
+
                 # Collect span protection and truncation issues across all executed translation results
                 for r in translation_cache.values():
                     if not r.metadata:
@@ -834,7 +896,11 @@ class TranslationCapability:
                             )
                         )
 
-                return translated_doc, prov, [txt_payload, docx_payload], doc_warnings
+                delivered_payloads = [txt_payload, docx_payload]
+                if xlsx_payload is not None:
+                    delivered_payloads.append(xlsx_payload)
+
+                return translated_doc, prov, delivered_payloads, doc_warnings
 
         is_parallelizable = self.declaration.device_requirement.parallelizable
         if len(docs) > 1 and self._yantra is not None and is_parallelizable:

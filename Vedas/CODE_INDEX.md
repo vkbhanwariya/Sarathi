@@ -110,7 +110,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/native_extraction/readers/pdf.py` | Native PDF format reader leveraging PyMuPDF | **Native PDF Vector / PyMuPDF** | `read_pdf()` |
 | `shakti/native_extraction/readers/pdf_layout.py` | High-performance PDF layout analysis reader leveraging the Xberg Rust engine | **Native PDF Vector / PyMuPDF** | `is_layout_package_available()`, `read_pdf_with_layout()` |
 | `shakti/native_extraction/readers/spreadsheet.py` | Spreadsheet format readers supporting modern XLSX/XLSM, legacy binary XLS, and XML Spreadsheet 2003 | **Standard Logic** | `read_xlsx()`, `read_xls_legacy()`, `read_spreadsheet_ml()` |
-| `shakti/native_extraction/readers/xberg_reader.py` | High-performance document extraction reader leveraging the pure-Rust Xberg engine | **Native PDF Vector / PyMuPDF** | `is_xberg_available()`, `read_document_with_xberg()` |
+| `shakti/native_extraction/readers/xberg_reader.py` | High-performance document extraction reader leveraging the pure-Rust Xberg engine | **Standard Logic** | `is_xberg_available()`, `read_document_with_xberg()` |
 | `shakti/native_extraction/safe_zip.py` | Safe ZIP Archive and XML Processing Engine for Native Extraction | **Standard Logic** | — |
 | `shakti/ocr/capability.py` | Executable Capability for OCR Phase 1 | **Standard Logic** | `OCRCapability` |
 | `shakti/ocr/engine/checkpoint.py` | Content-addressed per-page OCR checkpoint cache for atomic resumption and crash recovery | **Primary iGPU (OpenVINO FP16)** | `get_default_checkpoint_dir()`, `compute_doc_hash()`, `compute_params_hash()`, `get_checkpoint_path()`, `serialize_page_data()` |
@@ -159,6 +159,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/translation/proper_noun_guard.py` | Proper-Noun Legal Transliteration Guard for NMT Translation | **Standard Logic** | `ProperNounGuard`, `transliterate_devanagari_to_latin()` |
 | `shakti/translation/protector.py` | Span Protection and Byte-for-Byte Restoration Engine for Translation | **Standard Logic** | `TranslationProtector` |
 | `shakti/translation/provider.py` | Provider implementation for Shakti Machine Translation | **Multi-core CPU (Neural AVX2)** | `TranslationProvider` |
+| `shakti/translation/xlsx_transformer.py` | In-place Excel (.xlsx) translation transcoder and table workbook builder for Sarathi | **Standard Logic** | `transform_xlsx_translation_artifact()`, `build_xlsx_from_tables()` |
 
 ## Yantra (Device Scheduling & Hardware Concurrency)
 
