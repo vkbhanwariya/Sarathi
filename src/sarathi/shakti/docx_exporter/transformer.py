@@ -257,6 +257,11 @@ def _extract_paragraph_translation_unit(
         return "", {}
 
     has_any_link = any(link is not None for _, _, _, _, link in runs_info)
+    has_any_fmt = any(has_fmt for _, _, has_fmt, _, _ in runs_info)
+    if not has_any_link and not has_any_fmt:
+        plain_text = "".join(text for text, _, _, _, _ in runs_info)
+        return plain_text, {}
+
     first_has_fmt = runs_info[0][2]
     first_sig = runs_info[0][3]
     is_uniform = (not has_any_link) and all(
@@ -272,7 +277,7 @@ def _extract_paragraph_translation_unit(
 
     parts: list[str] = []
     for text, rpr, has_fmt, _, link in runs_info:
-        if (has_fmt and rpr is not None) or link is not None:
+        if ((has_fmt and rpr is not None) or link is not None) and text.strip():
             fmt_id = str(len(fmt_map))
             fmt_map[fmt_id] = {"rpr": rpr, "hyperlink": link}
             parts.append(f'<fmt id="{fmt_id}">{text}</fmt>')

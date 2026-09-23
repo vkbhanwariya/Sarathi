@@ -152,3 +152,17 @@ def test_header_fuzzy_scoring_runner_up_margin() -> None:
     mappings = mapper.map_headers(["Withdrawl", "Deposit", "Date"])
     mapped_dict = {m.source_header: m.canonical_field for m in mappings}
     assert mapped_dict.get("Withdrawl") == "debit"
+
+
+def test_resolve_best_profile_matches_sbi_schema() -> None:
+    """HeaderMapper.resolve_best_profile must dynamically identify SBI from its unique column headers."""
+    mapper = HeaderMapper()
+    # Typical SBI headers with specific 'Ref No./Cheque No.' column
+    headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
+    best_profile, mappings, score = mapper.resolve_best_profile(headers, candidate_profile="generic")
+    assert best_profile == "sbi"
+    assert score > 10.0
+    mapped_fields = {m.canonical_field for m in mappings}
+    assert "date" in mapped_fields
+    assert "reference_number" in mapped_fields
+    assert "balance" in mapped_fields

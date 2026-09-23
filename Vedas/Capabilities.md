@@ -67,6 +67,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
   - **Continuous Running Balance**: Validates row-by-row balance progression and detects debit/credit column inversion.
   - **UTR & IFSC Syntax Repair**: Validates 16/22-character UTR numbers and 11-character IFSC codes, repairing OCR confusion (`0` $\leftrightarrow$ `O`, `1` $\leftrightarrow$ `I`, `8` $\leftrightarrow$ `B`).
   - **Multi-Month Deduplication**: Eliminates overlapping transactions across consecutive statement files.
+- **Schema Mapping & Profiling**: See [`Bank_Statement_Mapping_Guide.md`](Bank_Statement_Mapping_Guide.md) for dynamic schema matching and onboarding new bank YAML profiles.
 
 ---
 

@@ -79,6 +79,7 @@ _TITLECASE_PHRASE_RE = re.compile(
 _KNOWN_LATIN_RE = re.compile(
     r"(?:\bM/s\.?|\bM/S\.?|\b(?:FIR|PMLA|CrPC|BNSS|BSA|BNS|IPC|CBI|ED|GST|GSTIN|PAN|TAN|UIDAI|RTI|"
     r"ADM|SDM|SSP|DSP|SHO|IO|U/S|SEC|NO|F\.No|HON'BLE|HONBLE|"
+    r"Article|Section|Act|Order|Rule|Clause|Schedule|Court|Bench|Versus|Vs|"
     r"Govt|Government|India|State|Bank|SBI|HDFC|ICICI|Axis|Kotak|PNB|BOB|Canara|"
     r"Pvt|Ltd|Limited|Private|Company|Distributor|Trading|Sponsored|Bail|"
     r"Tower|Flat|Road|Street|Apartment|Park|Avenue|Lane|Pass|Authorized|Signatory|"

@@ -49,6 +49,11 @@ _KRUTI_SIGNATURES: tuple[str, ...] = (
     "fD",
     "fnY",
     "mRr",
+    "rh;",
+    "h;",
+    "gS",
+    "gSa",
+    "ljdkj",
 )
 
 _CHANAKYA_SIGNATURES: tuple[str, ...] = (
@@ -126,7 +131,12 @@ def is_legacy_text(text: str) -> bool:
     k_count = sum(1 for s in _KRUTI_SIGNATURES if s in text)
     c_count = sum(1 for s in _CHANAKYA_SIGNATURES if s in text)
     s_count = sum(1 for s in _SHUSHA_SIGNATURES if s in text)
-    return (k_count >= 2) or (c_count >= 2) or (s_count >= 2)
+    if (k_count >= 2) or (c_count >= 2) or (s_count >= 2):
+        return True
+    has_unicode_deva = any("\u0900" <= c <= "\u097f" for c in text)
+    if has_unicode_deva and ((k_count >= 1) or (c_count >= 1) or (s_count >= 1)):
+        return True
+    return False
 
 
 class LegacyFontDetector:

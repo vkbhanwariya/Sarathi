@@ -20,6 +20,7 @@ from sarathi.sankalpa import (
     ProvenanceRecord,
     Request,
     Result,
+    TableData,
     TextSpan,
     WarningRecord,
 )
@@ -163,13 +164,34 @@ class FontConversionCapability:
             )
 
         is_to_legacy = target_mode in ("to_krutidev", "to_devlys")
-        if not is_to_legacy and detected_profile is None and self._detector.is_legacy_text(full_text):
-            cands = rank_profiles_from_text(full_text, self._profiles)
-            if cands and cands[0].score >= 2.0:
-                p0 = self._profiles.get(cands[0].profile_id)
-                if p0 and p0.family in ("krutidev", "devlys"):
+        is_legacy_content = self._detector.is_legacy_text(full_text)
+        if not is_to_legacy and detected_profile is None:
+            # First check if any span explicitly declares a legacy font
+            span_profile = next(
+                (
+                    resolve_profile_from_font_name(s.metadata.get("font_name"), self._profiles)[0]
+                    for p in doc.pages
+                    for s in p.spans
+                    if s.metadata and s.metadata.get("font_name")
+                    and resolve_profile_from_font_name(s.metadata.get("font_name"), self._profiles)[0]
+                ),
+                None,
+            )
+            if span_profile is not None:
+                detected_profile = span_profile
+                conf = 0.9
+            elif is_legacy_content:
+                text_cands = rank_profiles_from_text(full_text, self._profiles)
+                if text_cands and text_cands[0].score >= 1.0:
+                    detected_profile = (
+                        text_cands[0].profile_id
+                        if text_cands[0].profile_id != "devlys010"
+                        else "krutidev010"
+                    )
+                    conf = min(1.0, 0.5 + len(text_cands[0].positive_signatures) * 0.1)
+                else:
                     detected_profile = "krutidev010"
-                    conf = min(1.0, 0.5 + len(cands[0].positive_signatures) * 0.1)
+                    conf = 0.8
 
         target_profile = (
             ("krutidev010" if target_mode == "to_krutidev" else "devlys010")
@@ -200,7 +222,6 @@ class FontConversionCapability:
                 for p in doc.pages
                 for s in p.spans
             )
-            is_legacy_content = self._detector.is_legacy_text(full_text)
             if not has_any_legacy_span and not is_legacy_content:
                 empty_plan = ConversionPlan(
                     document_id=doc.document_id,
@@ -224,6 +245,7 @@ class FontConversionCapability:
                             stage="font_conversion",
                         ),
                     ),
+                    converter_fn=(lambda raw, font_name=None, **kwargs: raw),
                 )
 
         # Execute conversion across all pages and tables
@@ -301,6 +323,22 @@ class FontConversionCapability:
                     )
                 return raw
             if decision.decision == "ambiguous":
+                if not is_to_legacy:
+                    # KrutiDev vs DevLys typewriter tie: both map to identical Unicode Devanagari.
+                    # Never leave legacy typewriter text unconverted as ASCII gibberish!
+                    active_profile = detected_profile or "krutidev010"
+                    metrics.runs_converted += 1
+                    profiles_used.add(active_profile)
+                    prot, c_spans = self._protector.protect(
+                        raw,
+                        protect_devanagari=True,
+                        is_explicit_legacy=False,
+                    )
+                    total_spans_count += len(c_spans)
+                    c_raw = self._converter.convert(prot, profile_id=active_profile)
+                    restored = self._protector.restore(c_raw, c_spans)
+                    text_conv_cache[cache_key] = restored
+                    return restored
                 metrics.runs_ambiguous += 1
                 return raw
             if decision.decision != "convert" or not decision.profile:
@@ -376,17 +414,28 @@ class FontConversionCapability:
             if isinstance(span, TextSpan):
                 f_name = span.metadata.get("font_name") if span.metadata else None
                 conv_t = _conv_text(span.text, font_name=f_name)
+                new_meta = dict(span.metadata)
+                if not is_to_legacy and f_name:
+                    p_id, _ = resolve_profile_from_font_name(f_name, self._profiles)
+                    if p_id is not None:
+                        new_meta["converted_from_font"] = f_name
+                        new_meta["font_name"] = "Mangal"
                 return TextSpan(
                     text=conv_t,
                     confidence=span.confidence,
                     bounding_box=span.bounding_box,
                     language="hi" if not is_to_legacy else doc.metadata.get("language"),
                     script="Deva" if not is_to_legacy else "Latn",
-                    metadata=dict(span.metadata),
+                    metadata=new_meta,
                 )
             return _conv_text(span)
 
-        target_doc_type = "legacy_font_document" if is_to_legacy else "unicode_document"
+        if is_to_legacy:
+            target_doc_type = "legacy_font_document"
+        elif doc.detected_type and doc.detected_type != "legacy_font_document":
+            target_doc_type = doc.detected_type
+        else:
+            target_doc_type = "unicode_document"
         converted_doc = transform_canonical_document(
             doc_to_transform,
             _conv_text,
@@ -396,6 +445,32 @@ class FontConversionCapability:
             span_transform_fn=_span_transform,
             reconstruct_text_from_spans=has_any_spans,
         )
+
+        # Clean legacy font names from converted table cell_fonts metadata
+        if not is_to_legacy and converted_doc.tables:
+            cleaned_tables: list[TableData] = []
+            for t in converted_doc.tables:
+                if t.metadata and "cell_fonts" in t.metadata:
+                    new_t_meta = dict(t.metadata)
+                    new_cell_fonts = []
+                    for row_fonts in t.metadata["cell_fonts"]:
+                        new_row = []
+                        for f in row_fonts:
+                            if f and resolve_profile_from_font_name(f, self._profiles)[0] is not None:
+                                new_row.append("Mangal")
+                            else:
+                                new_row.append(f)
+                        new_cell_fonts.append(tuple(new_row))
+                    new_t_meta["cell_fonts"] = tuple(new_cell_fonts)
+                    cleaned_tables.append(replace(t, metadata=new_t_meta))
+                else:
+                    cleaned_tables.append(t)
+            converted_doc = replace(converted_doc, tables=tuple(cleaned_tables))
+
+        new_doc_meta = dict(converted_doc.metadata) if converted_doc.metadata else {}
+        if not is_to_legacy:
+            new_doc_meta["font_conversion_applied"] = True
+        converted_doc = replace(converted_doc, metadata=new_doc_meta)
 
         final_text = _extract_doc_text(converted_doc)
 
@@ -645,7 +720,7 @@ class FontConversionCapability:
                         raw_docx_bytes = docx_source_path.read_bytes()
                         docx_payload = transform_docx_artifact(
                             input_bytes=raw_docx_bytes,
-                            converter_fn=res.converter_fn or (lambda raw, font=None: raw),
+                            converter_fn=res.converter_fn or (lambda raw, font_name=None, **kwargs: raw),
                             filename=docx_artifact_name,
                             role="converted_document",
                             warnings=doc_warnings,
@@ -661,6 +736,10 @@ class FontConversionCapability:
                             role="converted_document",
                             legacy_target_font=legacy_target_font,
                         )
+
+                    new_meta = dict(converted_doc.metadata) if converted_doc.metadata else {}
+                    new_meta["converted_docx_bytes"] = docx_payload.content
+                    converted_doc = replace(converted_doc, metadata=new_meta)
 
                     return (idx, converted_doc, doc_warnings, prov, [txt_payload, docx_payload], None)
 

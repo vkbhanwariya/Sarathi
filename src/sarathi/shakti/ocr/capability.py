@@ -478,8 +478,13 @@ class OCRCapability:
             else True
         )
         force_ocr = (
-            bool(request.custom_options.get("force_ocr", False))
-            if request.custom_options and "force_ocr" in request.custom_options
+            bool(
+                request.custom_options.get("force_ocr", False)
+                or request.custom_options.get("bypass_cache", False)
+                or request.custom_options.get("forced_fresh_run", False)
+                or request.custom_options.get("fresh_run", False)
+            )
+            if request.custom_options
             else False
         )
         use_checkpoints = checkpoint_cache_enabled and not force_ocr

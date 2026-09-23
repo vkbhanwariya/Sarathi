@@ -103,6 +103,7 @@ export function Home({
   const [skipHeaderFooter, setSkipHeaderFooter] = useState<boolean>(true);
   const [removeStamps, setRemoveStamps] = useState<boolean>(false);
   const [transPreserveProperNouns, setTransPreserveProperNouns] = useState<boolean>(true);
+  const [forcedFreshRun, setForcedFreshRun] = useState<boolean>(false);
 
   const ocrAction = state.available_actions.find((a) => a.action_id === "ocr");
   const [ocrCustomParams, setOcrCustomParams] = useState<Record<string, unknown>>(() => {
@@ -288,6 +289,11 @@ export function Home({
       customOptions.passwords = passwords;
       const firstPass = Object.values(passwords).find((p) => Boolean(p.trim()));
       if (firstPass) customOptions.pdf_password = firstPass;
+    }
+
+    if (forcedFreshRun) {
+      customOptions.forced_fresh_run = true;
+      customOptions.bypass_cache = true;
     }
 
     return {
@@ -637,6 +643,18 @@ export function Home({
                     <span class="footer-device-chip" title="Target Hardware Accelerator">
                       ⚡ {plan.devices.length ? plan.devices.map((d) => d.device_type).join(" · ") : "Intel Arc iGPU (OpenVINO FP16)"}
                     </span>
+                    <label
+                      class={`footer-fresh-toggle ${forcedFreshRun ? "active" : ""}`}
+                      title="Bypass Smriti cache and force fresh execution"
+                    >
+                      <input
+                        id="toggle-forced-fresh-run"
+                        type="checkbox"
+                        checked={forcedFreshRun}
+                        onChange={(e) => setForcedFreshRun(e.currentTarget.checked)}
+                      />
+                      <span>⚡ Forced fresh run</span>
+                    </label>
                   </div>
                 ) : (
                   <span class="footer-status-quiet">

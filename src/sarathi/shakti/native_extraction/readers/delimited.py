@@ -39,14 +39,18 @@ def read_csv_or_text(
     tables: list[TableData] = []
     pages: list[PageData] = []
 
-    # Delimiter sniffing for tabular parsing
+    from sarathi.shakti.text.legacy_detection import is_legacy_text
+
+    # Delimiter sniffing for tabular parsing: never treat ';' as delimiter in legacy Hindi text
     delimiter: str | None = None
     sample = text_content[:4096]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
-        delimiter = dialect.delimiter
-    except Exception:
-        delimiter = None
+    is_legacy = is_legacy_text(sample)
+    if not is_legacy:
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
+            delimiter = dialect.delimiter
+        except Exception:
+            delimiter = None
 
     # Attempt tabular parsing via polars
     parsed_tabular = False
@@ -55,7 +59,7 @@ def read_csv_or_text(
         if delimiter is not None:
             read_kwargs["separator"] = delimiter
         df = pl.read_csv(io.BytesIO(data), **read_kwargs)
-        if len(df.columns) > 1:
+        if len(df.columns) > 1 and len(df) >= 1:
             headers = tuple(df.columns)
             rows = tuple(tuple(str(val) if val is not None else "" for val in row) for row in df.iter_rows())
             tables.append(TableData(name="default", headers=headers, rows=rows))

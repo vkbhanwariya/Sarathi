@@ -508,3 +508,176 @@ def test_translation_capability_extracts_legal_context_and_populates_provenance(
     # 3. Verify statutory citations survive translation in output
     assert "DLHC010045672023" in res_doc.text
     assert "AIR 1980 SC 1789" in res_doc.text
+
+
+def test_translation_legacy_font_escalation_and_continuation_e2e(tmp_path: Path, test_backend: Any) -> None:
+    """Verify KrutiDev text passed to translation automatically normalizes to Unicode then translates."""
+    from sarathi.agni import Agni
+    from sarathi.shakti.font_conversion import FontConversionCapability
+    from sarathi.shakti.font_conversion.converter import FontConverter
+    from sarathi.shakti.native_extraction import NativeExtractionCapability
+
+    runtime_dir = tmp_path / "Runtime"
+    output_dir = tmp_path / "Output"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate exact KrutiDev 010 text for the canonical sample sentence
+    converter = FontConverter()
+    krutidev_content = converter.convert_to_legacy(
+        "भारतीय रिजर्व बैंक ने नई मौद्रिक नीति की घोषणा की।",
+        target_profile_id="krutidev010",
+    ) + "\n"
+    sample_file = tmp_path / "krutidev_sample.txt"
+    sample_file.write_text(krutidev_content, encoding="utf-8")
+
+    darpana = Darpana(capacity=50)
+    trans_cap = TranslationCapability(darpana=darpana, backend=test_backend)
+
+    agni = Agni(
+        runtime_root=runtime_dir,
+        output_root=output_dir,
+        darpana=darpana,
+        capabilities={
+            "read_native": NativeExtractionCapability(darpana=darpana),
+            "font_conversion": FontConversionCapability(darpana=darpana),
+            "translation": trans_cap,
+        },
+    )
+
+    inp = InputRef(
+        input_id="inp-kruti-trans",
+        source_path=sample_file,
+        display_name="krutidev_sample.txt",
+        size_bytes=sample_file.stat().st_size,
+    )
+    req = Request(
+        request_id="req-kruti-trans",
+        requirement="translation",
+        inputs=(inp,),
+        profile=ExecutionProfile.ACCURATE,
+        metadata={"direction": "hi-en"},
+    )
+    ctx = ExecutionContext("run-kruti-trans", "req-kruti-trans", "t-kt", "s-kt")
+
+    result = agni.execute(req, context=ctx)
+
+    assert isinstance(result, Result)
+    assert isinstance(result.data, CanonicalDocument)
+    doc: CanonicalDocument = result.data
+
+    # Translated text must contain English translation of the normalized Hindi, with zero KrutiDev gibberish
+    assert "Reserve Bank of India" in doc.text
+    assert "Hkkjrh;" not in doc.text
+    assert "fjtoZ" not in doc.text
+
+    # Provenance proves font_conversion and translation both executed
+    cap_ids = [p.capability_id for p in result.provenance]
+    assert "font_conversion" in cap_ids
+    assert "translation" in cap_ids
+
+
+def test_translation_table_cell_legacy_font_escalation(test_backend: Any) -> None:
+    """Verify legacy font in table cell escalates to font_conversion even when body text is plain English."""
+    from sarathi.sankalpa import TableData
+
+    cap = TranslationCapability(backend=test_backend)
+    tbl = TableData(
+        name="Table_1",
+        headers=("Item", "Description"),
+        rows=(("1", 'Hkkjrh; fjtoZ cSad us ubZ ekSfnzd uhfr dh ?kks"k.kk dhA'),),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-tbl-legacy",
+        text="Official Financial Report\nSummary of banking actions.",
+        tables=(tbl,),
+    )
+    req = Request(
+        request_id="req-tbl-leg",
+        requirement="translation",
+        inputs=(InputRef("inp-1", Path("doc.txt"), "doc.txt", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-1", "t-1", "s-1")
+    prior = Result(data=doc)
+
+    res = cap.execute(req, ctx, prior_result=prior)
+
+    assert res.next_requirement == "font_conversion"
+    assert res.resume_self is True
+    assert any(w.code == "LEGACY_FONT_DETECTED" for w in res.warnings)
+
+
+def test_translation_span_font_metadata_escalation(test_backend: Any) -> None:
+    """Verify span with font_name='Kruti Dev 010' escalates to font_conversion."""
+    from sarathi.sankalpa import TextSpan
+
+    cap = TranslationCapability(backend=test_backend)
+    span = TextSpan(
+        text="Sample text",
+        metadata={"font_name": "Kruti Dev 010"},
+    )
+    page = PageData(page_number=1, text="Sample text", spans=(span,))
+    doc = CanonicalDocument(
+        document_id="doc-span-legacy",
+        text="Sample text",
+        pages=(page,),
+    )
+    req = Request(
+        request_id="req-span-leg",
+        requirement="translation",
+        inputs=(InputRef("inp-2", Path("doc.docx"), "doc.docx", 200),),
+    )
+    ctx = ExecutionContext("run-2", "req-2", "t-2", "s-2")
+    prior = Result(data=doc)
+
+    res = cap.execute(req, ctx, prior_result=prior)
+
+    assert res.next_requirement == "font_conversion"
+    assert res.resume_self is True
+    assert any("Kruti Dev 010" in w.message for w in res.warnings)
+
+
+def test_translation_resumption_after_font_conversion_never_repeats_font_conversion(test_backend: Any) -> None:
+    """Verify that after font_conversion runs, translation resumes without repeating font_conversion."""
+    from sarathi.sankalpa import TextSpan
+    from sarathi.shakti.font_conversion import FontConversionCapability
+
+    trans_cap = TranslationCapability(backend=test_backend)
+    font_cap = FontConversionCapability()
+
+    # Document with KrutiDev span and KrutiDev text
+    span = TextSpan(
+        text='Hkkjrh; fjtoZ cSad us ubZ ekSfnzd uhfr dh ?kks"k.kk dhA',
+        metadata={"font_name": "Kruti Dev 010"},
+    )
+    page = PageData(page_number=1, text=span.text, spans=(span,))
+    doc = CanonicalDocument(
+        document_id="doc-flow-test",
+        text=span.text,
+        pages=(page,),
+    )
+    req = Request(
+        request_id="req-flow",
+        requirement="translation",
+        inputs=(InputRef("inp-f", Path("doc.txt"), "doc.txt", 100),),
+    )
+    ctx = ExecutionContext("run-flow", "req-flow", "t-flow", "s-flow")
+
+    # Step 1: Translation escalates to font_conversion
+    res1 = trans_cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert res1.next_requirement == "font_conversion"
+    assert res1.resume_self is True
+
+    # Step 2: font_conversion runs
+    res_fc = font_cap.execute(req, ctx, prior_result=res1)
+    assert isinstance(res_fc.data, CanonicalDocument)
+    assert "भारतीय" in res_fc.data.text
+
+    # Step 3: Translation resumes with font_conversion's result
+    res2 = trans_cap.execute(req, ctx, prior_result=res_fc)
+
+    # Invariant: Must NOT escalate to font_conversion again!
+    assert res2.next_requirement != "font_conversion"
+    assert isinstance(res2.data, CanonicalDocument)
+    # Translated text is produced
+    assert res2.data.text

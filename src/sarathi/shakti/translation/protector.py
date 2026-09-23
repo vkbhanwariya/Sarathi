@@ -29,6 +29,7 @@ _TRANSLATION_ID_RE: re.Pattern[str] = re.compile(
     r"\b(?=[A-Za-z0-9_-]{4,}\b)(?:[A-Za-z]+[0-9]|[0-9]+[A-Za-z])[A-Za-z0-9_-]*\b"
     r"|\b[A-Za-z0-9]{2,}(?:[-_][A-Za-z0-9]+)+\b"
 )
+_FMT_TAG_RE: re.Pattern[str] = re.compile(r"</?fmt\b[^>]*>")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,8 +116,11 @@ class TranslationProtector(BaseSpanProtector):
         custom_terms: Sequence[str] = (),
         glossary_mappings: Mapping[str, str] | None = None,
     ) -> tuple[str, list[TranslationSpan]]:
-        """Identify protected spans and glossary terms using single-pass offset matching."""
         raw_matches: list[tuple[int, int, str, str, int]] = []
+
+        # 0. Document Formatting Tags (Priority 5 - highest: must never reach NMT model)
+        for m in _FMT_TAG_RE.finditer(text):
+            raw_matches.append((m.start(), m.end(), m.group(0), "fmt_tag", 5))
 
         # 1. Domain Glossary Mappings (Priority 10)
         if glossary_mappings:

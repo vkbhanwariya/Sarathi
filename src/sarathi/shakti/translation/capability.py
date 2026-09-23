@@ -113,20 +113,25 @@ def _check_translation_handoffs(
     if any(not d.text.strip() and not d.tables and not any(p.text.strip() or p.tables for p in d.pages) for d in docs):
         return Result(data=prior_result.data, next_requirement="ocr", resume_self=True)
 
-    for doc in docs:
-        full_text = doc.text
-        if not full_text.strip() and doc.tables:
-            table_lines = []
-            for t in doc.tables:
-                if t.headers:
-                    table_lines.append(" ".join(cell_text(c) for c in t.headers if cell_text(c)))
-                for r in t.rows:
-                    table_lines.append(" ".join(cell_text(c) for c in r if cell_text(c)))
-            full_text = "\n".join(table_lines)
-        if not full_text.strip() and doc.pages:
-            full_text = "\n".join(p.text for p in doc.pages if p.text)
+    # Guard against repeated font_conversion escalations in the same pipeline execution
+    has_prior_font_conv = (
+        (prior_result.provenance and any(p.capability_id == "font_conversion" for p in prior_result.provenance))
+        or (prior_result.warnings and any(w.stage == "font_conversion" for w in prior_result.warnings))
+        or any(
+            bool(d.metadata and (d.metadata.get("font_conversion_applied") or d.metadata.get("converted_docx_bytes")))
+            for d in docs
+        )
+    )
+    if has_prior_font_conv:
+        return None
 
-        if detector.is_legacy_font(full_text):
+    from sarathi.shakti.text.legacy_fonts import load_font_profiles, resolve_profile_from_font_name
+
+    profiles = load_font_profiles()
+
+    for doc in docs:
+        # 1. Check doc.text directly
+        if doc.text and detector.is_legacy_font(doc.text):
             return Result(
                 data=prior_result.data,
                 next_requirement="font_conversion",
@@ -134,11 +139,109 @@ def _check_translation_handoffs(
                 warnings=(
                     WarningRecord(
                         code="LEGACY_FONT_DETECTED",
-                        message="Legacy font encoding detected in input. Escalating to font_conversion.",
+                        message="Legacy font encoding detected in input text. Escalating to font_conversion.",
                         stage="translation",
                     ),
                 ),
             )
+
+        # 2. Check all page spans and page text
+        for p in doc.pages:
+            if p.text and detector.is_legacy_font(p.text):
+                return Result(
+                    data=prior_result.data,
+                    next_requirement="font_conversion",
+                    resume_self=True,
+                    warnings=(
+                        WarningRecord(
+                            code="LEGACY_FONT_DETECTED",
+                            message="Legacy font encoding detected in page text. Escalating to font_conversion.",
+                            stage="translation",
+                        ),
+                    ),
+                )
+            for s in p.spans:
+                if s.text and detector.is_legacy_font(s.text):
+                    return Result(
+                        data=prior_result.data,
+                        next_requirement="font_conversion",
+                        resume_self=True,
+                        warnings=(
+                            WarningRecord(
+                                code="LEGACY_FONT_DETECTED",
+                                message="Legacy font encoding detected in span text. Escalating to font_conversion.",
+                                stage="translation",
+                            ),
+                        ),
+                    )
+                if s.metadata and s.metadata.get("font_name"):
+                    p_id, fam = resolve_profile_from_font_name(s.metadata["font_name"], profiles)
+                    if p_id is not None or fam == "unsupported_legacy":
+                        return Result(
+                            data=prior_result.data,
+                            next_requirement="font_conversion",
+                            resume_self=True,
+                            warnings=(
+                                WarningRecord(
+                                    code="LEGACY_FONT_DETECTED",
+                                    message=f"Legacy font '{s.metadata['font_name']}' detected in document span. Escalating to font_conversion.",
+                                    stage="translation",
+                                ),
+                            ),
+                        )
+
+        # 3. Check all table headers and cells
+        all_tables = list(doc.tables) + [t for p in doc.pages for t in p.tables]
+        for tbl in all_tables:
+            for h in tbl.headers:
+                txt = cell_text(h)
+                if txt and detector.is_legacy_font(txt):
+                    return Result(
+                        data=prior_result.data,
+                        next_requirement="font_conversion",
+                        resume_self=True,
+                        warnings=(
+                            WarningRecord(
+                                code="LEGACY_FONT_DETECTED",
+                                message="Legacy font encoding detected in table header. Escalating to font_conversion.",
+                                stage="translation",
+                            ),
+                        ),
+                    )
+            for r in tbl.rows:
+                for c in r:
+                    txt = cell_text(c)
+                    if txt and detector.is_legacy_font(txt):
+                        return Result(
+                            data=prior_result.data,
+                            next_requirement="font_conversion",
+                            resume_self=True,
+                            warnings=(
+                                WarningRecord(
+                                    code="LEGACY_FONT_DETECTED",
+                                    message="Legacy font encoding detected in table cell. Escalating to font_conversion.",
+                                    stage="translation",
+                                ),
+                            ),
+                        )
+            if tbl.metadata and tbl.metadata.get("cell_fonts"):
+                for row_fonts in tbl.metadata["cell_fonts"]:
+                    for f in row_fonts:
+                        if f:
+                            p_id, fam = resolve_profile_from_font_name(f, profiles)
+                            if p_id is not None or fam == "unsupported_legacy":
+                                return Result(
+                                    data=prior_result.data,
+                                    next_requirement="font_conversion",
+                                    resume_self=True,
+                                    warnings=(
+                                        WarningRecord(
+                                            code="LEGACY_FONT_DETECTED",
+                                            message=f"Legacy font '{f}' detected in table cell. Escalating to font_conversion.",
+                                            stage="translation",
+                                        ),
+                                    ),
+                                )
     return None
 
 
@@ -589,19 +692,22 @@ class TranslationCapability:
                 doc_size = normalize_size(raw_size)
                 docx_payload = None
                 docx_source_path = None
-                if (
+                docx_bytes = None
+                if doc.metadata and doc.metadata.get("converted_docx_bytes"):
+                    docx_bytes = doc.metadata["converted_docx_bytes"]
+                elif doc.metadata and doc.metadata.get("converted_docx_path"):
+                    p = Path(doc.metadata["converted_docx_path"])
+                    if p.is_file():
+                        docx_source_path = p
+                elif (
                     matching_inp
                     and matching_inp.source_path
                     and str(matching_inp.source_path).lower().endswith(".docx")
                     and matching_inp.source_path.is_file()
                 ):
                     docx_source_path = matching_inp.source_path
-                elif doc.metadata and doc.metadata.get("converted_docx_path"):
-                    p = Path(doc.metadata["converted_docx_path"])
-                    if p.is_file():
-                        docx_source_path = p
 
-                if docx_source_path is not None:
+                if docx_bytes is not None or docx_source_path is not None:
                     try:
 
                         def _batch_trans(batch: list[str]) -> list[str]:
@@ -621,9 +727,43 @@ class TranslationCapability:
                                     translation_cache[raw_t] = r
                             return [_trans_text(t) for t in batch]
 
-                        docx_bytes = docx_source_path.read_bytes()
+                        raw_docx_bytes = docx_bytes if docx_bytes is not None else docx_source_path.read_bytes()
+
+                        # Ensure source docx is normalized to Unicode if legacy font signatures remain
+                        if not (doc.metadata and doc.metadata.get("converted_docx_bytes")):
+                            try:
+                                from sarathi.shakti.docx_exporter import transform_docx_artifact
+                                from sarathi.shakti.font_conversion.capability import FontConversionCapability
+                                from sarathi.shakti.text.legacy_detection import resolve_profile_from_font_name
+
+                                fc = FontConversionCapability()
+                                norm_payload = transform_docx_artifact(
+                                    input_bytes=raw_docx_bytes,
+                                    converter_fn=lambda raw, font_name=None, **kw: (
+                                        fc._converter.convert(
+                                            raw,
+                                            profile_id=resolve_profile_from_font_name(font_name, fc._profiles)[0]
+                                            or "krutidev010",
+                                        )
+                                        if font_name and resolve_profile_from_font_name(font_name, fc._profiles)[0]
+                                        else (
+                                            fc._converter.convert(raw, profile_id="krutidev010")
+                                            if fc._detector.is_legacy_text(raw)
+                                            else raw
+                                        )
+                                    ),
+                                    filename=f"Normalized_{suffix}.docx",
+                                    role="converted_document",
+                                    preserve_typography=True,
+                                    profiles=fc._profiles,
+                                    profile_resolver=resolve_profile_from_font_name,
+                                )
+                                raw_docx_bytes = norm_payload.content
+                            except Exception:
+                                pass
+
                         docx_payload = transform_docx_translation_artifact(
-                            docx_bytes,
+                            raw_docx_bytes,
                             translate_fn=_batch_trans,
                             filename=f"Translated_Document{suffix}.docx",
                             role="translated_document",

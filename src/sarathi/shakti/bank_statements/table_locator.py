@@ -25,12 +25,14 @@ class TableType(StrEnum):
     UNRELATED_TABLE = "unrelated_table"
 
 
-_DATE_TOKENS = ("date", "txn", "tran", "दिनांक", "तारीख")
+_DATE_TOKENS = ("date", "txn", "tran", "dt", "post", "entry", "दिनांक", "तारीख")
 _AMOUNT_TOKENS = (
     "debit",
     "credit",
     "withdrawal",
+    "withdraw",
     "deposit",
+    "dep",
     "amount",
     "dr",
     "cr",

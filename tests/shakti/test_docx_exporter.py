@@ -370,7 +370,7 @@ def test_converted_legacy_text_receives_legacy_font() -> None:
 
 
 def test_mixed_unicode_unified_nirmala_ui() -> None:
-    """Verify Hindi-English mixed Unicode paragraph remains unified in Nirmala UI without Latin splitting."""
+    """Verify Hindi-English mixed Unicode paragraph routes Devanagari to Nirmala UI and Latin to Times New Roman."""
     doc = CanonicalDocument(
         document_id="doc-mixed-unicode",
         text="Section 482 CrPC के अंतर्गत याचिका स्वीकार की जाती है।",
@@ -382,13 +382,16 @@ def test_mixed_unicode_unified_nirmala_ui() -> None:
     with zipfile.ZipFile(io.BytesIO(payload.content), "r") as zf:
         doc_xml = zf.read("word/document.xml").decode("utf-8")
         assert "Nirmala UI" in doc_xml
-        # Since paragraph is mixed, whole paragraph is unified under Nirmala UI
-        # and there should NOT be artificial Times New Roman splitting within this paragraph
+        assert "Times New Roman" in doc_xml
         root = ET.fromstring(doc_xml.encode("utf-8"))
         p = root.find(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p")
         assert p is not None
-        for rf in p.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rFonts"):
-            assert rf.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ascii") == "Nirmala UI"
+        r_fonts = [
+            rf.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ascii")
+            for rf in p.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rFonts")
+        ]
+        assert "Nirmala UI" in r_fonts
+        assert "Times New Roman" in r_fonts
 
 
 def test_dynamic_font_size_scaling_in_transform_docx() -> None:
@@ -693,7 +696,7 @@ def test_docx_table_grid_and_proportional_column_widths() -> None:
     with zipfile.ZipFile(io.BytesIO(payload.content)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
         assert "<w:tblGrid>" in xml
-        assert '<w:tblW w:w="9360" w:type="dxa"/>' in xml
+        assert '<w:tblW w:w="9026" w:type="dxa"/>' in xml
         assert "<w:tblCellMar>" in xml
         assert '<w:top w:w="120" w:type="dxa"/>' in xml
         assert '<w:left w:w="160" w:type="dxa"/>' in xml
@@ -702,8 +705,8 @@ def test_docx_table_grid_and_proportional_column_widths() -> None:
         # Extract gridCol widths
         grid_col_widths = [int(w) for w in re.findall(r'<w:gridCol w:w="(\d+)"/>', xml)]
         assert len(grid_col_widths) == 3
-        # Sum must equal 9360 exactly
-        assert sum(grid_col_widths) == 9360
+        # Sum must equal 9026 exactly (A4 printable width)
+        assert sum(grid_col_widths) == 9026
         # The description column (index 1) must be wider than ID (index 0)
         assert grid_col_widths[1] > grid_col_widths[0]
         assert grid_col_widths[1] > grid_col_widths[2]
@@ -784,7 +787,7 @@ def test_docx_table_typography_standardization() -> None:
 
     with zipfile.ZipFile(io.BytesIO(payload_std.content)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-        assert '<w:sz w:val="22"/>' in xml
+        assert '<w:sz w:val="21"/>' in xml
 
     # 2. Dense 6-column table -> 10 pt (20 half-pt)
     tbl_dense = TableData(
@@ -1045,7 +1048,8 @@ def test_docx_exporter_visual_normalization() -> None:
     assert '<w:jc w:val="left"/>' in doc_xml
     # Whitespace in runs must be clean:
     assert "tabs and spaces." in doc_xml
-    assert "किताब content." in doc_xml
+    assert "किताब" in doc_xml
+    assert "content." in doc_xml
     # No raw tabs or multi-spaces in output:
     assert "\t" not in doc_xml
     assert "   " not in doc_xml

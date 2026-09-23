@@ -121,6 +121,90 @@ class HeaderMapper:
 
         return mappings
 
+    def _score_mappings(
+        self,
+        mappings: list[ColumnMapping],
+        is_candidate: bool = False,
+        candidate_profile: str | None = None,
+    ) -> float:
+        """Calculate a composite quality score for a candidate column mapping."""
+        if not mappings:
+            return 0.0
+        fields = {m.canonical_field: m for m in mappings}
+        score = 0.0
+
+        if "date" in fields:
+            score += 3.0
+        if "description" in fields:
+            score += 2.0
+        if "balance" in fields:
+            score += 2.5
+        if "debit" in fields:
+            score += 2.0
+        if "credit" in fields:
+            score += 2.0
+        if "amount" in fields:
+            score += 2.0
+        if "reference_number" in fields or "cheque_number" in fields:
+            score += 1.0
+        if "value_date" in fields:
+            score += 0.5
+
+        for m in mappings:
+            if m.match_type == "bank_exact":
+                score += 2.0
+            elif m.match_type == "bank_fuzzy":
+                score += 1.0
+            elif m.match_type == "generic_exact":
+                score += 0.5
+
+        if is_candidate and candidate_profile and candidate_profile != "generic":
+            score += 1.0
+
+        return score
+
+    def resolve_best_profile(
+        self,
+        headers: list[str] | tuple[str, ...],
+        candidate_profile: str | None = None,
+    ) -> tuple[str | None, list[ColumnMapping], float]:
+        """Score all registered bank profiles against the extracted table headers and resolve the best match.
+
+        Returns:
+            Tuple of (best_profile_id, column_mappings, score).
+        """
+        candidate_mappings = self.map_headers(headers, profile_id=candidate_profile)
+        candidate_score = self._score_mappings(
+            candidate_mappings, is_candidate=True, candidate_profile=candidate_profile
+        )
+
+        best_profile: str | None = (
+            candidate_profile if (candidate_profile and candidate_profile != "generic") else None
+        )
+        best_mappings = candidate_mappings
+        best_score = candidate_score
+
+        generic_mappings = self.map_headers(headers, profile_id=None)
+        generic_score = self._score_mappings(generic_mappings, is_candidate=False)
+        if generic_score > best_score:
+            best_profile = None
+            best_mappings = generic_mappings
+            best_score = generic_score
+
+        for prof_id in self._profiles:
+            if prof_id == candidate_profile:
+                continue
+            prof_mappings = self.map_headers(headers, profile_id=prof_id)
+            prof_score = self._score_mappings(prof_mappings, is_candidate=False)
+
+            if prof_score > best_score:
+                best_profile = prof_id
+                best_mappings = prof_mappings
+                best_score = prof_score
+
+        return best_profile, best_mappings, round(best_score, 2)
+
+
     def _match_header(
         self,
         idx: int,

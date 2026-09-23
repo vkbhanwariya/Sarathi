@@ -160,9 +160,31 @@ def _lookup_cache(
         asset_version=cap_asset_ver,
         fingerprint=stage_fingerprint,
     )
+
+    # Check if forced fresh run or cache bypass requested
+    is_fresh_run = bool(
+        request.custom_options
+        and (
+            request.custom_options.get("bypass_cache")
+            or request.custom_options.get("forced_fresh_run")
+            or request.custom_options.get("fresh_run")
+        )
+    )
+    if is_fresh_run:
+        return cache_key, None, None
+
     t_start_ns = time.perf_counter_ns()
     cached_result, cache_tier = smriti.get_with_tier(cache_key)
     duration_ns = max(0, time.perf_counter_ns() - t_start_ns)
+
+    # Invariant: Never replay intermediate escalation/handoff states from cache
+    if cached_result is not None and cached_result.next_requirement is not None:
+        try:
+            smriti.invalidate_key(cache_key)
+        except Exception:
+            pass
+        cached_result = None
+        cache_tier = None
 
     if darpana is not None:
         cache_outcome = "hit" if cached_result is not None else "miss"
@@ -198,7 +220,8 @@ def _safe_cache_put(
     darpana: Darpana | None,
 ) -> None:
     """Store result in cache safely, recording telemetry on failure without raising."""
-    if smriti is None or cache_key is None or result is None:
+    # Invariant: Strictly disallow caching intermediate escalation or incomplete results
+    if smriti is None or cache_key is None or result is None or result.next_requirement is not None:
         return
     try:
         smriti.put(cache_key, result)
@@ -268,12 +291,22 @@ def _handle_stage_failure(
         or (context.cancellation_token is not None and context.cancellation_token.is_cancelled)
     )
     if is_cancelled:
+        if smriti is not None and cache_key is not None:
+            try:
+                smriti.invalidate_key(cache_key)
+            except Exception:
+                pass
         raise dosh_err
 
     current_attempt = 0
     is_retry_allowed = retry_policy.is_retryable(dosh_err.code, current_attempt)
 
     if not is_retry_allowed:
+        if smriti is not None and cache_key is not None:
+            try:
+                smriti.invalidate_key(cache_key)
+            except Exception:
+                pass
         if quarantine_store is not None:
             rec = QuarantineRecord(
                 quarantine_id=quar_id,

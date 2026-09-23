@@ -469,7 +469,32 @@ class NativeExtractionCapability:
                         or len(conv_res.profiles_used) > 0
                         or conv_res.metrics.runs_converted > 0
                     ):
-                        converted_docs.append(conv_res.document)
+                        final_doc = conv_res.document
+                        if doc.metadata and doc.metadata.get("converted_docx_path"):
+                            p = Path(doc.metadata["converted_docx_path"])
+                            if p.is_file():
+                                try:
+                                    from sarathi.shakti.docx_exporter import transform_docx_artifact
+                                    from sarathi.shakti.text.legacy_detection import resolve_profile_from_font_name
+
+                                    raw_docx = p.read_bytes()
+                                    docx_payload = transform_docx_artifact(
+                                        input_bytes=raw_docx,
+                                        converter_fn=conv_res.converter_fn or (lambda raw, font_name=None, **kw: raw),
+                                        filename=p.name,
+                                        role="converted_document",
+                                        preserve_typography=True,
+                                        profiles=self._font_converter._profiles,
+                                        profile_resolver=resolve_profile_from_font_name,
+                                    )
+                                    p.write_bytes(docx_payload.content)
+                                    new_meta = dict(final_doc.metadata) if final_doc.metadata else {}
+                                    new_meta["converted_docx_bytes"] = docx_payload.content
+                                    final_doc = replace(final_doc, metadata=new_meta)
+                                except Exception:
+                                    pass
+
+                        converted_docs.append(final_doc)
                         all_provenance.append(
                             ProvenanceRecord(
                                 source_input_id=doc.source_input_id,

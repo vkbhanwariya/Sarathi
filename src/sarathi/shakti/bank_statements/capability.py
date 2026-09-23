@@ -154,10 +154,18 @@ class BankStatementCapability:
                 or prior_result.provenance
             )
 
+            resolved_prof = doc_metadata.get("resolved_profile")
+            final_profile = resolved_prof or detection.matched_profile or "generic"
+            final_bank_name = (
+                self._profiles.get(final_profile, {}).get("bank_name")
+                if (final_profile and final_profile in self._profiles)
+                else (detection.bank_name or "Unknown Bank")
+            )
+
             statement = validate_statement_balances(
                 BankStatement(
-                    bank_name=detection.bank_name or "Unknown Bank",
-                    bank_profile=detection.matched_profile or "generic",
+                    bank_name=final_bank_name,
+                    bank_profile=final_profile,
                     account_identity=detection.account_identity,
                     ifsc=detection.ifsc or (detection.account_identity.ifsc if detection.account_identity else None),
                     account_holder=detection.account_identity.account_holder if detection.account_identity else None,
@@ -261,9 +269,15 @@ class BankStatementCapability:
 
             hdr_cells, data_rows = extracted_table
 
-            mappings = {
-                m.canonical_field: m.column_index for m in self._mapper.map_headers(hdr_cells, profile_id=profile_id)
-            }
+            resolved_prof, best_mappings, _ = self._mapper.resolve_best_profile(
+                hdr_cells, candidate_profile=profile_id
+            )
+            if resolved_prof and resolved_prof != profile_id:
+                active_profile = self._profiles.get(resolved_prof, {})
+                has_signed_semantics = bool(active_profile.get("signed_amounts", False))
+                metadata["resolved_profile"] = resolved_prof
+
+            mappings = {m.canonical_field: m.column_index for m in best_mappings}
             d_col, desc_col = mappings.get("date"), mappings.get("description")
             val_date_col, time_col = mappings.get("value_date"), mappings.get("time")
             dr_col, cr_col = mappings.get("debit"), mappings.get("credit")

@@ -223,6 +223,8 @@ def is_cacheable_result(result: Result) -> bool:
     """Check whether a Result has a supported lossless canonical representation."""
     if not isinstance(result, Result):
         return False
+    if result.next_requirement is not None:
+        return False
     if result.data is None:
         return False
     if not (

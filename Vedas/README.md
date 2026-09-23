@@ -16,6 +16,7 @@
 | [`Decisions.md`](Decisions.md) | Canonical UI task hierarchy and workflow mapping |
 | [`Development.md`](Development.md) | Environment setup, fast-gate commands, and development ladder |
 | [`Troubleshooting.md`](Troubleshooting.md) | Diagnoses and fixes for OCR, translation, OpenVINO, fonts, and network |
+| [`Bank_Statement_Mapping_Guide.md`](Bank_Statement_Mapping_Guide.md) | Canonical multi-bank schema mapping, format sniffing, and YAML onboarding guide |
 | [`architecture.manifest.json`](architecture.manifest.json) | Machine-readable production package and component topology |
 
 ---

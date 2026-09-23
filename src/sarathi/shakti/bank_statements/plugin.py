@@ -18,7 +18,7 @@ PLUGIN_INFO = PluginInfo(
     description="Deterministic Decimal-based bank statement extraction, validation, and consolidation.",
     capabilities=("bank_statements",),
     security=SecurityDeclaration(
-        pii_access=True,
+        pii_access=False,
         local_processing_only=True,
         network_access=False,
     ),

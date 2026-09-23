@@ -242,3 +242,52 @@ def test_unsupported_encoding_returns_original_document_safely() -> None:
     assert isinstance(res.data, CanonicalDocument)
     assert res.data.text == doc.text
     assert any(w.code == "NO_LEGACY_FONT_DETECTED" for w in res.warnings)
+
+
+def test_mixed_unicode_and_krutidev_auto_conversion() -> None:
+    """Verify document containing mixed Unicode Hindi, English, and KrutiDev converts only legacy text."""
+    # "भारतीय संविधान Article 21 Hkkjr ljdkj"
+    mixed_text = "भारतीय संविधान Article 21 Hkkjr ljdkj"
+    doc = CanonicalDocument(
+        document_id="doc-mixed",
+        text=mixed_text,
+    )
+    cap = FontConversionCapability()
+    req = Request(
+        request_id="req-mixed",
+        requirement="font_conversion",
+        inputs=(InputRef("i1", Path("mixed.txt"), "mixed.txt", 100),),
+    )
+    ctx = ExecutionContext("run-mixed", "req-mixed", "t1", "s1")
+
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res.data, CanonicalDocument)
+
+    # Unicode parts remain intact
+    assert "भारतीय संविधान" in res.data.text
+    assert "Article 21" in res.data.text
+
+    # KrutiDev part converted to Unicode "भारत सरकार"
+    assert "भारत सरकार" in res.data.text
+    assert "Hkkjr" not in res.data.text
+
+
+def test_font_conversion_preserves_converted_docx_bytes_in_metadata(tmp_path: Path) -> None:
+    """Verify font_conversion attaches converted_docx_bytes to result document metadata."""
+    cap = FontConversionCapability()
+    doc = CanonicalDocument(
+        document_id="doc-docx-continuity",
+        text="Hkkjr ljdkj",
+    )
+    req = Request(
+        request_id="req-docx-cont",
+        requirement="font_conversion",
+        inputs=(InputRef("i1", Path("doc.docx"), "doc.docx", 100),),
+    )
+    ctx = ExecutionContext("run-cont", "req-cont", "t1", "s1")
+
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res.data, CanonicalDocument)
+    assert "converted_docx_bytes" in res.data.metadata
+    assert isinstance(res.data.metadata["converted_docx_bytes"], bytes)
+    assert len(res.data.metadata["converted_docx_bytes"]) > 0
