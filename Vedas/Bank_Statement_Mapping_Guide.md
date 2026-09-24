@@ -53,15 +53,18 @@ Sarathi does not rely solely on bank logo text or isolated header strings. It us
    - **Middle distributed sample rows** — Typical mid-statement entries.
    - **Last 3 rows** (`data_rows[-3:]`) — Closing transactions / bottom records.
 3. **Multi-Signal Composite Scoring**:
-   `HeaderMapper.resolve_best_profile(hdr_cells, candidate_profile, sample_rows)` evaluates columns against all registered profiles in `src/sarathi/data/banks/*.yaml`:
+   `HeaderMapper.resolve_best_profile(hdr_cells, candidate_profile, sample_rows)` evaluates columns against registered profiles in `src/sarathi/data/banks/*.yaml`:
    - **Anchor Header Fields**: `date` (+3.0), `description` (+2.0), `balance` (+2.5), `debit` (+2.0), `credit` (+2.0), `amount` (+2.0), `reference_number`/`cheque_number` (+1.0).
    - **Precision Header Bonuses**: `bank_exact` match (+2.0), `bank_fuzzy` match (+1.0), `generic_exact` (+0.5).
-   - **Candidate Prior**: +1.0 tie-breaker bonus if bank keyword detection also identified the bank.
+   - **Candidate Prior**: +1.0 tie-breaker bonus if bank keyword detection also identified the bank or parent bank.
    - **Data Pattern Validation**:
      - Columns mapped to `date`/`value_date`: valid parsed dates earn +1.5 boost; matching the profile's specific `date_formats` earns an additional +1.0 bonus. Mapped date columns with no valid dates receive a -2.0 penalty.
      - Columns mapped to `debit`/`credit`/`amount`/`balance`: valid parsed decimals earn +1.5 boost. Pure non-numeric text triggers a -2.0 penalty.
      - Columns mapped to `description`: valid text content earns +0.5 boost.
-4. The bank profile with the highest composite score is selected to parse the statement.
+4. **Two-Stage Resolution Hierarchy (Registered Profiles First)**:
+   - **Stage 1 (Registered Profiles)**: The engine evaluates all registered institutional profiles (`profile_id != "common"`). If the highest scoring registered profile achieves `score >= min_threshold` (5.0), it is selected immediately.
+   - **Stage 2 (Universal Fallback)**: Only if no registered profile reaches `min_threshold` does the engine evaluate `common.yaml`. If `common.yaml` achieves `min_threshold`, it is assigned.
+   - If neither qualifies, extraction returns an unmapped statement error.
 
 ---
 
@@ -141,9 +144,19 @@ metadata_patterns:                    # Regex to extract account metadata from s
 
 ---
 
-## 5. Universal Fallback (`src/sarathi/data/banks/common.yaml`)
+## 5. Universal Fallback (`src/sarathi/data/banks/common.yaml`) & Test Fixtures
 
-If a header variant is common across multiple banks (e.g. `"withdrawals"`, `"deposits"`, `"chq/ref no"`), add it to `src/sarathi/data/banks/common.yaml` under `aliases:`. This ensures generic or uncatalogued banks also resolve cleanly without failing.
+`src/sarathi/data/banks/common.yaml` serves as Sarathi's universal banking dictionary and final fallback of last resort:
+
+1. **Universal Column & Regex Dictionary**:
+   `common.yaml` aggregates all widely recognized column header synonyms (`date`, `narration`, `withdrawals`, `deposits`, `cheque_number`, etc.), common Indian date formats (`%d/%m/%Y`, `%d-%m-%Y`, `%d %b %Y`, etc.), and generic account metadata patterns (IFSC, Account Number, Opening/Closing balance regex).
+2. **Physical File vs. Logical Profile ID**:
+   - **Physical File**: Stored on disk as `src/sarathi/data/banks/common.yaml`.
+   - **Logical Profile ID**: When `resolve_best_profile` falls back to `common.yaml`, it assigns the logical profile string `"generic"` with display name `"Generic Bank"`.
+   - **Strict Fallback Invariant**: `common.yaml` is never evaluated first or mixed with candidate scoring. Registered format profiles (`<bank>_<container>_<fmt>.yaml`) always take precedence; `common.yaml` is evaluated strictly when no registered profile achieves `score >= min_threshold` (5.0).
+3. **Clean Production vs. Test Fixture Isolation**:
+   - **Production Root (`src/sarathi/data/banks/`)**: Starts with `common.yaml` and is incrementally populated with pristine, format-isolated `<bank>_<container>_<variant>.yaml` profiles as real statements are ingested.
+   - **Test Fixture Root (`tests/bank_statements/fixtures/banks/`)**: Contains isolated mock profiles (`sbi.yaml`, `hdfc.yaml`, `icici.yaml`, etc.) to guarantee that developer test suites run completely deterministically without coupling to or polluting the production profile directory.
 
 ---
 

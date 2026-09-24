@@ -70,7 +70,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 ---
 
 ## 5. Bank Statements (`bank_statements`)
-- **Engine**: Institutional layout matcher (`hdfc.yaml`, `icici.yaml`, `sbi.yaml`) with universal fallback heuristic (`common.yaml`) supporting PNB, BOB, Axis, Kotak, and Canara.
+- **Engine**: Dynamic institutional schema matcher (`<bank>_<container>_<variant>.yaml`) with registered-profile prioritization and universal fallback heuristic (`common.yaml`).
 - **Integrity Verification**:
   - **Double-Entry Arithmetic**: Verifies $\text{Opening Balance} + \text{Credits} - \text{Debits} == \text{Closing Balance} \pm 0.01$ per page.
   - **Continuous Running Balance**: Validates row-by-row balance progression and detects debit/credit column inversion.
