@@ -649,43 +649,62 @@ class OCRCapability:
                 # Asynchronous CPU-GPU overlap: prefetch Page N+1 on CPU while iGPU infers Page N
                 prefetch_q: queue.Queue[tuple[int, Any] | None] = queue.Queue(maxsize=1)
                 producer_exc: list[Exception] = []
+                stop_event = threading.Event()
 
                 def _prefetch_producer() -> None:
                     try:
                         for item in page_iter:
-                            prefetch_q.put(item)
+                            while not stop_event.is_set():
+                                try:
+                                    prefetch_q.put(item, timeout=0.1)
+                                    break
+                                except queue.Full:
+                                    continue
+                            if stop_event.is_set():
+                                break
                     except Exception as e:
                         producer_exc.append(e)
                     finally:
-                        prefetch_q.put(None)
+                        try:
+                            prefetch_q.put(None, timeout=0.2)
+                        except Exception:
+                            pass
 
                 producer_th = threading.Thread(target=_prefetch_producer, daemon=True)
                 producer_th.start()
 
-                while True:
-                    item = prefetch_q.get()
-                    if item is None:
-                        break
-                    page_idx, img = item
-                    if img is None or page_idx not in needed_indices:
-                        continue
-                    page_data, prov, page_warnings = self._process_page_image(
-                        img=img,
-                        page_idx=page_idx,
-                        inp_ref=inp,
-                        tot_pages=tot_pages,
-                        request=request,
-                        context=context,
-                        worker_id="1",
-                        progress_cb=progress_cb,
-                        use_checkpoints=use_checkpoints,
-                        doc_hashes=doc_hashes,
-                        dpi=dpi,
-                        target_lang=target_lang,
-                    )
-                    doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
+                try:
+                    while True:
+                        item = prefetch_q.get()
+                        if item is None:
+                            break
+                        page_idx, img = item
+                        if img is None or page_idx not in needed_indices:
+                            continue
+                        page_data, prov, page_warnings = self._process_page_image(
+                            img=img,
+                            page_idx=page_idx,
+                            inp_ref=inp,
+                            tot_pages=tot_pages,
+                            request=request,
+                            context=context,
+                            worker_id="1",
+                            progress_cb=progress_cb,
+                            use_checkpoints=use_checkpoints,
+                            doc_hashes=doc_hashes,
+                            dpi=dpi,
+                            target_lang=target_lang,
+                        )
+                        doc_page_results[inp.input_id].append((page_idx, page_data, prov, page_warnings))
+                finally:
+                    stop_event.set()
+                    while not prefetch_q.empty():
+                        try:
+                            prefetch_q.get_nowait()
+                        except queue.Empty:
+                            break
+                    producer_th.join(timeout=5.0)
 
-                producer_th.join()
                 if producer_exc:
                     raise producer_exc[0]
 

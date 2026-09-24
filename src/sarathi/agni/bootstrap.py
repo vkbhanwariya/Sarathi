@@ -6,6 +6,7 @@ execution to Pravaha. It intentionally avoids a separate lifecycle-manager layer
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -219,6 +220,18 @@ class Agni:
     def disabled_plugins(self) -> tuple[str, ...]:
         return self._disabled_plugins
 
+    def clear_cache(self) -> int:
+        """Clear all runtime caches (Smriti result cache and on-disk OCR page checkpoints)."""
+        cleared = self._smriti.clear() if self._smriti is not None else 0
+        try:
+            from sarathi.shakti.ocr.engine.checkpoint import clear_checkpoints
+
+            cleared += clear_checkpoints(self._runtime_root / "Cache" / "ocr_checkpoints")
+        except Exception:
+            pass
+        return cleared
+
+
     def audit_readiness(self, force_refresh: bool = False) -> Mapping[str, CapabilityReadiness]:
         return self._readiness_auditor.audit(force_refresh=force_refresh)
 
@@ -241,12 +254,15 @@ class Agni:
         if cpu_dev is not None:
             backend = "openvino" if "openvino" in (cpu_dev.supported_backends or ()) else "cpu"
             backend_dev = (cpu_dev.backend_locators or {}).get(backend, cpu_dev.device_id)
+            cpu_fn = getattr(os, "process_cpu_count", None)
+            cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
+            default_concurrency = max(1, min(4, cpu_count // 4))
             return ExecutionBinding(
                 device_id=cpu_dev.device_id,
                 device_type=cpu_dev.device_type,
                 backend=backend,
                 backend_device_id=backend_dev,
-                approved_concurrency=1,
+                approved_concurrency=default_concurrency,
             )
         return None
 

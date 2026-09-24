@@ -270,12 +270,10 @@ class RunCoordinator:
 
             reviewable = get_reviewable_warnings(self._last_result)
             matched_warning = None
-            matched_r_idx = None
             orig_match_idx = None
-            for r_idx, (orig_idx, w) in enumerate(reviewable, start=1):
-                if f"rev-{r_idx}" == intent.item_id or f"rev-{orig_idx}" == intent.item_id:
+            for orig_idx, w in reviewable:
+                if f"rev-{orig_idx}" == intent.item_id:
                     matched_warning = w
-                    matched_r_idx = r_idx
                     orig_match_idx = orig_idx
                     break
 
@@ -286,10 +284,9 @@ class RunCoordinator:
             expected_att = (
                 getattr(matched_warning, "span_id", "")
                 or (matched_warning.context.get("attempt_id", "") if matched_warning.context else "")
-                or f"att-{target_run_id or 'run'}-{matched_r_idx}"
+                or f"att-{target_run_id or 'run'}-{orig_match_idx}"
             )
-            fallback_att = f"att-{target_run_id or 'run'}-{orig_match_idx}"
-            if intent.attempt_id != expected_att and intent.attempt_id != fallback_att:
+            if intent.attempt_id != expected_att:
                 return False
 
             # 6. Check state revision if expected_revision provided

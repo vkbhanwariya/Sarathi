@@ -24,9 +24,11 @@ def is_word_converter_available() -> bool:
 
 
 _CONVERT_PS_SCRIPT = r"""
+param(
+    [Parameter(Mandatory=$true)][string]$docPath,
+    [Parameter(Mandatory=$true)][string]$docxPath
+)
 $ErrorActionPreference = 'Stop'
-$docPath = $args[0]
-$docxPath = $args[1]
 
 if (-not (Test-Path $docPath)) {
     Write-Error "Source file does not exist: $docPath"
@@ -50,6 +52,29 @@ try {
     [System.GC]::WaitForPendingFinalizers()
 }
 """
+
+
+def _get_running_word_pids() -> set[int]:
+    """Return set of currently running WINWORD.EXE process IDs."""
+    if sys.platform != "win32":
+        return set()
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq WINWORD.EXE", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        pids: set[int] = set()
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if line and "WINWORD.EXE" in line.upper():
+                parts = [p.strip(' "') for p in line.split(",")]
+                if len(parts) >= 2 and parts[1].isdigit():
+                    pids.add(int(parts[1]))
+        return pids
+    except Exception:
+        return set()
 
 
 def convert_doc_to_docx(
@@ -91,28 +116,8 @@ def convert_doc_to_docx(
     out_filename = f"{resolved_doc.stem}_{uuid.uuid4().hex[:8]}.docx"
     target_docx = target_dir / out_filename
 
-    import json
-
-    ps_script = f"""
-$ErrorActionPreference = 'Stop'
-$docPath = {json.dumps(str(resolved_doc))}
-$docxPath = {json.dumps(str(target_docx))}
-
-$word = New-Object -ComObject Word.Application
-$word.Visible = $false
-$word.DisplayAlerts = 0
-
-try {{
-    $doc = $word.Documents.Open($docPath, $false, $true)
-    $doc.SaveAs2($docxPath, 16)
-    $doc.Close($false)
-}} finally {{
-    $word.Quit()
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
-    [System.GC]::Collect()
-    [System.GC]::WaitForPendingFinalizers()
-}}
-"""
+    script_file = target_dir / f"_convert_{uuid.uuid4().hex[:8]}.ps1"
+    script_file.write_text(_CONVERT_PS_SCRIPT, encoding="utf-8")
 
     cmd = [
         "powershell",
@@ -120,10 +125,13 @@ try {{
         "-NonInteractive",
         "-ExecutionPolicy",
         "Bypass",
-        "-Command",
-        ps_script,
+        "-File",
+        str(script_file),
+        str(resolved_doc),
+        str(target_docx),
     ]
 
+    pids_before = _get_running_word_pids()
     try:
         proc = subprocess.run(
             cmd,
@@ -133,13 +141,15 @@ try {{
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        # Try to kill lingering winword processes if any was orphaned
         if sys.platform == "win32":
-            subprocess.run(
-                ["taskkill", "/F", "/IM", "WINWORD.EXE"],
-                capture_output=True,
-                check=False,
-            )
+            pids_after = _get_running_word_pids()
+            new_pids = pids_after - pids_before
+            for pid in new_pids:
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True,
+                    check=False,
+                )
         raise DoshError(
             code=FailureCode.EXECUTION_FAILED,
             message=f"Conversion of legacy .doc file timed out after {timeout_seconds}s.",
@@ -149,6 +159,12 @@ try {{
             code=FailureCode.EXECUTION_FAILED,
             message=f"Failed to execute Word conversion subprocess: {exc}",
         ) from exc
+    finally:
+        try:
+            if script_file.exists():
+                script_file.unlink()
+        except OSError:
+            pass
 
     if proc.returncode != 0 or not target_docx.is_file() or target_docx.stat().st_size == 0:
         err_msg = (proc.stderr or proc.stdout or "Unknown conversion error").strip()

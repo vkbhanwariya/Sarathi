@@ -69,6 +69,12 @@ def compute_params_hash(
         "use_cls",
         "review_threshold",
         "critical_review_threshold",
+        "critical_retry_threshold",
+        "max_critical_crops",
+        "normalize_digits",
+        "validation_enabled",
+        "orientation_detection",
+        "cls_thresh",
         "remove_stamps",
         "inpaint_stamps",
         "stamp_mode",
@@ -410,3 +416,22 @@ def evict_checkpoints(
                     pass
 
     return evicted_count
+
+
+def clear_checkpoints(cache_dir: Path | None = None) -> int:
+    """Purge all cached page OCR checkpoints from the filesystem, returning count of removed files."""
+    base_dir = (cache_dir or get_default_checkpoint_dir()).resolve()
+    if not base_dir.is_dir():
+        return 0
+    cleared = 0
+    try:
+        for f in base_dir.rglob("p*.json"):
+            if f.is_file():
+                try:
+                    f.unlink(missing_ok=True)
+                    cleared += 1
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return cleared

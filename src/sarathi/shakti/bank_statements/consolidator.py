@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from decimal import Decimal
 
 import openpyxl
@@ -57,7 +58,10 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
 
     for key, group_stmts in account_groups.items():
         group_valid_txns: list[Transaction] = [
-            tx for stmt in group_stmts for tx in stmt.transactions if tx.status != ValidationStatus.INVALID
+            replace(tx, metadata={**tx.metadata, "statement_id": stmt.statement_id or f"stmt_{s_idx}"})
+            for s_idx, stmt in enumerate(group_stmts)
+            for tx in stmt.transactions
+            if tx.status != ValidationStatus.INVALID
         ]
         if len(group_stmts) > 1 and group_valid_txns:
             dedup_res = deduplicate_transactions(group_valid_txns)

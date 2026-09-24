@@ -17,6 +17,8 @@ from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionContext,
     InputRef,
+    PageData,
+    ProvenanceRecord,
     Request,
     Result,
 )
@@ -1383,6 +1385,59 @@ def test_native_extraction_statutory_continuation_preserves_resume_self(tmp_path
 
     assert res.next_requirement == "ocr"
     assert res.resume_self is True
+
+
+def test_native_extraction_statutory_resumed_with_ocr_result_continues_to_statutory(tmp_path: Path) -> None:
+    """Verify that when native extraction resumes with OCR result, it does not re-demand OCR and continues to statutory."""
+    scanned_pdf = tmp_path / "scanned_doc.pdf"
+    scanned_pdf.write_bytes(
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n"
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\nxref\n0 4\n0000000000 65535 f\n"
+        b"0000000009 00000 n\n0000000058 00000 n\n0000000115 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF\n"
+    )
+
+    inp = InputRef(
+        input_id="inp-scanned",
+        source_path=scanned_pdf,
+        display_name="scanned_doc.pdf",
+        size_bytes=scanned_pdf.stat().st_size,
+    )
+    req = Request(
+        request_id="req-scanned",
+        requirement="read_native",
+        inputs=(inp,),
+        custom_options={"statutory": True},
+    )
+    ctx = ExecutionContext("run-scanned", "req-scanned", "t-1", "s-1")
+    cap = NativeExtractionCapability()
+
+    # Step 1: Initial execution escalates to OCR
+    res1 = cap.execute(req, ctx)
+    assert res1.next_requirement == "ocr"
+    assert res1.resume_self is True
+
+    # Step 2: Simulated OCR output
+    ocr_doc = CanonicalDocument(
+        document_id="doc-inp-scanned",
+        source_input_id="inp-scanned",
+        text="Tax Invoice GSTIN: 07AAAAA0000A1Z5 Total: 5000",
+        pages=(
+            PageData(
+                page_number=1,
+                text="Tax Invoice GSTIN: 07AAAAA0000A1Z5 Total: 5000",
+            ),
+        ),
+    )
+    ocr_result = Result(
+        data=ocr_doc,
+        provenance=(ProvenanceRecord(source_input_id="inp-scanned", capability_id="ocr", stage="ocr"),),
+    )
+
+    # Step 3: Resumed execution with OCR result must continue to statutory without repeating OCR
+    res2 = cap.execute(req, ctx, prior_result=ocr_result)
+    assert res2.next_requirement == "statutory"
+    assert res2.resume_self is False
+    assert len(res2.artifact_payloads) > 0
 
 
 def test_native_extraction_escalates_hybrid_scanned_pdf(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

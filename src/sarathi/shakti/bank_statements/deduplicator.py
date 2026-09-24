@@ -94,6 +94,34 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
             if not desc_matches and not (ex_ref and tx_ref and ex_ref == tx_ref):
                 contradiction = True
 
+            ex_doc_id = (
+                existing.provenance[0].source_input_id
+                if existing.provenance and existing.provenance[0].source_input_id
+                else None
+            )
+            tx_doc_id = (
+                tx.provenance[0].source_input_id
+                if tx.provenance and tx.provenance[0].source_input_id
+                else None
+            )
+            ex_stmt_id = existing.metadata.get("statement_id") if existing.metadata else None
+            tx_stmt_id = tx.metadata.get("statement_id") if tx.metadata else None
+
+            is_explicit_cross_statement = bool(
+                (ex_doc_id and tx_doc_id and ex_doc_id != tx_doc_id)
+                or (ex_stmt_id and tx_stmt_id and ex_stmt_id != tx_stmt_id)
+            )
+            is_same_statement = bool(
+                (ex_doc_id and tx_doc_id and ex_doc_id == tx_doc_id)
+                or (ex_stmt_id and tx_stmt_id and ex_stmt_id == tx_stmt_id)
+            )
+
+            # Within the same statement, distinct sequence rows are inherently distinct transactions
+            # unless a verified matching reference number proves duplicate extraction (e.g. repeated table header).
+            if is_same_statement and existing.sequence_id is not None and tx.sequence_id is not None:
+                if existing.sequence_id != tx.sequence_id and not (ex_ref and tx_ref and ex_ref == tx_ref):
+                    contradiction = True
+
             if contradiction:
                 return False, False, True
 
@@ -104,7 +132,16 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 and existing.running_balance == tx.running_balance
             )
 
-            is_proven = has_matching_ref or has_matching_bal
+            # Proven duplicate requires:
+            # 1. Matching reference numbers, OR
+            # 2. Asymmetric reference enrichment where one transaction has a reference and running balances match, OR
+            # 3. Established cross-statement overlap across distinct statements with matching running balance.
+            is_proven = has_matching_ref or (
+                has_matching_bal and (
+                    (bool(ex_ref) != bool(tx_ref))
+                    or is_explicit_cross_statement
+                )
+            )
             is_probable = desc_matches and not is_proven
             return is_proven, is_probable, False
 

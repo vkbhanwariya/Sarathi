@@ -257,7 +257,21 @@ class NativeExtractionCapability:
             else True
         )
 
-        for inp in request.inputs:
+        # Continuation support: if resumed with prior OCR result, continue from recognized document(s)
+        if prior_result is not None and prior_result.data is not None:
+            if isinstance(prior_result.data, CanonicalDocument):
+                extracted_docs = [prior_result.data]
+            elif isinstance(prior_result.data, (list, tuple)):
+                extracted_docs = [d for d in prior_result.data if isinstance(d, CanonicalDocument)]
+            elif isinstance(prior_result.data, dict):
+                extracted_docs = [d for d in prior_result.data.values() if isinstance(d, CanonicalDocument)]
+            if extracted_docs:
+                all_provenance = list(prior_result.provenance)
+                all_warnings = list(prior_result.warnings)
+                needs_ocr = False
+
+        inputs_to_process = () if extracted_docs else request.inputs
+        for inp in inputs_to_process:
             if progress_cb is not None:
                 progress_cb(
                     file_display_name=inp.display_name or inp.input_id,

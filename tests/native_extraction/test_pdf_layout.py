@@ -224,3 +224,38 @@ def test_read_pdf_with_layout_multi_page_parallel_ordering() -> None:
     for idx, prov in enumerate(provs):
         assert prov.page_number == idx + 1
         assert prov.evidence["page_count"] == total_test_pages
+
+
+def test_read_document_with_xberg_raises_dosh_error_on_failure() -> None:
+    """Xberg reader raises DoshError when extraction fails so callers can fallback."""
+    from sarathi.dosh import DoshError
+    from sarathi.shakti.native_extraction.readers.xberg_reader import read_document_with_xberg
+
+    with patch("xberg.extract", side_effect=RuntimeError("Rust parser corrupted")):
+        with pytest.raises(DoshError) as exc_info:
+            read_document_with_xberg(b"invalid data", "inp-fail")
+        assert "Xberg document extraction failed" in str(exc_info.value)
+
+
+def test_read_document_with_xberg_confidence_none_and_skip_header_footer() -> None:
+    """Spans have confidence=None (no fake defaults) and skip_header_footer extracts metadata."""
+    from sarathi.shakti.native_extraction.readers.xberg_reader import read_document_with_xberg
+
+    doc = pymupdf.open()
+    for p_num in (1, 2):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 40), f"Annual Report 2026 Page {p_num}", fontsize=9)
+        page.insert_text((72, 150), f"Body paragraph for page {p_num}.", fontsize=12)
+        page.insert_text((72, 800), "Confidential Internal Audit", fontsize=8)
+    data = doc.tobytes()
+    doc.close()
+
+    cdoc, _, _ = read_document_with_xberg(data, "inp-hf-conf", skip_header_footer=True)
+    assert len(cdoc.pages) == 2
+    for p in cdoc.pages:
+        for span in p.spans:
+            assert span.confidence is None
+        assert "Annual Report 2026" not in p.text
+        assert "Confidential Internal Audit" not in p.text
+        assert "Annual Report 2026" in str(p.metadata.get("header", ""))
+        assert "Confidential Internal Audit" in str(p.metadata.get("footer", ""))

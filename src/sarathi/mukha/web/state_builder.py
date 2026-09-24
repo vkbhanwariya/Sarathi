@@ -51,7 +51,11 @@ def query_run_history(agni: Agni, limit: int = 50) -> tuple[Any, ...]:
         for h in records:
             stat = getattr(h, "status", "completed")
             stat_upper = stat.upper() if isinstance(stat, str) else "COMPLETED"
-            stat_mapped = "SUCCESS" if stat_upper == "COMPLETED" else stat_upper
+            warn_cnt = getattr(h, "warning_count", 0) or 0
+            if stat_upper in ("COMPLETED", "SUCCESS"):
+                stat_mapped = "WARNING" if warn_cnt > 0 else "SUCCESS"
+            else:
+                stat_mapped = stat_upper
             dur_ms = getattr(h, "duration_ms", 0) or 0
             art_cnt = getattr(h, "artifact_count", 0) or 0
             t_inputs = getattr(h, "input_count", None)
@@ -193,9 +197,9 @@ def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> t
 
     intents = runner.get_review_intents() if hasattr(runner, "get_review_intents") else {}
     items = []
-    for r_idx, (orig_idx, w) in enumerate(reviewable, start=1):
-        item_id = f"rev-{r_idx}"
-        intent = intents.get(item_id) or intents.get(f"rev-{orig_idx}")
+    for orig_idx, w in reviewable:
+        item_id = f"rev-{orig_idx}"
+        intent = intents.get(item_id)
         if (
             intent is not None
             and getattr(intent, "run_id", None)
@@ -221,7 +225,7 @@ def extract_review_items(runner: RunCoordinator, run_id: str | None = None) -> t
         attempt_id = (
             getattr(w, "span_id", "")
             or (ctx.get("attempt_id", "") if ctx else "")
-            or f"att-{active_or_last_run_id or 'run'}-{r_idx}"
+            or f"att-{active_or_last_run_id or 'run'}-{orig_idx}"
         )
 
         items.append(

@@ -90,6 +90,7 @@ class MistralOCRCapability:
                 media_type=media_type,
                 model=model,
                 include_blocks=True,
+                cancellation_token=context.cancellation_token,
             )
 
             raw_pages = response_json.get("pages", [])

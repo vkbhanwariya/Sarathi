@@ -93,6 +93,7 @@ class MistralClient:
         media_type: str = "image/jpeg",
         model: str = "mistral-ocr-latest",
         include_blocks: bool = True,
+        cancellation_token: Any | None = None,
     ) -> dict[str, Any]:
         """Process document image or PDF bytes using Mistral OCR API."""
         if not content_bytes:
@@ -114,4 +115,4 @@ class MistralClient:
             "include_blocks": include_blocks,
         }
 
-        return self._post("ocr", payload)
+        return self._post("ocr", payload, cancellation_token=cancellation_token)

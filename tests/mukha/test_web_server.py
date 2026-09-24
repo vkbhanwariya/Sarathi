@@ -16,6 +16,7 @@ import pytest
 from sarathi.agni import Agni
 from sarathi.mukha.web import MukhaWebServer
 from sarathi.mukha.web.native_picker import NativePickerResult
+from sarathi.sankalpa import Result, WarningRecord
 from tests.mukha.conftest import _http_get, _http_post, _wait_for_idle
 
 
@@ -826,18 +827,70 @@ def test_operational_warnings_excluded_from_review_queue(web_server: MukhaWebSer
     data = json.loads(body.decode("utf-8"))
     assert data["ok"] is True
     assert len(data["items"]) == 1
-    assert data["items"][0]["item_id"] == "rev-1"
+    assert data["items"][0]["item_id"] == "rev-2"
     assert data["items"][0]["code"] == "UNCERTAIN_GLYPH"
     assert data["items"][0]["attempt_id"] == "span-low-conf"
 
     # POST review intent for the content review item must succeed
     status_post, resp_post = _http_post(
         f"http://127.0.0.1:{web_server.resolved_port}/api/review",
-        {"item_id": "rev-1", "attempt_id": "span-low-conf", "action": "accept"},
+        {"item_id": "rev-2", "attempt_id": "span-low-conf", "action": "accept"},
     )
     assert status_post == 200
     assert resp_post["ok"] is True
     assert resp_post["action"] == "accept"
+
+
+def test_accepting_second_review_item_does_not_accept_first_item(web_server: MukhaWebServer) -> None:
+    """Verify accepting one review item does NOT falsely mark preceding review items as accepted."""
+    web_server.runner._last_result = Result(
+        data="dummy",
+        warnings=(
+            WarningRecord(
+                code="OCR_FALLBACK_UNAVAILABLE",
+                message="Operational warning",
+                stage="ocr",
+            ),
+            WarningRecord(
+                code="UNCERTAIN_GLYPH",
+                message="Suspicious character 1",
+                stage="ocr",
+                context={"attempt_id": "att-warn-2"},
+            ),
+            WarningRecord(
+                code="UNCERTAIN_GLYPH",
+                message="Suspicious character 2",
+                stage="ocr",
+                context={"attempt_id": "att-warn-3"},
+            ),
+        ),
+    )
+    web_server.runner._last_result_run_id = "run-test-isolation"
+
+    status, body, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert len(data["items"]) == 2
+    assert data["items"][0]["item_id"] == "rev-2"
+    assert data["items"][1]["item_id"] == "rev-3"
+
+    # Accept only the second displayed review item (rev-3)
+    status_post, resp_post = _http_post(
+        f"http://127.0.0.1:{web_server.resolved_port}/api/review",
+        {"item_id": "rev-3", "attempt_id": "att-warn-3", "action": "accept"},
+    )
+    assert status_post == 200
+    assert resp_post["ok"] is True
+
+    # Re-fetch review items: rev-2 must be PENDING, rev-3 must be ACCEPTED
+    status2, body2, _ = _http_get(f"http://127.0.0.1:{web_server.resolved_port}/api/review")
+    assert status2 == 200
+    data2 = json.loads(body2.decode("utf-8"))
+    assert data2["items"][0]["item_id"] == "rev-2"
+    assert data2["items"][0]["status"] == "pending"
+    assert data2["items"][1]["item_id"] == "rev-3"
+    assert data2["items"][1]["status"] == "accepted"
+
 
 
 def test_api_payload_validation_rejects_malformed(web_server: MukhaWebServer) -> None:

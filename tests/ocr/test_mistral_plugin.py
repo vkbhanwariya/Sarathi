@@ -202,6 +202,16 @@ class TestMistralClientZeroLeaks:
                 client._post("ocr", {"model": "test"})
             assert exc_info.value.code == FailureCode.RESOURCE_UNAVAILABLE
 
+    def test_process_ocr_passes_cancellation_token(self) -> None:
+        client = MistralClient(api_key="valid_key")
+        token = CancellationToken()
+        with patch.object(client, "_post", return_value={"pages": []}) as mock_post:
+            client.process_ocr(b"dummy_content", cancellation_token=token)
+            mock_post.assert_called_once()
+            _, kwargs = mock_post.call_args
+            assert kwargs.get("cancellation_token") is token
+
+
 
 class TestMistralOCRCapability:
     """Verify Mistral OCR execution, response parsing, and artifact creation."""

@@ -607,3 +607,47 @@ def test_duplicate_decision_no_stale_aliases() -> None:
     assert hasattr(DuplicateDecision, "DISTINCT")
     assert not hasattr(DuplicateDecision, "PROVEN")
     assert not hasattr(DuplicateDecision, "PROBABLE")
+
+
+def test_deduplicate_preserves_legitimate_repeated_statement_rows() -> None:
+    """Verify sequence debit 100 -> credit 100 -> debit 100 with matching running balances is preserved."""
+    ident = create_account_identity("HDFC Bank", "5010099999")
+    prov = (ProvenanceRecord(source_input_id="doc-stmt-1", capability_id="bank_statements", stage="extraction"),)
+    dt = date(2026, 1, 15)
+
+    tx1 = Transaction(
+        transaction_date=dt,
+        description="ATM Withdrawal",
+        bank_name="HDFC Bank",
+        debit=Decimal("100.00"),
+        running_balance=Decimal("900.00"),
+        account_identity=ident,
+        provenance=prov,
+        sequence_id=1,
+    )
+    tx2 = Transaction(
+        transaction_date=dt,
+        description="UPI Deposit",
+        bank_name="HDFC Bank",
+        credit=Decimal("100.00"),
+        running_balance=Decimal("1000.00"),
+        account_identity=ident,
+        provenance=prov,
+        sequence_id=2,
+    )
+    tx3 = Transaction(
+        transaction_date=dt,
+        description="ATM Withdrawal",
+        bank_name="HDFC Bank",
+        debit=Decimal("100.00"),
+        running_balance=Decimal("900.00"),
+        account_identity=ident,
+        provenance=prov,
+        sequence_id=3,
+    )
+
+    res = deduplicate_transactions([tx1, tx2, tx3])
+    # All 3 distinct rows must be preserved; total debits must remain 200
+    assert len(res.unique_transactions) == 3
+    total_debits = sum(t.debit for t in res.unique_transactions if t.debit is not None)
+    assert total_debits == Decimal("200.00")

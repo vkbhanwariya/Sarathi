@@ -79,8 +79,8 @@ def test_transform_xlsx_preserves_formulas_numbers_and_styles(tmp_path: Path) ->
     res_wb = openpyxl.load_workbook(io.BytesIO(payload.content), data_only=False)
     res_ws = res_wb.active
 
-    # 1. Sheet title translated
-    assert res_ws.title == "वित्तीय सारांश"
+    # 1. Sheet title preserved by default to protect cross-sheet formula references
+    assert res_ws.title == "Financial Summary"
 
     # 2. Text translated with font adapted to Nirmala UI while preserving bold and color
     assert res_ws["A1"].value == "राजस्व विवरण"
@@ -102,6 +102,42 @@ def test_transform_xlsx_preserves_formulas_numbers_and_styles(tmp_path: Path) ->
 
     # 4. Critical: formula cell untouched
     assert res_ws["B4"].value == "=B2-B3"
+
+
+def test_transform_xlsx_preserves_cross_sheet_formulas() -> None:
+    """Verify cross-sheet formulas like =Data!A1 remain valid after translation."""
+    wb = openpyxl.Workbook()
+    ws_data = wb.active
+    ws_data.title = "Data"
+    ws_data["A1"] = 500
+    ws_data["A2"] = "Source Data Label"
+
+    ws_summary = wb.create_sheet(title="Summary")
+    ws_summary["A1"] = "Total"
+    ws_summary["B1"] = "=Data!A1"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    input_bytes = buf.getvalue()
+
+    def mock_trans(batch: list[str]) -> list[str]:
+        return [f"TR_{s}" for s in batch]
+
+    payload = transform_xlsx_translation_artifact(
+        input_bytes=input_bytes,
+        translate_fn=mock_trans,
+        filename="Translated_CrossSheet.xlsx",
+        is_hindi_target=True,
+    )
+
+    res_wb = openpyxl.load_workbook(io.BytesIO(payload.content), data_only=False)
+    # Sheet names must be preserved so cross-sheet references are not orphaned into #REF!
+    assert "Data" in res_wb.sheetnames
+    assert "Summary" in res_wb.sheetnames
+    assert res_wb["Summary"]["B1"].value == "=Data!A1"
+    assert res_wb["Summary"]["A1"].value == "TR_Total"
+    assert res_wb["Data"]["A2"].value == "TR_Source Data Label"
+    assert res_wb["Data"]["A1"].value == 500
 
 
 def test_build_xlsx_from_tables() -> None:

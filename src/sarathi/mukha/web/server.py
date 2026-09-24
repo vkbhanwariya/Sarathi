@@ -278,9 +278,8 @@ class MukhaWebServer:
         return darpana.clear_history() if darpana is not None else True
 
     def clear_cache(self) -> int:
-        """Clear the optional Smriti result cache."""
-        cache = self._agni.smriti
-        return cache.clear() if cache is not None else 0
+        """Clear all runtime caches via Agni composition root."""
+        return self._agni.clear_cache()
 
     def get_review_items(self, run_id: str | None = None) -> tuple[dict[str, Any], ...]:
         """Return pending review/exception items."""

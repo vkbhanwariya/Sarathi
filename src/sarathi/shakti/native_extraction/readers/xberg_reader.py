@@ -10,10 +10,12 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     CanonicalDocument,
     PageData,
@@ -27,7 +29,10 @@ from sarathi.shakti.native_extraction.readers.common import (
     PLUGIN_ID,
     STAGE_NAME,
 )
-from sarathi.shakti.text.typography import normalize_text_spacing
+from sarathi.shakti.text.typography import (
+    normalize_header_template,
+    normalize_text_spacing,
+)
 
 _TERMINAL_PUNCT = (".", "।", "!", "?", ";", ":")
 
@@ -70,6 +75,33 @@ def read_document_with_xberg(
     warnings: list[WarningRecord] = []
     passwords = [password] if password else None
 
+    # Detect MIME type and document format
+    detected_mime = mime_type
+    detected_type = "pdf"
+    if data.startswith(b"{\\rtf") or (filename and filename.lower().endswith(".rtf")):
+        detected_mime = "application/rtf"
+        detected_type = "rtf"
+    elif filename and filename.lower().endswith(".pptx"):
+        detected_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        detected_type = "pptx"
+    elif filename and filename.lower().endswith(".epub"):
+        detected_mime = "application/epub+zip"
+        detected_type = "epub"
+    elif filename and filename.lower().endswith((".eml", ".msg")):
+        detected_mime = "message/rfc822" if filename.lower().endswith(".eml") else "application/vnd.ms-outlook"
+        detected_type = "email"
+    elif not detected_mime:
+        detected_mime = "application/pdf"
+        detected_type = "pdf"
+    elif "rtf" in detected_mime.lower():
+        detected_type = "rtf"
+    elif "presentation" in detected_mime.lower() or "pptx" in detected_mime.lower():
+        detected_type = "pptx"
+    elif "epub" in detected_mime.lower():
+        detected_type = "epub"
+    elif "email" in detected_mime.lower() or "message" in detected_mime.lower():
+        detected_type = "email"
+
     pdf_cfg = xberg.PdfConfig(
         reading_order=True,
         extract_tables=True,
@@ -85,55 +117,41 @@ def read_document_with_xberg(
         inp = xberg.ExtractInput(
             kind="uri",
             uri=str(Path(source_path).resolve()),
-            mime_type=mime_type or "application/pdf",
+            mime_type=detected_mime,
             filename=filename or Path(source_path).name,
         )
     else:
         inp = xberg.ExtractInput(
             kind="bytes",
             bytes=data,
-            mime_type=mime_type or "application/pdf",
+            mime_type=detected_mime,
             filename=filename,
         )
 
     try:
         res = _run_coroutine_sync(xberg.extract(inp, config=cfg))
     except Exception as exc:
-        warnings.append(
-            WarningRecord(
-                code="XBERG_EXTRACTION_FAILED",
-                message=f"Xberg document extraction failed: {exc}",
-                stage=CAPABILITY_ID,
-            )
-        )
-        return (
-            CanonicalDocument(
-                document_id=f"doc-{input_id}",
-                source_input_id=input_id,
-                pages=(),
-                tables=(),
-                text="",
-                detected_type="pdf",
-            ),
-            (),
-            tuple(warnings),
-        )
+        raise DoshError(
+            FailureCode.EXECUTION_FAILED,
+            f"Xberg document extraction failed: {exc}",
+            context={"stage": STAGE_NAME},
+        ) from exc
 
-    if not res.results:
-        return (
-            CanonicalDocument(
-                document_id=f"doc-{input_id}",
-                source_input_id=input_id,
-                pages=(),
-                tables=(),
-                text="",
-                detected_type="pdf",
-            ),
-            (),
-            tuple(warnings),
+    if not res or not res.results:
+        raise DoshError(
+            FailureCode.EXECUTION_FAILED,
+            "Xberg document extraction produced no results",
+            context={"stage": STAGE_NAME},
         )
 
     doc_res = res.results[0]
+    raw_pages = getattr(doc_res, "pages", None) or []
+    if not doc_res.content and not raw_pages and not getattr(doc_res, "tables", None):
+        raise DoshError(
+            FailureCode.EXECUTION_FAILED,
+            "Xberg document extraction returned empty content",
+            context={"stage": STAGE_NAME},
+        )
 
     # Convert extracted tables
     doc_tables: list[TableData] = []
@@ -153,18 +171,42 @@ def read_document_with_xberg(
             b = t.bounding_box
             bbox = (float(b.x0), float(b.y0), float(b.x1), float(b.y1))
 
+        t_page = getattr(t, "page_number", None) or getattr(t, "page", None)
+        if t_page is None and getattr(t, "bounding_box", None):
+            t_page = getattr(t.bounding_box, "page_number", None) or getattr(t.bounding_box, "page", None)
+
         doc_tables.append(
             TableData(
                 name=f"Table {t_idx}",
                 headers=headers,
                 rows=rows,
-                metadata={"bounding_box": bbox, "kind": "xberg_table"},
+                metadata={"bounding_box": bbox, "kind": "xberg_table", "page": t_page},
             )
         )
 
+    # Running header/footer detection across pages
+    header_templates: set[str] = set()
+    footer_templates: set[str] = set()
+    if skip_header_footer and len(raw_pages) >= 2:
+        header_counts: dict[str, set[int]] = defaultdict(set)
+        footer_counts: dict[str, set[int]] = defaultdict(set)
+        for p_idx, p in enumerate(raw_pages):
+            raw_text = getattr(p, "content", None) or ""
+            p_lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+            if p_lines:
+                for ln in p_lines[:2]:
+                    tmpl = normalize_header_template(ln)
+                    if tmpl:
+                        header_counts[tmpl].add(p_idx)
+                for ln in p_lines[-2:]:
+                    tmpl = normalize_header_template(ln)
+                    if tmpl:
+                        footer_counts[tmpl].add(p_idx)
+        header_templates = {tmpl for tmpl, p_set in header_counts.items() if len(p_set) >= 2}
+        footer_templates = {tmpl for tmpl, p_set in footer_counts.items() if len(p_set) >= 2}
+
     # Convert extracted pages and spans
     pages: list[PageData] = []
-    raw_pages = getattr(doc_res, "pages", None) or []
 
     if not raw_pages and doc_res.content:
         # Single synthesized page if pages list is empty
@@ -176,7 +218,7 @@ def read_document_with_xberg(
             spans.append(
                 TextSpan(
                     text=ln,
-                    confidence=1.0,
+                    confidence=None,
                     metadata={
                         "layout_class": cls_name,
                         "is_heading": is_head,
@@ -197,10 +239,27 @@ def read_document_with_xberg(
             p_num = getattr(p, "page_number", None) or (p_idx + 1)
             raw_p_text = getattr(p, "content", None) or ""
             p_lines = [normalize_text_spacing(ln) for ln in raw_p_text.splitlines()]
-            p_text = "\n".join(p_lines)
             non_empty_lines = [ln for ln in p_lines if ln.strip()]
-            spans = []
+
+            p_headers: list[str] = []
+            p_footers: list[str] = []
+            body_lines: list[str] = []
+
             for l_idx, ln in enumerate(non_empty_lines):
+                trimmed = ln.strip()
+                tmpl = normalize_header_template(trimmed)
+                if skip_header_footer and l_idx < 2 and tmpl in header_templates:
+                    p_headers.append(trimmed)
+                elif skip_header_footer and l_idx >= len(non_empty_lines) - 2 and tmpl in footer_templates:
+                    p_footers.append(trimmed)
+                else:
+                    body_lines.append(ln)
+
+            p_text = "\n".join(body_lines if skip_header_footer else p_lines)
+            active_lines = body_lines if skip_header_footer else non_empty_lines
+
+            spans = []
+            for l_idx, ln in enumerate(active_lines):
                 is_head = (
                     ln.startswith(("# ", "## ", "### "))
                     or (l_idx == 0 and p_idx == 0)
@@ -210,7 +269,7 @@ def read_document_with_xberg(
                 spans.append(
                     TextSpan(
                         text=ln,
-                        confidence=1.0,
+                        confidence=None,
                         metadata={
                             "layout_class": cls_name,
                             "is_heading": is_head,
@@ -220,13 +279,20 @@ def read_document_with_xberg(
                 )
 
             # Match page-specific tables
-            p_tables = [t for t in doc_tables if getattr(t.metadata, "get", lambda k: None)("page") == p_num]
+            p_tables = [t for t in doc_tables if t.metadata.get("page") == p_num]
+            p_meta: dict[str, Any] = {}
+            if p_headers:
+                p_meta["header"] = "\n".join(p_headers)
+            if p_footers:
+                p_meta["footer"] = "\n".join(p_footers)
+
             pages.append(
                 PageData(
                     page_number=p_num,
                     text=p_text,
                     spans=tuple(spans),
                     tables=tuple(p_tables if p_tables else (doc_tables if len(raw_pages) == 1 else ())),
+                    metadata=p_meta,
                 )
             )
 
@@ -243,7 +309,7 @@ def read_document_with_xberg(
                 "engine": "xberg_rust",
                 "page_count": len(pages),
                 "layout_elements_count": len(p.spans),
-                "format": mime_type or "application/pdf",
+                "format": detected_mime,
             },
         )
         for p in pages
@@ -255,7 +321,7 @@ def read_document_with_xberg(
         pages=tuple(pages),
         tables=tuple(doc_tables),
         text=full_text,
-        detected_type="pdf",
+        detected_type=detected_type,
     )
 
     return canonical_doc, provenances, tuple(warnings)

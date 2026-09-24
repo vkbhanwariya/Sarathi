@@ -145,15 +145,7 @@ class CloudHttpClient:
                 kwargs: dict[str, Any] = {"timeout": self._timeout_seconds}
                 if self._transport is not None:
                     kwargs["transport"] = self._transport
-                created = httpx.Client(**kwargs)
-                if type(created).__name__ in ("MagicMock", "Mock") and hasattr(created, "__enter__"):
-                    try:
-                        entered = created.__enter__()
-                        if hasattr(entered, "post"):
-                            created = entered
-                    except Exception:
-                        pass
-                self._client = created
+                self._client = httpx.Client(**kwargs)
             return self._client
 
     def close(self) -> None:

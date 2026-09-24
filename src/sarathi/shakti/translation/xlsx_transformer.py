@@ -83,6 +83,7 @@ def transform_xlsx_translation_artifact(
     warnings: list[WarningRecord] | None = None,
     is_hindi_target: bool = True,
     batch_size: int = 64,
+    preserve_sheet_names: bool = True,
 ) -> ArtifactPayload:
     """Transform an existing XLSX file in-place by translating story cells while preserving 100% of formatting.
 
@@ -91,6 +92,7 @@ def transform_xlsx_translation_artifact(
     - Numeric values: Ints, floats, dates, and currency quantities remain typed and formatted.
     - Cell Styles: Fills, borders, alignments, and number formats are unmodified.
     - Multiple Sheets: All worksheets, charts, and table geometries are preserved.
+    - Sheet Names: Preserved by default to prevent breaking cross-sheet formula references.
     """
     in_buf = io.BytesIO(input_bytes)
     wb = openpyxl.load_workbook(in_buf, data_only=False)
@@ -101,8 +103,8 @@ def transform_xlsx_translation_artifact(
 
         # 1. Harvest translatable string cells across all worksheets
         for ws in wb.worksheets:
-            # Check sheet title for translation
-            if _is_translatable_cell_value(ws.title):
+            # Preserve sheet names by default to avoid breaking cross-sheet formulas (e.g. =Data!A1)
+            if not preserve_sheet_names and _is_translatable_cell_value(ws.title):
                 titles_to_translate.append((ws, ws.title))
 
             for row in ws.iter_rows():

@@ -648,3 +648,17 @@ def test_memory_cache_byte_budget_eviction() -> None:
     assert cache.get(key2) is not None
     assert cache.get(key3) is not None
     assert cache.current_bytes <= 3000
+
+
+def test_memory_cache_composite_document_size_estimation() -> None:
+    """Composite payloads (lists/dicts of CanonicalDocuments) must accurately estimate bytes."""
+    from sarathi.sankalpa import CanonicalDocument, Result
+    from sarathi.smriti.memory import _estimate_result_bytes
+
+    doc1 = CanonicalDocument("d1", text="x" * 5000)
+    doc2 = CanonicalDocument("d2", text="y" * 5000)
+    res_composite = Result(data=[doc1, doc2])
+
+    size = _estimate_result_bytes(res_composite)
+    # Must be > 10,000 bytes, not the old default 512 bytes
+    assert size >= 10000

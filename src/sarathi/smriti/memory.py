@@ -71,22 +71,49 @@ def _defensive_copy(value: Any) -> Any:
     return value
 
 
+def _estimate_data_bytes(val: Any, depth: int = 0) -> int:
+    """Recursively estimate in-memory byte size of cached data payloads."""
+    if depth > 4 or val is None:
+        return 0
+    if isinstance(val, (bytes, bytearray)):
+        return len(val)
+    if isinstance(val, str):
+        return len(val.encode("utf-8", errors="ignore"))
+    if hasattr(val, "text") and isinstance(val.text, str):
+        size = len(val.text.encode("utf-8", errors="ignore"))
+        if hasattr(val, "tables") and isinstance(val.tables, (list, tuple)):
+            for t in val.tables:
+                if hasattr(t, "rows") and isinstance(t.rows, (list, tuple)):
+                    for r in t.rows:
+                        if isinstance(r, (list, tuple)):
+                            size += sum(len(str(c).encode("utf-8", errors="ignore")) for c in r)
+        return size
+    if hasattr(val, "pages") and isinstance(val.pages, (list, tuple)):
+        size = 0
+        for p in val.pages:
+            if hasattr(p, "text") and isinstance(p.text, str):
+                size += len(p.text.encode("utf-8", errors="ignore"))
+        return size
+    if isinstance(val, (list, tuple, set, frozenset)):
+        return sum(_estimate_data_bytes(item, depth + 1) for item in val)
+    if isinstance(val, (dict, Mapping, MappingProxyType)):
+        return sum(_estimate_data_bytes(k, depth + 1) + _estimate_data_bytes(v, depth + 1) for k, v in val.items())
+    if hasattr(val, "content") and isinstance(val.content, (bytes, str)):
+        return len(val.content) if isinstance(val.content, bytes) else len(val.content.encode("utf-8", errors="ignore"))
+    return 64
+
+
 def _estimate_result_bytes(res: Result) -> int:
     """Estimate in-memory byte size of a Result object."""
     total = 256
     if res.artifact_payloads:
         for p in res.artifact_payloads:
             if hasattr(p, "content") and p.content:
-                total += len(p.content)
-    if isinstance(res.data, str):
-        total += len(res.data.encode("utf-8", errors="ignore"))
-    elif hasattr(res.data, "text") and isinstance(res.data.text, str):
-        total += len(res.data.text.encode("utf-8", errors="ignore"))
-    elif hasattr(res.data, "pages") and isinstance(res.data.pages, (list, tuple)):
-        for p in res.data.pages:
-            if hasattr(p, "text") and isinstance(p.text, str):
-                total += len(p.text.encode("utf-8", errors="ignore"))
+                total += len(p.content) if isinstance(p.content, (bytes, bytearray)) else len(str(p.content).encode("utf-8", errors="ignore"))
+    if res.data is not None:
+        total += _estimate_data_bytes(res.data)
     return max(512, total)
+
 
 
 @dataclass(slots=True)
