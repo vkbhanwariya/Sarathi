@@ -313,7 +313,7 @@ export function TaskSelector({
                                           id="btn-ocr-engine-cloud"
                                           type="button"
                                           class={`toggle-row mini toggle-switch-btn ${ocrEngineType === "cloud" ? "active" : ""}`}
-                                          title="Enable Cloud AI (Gemini, Mistral, Azure) or stay on Local Arc iGPU"
+                                          title="Enable Cloud AI (Mistral) or stay on Local Arc iGPU"
                                           onClick={() => {
                                             onSetOcrEngineType(ocrEngineType === "cloud" ? "local" : "cloud");
                                             onSelectSubtask("documents_extraction", "ocr");

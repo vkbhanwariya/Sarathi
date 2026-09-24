@@ -15,7 +15,7 @@ Configuration is managed by the **Sutra** subsystem, loaded from `config/setting
 | `[security]` | `allow_pii_access` | `bool` | `false` | Permits access to Personally Identifiable Information (disabled for privacy). |
 | | `allow_network_access` | `bool` | `false` | **(External/Cloud)** Permits outbound socket/HTTP egress (disabled by default). |
 | | `allow_external_processing`| `bool` | `false` | **(External/Cloud)** Permits transmitting document data to cloud APIs. |
-| | `allowed_secrets` | `list[str]`| `["AZURE_..."]` | Environment variable names containing authorized API keys. |
+| | `allowed_secrets` | `list[str]`| `["MISTRAL_API_KEY"]` | Environment variable names containing authorized API keys. |
 | `[hardware]` | `detect_accelerators` | `bool` | `true` | Probes OpenVINO GPU and NPU devices. Set `false` to force CPU. |
 | | `gpu_capacity_per_device` | `int` | `2` | Max concurrent worker slots per GPU (tuned for Intel Arc iGPU). |
 | | `cpu_capacity` | `int` | `6` | CPU concurrency slots (tuned for Core Ultra 5 125H 4P + 2E cores). |

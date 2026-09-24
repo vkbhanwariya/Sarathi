@@ -150,8 +150,6 @@ export function resolveBackendMapping(
 
 export function isCloudAction(actionId: string): boolean {
   return (
-    actionId.startsWith("gemini_") ||
-    actionId.startsWith("azure_") ||
     actionId.startsWith("mistral_") ||
     actionId.includes("cloud")
   );

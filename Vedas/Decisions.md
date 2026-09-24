@@ -13,7 +13,7 @@ The Home screen user-facing processing choices are structured into **Four Primar
 | **1. Documents Extraction** | **Native Extraction** | Direct text & table extraction; auto-converts legacy fonts | `read_native` | `instant` (or `layout_preserving` with Xberg Rust layout analysis) |
 | | **Instant OCR** | Speed-optimized single-pass OCR | `ocr` | `instant` |
 | | **Accurate OCR** | Multi-pass OCR with weak-crop retry | `ocr` | `accurate` |
-| | **Cloud OCR** | Delegated remote OCR (Gemini, Mistral, Azure) | `ocr` (cloud) | `custom` (`provider: gemini \| mistral \| azure`) |
+| | **Cloud OCR** | Delegated remote OCR (Mistral) | `ocr` (cloud) | `custom` (`provider: mistral`) |
 | | **Custom OCR** | Full parameter control (thresholds, angles) | `ocr` | `custom` (`custom_options`) |
 | **2. Bank Account Consolidation** | **Instant Consolidation** | Fast single-pass statement reconciliation | `bank_statements` | `instant` |
 | | **Accurate Consolidation** | Robust balance verification & deduplication | `bank_statements` | `accurate` |

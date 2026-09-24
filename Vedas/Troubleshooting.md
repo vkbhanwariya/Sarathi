@@ -16,7 +16,7 @@ Quick diagnostic checklist and actionable recovery commands for common runtime i
 | **Encoding / Garbled Text** | Output contains replacement characters (``) | Non-UTF8 legacy encoding | Convert source file to UTF-8: `Get-Content input.csv \| Out-File -Encoding utf8 clean.csv` |
 | **Port Conflict** | Server fails to bind to loopback port | Port 8000 in use | Let Sarathi auto-assign an ephemeral port (pass `port = 0`) or change port via CLI: `sarathi --port 8080` |
 | **Frontend UI** | `404 Not Found` accessing `127.0.0.1:8000` | Compiled web assets missing in `src/sarathi/mukha/web/ui/` | Rebuild frontend SPA: `cd ui; npm ci; npm run build; cd ..` |
-| **Cloud Egress** | `403 Forbidden` / Security Denied on cloud OCR | `[security]` policy blocks outbound network | In `config/settings.toml`, set `allow_network_access = true` and configure `allowed_secrets = ["GEMINI_API_KEY", ...]`. |
+| **Cloud Egress** | `403 Forbidden` / Security Denied on cloud OCR | `[security]` policy blocks outbound network | In `config/settings.toml`, set `allow_network_access = true` and configure `allowed_secrets = ["MISTRAL_API_KEY"]`. |
 
 ---
 
