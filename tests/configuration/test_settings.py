@@ -254,6 +254,7 @@ def test_bug_S2_shipped_settings_security_defaults() -> None:
     from sarathi.dosh import DoshError, FailureCode
     from sarathi.kavacha import Kavacha, SecurityPolicy
     from sarathi.shakti.mistral.plugin import PLUGIN_INFO as MISTRAL_PLUGIN_INFO
+    from sarathi.shakti.statutory.plugin import PLUGIN_INFO as STATUTORY_PLUGIN_INFO
 
     settings_path = Path("config/settings.toml")
     assert settings_path.is_file(), "config/settings.toml must exist"
@@ -266,7 +267,7 @@ def test_bug_S2_shipped_settings_security_defaults() -> None:
     assert sec.get("allow_network_access") is False, "allow_network_access must default to False"
     assert sec.get("allow_external_processing") is False, "allow_external_processing must default to False"
 
-    # Kavacha must deny cloud OCR capabilities under this default config
+    # Kavacha must authorize on-device statutory processing without error
     policy = SecurityPolicy(
         allow_pii_access=bool(sec.get("allow_pii_access")),
         allow_network_access=bool(sec.get("allow_network_access")),
@@ -274,7 +275,9 @@ def test_bug_S2_shipped_settings_security_defaults() -> None:
         allowed_secrets=tuple(sec.get("allowed_secrets", ())),
     )
     kavacha = Kavacha(policy)
+    kavacha.authorize(STATUTORY_PLUGIN_INFO.security)
 
+    # Kavacha must deny cloud OCR capabilities under this default config
     with pytest.raises(DoshError) as exc_info:
         kavacha.authorize(MISTRAL_PLUGIN_INFO.security)
     assert exc_info.value.code is FailureCode.SECURITY_DENIED

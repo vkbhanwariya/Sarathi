@@ -18,7 +18,7 @@ PLUGIN_INFO = PluginInfo(
     description="Statutory and legal document metadata extraction (GST, Income Tax, MCA, eCourts).",
     capabilities=("statutory",),
     security=SecurityDeclaration(
-        pii_access=True,
+        pii_access=False,
         local_processing_only=True,
         network_access=False,
     ),

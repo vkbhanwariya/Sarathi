@@ -488,3 +488,19 @@ def test_bug_S4_statutory_ocr_repair_warning() -> None:
     assert w.code == "STATUTORY_ID_OCR_REPAIRED"
     assert w.context.get("original") == corrupt_gstin
     assert w.context.get("repaired") == repaired_expected
+
+
+def test_statutory_authorized_under_on_device_security_policy() -> None:
+    """Verify that on-device Statutory plugin authorizes cleanly under strict offline security policy."""
+    from sarathi.kavacha import Kavacha, SecurityPolicy
+    from sarathi.shakti.statutory.plugin import PLUGIN_INFO
+
+    offline_policy = SecurityPolicy(
+        allow_pii_access=False,
+        allow_network_access=False,
+        allow_external_processing=False,
+        allowed_secrets=(),
+    )
+    kavacha = Kavacha(offline_policy)
+    # Must not raise DoshError / SECURITY_DENIED
+    kavacha.authorize(PLUGIN_INFO.security)
