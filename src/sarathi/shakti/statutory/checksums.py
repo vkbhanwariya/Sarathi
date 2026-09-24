@@ -12,6 +12,18 @@ CIN_PATTERN = re.compile(r"^[LU][0-9]{5}[A-Z]{2}[1-2][0-9]{3}[A-Z]{3}[0-9]{6}$")
 CNR_PATTERN = re.compile(r"^[A-Z]{4}[0-9]{12}$")
 DIN_PATTERN = re.compile(r"^[0-9]{8}$")
 IRN_PATTERN = re.compile(r"^[a-fA-F0-9]{64}$")
+IFSC_PATTERN = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+
+# Composite word-bounded pattern for statutory identifier token extraction across text
+STATUTORY_ID_BOUNDED_PATTERN = re.compile(
+    r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"  # PAN
+    r"|\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b"  # GSTIN
+    r"|\b[A-Z]{4}0[A-Z0-9]{6}\b"  # IFSC
+    r"|\b[A-Z]{4}[0-9]{5}[A-Z]\b"  # TAN
+    r"|\b[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}\b"  # CIN
+    r"|\b[A-Z]{4}[0-9]{8}[0-9]{4}\b",  # CNR
+    re.IGNORECASE,
+)
 
 VALID_PAN_TYPES = frozenset({"P", "C", "H", "F", "A", "T", "B", "L", "J", "G"})
 

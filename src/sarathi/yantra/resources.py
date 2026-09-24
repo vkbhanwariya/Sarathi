@@ -10,6 +10,7 @@ benchmarking, or execution.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 import uuid
@@ -18,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.sankalpa import DeviceRequirement, DeviceType, ExecutionContext
+from sarathi.sankalpa import DeviceRequirement, DeviceType, ExecutionBinding, ExecutionContext
 from sarathi.yantra.devices import DeviceInfo, DeviceInventory
 
 # Global re-entrant lock guarding PyMuPDF (MuPDF) C-level calls across concurrent worker threads.
@@ -549,6 +550,61 @@ class _ResourceAllocator:
                 entry.event.set()
             self._waiting_queue.clear()
             self._cv.notify_all()
+
+    def resolve_preferred_binding(
+        self,
+        requirement: DeviceRequirement | None = None,
+    ) -> ExecutionBinding | None:
+        """Resolve the preferred ExecutionBinding for a requirement based on inventory."""
+        with self._lock:
+            target_dev: DeviceInfo | None = None
+            if requirement is not None:
+                for pref_type in requirement.preferred_devices:
+                    for d in self._inventory.devices:
+                        if d.device_type == pref_type and self._is_device_compatible(d, requirement):
+                            target_dev = d
+                            break
+                    if target_dev is not None:
+                        break
+
+                if target_dev is None:
+                    for d in self._inventory.devices:
+                        if self._is_device_compatible(d, requirement):
+                            target_dev = d
+                            break
+            else:
+                for pref_type in (DeviceType.GPU, DeviceType.NPU, DeviceType.CPU):
+                    for d in self._inventory.devices:
+                        if d.device_type == pref_type:
+                            target_dev = d
+                            break
+                    if target_dev is not None:
+                        break
+
+            if target_dev is None:
+                return None
+
+            if requirement is not None:
+                backend, backend_dev_id = self._resolve_backend_for_device(target_dev, requirement)
+            else:
+                dev_backends = target_dev.supported_backends or ()
+                backend = "openvino" if "openvino" in dev_backends else (dev_backends[0] if dev_backends else "cpu")
+                backend_dev_id = (target_dev.backend_locators or {}).get(backend, target_dev.device_id)
+
+            if target_dev.device_type == DeviceType.GPU:
+                approved = 1
+            else:
+                cpu_fn = getattr(os, "process_cpu_count", None)
+                cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
+                approved = max(1, min(4, cpu_count // 4))
+
+            return ExecutionBinding(
+                device_id=target_dev.device_id,
+                device_type=target_dev.device_type,
+                backend=backend,
+                backend_device_id=backend_dev_id,
+                approved_concurrency=approved,
+            )
 
     def _is_device_compatible(self, dev: DeviceInfo, requirement: DeviceRequirement) -> bool:
         """Check factual compatibility between device and requirement."""

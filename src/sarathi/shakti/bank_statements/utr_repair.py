@@ -12,8 +12,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
+from sarathi.shakti.statutory.checksums import IFSC_PATTERN
+
 # RBI IFSC Regex: 4 alphabetic bank code, 5th character strictly '0', 6 alphanumeric branch code
-_IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+_IFSC_RE = IFSC_PATTERN
 
 # RBI UTR Regexes
 _NEFT_RE = re.compile(r"^[A-Z]{4}[0-9]{12}$")

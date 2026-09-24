@@ -25,7 +25,6 @@ from sarathi.sankalpa import (
     ExecutionProfile,
     PageData,
     ProvenanceRecord,
-    TableData,
     TextSpan,
     WarningRecord,
 )
@@ -398,8 +397,6 @@ class RapidOCREngine:
         self._default_lang: str = default_lang
         self._init_lock: threading.Lock = threading.Lock()
         self._infer_lock: threading.RLock = threading.RLock()
-        self._gpu_pools: dict[str, queue.Queue[int]] = {}
-        self._gpu_engines: dict[str, list[Any]] = {}
         self._engine_pools: dict[str, queue.LifoQueue[Any]] = {}
         self._engine_counts: dict[str, int] = {}
         self._verified_model_paths: dict[str, str] = {}
@@ -475,16 +472,7 @@ class RapidOCREngine:
         max_capacity: int = 1,
     ):
         """Acquire an elastic inference engine slot bounded by capacity without global locks."""
-        # 1. Honor manually injected test gpu_pools if present
-        if cache_key in self._gpu_pools and cache_key in self._gpu_engines:
-            slot_idx = self._gpu_pools[cache_key].get()
-            try:
-                yield self._gpu_engines[cache_key][slot_idx]
-            finally:
-                self._gpu_pools[cache_key].put(slot_idx)
-            return
-
-        # 2. Sequential execution or single-engine path (protects single InferRequest from concurrent corruption)
+        # 1. Sequential execution or single-engine path (protects single InferRequest from concurrent corruption)
         if max_capacity <= 1:
             with self._infer_lock:
                 yield fallback_engine
@@ -695,14 +683,29 @@ class RapidOCREngine:
                 final_spans.append(s)
         spans = final_spans
 
-        # Continuous reading-order paragraph reconstruction for scanned pages
-        # Note: Table extraction and layout preservation are reserved exclusively for native digital documents.
-        final_page_text, _ = reconstruct_layout(
-            None,
-            spans,
-            preserve_layout=False,
+        # Continuous reading-order paragraph reconstruction and table extraction
+        should_preserve_layout = profile == ExecutionProfile.LAYOUT_PRESERVING or bool(
+            custom_options and custom_options.get("preserve_layout")
         )
-        detected_tables: tuple[TableData, ...] = ()
+        final_page_text, detected_tables = reconstruct_layout(
+            img_arr if should_preserve_layout else None,
+            spans,
+            preserve_layout=should_preserve_layout,
+        )
+
+        for tbl in detected_tables:
+            expected_cols = len(tbl.headers) if tbl.headers else 0
+            if expected_cols > 0:
+                for row in tbl.rows:
+                    if len(row) != expected_cols:
+                        warnings.append(
+                            WarningRecord(
+                                code="LAYOUT_TABLE_ROW_RAGGED",
+                                message=f"Table '{tbl.name}' has row with {len(row)} columns, expected {expected_cols}.",
+                                stage=STAGE_NAME,
+                            )
+                        )
+                        break
 
         if not final_page_text.strip():
             warnings.append(

@@ -10,6 +10,8 @@ import re
 from enum import StrEnum
 from typing import Final
 
+from sarathi.shakti.statutory.checksums import STATUTORY_ID_BOUNDED_PATTERN
+
 
 class CriticalityType(StrEnum):
     """Classification of high-consequence text tokens."""
@@ -39,19 +41,7 @@ _CURRENCY_AMOUNT_RE: Final[re.Pattern[str]] = re.compile(
 )
 
 # 2. Indian statutory and corporate identifiers
-_STATUTORY_ID_RE: Final[re.Pattern[str]] = re.compile(
-    r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"  # PAN
-    r"|"
-    r"\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b"  # GSTIN
-    r"|"
-    r"\b[A-Z]{4}0[A-Z0-9]{6}\b"  # IFSC
-    r"|"
-    r"\b[A-Z]{4}[0-9]{5}[A-Z]\b"  # TAN
-    r"|"
-    r"\b[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}\b"  # CIN
-    r"|"
-    r"\b[A-Z]{4}[0-9]{8}[0-9]{4}\b",  # CNR (eCourts 16-char)
-)
+_STATUTORY_ID_RE: Final[re.Pattern[str]] = STATUTORY_ID_BOUNDED_PATTERN
 
 # 3. Date expressions
 _DATE_RE: Final[re.Pattern[str]] = re.compile(

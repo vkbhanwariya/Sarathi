@@ -381,17 +381,19 @@ def test_layout_reconstruction_profile_gating() -> None:
     )
     assert len(p_cust_off.tables) == 0
 
-    # 4. CUSTOM with preserve_layout=True -> Table extraction bypassed for scanned OCR
+    # 4. CUSTOM with preserve_layout=True -> Table extraction runs and yields detected tables
     p_cust_on, _, _, _ = engine.ocr_page(
         test_img, 1, "inp_1", profile=ExecutionProfile.CUSTOM, custom_options={"preserve_layout": True}
     )
-    assert len(p_cust_on.tables) == 0
-    assert "Col A" in p_cust_on.text
+    assert len(p_cust_on.tables) == 1
+    assert p_cust_on.tables[0].headers == ("Col A", "Col B")
+    assert p_cust_on.tables[0].rows == (("Val 1", "Val 2"),)
 
-    # 5. LAYOUT_PRESERVING -> Table extraction bypassed for scanned OCR (reserved for native documents)
+    # 5. LAYOUT_PRESERVING -> Table extraction runs and yields detected tables
     p_layout, _, _, _ = engine.ocr_page(test_img, 1, "inp_1", profile=ExecutionProfile.LAYOUT_PRESERVING)
-    assert len(p_layout.tables) == 0
-    assert "Col A" in p_layout.text
+    assert len(p_layout.tables) == 1
+    assert p_layout.tables[0].headers == ("Col A", "Col B")
+    assert p_layout.tables[0].rows == (("Val 1", "Val 2"),)
 
 
 # ==============================================================================
@@ -451,11 +453,11 @@ def test_layout_preserving_docx_export(tmp_path: Path) -> None:
     result = cap.execute(req, ctx)
     assert isinstance(result, Result)
 
-    # 1. Scanned documents in OCR do not extract tables (table extraction is exclusive to native files)
+    # 1. Scanned documents in OCR with LAYOUT_PRESERVING extract tables
     doc = result.data
     assert len(doc.pages) == 1
     page = doc.pages[0]
-    assert len(page.tables) == 0
+    assert len(page.tables) == 1
     assert "Monthly Summary" in page.text
 
     # 2. DOCX artifact must contain clean narrative text with justified paragraphs
@@ -579,10 +581,9 @@ def test_ragged_table_warning_emission() -> None:
 
         test_img = Image.new("RGB", (300, 150), color="white")
         p_data, _, _, warnings = engine.ocr_page(test_img, 1, "inp_ragged", profile=ExecutionProfile.LAYOUT_PRESERVING)
-        # Invariant: Scanned OCR pages bypass table extraction, producing 0 tables and no ragged table warnings
-        assert len(p_data.tables) == 0
+        assert len(p_data.tables) == 1
         ragged_warns = [w for w in warnings if w.code == "LAYOUT_TABLE_ROW_RAGGED"]
-        assert len(ragged_warns) == 0
+        assert len(ragged_warns) == 1
 
 
 # ==============================================================================

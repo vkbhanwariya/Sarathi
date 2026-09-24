@@ -6,7 +6,6 @@ execution to Pravaha. It intentionally avoids a separate lifecycle-manager layer
 
 from __future__ import annotations
 
-import os
 import threading
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -34,7 +33,6 @@ from sarathi.nabhi import ArtifactBoundary, Kosh, Manthan, Pravaha, QuarantineSt
 from sarathi.sankalpa import (
     Capability,
     CapabilityReadiness,
-    DeviceType,
     ExecutionBinding,
     ExecutionContext,
     PluginInfo,
@@ -237,68 +235,8 @@ class Agni:
 
     def _resolve_preferred_binding(self, capability: Any | None = None) -> ExecutionBinding | None:
         """Resolve the preferred ExecutionBinding for pre-warming adhering to capability requirements."""
-        if self._inventory is None:
-            return None
-
-        dev_req = getattr(getattr(capability, "declaration", None), "device_requirement", None)
-
-        def _is_dev_compatible(d: Any) -> bool:
-            if dev_req is None:
-                return True
-            if dev_req.supported_devices and d.device_type not in dev_req.supported_devices:
-                return False
-            if dev_req.supported_backends:
-                dev_backends = d.supported_backends or ()
-                if not any(req_b in dev_backends for req_b in dev_req.supported_backends):
-                    return False
-            return True
-
-        def _binding_for(d: Any) -> ExecutionBinding:
-            dev_backends = d.supported_backends or ()
-            if dev_req and dev_req.supported_backends:
-                backend = next(
-                    (b for b in dev_req.supported_backends if b in dev_backends),
-                    dev_backends[0] if dev_backends else "cpu",
-                )
-            else:
-                backend = "openvino" if "openvino" in dev_backends else "cpu"
-            backend_dev = (d.backend_locators or {}).get(backend, d.device_id)
-            if d.device_type == DeviceType.GPU:
-                approved_concurrency = 1
-            else:
-                cpu_fn = getattr(os, "process_cpu_count", None)
-                cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
-                approved_concurrency = max(1, min(4, cpu_count // 4))
-            return ExecutionBinding(
-                device_id=d.device_id,
-                device_type=d.device_type,
-                backend=backend,
-                backend_device_id=backend_dev,
-                approved_concurrency=approved_concurrency,
-            )
-
-        # 1. Preferred devices from capability requirement
-        if dev_req and dev_req.preferred_devices:
-            for p_type in dev_req.preferred_devices:
-                match_dev = next(
-                    (d for d in self._inventory if d.device_type == p_type and _is_dev_compatible(d)), None
-                )
-                if match_dev is not None:
-                    return _binding_for(match_dev)
-
-        # 2. Supported devices matching capability requirement
-        if dev_req:
-            match_dev = next((d for d in self._inventory if _is_dev_compatible(d)), None)
-            if match_dev is not None:
-                return _binding_for(match_dev)
-
-        # 3. Default fallback: GPU then CPU
-        gpu_dev = next((d for d in self._inventory if d.device_type == DeviceType.GPU), None)
-        if gpu_dev is not None:
-            return _binding_for(gpu_dev)
-        cpu_dev = next((d for d in self._inventory if d.device_type == DeviceType.CPU), None)
-        if cpu_dev is not None:
-            return _binding_for(cpu_dev)
+        if self._yantra is not None and hasattr(self._yantra, "resolve_preferred_binding"):
+            return self._yantra.resolve_preferred_binding(capability=capability)
         return None
 
     def prewarm(self, async_mode: bool = True) -> threading.Thread | None:

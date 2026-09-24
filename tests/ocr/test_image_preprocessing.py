@@ -213,14 +213,13 @@ def test_bug_O11_binarize_and_isolated_state() -> None:
     """O11: Verify engines have isolated state and image preprocessing preserves continuous anti-aliased grayscale."""
     # 1. Verify RapidOCREngine class has no shared locks or pools
     assert not hasattr(RapidOCREngine, "_infer_lock"), "Class-level _infer_lock must be removed"
-    assert not hasattr(RapidOCREngine, "_gpu_pools"), "Class-level _gpu_pools must be removed"
+    assert not hasattr(RapidOCREngine, "_engine_pools"), "Class-level _engine_pools must be removed"
     assert not hasattr(RapidOCREngine, "_init_lock"), "Class-level _init_lock must be removed"
-    assert not hasattr(RapidOCREngine, "_gpu_engines"), "Class-level _gpu_engines must be removed"
 
     e1 = RapidOCREngine()
     e2 = RapidOCREngine()
     assert e1._infer_lock is not e2._infer_lock
-    assert e1._gpu_pools is not e2._gpu_pools
+    assert e1._engine_pools is not e2._engine_pools
 
     # 2. Verify continuous anti-aliased grayscale is preserved for DBNet without binarization artifacts
     img = np.full((100, 100, 3), 80, dtype=np.uint8)

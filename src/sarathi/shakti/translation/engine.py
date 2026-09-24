@@ -544,23 +544,13 @@ class CTranslate2NativeBackend:
         if not compute_type:
             compute_type = "int8_float32" if device == "cpu" else "float16"
 
-        # Thread topology computation
-        cpu_fn = getattr(os, "process_cpu_count", None)
-        cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
-        default_concurrency = max(1, min(4, cpu_count // 4))
-        approved = (
-            execution_binding.approved_concurrency
-            if execution_binding is not None and execution_binding.approved_concurrency > 0
-            else default_concurrency
-        )
+        # Thread topology computation via canonical Yantra governor
+        from sarathi.yantra.manager import get_neural_thread_topology
+
+        intra_threads, inter_threads = get_neural_thread_topology(execution_binding, device=device)
         if device == "cpu":
-            intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // max(1, approved)))
-            inter_threads = max(1, min(2 if intra_threads >= 4 else 4, approved))
             os.environ.setdefault("KMP_BLOCKTIME", "0")
             os.environ.setdefault("OMP_PROC_BIND", "close")
-        else:
-            inter_threads = approved
-            intra_threads = 0
 
         trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}:{compute_type}"
         spm_src_key = f"src:{spm_src_path.resolve()}"

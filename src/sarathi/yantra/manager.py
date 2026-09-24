@@ -6,6 +6,7 @@ Exposes:
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -17,6 +18,7 @@ from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
     Capability,
     DeviceRequirement,
+    DeviceType,
     ExecutionBinding,
     ExecutionContext,
     Request,
@@ -31,6 +33,42 @@ from sarathi.yantra.resources import (
 
 if TYPE_CHECKING:
     from sarathi.darpana import Darpana
+
+
+def get_neural_thread_topology(
+    execution_binding: ExecutionBinding | None = None,
+    device: str = "cpu",
+) -> tuple[int, int]:
+    """Compute recommended (intra_threads, inter_threads) for neural inference.
+
+    Tuned for the primary hardware profile (Intel Core Ultra 5 125H):
+    - Multi-core P-core allocation (intra_threads=4 on AVX2/AVX-VNNI)
+    - Clean fallbacks for generic CPU / GPU configurations.
+    """
+    if device is not None:
+        dev_str = str(device).lower()
+    elif execution_binding is not None and (
+        execution_binding.device_type == DeviceType.GPU
+        or (execution_binding.backend and "gpu" in execution_binding.backend.lower())
+    ):
+        dev_str = "gpu"
+    else:
+        dev_str = "cpu"
+
+    approved = execution_binding.approved_concurrency if execution_binding is not None else 0
+
+    if dev_str != "cpu":
+        inter_threads = max(1, approved) if approved > 0 else 1
+        return 0, inter_threads
+
+    cpu_fn = getattr(os, "process_cpu_count", None)
+    cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
+    default_concurrency = max(1, min(4, cpu_count // 4))
+    eff_approved = approved if approved > 0 else default_concurrency
+
+    intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // max(1, eff_approved)))
+    inter_threads = max(1, min(2 if intra_threads >= 4 else 4, eff_approved))
+    return intra_threads, inter_threads
 
 
 class Yantra:
@@ -127,6 +165,26 @@ class Yantra:
         if norm in ("ocr", "openvino"):
             return max(1, min(self._max_workers, 4))
         return max(1, min(self._max_workers, 4))
+
+    def resolve_preferred_binding(
+        self,
+        capability: Any | None = None,
+        requirement: DeviceRequirement | None = None,
+    ) -> ExecutionBinding | None:
+        """Resolve the preferred ExecutionBinding for a capability or device requirement."""
+        req = requirement
+        if req is None and capability is not None:
+            req = getattr(getattr(capability, "declaration", None), "device_requirement", None)
+        return self._allocator.resolve_preferred_binding(requirement=req)
+
+    def get_thread_topology(
+        self,
+        workload: str = "translation",
+        execution_binding: ExecutionBinding | None = None,
+        device: str = "cpu",
+    ) -> tuple[int, int]:
+        """Compute recommended (intra_threads, inter_threads) for neural inference."""
+        return get_neural_thread_topology(execution_binding=execution_binding, device=device)
 
     @property
     def is_started(self) -> bool:
@@ -459,11 +517,22 @@ class Yantra:
             context.cancellation_token.check_cancelled()
 
         alloc_timeout = timeout if timeout is not None else 30.0
+        dev_req = getattr(getattr(capability, "declaration", None), "device_requirement", None)
         allocation = self.allocate(
-            capability.declaration.device_requirement,
+            dev_req,
             context=context,
             timeout=alloc_timeout,
         )
+        memory_lease = None
+        if dev_req is not None and dev_req.estimated_memory_bytes and dev_req.estimated_memory_bytes > 0:
+            try:
+                memory_lease = self._memory_guard.lease(
+                    bytes_needed=dev_req.estimated_memory_bytes,
+                    timeout=alloc_timeout,
+                )
+            except Exception:
+                pass
+
         exec_exc: BaseException | None = None
         try:
             if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
@@ -512,6 +581,11 @@ class Yantra:
             exec_exc = exc
             raise
         finally:
+            if memory_lease is not None:
+                try:
+                    memory_lease.release()
+                except Exception:
+                    pass
             try:
                 self.release(allocation, context=context)
             except Exception as rel_err:

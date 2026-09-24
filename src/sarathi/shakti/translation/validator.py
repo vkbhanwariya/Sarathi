@@ -11,19 +11,12 @@ import re
 from collections import Counter
 
 from sarathi.sankalpa import WarningRecord
+from sarathi.shakti.statutory.checksums import STATUTORY_ID_BOUNDED_PATTERN
 from sarathi.shakti.text.typography import normalize_devanagari_numerals
 from sarathi.shakti.translation.models import TranslationDirection
 
 # Statutory IDs: PAN, GSTIN, IFSC, TAN, CIN, CNR
-_STATUTORY_ID_RE = re.compile(
-    r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"  # PAN
-    r"|\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b"  # GSTIN
-    r"|\b[A-Z]{4}0[A-Z0-9]{6}\b"  # IFSC
-    r"|\b[A-Z]{4}[0-9]{5}[A-Z]\b"  # TAN
-    r"|\b[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}\b"  # CIN
-    r"|\b[A-Z]{4}[0-9]{8}[0-9]{4}\b",  # CNR
-    re.IGNORECASE,
-)
+_STATUTORY_ID_RE = STATUTORY_ID_BOUNDED_PATTERN
 _ALPHANUMERIC_ID_RE = re.compile(
     r"\b(?=[A-Za-z0-9_-]{4,}\b)(?:[A-Za-z]+[0-9]|[0-9]+[A-Za-z])[A-Za-z0-9_-]*\b"
 )

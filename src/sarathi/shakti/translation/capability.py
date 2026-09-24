@@ -740,33 +740,14 @@ class TranslationCapability:
 
                         # Ensure source docx is normalized to Unicode if legacy font signatures remain
                         try:
-                            from sarathi.shakti.docx_exporter import transform_docx_artifact
                             from sarathi.shakti.font_conversion.capability import FontConversionCapability
-                            from sarathi.shakti.text.legacy_fonts import resolve_profile_from_font_name
 
                             fc = FontConversionCapability()
-                            norm_payload = transform_docx_artifact(
+                            raw_docx_bytes = fc.normalize_docx_bytes(
                                 input_bytes=raw_docx_bytes,
-                                converter_fn=lambda raw, font_name=None, **kw: (
-                                    fc._converter.convert(
-                                        raw,
-                                        profile_id=resolve_profile_from_font_name(font_name, fc._profiles)[0]
-                                        or "krutidev010",
-                                    )
-                                    if font_name and resolve_profile_from_font_name(font_name, fc._profiles)[0]
-                                    else (
-                                        fc._converter.convert(raw, profile_id="krutidev010")
-                                        if fc._detector.is_legacy_text(raw)
-                                        else raw
-                                    )
-                                ),
                                 filename=f"Normalized_{suffix}.docx",
-                                role="converted_document",
                                 preserve_typography=True,
-                                profiles=fc._profiles,
-                                profile_resolver=resolve_profile_from_font_name,
                             )
-                            raw_docx_bytes = norm_payload.content
                         except Exception:
                             pass
 

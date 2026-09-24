@@ -158,6 +158,51 @@ class FontConversionCapability:
     def asset_version(self) -> str:
         return self._asset_version
 
+    @property
+    def profiles(self) -> Mapping[str, LegacyFontProfile]:
+        """Return loaded legacy font profiles."""
+        return self._profiles
+
+    def is_legacy_text(self, text: str) -> bool:
+        """Check if text contains legacy Hindi font signatures."""
+        return self._detector.is_legacy_text(text)
+
+    def convert_text(self, text: str, profile_id: str = "krutidev010") -> str:
+        """Convert a single string from a legacy font profile to Unicode."""
+        return self._converter.convert(text, profile_id=profile_id)
+
+    def normalize_docx_bytes(
+        self,
+        input_bytes: bytes,
+        filename: str = "Normalized.docx",
+        preserve_typography: bool = True,
+    ) -> bytes:
+        """Normalize legacy Indian fonts in a DOCX file to Unicode Devanagari."""
+        from sarathi.shakti.docx_exporter import transform_docx_artifact
+        from sarathi.shakti.text.legacy_fonts import resolve_profile_from_font_name
+
+        norm_payload = transform_docx_artifact(
+            input_bytes=input_bytes,
+            converter_fn=lambda raw, font_name=None, **kw: (
+                self._converter.convert(
+                    raw,
+                    profile_id=resolve_profile_from_font_name(font_name, self._profiles)[0] or "krutidev010",
+                )
+                if font_name and resolve_profile_from_font_name(font_name, self._profiles)[0]
+                else (
+                    self._converter.convert(raw, profile_id="krutidev010")
+                    if self._detector.is_legacy_text(raw)
+                    else raw
+                )
+            ),
+            filename=filename,
+            role="converted_document",
+            preserve_typography=preserve_typography,
+            profiles=self._profiles,
+            profile_resolver=resolve_profile_from_font_name,
+        )
+        return norm_payload.content
+
     def convert_document(
         self,
         doc: CanonicalDocument,

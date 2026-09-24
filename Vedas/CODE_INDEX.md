@@ -93,7 +93,6 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/font_conversion/provider.py` | Provider implementation for Roopa Font Conversion | **CPU (Font Engine / TTF)** | `FontConversionProvider` |
 | `shakti/font_conversion/telemetry.py` | Telemetry recording helpers for FontConversionCapability | **CPU (Font Engine / TTF)** | `emit_conversion_telemetry()` |
 | `shakti/font_conversion/validator.py` | Integrity and Devanagari Structural Validator for Roopa Font Conversion | **CPU (Font Engine / TTF)** | `MappingMetrics`, `FontConversionValidator`, `validate_devanagari_structure()`, `validate_residual_legacy()`, `calculate_mapping_coverage()` |
-| `shakti/font_conversion/visual_resolver.py` | OpenVINO Visual Font Fallback and Metric Prototype Retrieval for Roopa | **CPU (Font Engine / TTF)** | `VisualFontCandidate`, `VisualFontEvidence`, `VisualFontResolver`, `generate_seed_prototype()`, `serialize_prototypes_bin()` |
 | `shakti/mistral/client.py` | Direct REST client for Mistral AI APIs with sanitized error handling and pooled transport | **Standard Logic** | `MistralClient` |
 | `shakti/mistral/ocr.py` | Mistral Cloud OCR Capability implementation for Sarathi | **Standard Logic** | `MistralOCRCapability` |
 | `shakti/mistral/plugin.py` | Plugin metadata and capability declarations for Shakti Mistral AI | **Standard Logic** | `PLUGIN_INFO`, `MISTRAL_OCR_DECLARATION` |
@@ -167,7 +166,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | Component / Module | Responsibility | Compute / Optimization Profile | Key Symbols |
 | :--- | :--- | :--- | :--- |
 | `yantra/devices.py` | Device inventory contracts for Yantra Resource Manager in Sarathi | **Multi-core CPU (Neural AVX2)** | `DeviceInfo`, `DeviceInventory` |
-| `yantra/manager.py` | Yantra - Resource & Execution Manager for Sarathi | **Hardware Scheduling** | `Yantra` |
+| `yantra/manager.py` | Yantra - Resource & Execution Manager for Sarathi | **Hardware Scheduling** | `Yantra`, `get_neural_thread_topology()` |
 | `yantra/resources.py` | Resource allocation engine for Yantra in Sarathi | **Hardware Scheduling** | `Allocation`, `MemoryLease`, `MemoryLeaseGuard`, `get_system_memory()` |
 
 ## Kavacha (Security Boundaries & Privacy Enforcement)

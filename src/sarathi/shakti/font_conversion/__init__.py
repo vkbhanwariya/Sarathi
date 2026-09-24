@@ -40,9 +40,6 @@ __all__ = [
     "compute_cmap_signature",
     "compute_anchor_outline_hashes",
     "DEFAULT_ANCHOR_SYMBOLS",
-    "VisualFontResolver",
-    "VisualFontCandidate",
-    "VisualFontEvidence",
     "has_macroman_signatures",
 ]
 
@@ -51,9 +48,6 @@ from sarathi.shakti.text.lazy import lazy_exports
 lazy_exports(
     globals(),
     {
-        "VisualFontResolver": ".visual_resolver:VisualFontResolver",
-        "VisualFontCandidate": ".visual_resolver:VisualFontCandidate",
-        "VisualFontEvidence": ".visual_resolver:VisualFontEvidence",
         "BinaryFontMetadata": ".font_inspector:BinaryFontMetadata",
         "inspect_font_bytes": ".font_inspector:inspect_font_bytes",
         "compute_cmap_signature": ".font_inspector:compute_cmap_signature",
