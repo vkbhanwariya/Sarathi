@@ -14,9 +14,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+
+try:
+    from rapidfuzz import fuzz
+
+    def _calc_similarity(s1: str, s2: str) -> float:
+        return fuzz.ratio(s1, s2) / 100.0
+
+except ImportError:
+    from difflib import SequenceMatcher
+
+    def _calc_similarity(s1: str, s2: str) -> float:
+        return SequenceMatcher(None, s1, s2).ratio()
 
 import yaml
 
@@ -79,6 +90,19 @@ def _normalize_header_token(raw: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _preindex_header_aliases(source: dict[str, Any]) -> dict[str, tuple[tuple[str, str], ...]]:
+    indexed: dict[str, tuple[tuple[str, str], ...]] = {}
+    for field, aliases in source.items():
+        if isinstance(aliases, (list, tuple)):
+            pairs: list[tuple[str, str]] = []
+            for a in aliases:
+                a_clean = str(a).strip().lower()
+                a_norm = _normalize_header_token(a_clean)
+                pairs.append((a_clean, a_norm))
+            indexed[field] = tuple(pairs)
+    return indexed
+
+
 class HeaderMapper:
     """Resolves raw table headers to canonical field names."""
 
@@ -96,6 +120,11 @@ class HeaderMapper:
             if self._banks_dir.exists()
             else {}
         )
+        self._common_aliases_indexed = _preindex_header_aliases(self._common_config.get("aliases", {}))
+        self._profiles_headers_indexed = {
+            pid: _preindex_header_aliases(data.get("headers", {}))
+            for pid, data in self._profiles.items()
+        }
 
     def map_headers(
         self,
@@ -103,8 +132,8 @@ class HeaderMapper:
         profile_id: str | None = None,
     ) -> list[ColumnMapping]:
         """Map raw header strings to canonical field names."""
-        bank_headers = self._profiles.get(profile_id or "", {}).get("headers", {})
-        common_aliases = self._common_config.get("aliases", {})
+        bank_headers_indexed = self._profiles_headers_indexed.get(profile_id or "", {})
+        common_aliases_indexed = self._common_aliases_indexed
 
         mappings: list[ColumnMapping] = []
         mapped_fields: set[str] = set()
@@ -114,7 +143,9 @@ class HeaderMapper:
             if not cleaned:
                 continue
 
-            mapping = self._match_header(idx, cleaned, str(raw_h), bank_headers, common_aliases, mapped_fields)
+            mapping = self._match_header(
+                idx, cleaned, str(raw_h), bank_headers_indexed, common_aliases_indexed, mapped_fields
+            )
             if mapping:
                 mappings.append(mapping)
                 mapped_fields.add(mapping.canonical_field)
@@ -220,27 +251,31 @@ class HeaderMapper:
         # 1. Exact matches: Bank exact -> Generic exact (with token normalization)
         for match_type, source in [("bank_exact", bank_headers), ("generic_exact", common_aliases)]:
             for field in available:
-                for a in source.get(field, []):
-                    a_clean = str(a).strip().lower()
-                    if cleaned == a_clean or (norm_cleaned and norm_cleaned == _normalize_header_token(a_clean)):
+                for a in source.get(field, ()):
+                    if isinstance(a, tuple) and len(a) == 2:
+                        a_clean, a_norm = a
+                    else:
+                        a_clean = str(a).strip().lower()
+                        a_norm = _normalize_header_token(a_clean)
+                    if cleaned == a_clean or (norm_cleaned and norm_cleaned == a_norm):
                         return ColumnMapping(idx, raw_header, field, match_type, 1.0)
 
         # 2. Fuzzy matches: Bank fuzzy -> Generic fuzzy
         # Veda specification: >= 0.92 automatic when unambiguous; 0.85-0.91 only if beats runner-up by >= 0.05
         for match_type, source in [("bank_fuzzy", bank_headers), ("generic_fuzzy", common_aliases)]:
-            scored = [
-                (
-                    max(
-                        SequenceMatcher(None, cleaned, str(a).strip().lower()).ratio(),
-                        SequenceMatcher(None, norm_cleaned, _normalize_header_token(str(a))).ratio()
-                        if norm_cleaned
-                        else 0.0,
-                    ),
-                    field,
-                )
-                for field in available
-                for a in source.get(field, [])
-            ]
+            scored = []
+            for field in available:
+                for a in source.get(field, ()):
+                    if isinstance(a, tuple) and len(a) == 2:
+                        a_clean, a_norm = a
+                    else:
+                        a_clean = str(a).strip().lower()
+                        a_norm = _normalize_header_token(a_clean)
+                    score = max(
+                        _calc_similarity(cleaned, a_clean),
+                        _calc_similarity(norm_cleaned, a_norm) if norm_cleaned and a_norm else 0.0,
+                    )
+                    scored.append((score, field))
             if scored:
                 scored.sort(key=lambda x: x[0], reverse=True)
                 best_score, best_field = scored[0]
