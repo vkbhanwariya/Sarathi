@@ -645,13 +645,25 @@ class CTranslate2NativeBackend:
         rep_penalty = 1.05 if is_krutrim else 1.15
         no_repeat_ngram = 0 if is_krutrim else 4
 
-        # Length-based bucketing: sort tokenized sequences by length to minimize padding overhead in CTranslate2
-        if len(tokenized) > 1:
-            sorted_order = sorted(range(len(tokenized)), key=lambda i: len(tokenized[i]))
-            reordered_tokenized = [tokenized[i] for i in sorted_order]
+        # Deduplicate identical tokenized sequences to eliminate redundant neural model execution
+        unique_tokenized: list[list[str]] = []
+        token_to_idx: dict[tuple[str, ...], int] = {}
+        piece_to_unique_idx: list[int] = []
+
+        for tok in tokenized:
+            key = tuple(tok)
+            if key not in token_to_idx:
+                token_to_idx[key] = len(unique_tokenized)
+                unique_tokenized.append(tok)
+            piece_to_unique_idx.append(token_to_idx[key])
+
+        # Length-based bucketing: sort unique tokenized sequences by length to minimize padding overhead in CTranslate2
+        if len(unique_tokenized) > 1:
+            sorted_order = sorted(range(len(unique_tokenized)), key=lambda i: len(unique_tokenized[i]))
+            reordered_tokenized = [unique_tokenized[i] for i in sorted_order]
         else:
-            sorted_order = list(range(len(tokenized)))
-            reordered_tokenized = tokenized
+            sorted_order = list(range(len(unique_tokenized)))
+            reordered_tokenized = unique_tokenized
 
         translate_kwargs: dict[str, Any] = {
             "batch_type": "tokens",
@@ -680,13 +692,16 @@ class CTranslate2NativeBackend:
                 **translate_kwargs,
             )
 
-        # Restore original sentence sequence order
-        if len(tokenized) > 1:
-            results = [None] * len(tokenized)
+        # Restore unique results to original unique order
+        if len(unique_tokenized) > 1:
+            unique_results = [None] * len(unique_tokenized)
             for orig_pos, r in zip(sorted_order, raw_results):
-                results[orig_pos] = r
+                unique_results[orig_pos] = r
         else:
-            results = raw_results
+            unique_results = raw_results
+
+        # Map unique results back to original piece positions
+        results = [unique_results[u_idx] for u_idx in piece_to_unique_idx]
 
         decoded_pieces: list[str] = []
         piece_truncations: list[bool] = []

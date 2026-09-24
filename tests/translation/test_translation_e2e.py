@@ -735,3 +735,26 @@ def test_translation_with_legacy_docx_artifact_normalizes_to_english(
     # Must contain English translation and not raw KrutiDev ASCII
     assert "Reserve Bank" in joined or "Bank" in joined
     assert "Hkkjrh;" not in joined
+
+
+def test_translation_batch_deduplication_preserves_order_and_content(test_backend: Any) -> None:
+    """Proves repeated identical sentences across batches are correctly mapped without corruption."""
+    trans_cap = TranslationCapability(backend=test_backend)
+    repeated_text = "न्यायालय का आदेश\n\nन्यायालय का आदेश\n\nअलग वाक्य\n\nन्यायालय का आदेश"
+    doc = CanonicalDocument(
+        document_id="doc-dedup",
+        source_input_id="inp-dedup",
+        text=repeated_text,
+    )
+    req = Request(
+        request_id="req-dedup",
+        requirement="translation",
+        inputs=(InputRef("inp-dedup", Path("dummy.txt"), "dummy.txt", 100),),
+    )
+    ctx = ExecutionContext("run-dedup", "req-dedup", "t-dedup", "s-dedup")
+    res = trans_cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res.data, CanonicalDocument)
+    out_lines = [line.strip() for line in res.data.text.split("\n\n") if line.strip()]
+    assert len(out_lines) == 4
+    assert out_lines[0] == out_lines[1] == out_lines[3]
+    assert out_lines[2] != out_lines[0]
