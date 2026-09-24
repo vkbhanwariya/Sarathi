@@ -441,7 +441,7 @@ def read_pdf(
 
         # Pre-extract stream-order page data to avoid spatial jumbling
         cached_pages: list[
-            tuple[pymupdf.TextPage, list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str]]
+            tuple[list[TextSpan], list[tuple[str, tuple[float, float, float, float]]], list[str]]
         ] = []
         all_page_blocks: list[list[tuple[str, tuple[float, float, float, float]]]] = []
 
@@ -469,12 +469,21 @@ def read_pdf(
                         if len(b) >= 5:
                             x0, y0, x1, y1, b_text = b[0], b[1], b[2], b[3], b[4]
                             if isinstance(b_text, str) and b_text.strip():
-                                p_blocks.append((b_text.strip(), (float(x0), float(y0), float(x1), float(y1))))
+                                b_clean = b_text.strip()
+                                p_blocks.append((b_clean, (float(x0), float(y0), float(x1), float(y1))))
+                                if not p_spans:
+                                    p_spans.append(
+                                        TextSpan(
+                                            text=b_clean,
+                                            bounding_box=(float(x0), float(y0), float(x1), float(y1)),
+                                        )
+                                    )
                 except Exception:
                     pass
 
-            cached_pages.append((text_page, p_spans, p_blocks, p_lines))
+            cached_pages.append((p_spans, p_blocks, p_lines))
             all_page_blocks.append(p_blocks)
+            del text_page
 
         header_templates, footer_templates = (
             detect_running_headers_footers(all_page_blocks, page_heights) if total_pages >= 2 else (set(), set())
@@ -484,7 +493,7 @@ def read_pdf(
             page_num = page_idx + 1
             page = doc[page_idx]
             p_height = page_heights[page_idx]
-            text_page, spans, p_blocks, p_lines = cached_pages[page_idx]
+            spans, p_blocks, p_lines = cached_pages[page_idx]
 
             body_lines, header_lines, footer_lines = classify_page_lines(
                 p_blocks, p_height, header_templates, footer_templates
@@ -496,7 +505,7 @@ def read_pdf(
             elif p_lines:
                 page_text = normalize_text_spacing("\n\n".join(p_lines))
             else:
-                raw_text = text_page.extractTEXT().strip()
+                raw_text = page.get_text().strip()
                 page_text = normalize_text_spacing(raw_text)
 
             if page_text:
@@ -529,18 +538,14 @@ def read_pdf(
             if image_coverage >= 0.80 and (len(page_text.strip()) < 30 or len(body_text.strip()) == 0):
                 page_meta["is_scanned_image"] = True
 
-            if not spans:
-                blocks = text_page.extractBLOCKS()
-                for b in blocks:
-                    if len(b) >= 5:
-                        x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
-                        if isinstance(text, str) and text.strip():
-                            spans.append(
-                                TextSpan(
-                                    text=text.strip(),
-                                    bounding_box=(float(x0), float(y0), float(x1), float(y1)),
-                                )
-                            )
+            if not spans and p_blocks:
+                for b_text, b_box in p_blocks:
+                    spans.append(
+                        TextSpan(
+                            text=b_text,
+                            bounding_box=b_box,
+                        )
+                    )
 
             # Extract native vector tables if present (skip for scanned pages)
             page_tables: list[TableData] = []
