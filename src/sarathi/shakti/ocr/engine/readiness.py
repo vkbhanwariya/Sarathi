@@ -45,7 +45,14 @@ def verify_ocr_manifest_and_models(
     disable_openvino_telemetry()
     target_root = data_root.resolve() if data_root is not None else CANONICAL_DATA_ROOT
     manifest_file = target_root / "manifest.json"
-    models_dir = target_root / "models"
+    if (target_root / "models").is_dir():
+        models_dir = target_root / "models"
+    elif target_root == CANONICAL_DATA_ROOT.resolve():
+        from sarathi.sutra.settings import get_canonical_models_root
+
+        models_dir = get_canonical_models_root("ocr")
+    else:
+        models_dir = target_root / "models"
 
     try:
         manifest_stat = manifest_file.lstat()

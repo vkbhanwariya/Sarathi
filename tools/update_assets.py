@@ -29,8 +29,12 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 EXTERNAL_SOURCES_PATH = ROOT_DIR / "data" / "external_sources.json"
-OCR_MANIFEST_PATH = ROOT_DIR / "data" / "ocr" / "manifest.json"
-TRANSLATION_MANIFEST_PATH = ROOT_DIR / "data" / "translation" / "manifest.json"
+OCR_MANIFEST_PATH = ROOT_DIR / "src" / "sarathi" / "data" / "ocr" / "manifest.json"
+if not OCR_MANIFEST_PATH.is_file():
+    OCR_MANIFEST_PATH = ROOT_DIR / "data" / "ocr" / "manifest.json"
+TRANSLATION_MANIFEST_PATH = ROOT_DIR / "src" / "sarathi" / "data" / "translation" / "manifest.json"
+if not TRANSLATION_MANIFEST_PATH.is_file():
+    TRANSLATION_MANIFEST_PATH = ROOT_DIR / "data" / "translation" / "manifest.json"
 SIL_FIXTURES_DIR = ROOT_DIR / "tests" / "font_conversion" / "fixtures" / "sil"
 
 

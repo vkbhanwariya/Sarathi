@@ -201,7 +201,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | Component / Module | Responsibility | Compute / Optimization Profile | Key Symbols |
 | :--- | :--- | :--- | :--- |
 | `sutra/loader.py` | TOML Configuration Loader for Sutra in Sarathi | **Standard Logic** | `load_settings()` |
-| `sutra/settings.py` | Settings Contract for Sutra Configuration in Sarathi | **Standard Logic** | `Settings`, `get_canonical_data_root()` |
+| `sutra/settings.py` | Settings Contract for Sutra Configuration in Sarathi | **Standard Logic** | `Settings`, `get_canonical_data_root()`, `get_canonical_models_root()` |
 
 ## Mukha (UI, Presentation & Local Loopback Web)
 

@@ -227,7 +227,7 @@ output_root = "Output"
         assert exc.value.code is FailureCode.INVALID_CONFIGURATION
 
     def test_sutra_exports(self) -> None:
-        expected = {"Settings", "load_settings", "get_canonical_data_root"}
+        expected = {"Settings", "load_settings", "get_canonical_data_root", "get_canonical_models_root"}
         assert set(sutra_module.__all__) == expected
         for name in expected:
             assert hasattr(sutra_module, name)
@@ -247,6 +247,28 @@ def test_get_canonical_data_root_respects_env_var(monkeypatch: pytest.MonkeyPatc
     # Default should resolve to repository or packaged data directory
     default_root = get_canonical_data_root()
     assert default_root.name == "data"
+
+
+def test_get_canonical_models_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verify get_canonical_models_root resolves with proper precedence."""
+    from sarathi.sutra.settings import get_canonical_models_root
+
+    # Default checkout should find repository models for ocr and translation
+    ocr_models = get_canonical_models_root("ocr")
+    assert ocr_models.is_dir()
+    assert ocr_models.name == "models"
+
+    trans_models = get_canonical_models_root("translation")
+    assert trans_models.is_dir()
+    assert trans_models.name == "models"
+
+    # SARATHI_MODELS_DIR precedence
+    custom_models = tmp_path / "custom_models"
+    (custom_models / "ocr").mkdir(parents=True)
+    monkeypatch.setenv("SARATHI_MODELS_DIR", str(custom_models))
+    assert get_canonical_models_root("ocr") == (custom_models / "ocr").resolve()
+
+    monkeypatch.delenv("SARATHI_MODELS_DIR", raising=False)
 
 
 def test_bug_S2_shipped_settings_security_defaults() -> None:

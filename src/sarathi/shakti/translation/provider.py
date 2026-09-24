@@ -66,13 +66,22 @@ class TranslationProvider(PluginProvider):
                 else get_canonical_data_root() / "translation"
             )
         )
+        canonical_trans_root = (get_canonical_data_root() / "translation").resolve()
+        is_canonical = base_data.resolve() == canonical_trans_root
         try:
             ctranslate2_spec = importlib.util.find_spec("ctranslate2")
             sentencepiece_spec = importlib.util.find_spec("sentencepiece")
             manifest_file = base_data / "manifest.json"
             manifest_exists = manifest_file.is_file()
 
-            trans_models = base_data / "models"
+            if (base_data / "models").is_dir():
+                trans_models = base_data / "models"
+            elif is_canonical:
+                from sarathi.sutra.settings import get_canonical_models_root
+
+                trans_models = get_canonical_models_root("translation")
+            else:
+                trans_models = base_data / "models"
 
             def _is_complete_model(p: Path) -> bool:
                 has_vocab = (p / "shared_vocabulary.json").is_file() or (

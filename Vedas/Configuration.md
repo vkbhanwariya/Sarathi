@@ -33,3 +33,14 @@ Configuration is managed by the **Sutra** subsystem, loaded from `config/setting
 | `[limits]` | `max_input_bytes` | `int` | `268435456` | Maximum allowed size of an uploaded input file (256 MiB). |
 | | `max_uncompressed_bytes` | `int` | `1073741824`| Maximum allowed uncompressed size for zip/docx/xlsx (1 GiB). |
 | | `max_compression_ratio` | `float` | `200.0` | Maximum compression ratio permitted (zip bomb protection). |
+
+---
+
+## Environment Variables & Asset Locations
+
+In addition to `settings.toml`, Sarathi recognizes canonical environment variables for relocating data assets and external neural models:
+
+| Environment Variable | Target Purpose | Default Precedence Fallback |
+| :--- | :--- | :--- |
+| `SARATHI_DATA_DIR` | Custom directory containing lightweight domain assets (banks, fonts, glossaries, manifests). | Packaged wheel assets (`sarathi/data/`), then repository root `data/`. Resolved via `sutra.get_canonical_data_root()`. |
+| `SARATHI_MODELS_DIR` | Dedicated directory containing heavy neural model weights (`ocr/`, `translation/`). | `SARATHI_DATA_DIR / <subsystem> / models`, then repository root `data/<subsystem>/models`. Resolved via `sutra.get_canonical_models_root(subsystem)`. |

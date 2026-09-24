@@ -306,13 +306,12 @@ def test_bug_T3_type_error_cascades_translation() -> None:
 def test_bug_T4_glossary_matching_zero_recompiles(monkeypatch: Any) -> None:
     """T4: After the first protect() on a glossary, further calls on the same glossary must trigger 0 compiles."""
     import re
-    from pathlib import Path
 
     from sarathi.shakti.translation.glossary import GlossaryStore
     from sarathi.shakti.translation.models import TranslationDirection
     from sarathi.shakti.translation.protector import TranslationProtector
 
-    g = GlossaryStore(Path("data/translation"))
+    g = GlossaryStore()
     terms = g.get_terms(TranslationDirection.HI_TO_EN)
     assert len(terms) > 1000
 
@@ -342,13 +341,12 @@ def test_bug_T4_glossary_matching_zero_recompiles(monkeypatch: Any) -> None:
 def test_bug_T4_glossary_matching_equivalence() -> None:
     """T4: Equivalence test: for fixed sample text and real glossaries, new matcher equals old oracle logic."""
     import re
-    from pathlib import Path
 
     from sarathi.shakti.translation.glossary import GlossaryStore
     from sarathi.shakti.translation.models import TranslationDirection
     from sarathi.shakti.translation.protector import TranslationProtector
 
-    g = GlossaryStore(Path("data/translation"))
+    g = GlossaryStore()
     terms = g.get_terms(TranslationDirection.HI_TO_EN)
 
     text = "माननीय न्यायालय ने आरोपी को जमानत दे दी। केन्द्रीय अन्वेषण ब्यूरो (CBI) ने याचिका दाखिल की।"
@@ -390,13 +388,12 @@ def test_bug_T4_glossary_matching_equivalence() -> None:
 def test_bug_T4_glossary_matching_performance() -> None:
     """T4: 200 calls on the real HI->EN glossary in under 10 ms average per call."""
     import time
-    from pathlib import Path
 
     from sarathi.shakti.translation.glossary import GlossaryStore
     from sarathi.shakti.translation.models import TranslationDirection
     from sarathi.shakti.translation.protector import TranslationProtector
 
-    g = GlossaryStore(Path("data/translation"))
+    g = GlossaryStore()
     terms = g.get_terms(TranslationDirection.HI_TO_EN)
 
     protector = TranslationProtector()

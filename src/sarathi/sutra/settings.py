@@ -49,6 +49,57 @@ def get_canonical_data_root() -> Path:
     return Path(__file__).resolve().parents[3] / "data"
 
 
+def get_canonical_models_root(subsystem: str | None = None) -> Path:
+    """Return the canonical directory containing external neural model weights.
+
+    Models are heavy assets (~1.5GB) decoupled from lightweight package data.
+    Resolution precedence:
+    1. SARATHI_MODELS_DIR environment variable (if set and directory exists).
+       - If subsystem is specified and (SARATHI_MODELS_DIR / subsystem) exists, returns that.
+       - Else returns SARATHI_MODELS_DIR.
+    2. SARATHI_DATA_DIR environment variable (if set and directory exists).
+       - If subsystem is specified and (SARATHI_DATA_DIR / subsystem / "models") exists.
+       - Or (SARATHI_DATA_DIR / "models" / subsystem) exists.
+    3. Package-internal models directory (sarathi/data/<subsystem>/models if bundled).
+    4. Source-tree repository models root (repository_root / data / <subsystem> / models).
+    5. Fallback: get_canonical_data_root() / (subsystem or "") / "models".
+    """
+    env_models = os.environ.get("SARATHI_MODELS_DIR")
+    if env_models:
+        p = Path(env_models).resolve()
+        if p.is_dir():
+            if subsystem and (p / subsystem).is_dir():
+                return p / subsystem
+            return p
+
+    env_data = os.environ.get("SARATHI_DATA_DIR")
+    if env_data:
+        p = Path(env_data).resolve()
+        if p.is_dir():
+            if subsystem:
+                if (p / subsystem / "models").is_dir():
+                    return p / subsystem / "models"
+                if (p / "models" / subsystem).is_dir():
+                    return p / "models" / subsystem
+            elif (p / "models").is_dir():
+                return p / "models"
+
+    pkg_root = Path(__file__).resolve().parents[1] / "data"
+    if subsystem and (pkg_root / subsystem / "models").is_dir():
+        return pkg_root / subsystem / "models"
+
+    repo_root = Path(__file__).resolve().parents[3] / "data"
+    if subsystem and (repo_root / subsystem / "models").is_dir():
+        return repo_root / subsystem / "models"
+    if not subsystem and (repo_root / "models").is_dir():
+        return repo_root / "models"
+
+    base = get_canonical_data_root()
+    if subsystem:
+        return base / subsystem / "models"
+    return base / "models"
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Immutable container for validated TOML configuration."""

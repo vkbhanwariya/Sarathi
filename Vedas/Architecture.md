@@ -106,6 +106,21 @@ Sarathi optimizations are engineered, tuned, and validated for this primary hard
 
 ---
 
+## Two-Tier Asset Architecture & Distribution Topology
+
+Sarathi cleanly decouples lightweight static domain package assets from heavyweight neural network model weights:
+
+| Asset Tier | Canonical Filesystem Root | Packaging & Shipping | Contents & Subsystems | Resolution API |
+| :--- | :--- | :--- | :--- | :--- |
+| **Tier 1: Package Data** | `src/sarathi/data/` (`sarathi.data`) | Bundled inside production Python wheels (`< 1 MB`). Shipped with code. | Bank YAML profiles (`banks/`), legacy font mappings & prototypes (`fonts/`), Anubhava overrides (`font_conversion/`, `translation/`), domain glossaries (`translation/glossaries/`), and model manifests (`ocr/manifest.json`, `translation/manifest.json`). | `sutra.get_canonical_data_root()` |
+| **Tier 2: External Models** | `data/<subsystem>/models/` or external directory | External / downloaded on-demand (`~1.5 GB`). Never packaged in Python wheels. | ONNX RapidOCR models (`data/ocr/models/`), CTranslate2 neural translation weights (`data/translation/models/`), and upstream provenance metadata (`data/external_sources.json`). | `sutra.get_canonical_models_root(subsystem)` |
+
+### Asset Resolution Precedence:
+1. **Static Data (`get_canonical_data_root()`)**: `SARATHI_DATA_DIR` $\rightarrow$ package data (`sarathi/data/`) $\rightarrow$ repo checkout root (`data/`).
+2. **Neural Models (`get_canonical_models_root(subsystem)`)**: `SARATHI_MODELS_DIR` $\rightarrow$ `SARATHI_DATA_DIR` $\rightarrow$ package data models (if bundled) $\rightarrow$ repository checkout (`data/<subsystem>/models`) $\rightarrow$ canonical data root fallback.
+
+---
+
 ## Component & Code Inventory
 
 For the dense, automated module-by-module reference listing all ~100 components, their compute profiles, and key exported symbols, refer to:

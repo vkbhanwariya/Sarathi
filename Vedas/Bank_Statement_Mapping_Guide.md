@@ -14,7 +14,7 @@ flowchart TD
     B --> C["Native Extraction (read_native) / Fallback OCR"]
     C --> D["Table Locator (classify_table & find_header_row_index)"]
     D --> E["Header Schema Matcher (HeaderMapper.resolve_best_profile)"]
-    E --> F["Bank Profile Selected (data/banks/<bank_id>.yaml)"]
+    E --> F["Bank Profile Selected (src/sarathi/data/banks/<bank_id>.yaml)"]
     F --> G["Row Classifier & Decimal Parser (parse_decimal_amount, parse_date)"]
     G --> H["Deduplicator (multi-month overlap detection)"]
     H --> I["Financial Balance Validator (Opening + Credits - Debits == Closing)"]
@@ -46,7 +46,7 @@ Indian banks export statements under misleading file extensions. The ingestion p
 
 Sarathi does not rely solely on bank logo text. It uses **Dynamic Header Schema Matching**:
 1. When a transaction table is located, its header cells (`hdr_cells`) are extracted.
-2. `HeaderMapper.resolve_best_profile(hdr_cells, candidate_profile)` evaluates the extracted columns against **all registered profiles** in `data/banks/*.yaml`.
+2. `HeaderMapper.resolve_best_profile(hdr_cells, candidate_profile)` evaluates the extracted columns against **all registered profiles** in `src/sarathi/data/banks/*.yaml` (resolved via `sutra.get_canonical_data_root() / "banks"`).
 3. Scoring algorithm:
    - **Anchor Fields**: `date` (+3.0), `description` (+2.0), `balance` (+2.5), `debit` (+2.0), `credit` (+2.0), `amount` (+2.0), `reference_number`/`cheque_number` (+1.0).
    - **Precision Bonuses**: `bank_exact` match (+2.0), `bank_fuzzy` match (+1.0), `generic_exact` (+0.5).
@@ -55,12 +55,12 @@ Sarathi does not rely solely on bank logo text. It uses **Dynamic Header Schema 
 
 ---
 
-## 4. Standard Bank Profile Specification (`data/banks/<bank_id>.yaml`)
+## 4. Standard Bank Profile Specification (`src/sarathi/data/banks/<bank_id>.yaml`)
 
-Every bank format has a YAML profile under `data/banks/<bank_id>.yaml`. Profiles are loaded dynamically on startup:
+Every bank format has a YAML profile under `src/sarathi/data/banks/<bank_id>.yaml`. Profiles are packaged with the distribution wheel and loaded dynamically on startup:
 
 ```yaml
-# data/banks/<bank_id>.yaml
+# src/sarathi/data/banks/<bank_id>.yaml
 
 profile_id: "bank_code"               # Required: Lowercase identifier (e.g. "sbi", "hdfc", "canara", "union")
 bank_name: "Full Institutional Name"  # Required: Display name (e.g. "Union Bank of India")
@@ -135,9 +135,9 @@ metadata_patterns:                    # Regex to extract account metadata from s
 
 ---
 
-## 5. Universal Fallback (`data/banks/common.yaml`)
+## 5. Universal Fallback (`src/sarathi/data/banks/common.yaml`)
 
-If a header variant is common across multiple banks (e.g. `"withdrawals"`, `"deposits"`, `"chq/ref no"`), add it to `data/banks/common.yaml` under `aliases:`. This ensures generic or uncatalogued banks also resolve cleanly without failing.
+If a header variant is common across multiple banks (e.g. `"withdrawals"`, `"deposits"`, `"chq/ref no"`), add it to `src/sarathi/data/banks/common.yaml` under `aliases:`. This ensures generic or uncatalogued banks also resolve cleanly without failing.
 
 ---
 
@@ -167,7 +167,7 @@ for p_idx, p in enumerate(res.data.pages):
 "
 ```
 
-### Step 2: Create or Update `data/banks/<bank_id>.yaml`
+### Step 2: Create or Update `src/sarathi/data/banks/<bank_id>.yaml`
 1. Copy the exact column headers observed in Step 1 into the `headers:` section.
 2. Note the date format in sample rows and add it to `date_formats:`.
 3. Check if account number and IFSC regex match the statement header text.

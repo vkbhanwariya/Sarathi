@@ -37,7 +37,9 @@ def test_absence_of_ne_ocr_and_onnxruntime_production_paths() -> None:
     assert not (engine_dir / "ne_ocr.py").exists(), "ne_ocr.py must be removed from production."
 
     # 2. Manifest must only declare the 4 approved production models
-    manifest_path = Path(__file__).resolve().parents[2] / "data" / "ocr" / "manifest.json"
+    from sarathi.shakti.ocr.engine.common import CANONICAL_DATA_ROOT
+
+    manifest_path = CANONICAL_DATA_ROOT / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert "ne_ocr" not in manifest["models"], "ne_ocr must not appear in manifest.json"
     assert "rec" not in manifest["models"], "old generic rec model must not appear in manifest.json"

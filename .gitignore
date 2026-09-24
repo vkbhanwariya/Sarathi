@@ -104,6 +104,7 @@ history.jsonl
 *.onnx
 *.onnx_data
 *.bin
+!src/sarathi/data/fonts/legacy_prototypes.bin
 *.safetensors
 *.pt
 *.pth

@@ -366,9 +366,24 @@ def _chunk_long_sentence(
 class CTranslate2NativeBackend:
     """Canonical CTranslate2 + SentencePiece neural translation backend."""
 
-    def __init__(self, root: Path, manifest: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        root: Path,
+        manifest: dict[str, Any],
+        models_root: Path | None = None,
+    ) -> None:
         self._root = root
         self._manifest = manifest
+        if models_root is not None:
+            self._models_root = models_root
+        elif (root / "models").is_dir():
+            self._models_root = root / "models"
+        elif root.name == "models" and root.is_dir():
+            self._models_root = root
+        else:
+            from sarathi.sutra.settings import get_canonical_models_root
+
+            self._models_root = get_canonical_models_root("translation")
         self._translators: dict[str, Any] = {}
         self._spms: dict[str, Any] = {}
         self._verified_models: set[str] = set()
@@ -475,8 +490,8 @@ class CTranslate2NativeBackend:
             or self._manifest.get("models", {}).get(dir_key)
             or {}
         )
-        krutrim_dir = self._root / "models" / "krutrim" / dir_key
-        root_dir = self._root / "models" / dir_key
+        krutrim_dir = self._models_root / "krutrim" / dir_key
+        root_dir = self._models_root / dir_key
         if krutrim_dir.is_dir() and (krutrim_dir / "model.bin").is_file():
             model_path = krutrim_dir
         elif root_dir.is_dir() and (root_dir / "model.bin").is_file():
@@ -779,6 +794,7 @@ class CTranslate2TranslationEngine:
     def __init__(
         self,
         data_root: Path | None = None,
+        models_root: Path | None = None,
         backend: TranslatorBackend | None = None,
         glossary: GlossaryStore | None = None,
         protector: TranslationProtector | None = None,
@@ -787,6 +803,16 @@ class CTranslate2TranslationEngine:
         court_templates: CourtTemplateMatcher | None = None,
     ) -> None:
         self._data_root = (data_root or _CANONICAL_TRANSLATION_DATA_DIR).resolve()
+        if models_root is not None:
+            self._models_root = models_root.resolve()
+        elif (self._data_root / "models").is_dir():
+            self._models_root = self._data_root / "models"
+        elif self._data_root == _CANONICAL_TRANSLATION_DATA_DIR.resolve():
+            from sarathi.sutra.settings import get_canonical_models_root
+
+            self._models_root = get_canonical_models_root("translation")
+        else:
+            self._models_root = self._data_root / "models"
         self._backend = backend
         self._glossary = glossary or GlossaryStore(glossary_dir=self._data_root)
         self._court_templates = court_templates or CourtTemplateMatcher(data_root=self._data_root)
@@ -908,7 +934,7 @@ class CTranslate2TranslationEngine:
                 return self._initialized_backend
 
             manifest_file = self._data_root / "manifest.json"
-            models_dir = self._data_root / "models"
+            models_dir = self._models_root
 
             if not manifest_file.exists():
                 raise DoshError(
@@ -941,7 +967,9 @@ class CTranslate2TranslationEngine:
                     message="Translation dependencies (ctranslate2, sentencepiece) are not installed.",
                 ) from exc
 
-            self._initialized_backend = CTranslate2NativeBackend(self._data_root, manifest_dict)
+            self._initialized_backend = CTranslate2NativeBackend(
+                self._data_root, manifest_dict, models_root=self._models_root
+            )
             return self._initialized_backend
 
     def translate(

@@ -59,7 +59,10 @@ function Resolve-SarathiRoot {
 }
 
 $root = Resolve-SarathiRoot -Root $ProjectRoot
-$manifestPath = Join-Path $root 'data\ocr\manifest.json'
+$manifestPath = Join-Path $root 'src\sarathi\data\ocr\manifest.json'
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    $manifestPath = Join-Path $root 'data\ocr\manifest.json'
+}
 $modelsDir = Join-Path $root 'data\ocr\models'
 
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {

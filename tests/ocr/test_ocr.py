@@ -118,6 +118,18 @@ def _create_scanned_pdf(text: str, path: Path) -> Path:
     return path
 
 
+def _setup_mock_ocr_data(target_dir: Path) -> Path:
+    """Create a self-contained mock OCR data root containing manifest and models."""
+    from sarathi.shakti.ocr.engine.common import CANONICAL_DATA_ROOT
+    from sarathi.sutra.settings import get_canonical_models_root
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(CANONICAL_DATA_ROOT / "manifest.json", target_dir / "manifest.json")
+    models_src = get_canonical_models_root("ocr")
+    shutil.copytree(models_src, target_dir / "models", dirs_exist_ok=True)
+    return target_dir
+
+
 class TestOCRDeclarations:
     def test_plugin_and_capability_declarations(self) -> None:
         assert OCR_PLUGIN.plugin_id == "shakti.ocr"
@@ -215,10 +227,7 @@ class TestOCRDeclarations:
 
     @pytest.mark.real_model
     def test_explicit_injected_data_root(self, context: ExecutionContext, tmp_path: Path) -> None:
-        canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        custom_data_dir = tmp_path / "custom_data_root"
-        shutil.copytree(canonical_src, custom_data_dir)
-
+        custom_data_dir = _setup_mock_ocr_data(tmp_path / "custom_data_root")
         cap = OCRCapability(data_root=custom_data_dir)
 
         img_path = tmp_path / "invoice_injected.png"
@@ -364,9 +373,7 @@ class TestOCRDeclarations:
     def test_missing_each_model_file_individually_raises_safe_dosherror(
         self, missing_model: str, custom_options: dict[str, str] | None, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        partial_data = tmp_path / f"partial_data_{missing_model}"
-        shutil.copytree(src_data, partial_data)
+        partial_data = _setup_mock_ocr_data(tmp_path / f"partial_data_{missing_model}")
 
         # Remove specific model
         manifest = json.loads((partial_data / "manifest.json").read_text(encoding="utf-8"))
@@ -397,9 +404,7 @@ class TestOCRDeclarations:
         assert str(partial_data) not in err.message
 
     def test_model_asset_is_directory_raises_safe_dosherror(self, context: ExecutionContext, tmp_path: Path) -> None:
-        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        dir_data = tmp_path / "dir_model_data"
-        shutil.copytree(src_data, dir_data)
+        dir_data = _setup_mock_ocr_data(tmp_path / "dir_model_data")
 
         # Replace det file with a directory
         det_file = dir_data / "models" / "ch_PP-OCRv5_det_mobile.onnx"
@@ -439,9 +444,7 @@ class TestOCRDeclarations:
     def test_tampered_model_checksum_for_all_models_raises_safe_dosherror(
         self, tampered_model: str, custom_options: dict[str, str] | None, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        tampered_data = tmp_path / f"tampered_{tampered_model}"
-        shutil.copytree(src_data, tampered_data)
+        tampered_data = _setup_mock_ocr_data(tmp_path / f"tampered_{tampered_model}")
 
         manifest = json.loads((tampered_data / "manifest.json").read_text(encoding="utf-8"))
         filename = manifest["models"][tampered_model]["filename"]
@@ -483,9 +486,7 @@ class TestOCRDeclarations:
     def test_symlinked_model_asset_rejected_safely(
         self, symlink_model: str, custom_options: dict[str, str] | None, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        sym_data = tmp_path / f"sym_data_{symlink_model}"
-        shutil.copytree(src_data, sym_data)
+        sym_data = _setup_mock_ocr_data(tmp_path / f"sym_data_{symlink_model}")
 
         outside_model = tmp_path / f"outside_{symlink_model}.onnx"
         manifest = json.loads((sym_data / "manifest.json").read_text(encoding="utf-8"))
@@ -523,12 +524,14 @@ class TestOCRDeclarations:
         assert str(outside_model) not in exc_info.value.message
 
     def test_symlinked_models_directory_rejected_safely(self, context: ExecutionContext, tmp_path: Path) -> None:
-        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
+        from sarathi.shakti.ocr.engine.common import CANONICAL_DATA_ROOT
+        from sarathi.sutra.settings import get_canonical_models_root
+
         sym_data = tmp_path / "sym_models_dir_data"
         sym_data.mkdir()
-        shutil.copy(src_data / "manifest.json", sym_data / "manifest.json")
+        shutil.copy(CANONICAL_DATA_ROOT / "manifest.json", sym_data / "manifest.json")
 
-        outside_models_dir = src_data / "models"
+        outside_models_dir = get_canonical_models_root("ocr")
         target_models_symlink = sym_data / "models"
         try:
             target_models_symlink.symlink_to(outside_models_dir, target_is_directory=True)
@@ -557,9 +560,7 @@ class TestOCRDeclarations:
         assert str(sym_data) not in exc_info.value.message
 
     def test_symlinked_manifest_file_rejected_safely(self, context: ExecutionContext, tmp_path: Path) -> None:
-        src_data = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        sym_data = tmp_path / "sym_manifest_data"
-        shutil.copytree(src_data, sym_data)
+        sym_data = _setup_mock_ocr_data(tmp_path / "sym_manifest_data")
 
         manifest_file = sym_data / "manifest.json"
         outside_manifest = tmp_path / "outside_manifest.json"
@@ -594,8 +595,9 @@ class TestOCRDeclarations:
     def test_rapidocr_constructor_called_with_all_three_explicit_paths(
         self, context: ExecutionContext, tmp_path: Path
     ) -> None:
-        canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        engine = RapidOCREngine(data_root=canonical_src)
+        from sarathi.shakti.ocr.engine.common import CANONICAL_DATA_ROOT
+
+        engine = RapidOCREngine(data_root=CANONICAL_DATA_ROOT)
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test.png"
@@ -1300,8 +1302,9 @@ class TestOCRDeclarations:
             assert progress_calls[1]["page_number"] == 2
 
     def test_ocr_accurate_mode_none_stdout_graceful_handling(self, context: ExecutionContext, tmp_path: Path) -> None:
-        canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        engine = RapidOCREngine(data_root=canonical_src, default_lang="hi")
+        from sarathi.shakti.ocr.engine.common import CANONICAL_DATA_ROOT
+
+        engine = RapidOCREngine(data_root=CANONICAL_DATA_ROOT, default_lang="hi")
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test_weak.png"
@@ -1346,6 +1349,7 @@ class TestOCRDeclarations:
         from sarathi.sankalpa import ExecutionProfile, InputRef, Request, Result
         from sarathi.shakti.ocr.capability import OCRCapability
         from sarathi.shakti.ocr.engine import RapidOCREngine
+        from sarathi.shakti.ocr.engine.common import CANONICAL_DATA_ROOT
 
         context = ExecutionContext(
             run_id="test-run-lp",
@@ -1354,8 +1358,7 @@ class TestOCRDeclarations:
             span_id="test-span-lp",
         )
 
-        canonical_src = Path(__file__).resolve().parents[2] / "data" / "ocr"
-        engine = RapidOCREngine(data_root=canonical_src, default_lang="hi")
+        engine = RapidOCREngine(data_root=CANONICAL_DATA_ROOT, default_lang="hi")
         cap = OCRCapability(engine=engine)
 
         img_path = tmp_path / "test_lp.png"
