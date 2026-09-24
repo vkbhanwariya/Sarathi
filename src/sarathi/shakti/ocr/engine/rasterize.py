@@ -133,7 +133,7 @@ def extract_single_page_image(
             with _PYMUPDF_LOCK:
                 page = doc[page_number - 1]
                 pix = _render_clamped_pixmap(page, dpi=dpi, max_dimension=max_dimension)
-                img = Image.frombuffer("RGB", (pix.width, pix.height), pix.samples, "raw", "RGB", 0, 1).copy()
+                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             return img
         finally:
             with _PYMUPDF_LOCK:
@@ -192,7 +192,7 @@ def iter_images_from_bytes(
                 with _PYMUPDF_LOCK:
                     page = doc[page_idx - 1]
                     pix = _render_clamped_pixmap(page, dpi=dpi, max_dimension=max_dimension)
-                    img = Image.frombuffer("RGB", (pix.width, pix.height), pix.samples, "raw", "RGB", 0, 1).copy()
+                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
                 yield img
         finally:
