@@ -14,7 +14,7 @@ Sarathi is an offline-first, local document and financial intelligence system. I
 | **Manthan** | `sarathi.nabhi.manthan` | Dependency ordering and execution planning. | Sole planning authority. Never executes steps. |
 | **Pravaha** | `sarathi.nabhi.pravaha` | Sequential pipeline step execution, retries, and quarantine. | Sole execution authority. Never creates plans. |
 | **Shakti** | `sarathi.shakti` | Domain document capabilities (OCR, Translation, Fonts, Banking). | Self-contained domain capabilities. Never duplicates platform infrastructure. |
-| **Yantra** | `sarathi.yantra` | Hardware discovery, global memory governor (`MemoryLeaseGuard`), and device slot concurrency allocation. | Device management and physical resource governor only. Workload-specific strategies remain in Shakti. |
+| **Yantra** | `sarathi.yantra` | Hardware discovery, global memory governor (`MemoryLeaseGuard`), preferred device binding resolution, neural thread topology budgeting, and device slot concurrency allocation. | Device management and physical resource governor only. Workload-specific domain models remain in Shakti. |
 | **Kavacha** | `sarathi.kavacha` | Path containment, secret allowlists, and capability authorization. | Fail-closed security gate. Never acts as credential vault or proxy. |
 | **Smriti** | `sarathi.smriti` | Cryptographic, deterministic L1/L2 result caching. | Cache only. Never acts as source of truth for active runs. |
 | **Darpana** | `sarathi.darpana` | Monotonic timing (Maruti) and quality evidence (Pramana). | Observability only. Never models application state. |
@@ -103,6 +103,7 @@ Sarathi optimizations are engineered, tuned, and validated for this primary hard
    - **Rust SIMD JSON (`orjson`)**: Utilized across Smriti L2 cache serialization, Darpana run history, and Mukha SSE streaming, achieving microsecond-level serialization with zero heap bloat.
    - **Hardware-Accelerated Cache Fingerprinting (`BLAKE2b-256`)**: Smriti computes cache keys using `hashlib.blake2b(digest_size=32)` which directly leverages host AVX2/AVX-VNNI SIMD instructions, outperforming SHA-256 by 2.5x–3x while preserving canonical 64-hex-character digest format.
    - **Zero-Copy Document Ingestion**: Native extraction (PyMuPDF and Rust Xberg) accepts filesystem paths and URIs directly, delegating to C/Rust memory mapping (`mmap`) without allocating redundant byte buffers in the Python GIL heap.
+   - **Process & Thread-Safe PDF Operations**: PyMuPDF C-level operations across concurrent worker threads are protected via shared re-entrant synchronization (`GLOBAL_PYMUPDF_LOCK` / `_PYMUPDF_LOCK`) with deterministic document handle closure, preventing multi-threaded low-level memory corruption.
 
 ---
 
@@ -112,7 +113,7 @@ Sarathi cleanly decouples lightweight static domain package assets from heavywei
 
 | Asset Tier | Canonical Filesystem Root | Packaging & Shipping | Contents & Subsystems | Resolution API |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tier 1: Package Data** | `src/sarathi/data/` (`sarathi.data`) | Bundled inside production Python wheels (`< 1 MB`). Shipped with code. | Bank YAML profiles (`banks/`), legacy font mappings & prototypes (`fonts/`), Anubhava overrides (`font_conversion/`, `translation/`), domain glossaries (`translation/glossaries/`), and model manifests (`ocr/manifest.json`, `translation/manifest.json`). | `sutra.get_canonical_data_root()` |
+| **Tier 1: Package Data** | `src/sarathi/data/` (`sarathi.data`) | Bundled inside production Python wheels (`< 1 MB`). Shipped with code. | Bank YAML profiles (`banks/`), legacy font mappings (`fonts/`), Anubhava overrides (`font_conversion/`, `translation/`), domain glossaries (`translation/glossaries/`), and model manifests (`ocr/manifest.json`, `translation/manifest.json`). | `sutra.get_canonical_data_root()` |
 | **Tier 2: External Models** | `data/<subsystem>/models/` or external directory | External / downloaded on-demand (`~1.5 GB`). Never packaged in Python wheels. | ONNX RapidOCR models (`data/ocr/models/`), CTranslate2 neural translation weights (`data/translation/models/`), and upstream provenance metadata (`data/external_sources.json`). | `sutra.get_canonical_models_root(subsystem)` |
 
 ### Asset Resolution Precedence:

@@ -40,18 +40,23 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
   - Baseline-anchored vowel matra jitter tolerance preserving Devanagari word integrity.
   - Terminal punctuation-aware paragraph continuity tracking across line boundaries.
   - Same-engine weak-crop retry on low-confidence spans with CLAHE/contrast enhancement.
-  - Consequence-driven verification: elevated retry (0.85) and review (0.90) thresholds for currency, amounts, statutory IDs, dates, and legal sections.
+  - Deep layout reconstruction & table extraction via OpenCV morphology and coordinate clustering under `LAYOUT_PRESERVING` profile or `preserve_layout` custom option, with `LAYOUT_TABLE_ROW_RAGGED` warnings.
+  - Source-coordinate transform preservation: DPI (`source_dpi`) is tracked through execution profiles (150 DPI for instant, 200 DPI for accurate, 250 DPI for high DPI) to ensure pixel-perfect preview crops in UI review.
+  - Consequence-driven verification: elevated retry (0.85) and review (0.90) thresholds for currency, amounts, statutory IDs, dates, and legal sections. Preserves observed candidate values and requires review without manufacturing fake checksum digits.
   - Content-addressed per-page checkpoint cache (`Runtime/Cache/ocr_checkpoints/`) for instant recovery.
 
 ---
 
 ## 3. Neural Machine Translation (`translation`)
-- **Engine**: CTranslate2 running Krutrim-Translate (4096 Context INT8) across all 4 CPU P-cores (`intra_threads=4`, `inter_threads=1`, dynamic decoding length scaling). Dual-model RAM pre-warming ensures sub-second switching between Hindi → English and English → Hindi.
+- **Engine**: CTranslate2 running Krutrim-Translate (4096 Context INT8) across all 4 CPU P-cores (`intra_threads=4`, `inter_threads=1`, dynamic decoding length scaling). Dual-model RAM pre-warming ensures sub-second switching between Hindi → English and English → Hindi. Thread topology is centrally budgeted via `sarathi.yantra.manager.get_neural_thread_topology()`.
+- **Token Chunking**: Subdivides long sentences reserving language prefix tokens (`[src_tag, tgt_tag]`) to strictly prevent CTranslate2 context window overflow.
 - **Batching & Efficiency**: Pre-collects and length-buckets all unique strings across pages, tables, and spans to execute in a single batched CPU pass (`translate_batch`).
 - **Safeguards & Glossaries**:
   - **Proper Noun Guard**: Identifies kinship markers/titles (`Shri`, `Smt`, `S/o`) and applies ISO 15919 transliteration to prevent hallucinations of personal and village names.
   - **Domain Glossaries**: Cached regex alternation groups for statutory legal terminology (PMLA, IPC, BNS, Banking).
   - **Entity Protection**: Automatically masks dates, numbers, URLs, and statutory IDs with opaque tokens during translation.
+  - **Factual Validator**: Post-translation validator checking preservation of typed facts including currency amounts (`₹`, `$`, `Rs.`), percentage rates (`%`), signed numbers, and statutory IDs.
+  - **Office Document Fidelity**: In-place OpenXML spreadsheet (`.xlsx`, `.xlsm`) translation synchronizing `TableColumn` definitions with translated headers, preserving VBA macros and formulas without OpenXML corruption.
 
 ---
 
@@ -59,7 +64,8 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 - **Engine**: Declarative 7-pass Akshara transduction engine (ligatures, consonants, pre-base `ि` vowel reordering, post-base `र्` reph repositioning, and NFC normalization).
 - **Supported Fonts**: Kruti Dev (010, 011, 290), Devlys 010, Chanakya 010, Shusha 010, Shivaji 010.
 - **FontTools Inspection**: Parses SFNT `cmap` signatures and RecordingPen glyph hashes via `font_inspector.py`.
-- **Safeguards**: MacRoman high-bit byte stream inversion, statutory acronym protection (FIR, PMLA, CrPC, BNS), and OpenVINO metric visual prototype fallback for unknown fonts.
+- **Safeguards**: MacRoman high-bit byte stream inversion, typewriter mechanical repairs, and statutory acronym protection (FIR, PMLA, CrPC, BNS).
+- **Public Encapsulation**: Exposes clean public methods on `FontConversionCapability` (`normalize_docx_bytes()`, `convert_text()`, `is_legacy_text()`, `profiles`) preventing ownership leakage across domain capabilities.
 
 ---
 
@@ -68,7 +74,8 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 - **Integrity Verification**:
   - **Double-Entry Arithmetic**: Verifies $\text{Opening Balance} + \text{Credits} - \text{Debits} == \text{Closing Balance} \pm 0.01$ per page.
   - **Continuous Running Balance**: Validates row-by-row balance progression and detects debit/credit column inversion.
-  - **UTR & IFSC Syntax Repair**: Validates 16/22-character UTR numbers and 11-character IFSC codes, repairing OCR confusion (`0` $\leftrightarrow$ `O`, `1` $\leftrightarrow$ `I`, `8` $\leftrightarrow$ `B`).
+  - **UTR & IFSC Syntax Repair**: Validates 16/22-character UTR numbers and 11-character IFSC codes, repairing OCR confusion (`0` $\leftrightarrow$ `O`, `1` $\leftrightarrow$ `I`, `8` $\leftrightarrow$ `B`) reusing canonical `IFSC_PATTERN` from statutory.
+  - **Strong Identity Separation**: Masked account numbers (e.g. `XXXXXX1234`) are treated as weak evidence, requiring transaction and account-holder verification to prevent erroneous cross-statement row deduplication across different people.
   - **Multi-Month Deduplication**: Eliminates overlapping transactions across consecutive statement files.
 - **Schema Mapping & Profiling**: See [`Bank_Statement_Mapping_Guide.md`](Bank_Statement_Mapping_Guide.md) for dynamic schema matching and onboarding new bank YAML profiles.
 
@@ -76,6 +83,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 
 ## 6. Statutory Extraction (`statutory`)
 - **Engine**: Algorithmic checksum validators and regex detectors for Indian government and corporate identifiers.
+- **Canonical Domain Primitives**: Authoritative `STATUTORY_ID_BOUNDED_PATTERN`, `IFSC_PATTERN`, and checksum algorithms are defined in `sarathi.shakti.statutory.checksums` and shared across OCR recovery, bank statements, and translation validation.
 - **Covered Identifiers**: GSTIN (Luhn Mod-36 checksum), PAN, TAN, CIN, CNR (eCourts 16-character format), DIN, and IRN.
 - **Behavior**: Flagged with `is_valid=False` and failure reasons rather than discarded. Emits `STATUTORY_ID_OCR_REPAIRED` when OCR character confusion is resolved.
 
