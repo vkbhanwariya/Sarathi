@@ -36,6 +36,7 @@ from sarathi.shakti.ocr.engine import RapidOCREngine
 from sarathi.shakti.ocr.engine.checkpoint import (
     compute_doc_hash,
     compute_params_hash,
+    evict_checkpoints,
     load_page_checkpoint,
     save_page_checkpoint,
 )
@@ -488,6 +489,15 @@ class OCRCapability:
             else False
         )
         use_checkpoints = checkpoint_cache_enabled and not force_ocr
+        if use_checkpoints and self._cache_dir is not None:
+            try:
+                evict_checkpoints(
+                    cache_dir=self._cache_dir,
+                    max_age_seconds=7 * 86400,
+                    max_bytes=2 * 1024 * 1024 * 1024,
+                )
+            except Exception:
+                pass
 
         target_lang = (
             str(request.custom_options.get("lang", self._engine.default_lang if self._engine else "hi"))

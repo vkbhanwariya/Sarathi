@@ -6,6 +6,8 @@ from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
 
+import pytest
+
 from sarathi.sankalpa import (
     CanonicalDocument,
     ExecutionProfile,
@@ -469,5 +471,29 @@ def test_golden_cache_key_hash_stability() -> None:
     key = compute_cache_key(req, "ocr", "1.0.0", prior_result=Result(data=doc))
 
     # Pinned 64-character BLAKE2b hex hash invariant
-    assert key.key_hash == "e4f0042f42acce8808f9225fb72125b94fb04935854d5ccafc7f6ce35b76521b"
+    assert key.key_hash == "6687880017a2bb55264901fc5facc2d226e6cc7b985c012ce91889c2a2fa61e2"
     assert len(key.key_hash) == 64
+
+
+def test_semantic_cache_version_invalidation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Incrementing CACHE_SEMANTIC_VERSION invalidates cache keys without changing inputs."""
+    import sarathi.smriti.key as smriti_key
+
+    inp = InputRef(
+        source_path=Path("sample.pdf"),
+        input_id="inp-v-1",
+        display_name="sample.pdf",
+        size_bytes=1024,
+    )
+    req = Request(
+        request_id="req-v-01",
+        requirement="ocr",
+        inputs=(inp,),
+        profile=ExecutionProfile.INSTANT,
+    )
+    key_v1 = smriti_key.compute_cache_key(req, "ocr", "1.0.0")
+
+    monkeypatch.setattr(smriti_key, "CACHE_SEMANTIC_VERSION", 2)
+    key_v2 = smriti_key.compute_cache_key(req, "ocr", "1.0.0")
+
+    assert key_v1.key_hash != key_v2.key_hash

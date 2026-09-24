@@ -208,18 +208,27 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
             roles: dict[str, str] = {}
 
             for gstin in gst_list:
+                best_role: str | None = None
+                min_dist = float("inf")
                 for m in re.finditer(re.escape(gstin), text, re.IGNORECASE):
-                    start = max(0, m.start() - 80)
-                    end = min(len(text), m.end() + 80)
-                    snippet = text[start:end]
-                    is_buyer = bool(buyer_kw.search(snippet))
-                    is_supplier = bool(supplier_kw.search(snippet))
-                    if is_buyer and not is_supplier:
-                        roles[gstin] = "buyer"
-                        break
-                    elif is_supplier and not is_buyer:
-                        roles[gstin] = "supplier"
-                        break
+                    # Invoices use preceding section headings (e.g. 'Billed To:', 'Sold By:')
+                    pre_start = max(0, m.start() - 150)
+                    pre_text = text[pre_start : m.start()]
+                    buyer_matches = list(buyer_kw.finditer(pre_text))
+                    supplier_matches = list(supplier_kw.finditer(pre_text))
+
+                    b_dist = (m.start() - (pre_start + buyer_matches[-1].end())) if buyer_matches else float("inf")
+                    s_dist = (m.start() - (pre_start + supplier_matches[-1].end())) if supplier_matches else float("inf")
+
+                    if b_dist < s_dist and b_dist < min_dist:
+                        min_dist = b_dist
+                        best_role = "buyer"
+                    elif s_dist < b_dist and s_dist < min_dist:
+                        min_dist = s_dist
+                        best_role = "supplier"
+
+                if best_role is not None:
+                    roles[gstin] = best_role
 
             for gstin in gst_list:
                 if roles.get(gstin) == "supplier" and sup_gst is None:
@@ -227,14 +236,22 @@ def extract_statutory_entities(text: str) -> StatutoryEntities:
                 elif roles.get(gstin) == "buyer" and buy_gst is None:
                     buy_gst = gstin
 
+            # Assign supplier only when top-header position supports issuer role; never fabricate buyer
             remaining = [g for g in gst_list if g != sup_gst and g != buy_gst]
             if sup_gst is None and remaining:
-                sup_gst = remaining.pop(0)
-            if buy_gst is None and remaining:
-                buy_gst = remaining.pop(0)
+                first_gstin = gst_list[0]
+                first_pos = text.find(first_gstin)
+                if first_pos != -1 and (first_pos / max(1, len(text))) < 0.35:
+                    sup_gst = first_gstin
 
         inv_match = _INVOICE_NUM_RE.search(text)
-        date_match = _DATE_RE.search(text)
+        # Prioritize invoice-specific date labels over arbitrary dates in document
+        inv_date_match = re.search(
+            r"(?:invoice\s*date|inv\s*date|bill\s*date|date\s*of\s*invoice|dated)[:\s]+([0-3]?[0-9][\/\-\.][0-1]?[0-9][\/\-\.](?:20)?[0-9]{2})",
+            text,
+            re.IGNORECASE,
+        )
+        date_match = inv_date_match or _DATE_RE.search(text)
         irn_val = raw_identifiers["irns"][0] if raw_identifiers["irns"] else None
 
         gst_meta = GSTMetadata(

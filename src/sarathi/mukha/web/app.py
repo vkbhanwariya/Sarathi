@@ -356,7 +356,6 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
     async def api_events(request: Request) -> Response:
         async def events() -> AsyncIterator[bytes]:
             last_revision = -1
-            last_serialized: str | None = None
             last_ping = time.monotonic()
 
             loop = asyncio.get_running_loop()
@@ -376,19 +375,17 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                     state = mukha.get_application_view_state()
                     runner_revision = mukha.runner.state_revision
                     is_running = bool(state.active_run and state.active_run.status == "RUNNING")
-                    if runner_revision != last_revision or is_running:
+                    if runner_revision != last_revision or state.state_revision != last_revision:
+                        last_revision = max(runner_revision, state.state_revision)
                         serialized = _fast_json_dumps(
                             {
                                 "ok": True,
                                 "schema_version": state.schema_version,
-                                "state_revision": state.state_revision,
+                                "state_revision": last_revision,
                                 "state": _serialize_dataclass(state),
                             }
                         )
-                        if serialized != last_serialized or runner_revision != last_revision:
-                            last_serialized = serialized
-                            last_revision = state.state_revision
-                            yield f"event: state\ndata: {serialized}\n\n".encode()
+                        yield f"event: state\ndata: {serialized}\n\n".encode()
 
                     now = time.monotonic()
                     if now - last_ping >= 15.0:

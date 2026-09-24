@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CHECKPOINT_DIR: Path = Path("Runtime/Cache/ocr_checkpoints")
 CHECKPOINT_SCHEMA_VERSION: int = 1
+OCR_PAGE_RESULT_REVISION: int = 1
 
 
 def get_default_checkpoint_dir(runtime_root: Path | None = None) -> Path:
@@ -89,6 +90,7 @@ def compute_params_hash(
 
     fingerprint_obj = {
         "schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "revision": OCR_PAGE_RESULT_REVISION,
         "page": page_number,
         "profile": prof_str,
         "dpi": dpi,

@@ -166,6 +166,28 @@ class TestStatutoryExtraction:
         assert entities.gst.state_code == "27"
         assert entities.gst.supplier_pan == "ABCPE1234F"
 
+    def test_extract_gst_ambiguous_roles_never_fabricates_buyer(self) -> None:
+        """When multiple GSTINs are present without buyer keywords, buyer_gstin must not be fabricated."""
+        prefix1 = "27ABCPE1234F1Z"
+        ch1 = calculate_gstin_check_digit(prefix1) or "5"
+        gst1 = prefix1 + ch1
+
+        prefix2 = "07XYZAB5678C1Z"
+        ch2 = calculate_gstin_check_digit(prefix2) or "3"
+        gst2 = prefix2 + ch2
+
+        # Text mentions two companies with GSTINs in a dispute notice, neither marked as buyer/supplier
+        notice_text = f"""
+        LEGAL NOTICE UNDER SECTION 138 NI ACT
+        First Party: {gst1}
+        Second Party: {gst2}
+        Amount Claimed: Rs. 5,00,000
+        """
+        entities = extract_statutory_entities(notice_text)
+        assert entities.gst is not None
+        # Since neither has buyer context, buyer_gstin must be None, not fabricated!
+        assert entities.gst.buyer_gstin is None
+
     def test_extract_income_tax_acknowledgement(self) -> None:
         doc_text = """
         INCOME TAX DEPARTMENT - GOVERNMENT OF INDIA

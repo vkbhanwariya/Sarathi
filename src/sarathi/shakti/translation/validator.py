@@ -43,34 +43,47 @@ def _normalize_token(tok: str) -> str:
 
 
 def extract_factual_tokens(text: str) -> list[str]:
-    """Extract factual tokens (emails, URLs, statutory IDs, dates, numbers) from text."""
+    """Extract factual tokens (emails, URLs, statutory IDs, dates, numbers) from text.
+
+    Applies prioritized span masking so higher-precedence entities (URLs, emails,
+    statutory IDs, dates) prevent their constituent substrings from being double-counted
+    as alphanumeric IDs or numeric amounts.
+    """
     if not text:
         return []
 
-    norm_text = normalize_devanagari_numerals(text)
+    norm_chars = list(normalize_devanagari_numerals(text))
     tokens: list[str] = []
 
-    # 1. URLs and Emails
-    for m in _URL_RE.finditer(norm_text):
-        tokens.append(_normalize_token(m.group(0)))
-    for m in _EMAIL_RE.finditer(norm_text):
-        tokens.append(_normalize_token(m.group(0)))
+    def _extract_and_mask(regex: re.Pattern[str], filter_fn=None) -> None:
+        curr_text = "".join(norm_chars)
+        for m in regex.finditer(curr_text):
+            tok_raw = m.group(0)
+            if filter_fn and not filter_fn(tok_raw):
+                continue
+            tokens.append(_normalize_token(tok_raw))
+            for i in range(m.start(), m.end()):
+                norm_chars[i] = " "
 
-    # 2. Statutory and Alphanumeric IDs
-    for m in _STATUTORY_ID_RE.finditer(norm_text):
-        tokens.append(_normalize_token(m.group(0)))
-    for m in _ALPHANUMERIC_ID_RE.finditer(norm_text):
-        tokens.append(_normalize_token(m.group(0)))
+    # 1. URLs and Emails (highest priority)
+    _extract_and_mask(_URL_RE)
+    _extract_and_mask(_EMAIL_RE)
+
+    # 2. Statutory IDs
+    _extract_and_mask(_STATUTORY_ID_RE)
 
     # 3. Dates
-    for m in _DATE_RE.finditer(norm_text):
-        tokens.append(_normalize_token(m.group(0)))
+    _extract_and_mask(_DATE_RE)
 
-    # 4. Standalone numbers / amounts (filter out 1-2 digit trivial numbers)
-    for m in _NUM_RE.finditer(norm_text):
-        clean_num = m.group(0).replace(",", "")
-        if len(clean_num) >= 3 or "." in clean_num:
-            tokens.append(_normalize_token(m.group(0)))
+    # 4. Alphanumeric IDs
+    _extract_and_mask(_ALPHANUMERIC_ID_RE)
+
+    # 5. Standalone numbers / amounts (filter out 1-2 digit trivial numbers)
+    def _is_significant_num(raw: str) -> bool:
+        clean = raw.replace(",", "")
+        return len(clean) >= 3 or "." in clean
+
+    _extract_and_mask(_NUM_RE, filter_fn=_is_significant_num)
 
     return tokens
 

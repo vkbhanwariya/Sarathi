@@ -641,6 +641,7 @@ class RunCoordinator:
                         self._terminal_status = status
                         self._terminal_summary = summary
                         self._run_summaries[run_id] = summary
+                        self._prune_old_runs()
                 except Exception as exc:
                     import traceback
 
@@ -672,6 +673,7 @@ class RunCoordinator:
                         self._terminal_status = "FAILED"
                         self._terminal_summary = summary
                         self._run_summaries[run_id] = summary
+                        self._prune_old_runs()
                 finally:
                     with self._lock:
                         if self._terminal_summary is None:
@@ -696,6 +698,7 @@ class RunCoordinator:
                                 pramana_records=pramana_recs,
                             )
                             self._run_summaries[run_id] = self._terminal_summary
+                            self._prune_old_runs()
                         self._live_workers.clear()
                         self._active_thread = None
                         self._bump_revision()
@@ -874,6 +877,22 @@ class RunCoordinator:
             self._run_summaries[run_id] = summary
             if context_run_id and str(context_run_id) != run_id:
                 self._run_summaries[str(context_run_id)] = summary
+            self._prune_old_runs()
+
+    def _prune_old_runs(self, max_retained: int = 100) -> None:
+        """Keep in-memory state bounded by pruning historical run records."""
+        if len(self._run_summaries) > max_retained:
+            excess = len(self._run_summaries) - max_retained
+            oldest_keys = list(self._run_summaries.keys())[:excess]
+            for r_id in oldest_keys:
+                self._run_summaries.pop(r_id, None)
+                self._confirmed_artifacts.pop(r_id, None)
+                self._run_output_roots.pop(r_id, None)
+                alias = self._run_aliases.pop(r_id, None)
+                if alias:
+                    self._run_aliases.pop(alias, None)
+                    self._confirmed_artifacts.pop(alias, None)
+                    self._run_summaries.pop(alias, None)
 
     def cancel_run(self, run_id: str) -> bool:
         """Cooperatively signal cancellation for the active run."""

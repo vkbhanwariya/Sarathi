@@ -13,6 +13,7 @@ from sarathi.smriti.key import CacheKey
 from sarathi.smriti.memory import MemoryCache
 from sarathi.smriti.policy import CachePolicy
 from sarathi.smriti.serialization import (
+    _fast_json_loads,
     deserialize_result,
     is_cacheable_result,
     serialize_result,
@@ -22,7 +23,7 @@ from sarathi.smriti.serialization import (
 def _extract_content_hashes(data_json: str) -> set[str]:
     """Extract set of artifact content hashes referenced in a serialized result JSON."""
     try:
-        data = json.loads(data_json)
+        data = _fast_json_loads(data_json)
         return {
             p["content_hash"]
             for p in data.get("artifact_payloads", [])
@@ -114,26 +115,29 @@ class SQLiteCacheStore:
         """Retrieve serialized result and created_at from SQLite store if valid."""
         with self._lock, self._get_connection() as conn:
             row = conn.execute(
-                "SELECT data_json, created_at FROM smriti_entries WHERE key_hash = ?",
+                "SELECT data_json, created_at, accessed_at FROM smriti_entries WHERE key_hash = ?",
                 (key.key_hash,),
             ).fetchone()
 
             if row is None:
                 return None, None
 
-            data_json, raw_created_at = row
+            data_json, raw_created_at, raw_accessed_at = row
             now = time.time()
             created_at = float(raw_created_at)
+            accessed_at = float(raw_accessed_at)
             if not self._policy.is_valid(created_at, now):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
                 conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
                 self._reclaim_unreferenced_artifacts(conn, [data_json])
                 return None, None
 
-            conn.execute(
-                "UPDATE smriti_entries SET accessed_at = ? WHERE key_hash = ?",
-                (now, key.key_hash),
-            )
+            # Coarsen accessed_at updates: write to disk only if > 60s elapsed
+            if now - accessed_at > 60.0:
+                conn.execute(
+                    "UPDATE smriti_entries SET accessed_at = ? WHERE key_hash = ?",
+                    (now, key.key_hash),
+                )
 
         # Deserialize and verify artifact sidecars outside the SQLite database lock
         try:

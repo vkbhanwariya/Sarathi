@@ -419,3 +419,13 @@ def test_asset_version_tracks_manifest_content_deterministically(tmp_path: Path)
     manifest_file.write_text('{"models": {"v2": {"sha256": "def"}}}', encoding="utf-8")
     engine3 = RapidOCREngine(data_root=tmp_path)
     assert engine3.asset_version != v1
+
+
+def test_checkpoint_revision_invalidation(monkeypatch: Any) -> None:
+    """Incrementing OCR_PAGE_RESULT_REVISION changes the checkpoint params_hash."""
+    import sarathi.shakti.ocr.engine.checkpoint as chk
+
+    hash_v1 = chk.compute_params_hash(page_number=1, profile="balanced", dpi=200, lang="hi")
+    monkeypatch.setattr(chk, "OCR_PAGE_RESULT_REVISION", 2)
+    hash_v2 = chk.compute_params_hash(page_number=1, profile="balanced", dpi=200, lang="hi")
+    assert hash_v1 != hash_v2

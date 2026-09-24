@@ -529,6 +529,24 @@ class CTranslate2NativeBackend:
         if not compute_type:
             compute_type = "int8_float32" if device == "cpu" else "float16"
 
+        # Thread topology computation
+        cpu_fn = getattr(os, "process_cpu_count", None)
+        cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
+        default_concurrency = max(1, min(4, cpu_count // 4))
+        approved = (
+            execution_binding.approved_concurrency
+            if execution_binding is not None and execution_binding.approved_concurrency > 0
+            else default_concurrency
+        )
+        if device == "cpu":
+            intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // max(1, approved)))
+            inter_threads = max(1, min(2 if intra_threads >= 4 else 4, approved))
+            os.environ.setdefault("KMP_BLOCKTIME", "0")
+            os.environ.setdefault("OMP_PROC_BIND", "close")
+        else:
+            inter_threads = approved
+            intra_threads = 0
+
         trans_key = f"{norm_engine}:{model_path.resolve()}:{dir_key}:{device}:{device_index}:{compute_type}"
         spm_src_key = f"src:{spm_src_path.resolve()}"
         spm_tgt_key = f"tgt:{spm_tgt_path.resolve()}"
@@ -539,27 +557,6 @@ class CTranslate2NativeBackend:
                 self._verified_models.add(model_verified_key)
 
             if trans_key not in self._translators:
-                cpu_fn = getattr(os, "process_cpu_count", None)
-                cpu_count = cpu_fn() if callable(cpu_fn) else os.cpu_count() or 4
-                default_concurrency = max(1, min(4, cpu_count // 4))
-
-                approved = (
-                    execution_binding.approved_concurrency
-                    if execution_binding is not None and execution_binding.approved_concurrency > 0
-                    else default_concurrency
-                )
-                if device == "cpu":
-                    # On hybrid P+E architecture (e.g. Core Ultra 5 125H with 4 P-cores + 8 E-cores),
-                    # pin intra-op parallelism to physical P-cores (4) with AVX2/AVX-VNNI acceleration.
-                    # Bound inter_threads to 2 when intra_threads is 4 to prevent oversubscribing
-                    # the 4 physical P-cores (8 threads) with 24+ thrashing threads.
-                    intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // max(1, approved)))
-                    inter_threads = max(1, min(2 if intra_threads >= 4 else 4, approved))
-                    os.environ.setdefault("KMP_BLOCKTIME", "0")
-                    os.environ.setdefault("OMP_PROC_BIND", "close")
-                else:
-                    inter_threads = approved
-                    intra_threads = 0
 
                 try:
                     self._translators[trans_key] = ctranslate2.Translator(
@@ -1009,10 +1006,14 @@ class CTranslate2TranslationEngine:
                 continue
 
             guarded_text = text
+            if direction == TranslationDirection.HI_TO_EN:
+                guarded_text = normalize_devanagari_numerals(guarded_text)
+                guarded_text = re.sub(r"\bरू(?:\.|\s*)", "रु. ", guarded_text)
+
             name_placeholders: list[tuple[str, str]] = []
             effective_custom_terms = list(custom_terms) if custom_terms else []
             if direction == TranslationDirection.HI_TO_EN and self._proper_noun_guard is not None:
-                guarded_text, name_placeholders = self._proper_noun_guard.protect(text)
+                guarded_text, name_placeholders = self._proper_noun_guard.protect(guarded_text)
                 if name_placeholders:
                     effective_custom_terms.extend(ph for ph, _ in name_placeholders)
 

@@ -12,13 +12,13 @@ Configuration is managed by the **Sutra** subsystem, loaded from `config/setting
 | | `output_root` | `Path` | `"Output"` | Root directory for validated, committed output artifacts. |
 | | `runtime_root` | `Path` | `"Runtime"` | Directory for scratch workspaces, staging, and temp files. |
 | `[pipeline]` | `max_retries` | `int` | `0` | Automated retry limit for transient pipeline errors. |
-| `[security]` | `allow_pii_access` | `bool` | `false` | Permits access to Personally Identifiable Information (disabled for privacy). |
+| `[security]` | `allow_pii_access` | `bool` | `true` | Permits access to Personally Identifiable Information for local processing. |
 | | `allow_network_access` | `bool` | `false` | **(External/Cloud)** Permits outbound socket/HTTP egress (disabled by default). |
 | | `allow_external_processing`| `bool` | `false` | **(External/Cloud)** Permits transmitting document data to cloud APIs. |
 | | `allowed_secrets` | `list[str]`| `["MISTRAL_API_KEY"]` | Environment variable names containing authorized API keys. |
-| `[hardware]` | `detect_accelerators` | `bool` | `true` | Probes OpenVINO GPU and NPU devices. Set `false` to force CPU. |
-| | `gpu_capacity_per_device` | `int` | `2` | Max concurrent worker slots per GPU (tuned for Intel Arc iGPU). |
-| | `cpu_capacity` | `int` | `6` | CPU concurrency slots (tuned for Core Ultra 5 125H 4P + 2E cores). |
+| `[hardware]` | `detect_accelerators` | `bool` | `false` | Probes OpenVINO GPU and NPU devices when enabled. |
+| | `gpu_capacity_per_device` | `int` | `4` | Max concurrent worker slots per GPU (clamped by OpenVINO runtime). |
+| | `cpu_capacity` | `int \| None` | `None` | CPU concurrency slots (`None` auto-detects from CPU topology). |
 | | `npu_capacity_per_device` | `int` | `2` | Concurrency slots allocated per NPU. |
 | | `max_queue_depth` | `int` | `64` | Subtask queue depth for accelerator dispatch. |
 | `[cache]` | `enabled` | `bool` | `true` | Enables deterministic result caching across runs. |
@@ -29,7 +29,7 @@ Configuration is managed by the **Sutra** subsystem, loaded from `config/setting
 | `[telemetry]` | `history_enabled` | `bool` | `false` | Enables persistent storage of terminal run records. |
 | | `history_path` | `Path \| None`| `"history.jsonl"` | File path where terminal run history is stored. |
 | | `history_format` | `str` | `"jsonl"` | Format for stored history (`"jsonl"` or `"sqlite"`). |
-| | `live_buffer_capacity` | `int` | `256` | In-memory live telemetry buffer capacity. |
+| | `live_buffer_capacity` | `int` | `1000` | In-memory live telemetry buffer capacity. |
 | `[limits]` | `max_input_bytes` | `int` | `268435456` | Maximum allowed size of an uploaded input file (256 MiB). |
 | | `max_uncompressed_bytes` | `int` | `1073741824`| Maximum allowed uncompressed size for zip/docx/xlsx (1 GiB). |
 | | `max_compression_ratio` | `float` | `200.0` | Maximum compression ratio permitted (zip bomb protection). |

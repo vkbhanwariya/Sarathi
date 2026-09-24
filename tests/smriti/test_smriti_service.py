@@ -662,3 +662,46 @@ def test_memory_cache_composite_document_size_estimation() -> None:
     size = _estimate_result_bytes(res_composite)
     # Must be > 10,000 bytes, not the old default 512 bytes
     assert size >= 10000
+
+
+def test_sqlite_store_accessed_at_coarsening(tmp_path: Path, monkeypatch) -> None:
+    """Verify SQLiteCacheStore only updates accessed_at if > 60s elapsed."""
+    import time
+
+    from sarathi.smriti.key import CacheKey
+    from sarathi.smriti.store import SQLiteCacheStore
+
+    db_path = tmp_path / "cache.db"
+    store = SQLiteCacheStore(db_path=db_path)
+
+    key = CacheKey(capability_id="test", fingerprint="fp_coarse", profile="instant", key_hash="k_coarse")
+    res = Result(data=CanonicalDocument("doc-coarse", text="hello"))
+
+    start_time = 100000.0
+    monkeypatch.setattr(time, "time", lambda: start_time)
+    store.put(key, res)
+
+    # Initial accessed_at
+    with store._lock, store._get_connection() as conn:
+        initial_accessed = conn.execute(
+            "SELECT accessed_at FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)
+        ).fetchone()[0]
+    assert initial_accessed == start_time
+
+    # Access 30s later: should NOT update accessed_at (coarsening window <= 60s)
+    monkeypatch.setattr(time, "time", lambda: start_time + 30.0)
+    store.get(key)
+    with store._lock, store._get_connection() as conn:
+        accessed_30 = conn.execute(
+            "SELECT accessed_at FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)
+        ).fetchone()[0]
+    assert accessed_30 == start_time
+
+    # Access 65s later: should update accessed_at (> 60s elapsed)
+    monkeypatch.setattr(time, "time", lambda: start_time + 65.0)
+    store.get(key)
+    with store._lock, store._get_connection() as conn:
+        accessed_65 = conn.execute(
+            "SELECT accessed_at FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)
+        ).fetchone()[0]
+    assert accessed_65 == start_time + 65.0

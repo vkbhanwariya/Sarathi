@@ -328,7 +328,8 @@ class LegalContextBuilder:
 
         if direction == TranslationDirection.EN_TO_HI:
             lower_doc = text.lower()
-            candidates = []
+            valid_terms: list[str] = []
+            term_lookup: dict[str, str] = {}
             for t in available_terms.keys():
                 t_clean = t.strip()
                 if len(t_clean) < 2 or t_clean.lower() in generic_words:
@@ -337,10 +338,24 @@ class LegalContextBuilder:
                     continue
                 if t_clean.lower() not in lower_doc:
                     continue
-                prefix = r"(?<!\w)" if t_clean[0].isalnum() else ""
-                suffix = r"(?!\w)" if t_clean[-1].isalnum() else ""
-                if re.search(f"{prefix}{re.escape(t_clean)}{suffix}", text, re.IGNORECASE):
-                    candidates.append(t)
+                valid_terms.append(t_clean)
+                term_lookup[t_clean.lower()] = t
+
+            candidates = []
+            if valid_terms:
+                valid_terms.sort(key=len, reverse=True)
+                patterns = [
+                    (r"(?<!\w)" if t[0].isalnum() else "") + re.escape(t) + (r"(?!\w)" if t[-1].isalnum() else "")
+                    for t in valid_terms
+                ]
+                combined_re = re.compile("|".join(patterns), re.IGNORECASE)
+                seen_candidates: set[str] = set()
+                for m in combined_re.finditer(text):
+                    m_key = m.group(0).lower().strip()
+                    matched_key = term_lookup.get(m_key)
+                    if matched_key and matched_key not in seen_candidates:
+                        seen_candidates.add(matched_key)
+                        candidates.append(matched_key)
         else:
             candidates = []
             for t in available_terms.keys():

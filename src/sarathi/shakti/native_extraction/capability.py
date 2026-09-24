@@ -344,12 +344,20 @@ class NativeExtractionCapability:
                 )
 
                 if not is_word_converter_available():
+                    msg = (
+                        "Microsoft Word is required on Windows to convert legacy .doc files. "
+                        "Please save the document as .docx in Microsoft Word or upload a .docx file."
+                    )
+                    all_warnings.append(
+                        WarningRecord(
+                            code="DOC_CONVERTER_UNAVAILABLE",
+                            message=msg,
+                            stage="read_native",
+                        )
+                    )
                     raise DoshError(
                         code=FailureCode.UNSUPPORTED,
-                        message=(
-                            "Microsoft Word is required on Windows to convert legacy .doc files. "
-                            "Please save the document as .docx in Microsoft Word or upload a .docx file."
-                        ),
+                        message=msg,
                     )
 
                 work_base = Path("Runtime/Work") / context.run_id
@@ -361,8 +369,18 @@ class NativeExtractionCapability:
                     doc_src = work_base / f"{inp.input_id}.doc"
                     doc_src.write_bytes(data)
 
-                converted_docx_path = convert_doc_to_docx(doc_src, output_dir=work_base)
-                data = converted_docx_path.read_bytes()
+                try:
+                    converted_docx_path = convert_doc_to_docx(doc_src, output_dir=work_base)
+                    data = converted_docx_path.read_bytes()
+                except Exception as conv_exc:
+                    all_warnings.append(
+                        WarningRecord(
+                            code="DOC_CONVERSION_FAILED",
+                            message=f"Failed to convert legacy Word .doc '{doc_src.name}': {conv_exc}",
+                            stage="read_native",
+                        )
+                    )
+                    raise
 
             # Route to concrete native readers with honest parse error handling
             try:

@@ -111,6 +111,29 @@ jobs:
       - name: Run real model validation suite
         run: uv run --group dev --all-extras pytest -q -m "real_model"
 
+  windows-smoke:
+    name: Windows CI Smoke
+    needs: [lint]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      - name: Run Windows-critical smoke suite
+        run: uv run --group dev pytest -q -m "not browser and not performance and not real_model and not architecture" tests/smriti/ tests/security/ tests/configuration/ tests/statutory/
+
   browser:
     name: Browser Tests
     needs: [lint, frontend]

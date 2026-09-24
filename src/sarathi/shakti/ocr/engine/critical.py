@@ -351,13 +351,72 @@ def validate_critical_token(text: str, crit_type: CriticalityType | None = None)
 
     if crit_type == CriticalityType.CURRENCY_AMOUNT:
         if _CURRENCY_AMOUNT_RE.search(clean):
+            num_match = re.search(r"\d+(?:,\d+)*(?:\.\d+)?", clean)
+            if num_match:
+                try:
+                    from decimal import Decimal
+
+                    amt_str = num_match.group(0).replace(",", "")
+                    val = Decimal(amt_str)
+                    if val >= Decimal(0):
+                        return True, "valid_amount"
+                except Exception:
+                    return False, "unparseable_decimal_amount"
             return True, "valid_amount"
         return False, "invalid_amount_format"
 
     if crit_type == CriticalityType.DATE:
-        if _DATE_RE.search(clean):
+        m = _DATE_RE.search(clean)
+        if m:
+            from datetime import datetime
+
+            date_str = m.group(0)
+            formats = (
+                "%d/%m/%Y",
+                "%d-%m-%Y",
+                "%d.%m.%Y",
+                "%d/%m/%y",
+                "%d-%m-%y",
+                "%d.%m.%y",
+                "%Y-%m-%d",
+                "%Y/%m/%d",
+                "%d %b %Y",
+                "%d %B %Y",
+                "%d %b %y",
+                "%d %B %y",
+            )
+            parsed = False
+            for fmt in formats:
+                try:
+                    datetime.strptime(date_str, fmt)
+                    parsed = True
+                    break
+                except ValueError:
+                    continue
+            if not parsed:
+                return False, "invalid_calendar_date"
             return True, "valid_date"
         return False, "invalid_date_format"
+
+    if crit_type == CriticalityType.ACCOUNT_REFERENCE:
+        from sarathi.shakti.bank_statements.utr_repair import (
+            _IFSC_RE,
+            _IMPS_UPI_RE,
+            _NEFT_RE,
+            _RTGS_RE,
+        )
+
+        words = clean.split()
+        for w in words:
+            clean_w = re.sub(r"[\s\-_:/]", "", w).upper()
+            if len(clean_w) == 11 and _IFSC_RE.match(clean_w):
+                return True, "valid_ifsc"
+            if len(clean_w) in (12, 16, 22):
+                if _IMPS_UPI_RE.match(clean_w) or _NEFT_RE.match(clean_w) or _RTGS_RE.match(clean_w):
+                    return True, "valid_utr"
+        if _ACCOUNT_REF_RE.search(clean):
+            return True, "valid_account_reference"
+        return False, "invalid_account_reference"
 
     if crit_type == CriticalityType.STATUTORY_IDENTIFIER:
         val_clean = re.sub(

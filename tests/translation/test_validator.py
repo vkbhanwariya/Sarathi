@@ -51,3 +51,20 @@ def test_validate_factual_equivalence_flags_untranslated_residue() -> None:
     warnings = validate_factual_equivalence(source, target, direction=TranslationDirection.HI_TO_EN)
     codes = [w.code for w in warnings]
     assert "UNTRANSLATED_SEGMENT_DETECTED" in codes
+
+
+def test_extract_factual_tokens_prioritized_masking_prevents_subtoken_leak() -> None:
+    """Masking higher-order entities prevents their inner fragments from being double-counted."""
+    text = "Visit https://portal.in/tax/2024/999 for PAN ABCDE1234F on 15/03/2025."
+    tokens = extract_factual_tokens(text)
+    # URL is matched as a whole
+    assert "https://portal.in/tax/2024/999" in tokens
+    # PAN is matched as a whole
+    assert "abcde1234f" in tokens
+    # Date is matched as a whole
+    assert "15/03/2025" in tokens
+    # URL and Date inner year 2024 / 999 must NOT be leaked as standalone numbers
+    assert "2024" not in tokens
+    assert "999" not in tokens
+    # PAN number 1234 must NOT be leaked as a standalone number
+    assert "1234" not in tokens

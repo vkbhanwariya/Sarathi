@@ -676,3 +676,27 @@ class TestAgniBootstrap:
         assert thread is not None
         thread.join(timeout=2.0)
         assert len(warmup_calls) == 2
+
+    def test_agni_prewarm_capability_aware_device_resolution(self, tmp_path: Path) -> None:
+        """Agni._resolve_preferred_binding gives GPU to OpenVINO OCR and CPU to Translation."""
+        agni = Agni(
+            runtime_root=tmp_path / "runtime",
+            output_root=tmp_path / "output",
+        )
+        ocr_cap = agni.capabilities.get("ocr")
+        trans_cap = agni.capabilities.get("translation")
+
+        if ocr_cap is not None:
+            ocr_binding = agni._resolve_preferred_binding(ocr_cap)
+            assert ocr_binding is not None
+            # If a GPU is in inventory, OCR must receive GPU; otherwise CPU
+            has_gpu = any(d.device_type == DeviceType.GPU for d in (agni._inventory or ()))
+            if has_gpu:
+                assert ocr_binding.device_type == DeviceType.GPU
+
+        if trans_cap is not None:
+            trans_binding = agni._resolve_preferred_binding(trans_cap)
+            assert trans_binding is not None
+            # Translation must receive CPU on systems without CUDA (e.g. Intel Arc host)
+            assert trans_binding.device_type == DeviceType.CPU
+            assert trans_binding.approved_concurrency >= 1

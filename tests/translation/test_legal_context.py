@@ -69,6 +69,17 @@ class TestLegalContextBuilder:
         matched_keys = set(matched.keys())
         assert any("याचिकाकर्ता" in k or "आक्षेपित आदेश" in k or "निस्तारित" in k for k in matched_keys)
 
+    def test_dynamic_glossary_matching_en_to_hi(self) -> None:
+        builder = LegalContextBuilder()
+        english_order = (
+            "The petitioner filed a bail application challenging the impugned judgment. "
+            "The learned senior advocate submitted that respondent failed to produce evidence."
+        )
+        matched = builder.match_domain_glossary(english_order, direction=TranslationDirection.EN_TO_HI)
+        assert isinstance(matched, dict)
+        # Should match terms like petitioner, bail application, impugned judgment, respondent
+        assert len(matched) >= 1
+
     def test_extract_context_english_high_court(self) -> None:
         builder = LegalContextBuilder()
         text = """

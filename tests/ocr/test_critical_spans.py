@@ -252,6 +252,31 @@ def test_validate_critical_token() -> None:
     assert valid is True
     assert label == "valid_ifsc"
 
+    # Valid calendar date (leap year Feb 29)
+    valid, label = validate_critical_token("29/02/2024", CriticalityType.DATE)
+    assert valid is True
+    assert label == "valid_date"
+
+    # Invalid calendar date (non-leap year Feb 29)
+    valid, label = validate_critical_token("29/02/2023", CriticalityType.DATE)
+    assert valid is False
+    assert label == "invalid_calendar_date"
+
+    # Invalid calendar date (April 31st does not exist)
+    valid, label = validate_critical_token("31/04/2024", CriticalityType.DATE)
+    assert valid is False
+    assert label == "invalid_calendar_date"
+
+    # Valid decimal amount
+    valid, label = validate_critical_token("₹ 1,50,000.50", CriticalityType.CURRENCY_AMOUNT)
+    assert valid is True
+    assert label == "valid_amount"
+
+    # Valid banking UTR reference
+    valid, label = validate_critical_token("UTR: PUNB123456789012", CriticalityType.ACCOUNT_REFERENCE)
+    assert valid is True
+    assert label == "valid_utr"
+
 
 def test_bounded_recovery_caps_at_max_crops() -> None:
     """Verify that a page with many low-confidence critical spans strictly caps crop retries at max_crops."""

@@ -14,6 +14,8 @@ from typing import Any
 
 from sarathi.sankalpa import CanonicalDocument, InputRef, Request, Result
 
+CACHE_SEMANTIC_VERSION: int = 1
+
 
 @dataclass(frozen=True, slots=True)
 class CacheKey:
@@ -174,7 +176,7 @@ def compute_cache_key(
     effective_asset_version = asset_version or str(request.metadata.get("asset_version", ""))
 
     content = (
-        f"{capability_id}:{plugin_version}:{request.requirement}:{request.profile.value}:{effective_asset_version}:"
+        f"v{CACHE_SEMANTIC_VERSION}:{capability_id}:{plugin_version}:{request.requirement}:{request.profile.value}:{effective_asset_version}:"
         f"{fingerprint}:{options_str}:{metadata_str}:{prior_digest}"
     )
     key_hash = hashlib.blake2b(content.encode("utf-8"), digest_size=32).hexdigest()
