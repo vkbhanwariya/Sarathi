@@ -68,18 +68,26 @@ _ADDR_KEYWORD = (
     r"(?:Flat|Plot|House|Room|Shop|Office|Block|Sector|Phase|Tower|Bldg|Building|"
     r"Floor|Street|Road|Lane|Avenue|Marg|Nagar|Colony|Enclave|Apartment|Vihar|Kunj)"
 )
-_CONJ_WORD = r"(?:of|and|the|in|for|to|at|by|on|from|with)"
+_CONJ_WORD = r"(?i:of|and|the|in|for|to|at|by|on|from|with|vs\.?|versus|v\.?|&)"
 _ADDR_WORD = r"(?:[A-Z][a-z]+(?:-[A-Z][a-z]+)?|No\.?|\d+)"
 _ADDRESS_RE = re.compile(rf"\b{_ADDR_KEYWORD}\b(?:[,\s\.\-]+(?:{_ADDR_WORD}|{_CONJ_WORD}))+")
-_TITLE_WORD = r"(?:M/s\.?|[A-Z][a-z]+(?:-[A-Z][a-z]+)?\.?|No\.?)"
+_TITLE_WORD = r"(?:M/s\.?|M/S\.?|No\.?|(?:[A-Z]\.){1,4}|[A-Z][a-zA-Z0-9]*(?:-[A-Za-z0-9]+)?\.?)"
 _LATIN_SEP = r"(?:,\s*|\s+)"
 _TITLECASE_PHRASE_RE = re.compile(
     rf"(?:\b{_TITLE_WORD})(?:{_LATIN_SEP}(?:{_CONJ_WORD}\s+{_TITLE_WORD}|{_TITLE_WORD}))+"
 )
 _KNOWN_LATIN_RE = re.compile(
-    r"(?:\bM/s\.?|\bM/S\.?|\b(?:FIR|PMLA|CrPC|BNSS|BSA|BNS|IPC|CBI|ED|GST|GSTIN|PAN|TAN|UIDAI|RTI|"
-    r"ADM|SDM|SSP|DSP|SHO|IO|U/S|SEC|NO|F\.No|HON'BLE|HONBLE|"
-    r"Article|Section|Act|Order|Rule|Clause|Schedule|Court|Bench|Versus|Vs|"
+    r"(?:\bM/s\.?|\bM/S\.?|\b(?:"
+    r"HIGH\s+COURT|SUPREME\s+COURT|COURT|JUDICATURE|BENCH|JAIPUR|JODHPUR|DELHI|RAJASTHAN|"
+    r"CRIMINAL|CIVIL|MISCELLANEOUS|WRIT|PETITION|APPEAL|APPLICATION|REVISION|SPECIAL\s+LEAVE|"
+    r"PETITIONER|RESPONDENT|APPELLANT|DEFENDANT|PLAINTIFF|ACCUSED|COMPLAINANT|"
+    r"JUSTICE|HON\'BLE|HONBLE|CHIEF|JUDGE|MAGISTRATE|ADJ|DJ|"
+    r"SCC|AIR|MANU/[A-Z]+/\d+/\d+|MANU|SCR|RLW|ILR|CrLJ|CriLJ|JT|SCALE|Supp|OnLine|Online|"
+    r"reported\s+in|State\s+of|Union\s+of\s+India|UOI|State\s+Govt|Govt\s+of|"
+    r"Ors\.?|Anr\.?|Alia|alias|et\s+al|"
+    r"FIR|PMLA|CrPC|BNSS|BSA|BNS|IPC|CBI|ED|GST|GSTIN|PAN|TAN|UIDAI|RTI|"
+    r"ADM|SDM|SSP|DSP|SHO|IO|U/S|SEC|NO|F\.No|"
+    r"Article|Section|Act|Order|Rule|Clause|Schedule|Versus|Vs\.?|V\.?|"
     r"Govt|Government|India|State|Bank|SBI|HDFC|ICICI|Axis|Kotak|PNB|BOB|Canara|"
     r"Pvt|Ltd|Limited|Private|Company|Distributor|Trading|Sponsored|Bail|"
     r"Tower|Flat|Road|Street|Apartment|Park|Avenue|Lane|Pass|Authorized|Signatory|"
@@ -118,19 +126,11 @@ class TextProtector(BaseSpanProtector):
         if protect_devanagari:
             text = _UNICODE_DEVANAGARI_RE.sub(lambda m: _repl(m, "unicode_devanagari"), text)
 
-        # 3. For unknown/mixed content, protect parenthesized Latin phrases and English addresses before numbers
+        # 3. For unknown/mixed content, protect multi-word English phrases, labels, and known Latin
+        # BEFORE numbers and IDs fragment them
         if not is_explicit_legacy:
             text = _PAREN_LATIN_RE.sub(lambda m: _repl(m, "paren_latin"), text)
             text = _ADDRESS_RE.sub(lambda m: _repl(m, "english_address"), text)
-
-        # 4. Protect strongly evidenced Percentages, Dates, Numbers, and Reference IDs
-        text = _PERCENT_RE.sub(lambda m: _repl(m, "percent"), text)
-        text = _DATE_RE.sub(lambda m: _repl(m, "date"), text)
-        text = _NUM_RE.sub(lambda m: _repl(m, "number"), text)
-        text = _ID_RE.sub(lambda m: _repl(m, "id"), text)
-
-        # 5. For unknown-font content, also protect remaining structured English phrases and known institutional terms
-        if not is_explicit_legacy:
             text = _LABEL_RE.sub(lambda m: _repl(m, "english_label"), text)
 
             def _titlecase_repl(match: re.Match) -> str:
@@ -176,6 +176,12 @@ class TextProtector(BaseSpanProtector):
 
             text = _TITLECASE_PHRASE_RE.sub(_titlecase_repl, text)
             text = _KNOWN_LATIN_RE.sub(lambda m: _repl(m, "known_latin"), text)
+
+        # 4. Protect strongly evidenced Percentages, Dates, Numbers, and Reference IDs
+        text = _PERCENT_RE.sub(lambda m: _repl(m, "percent"), text)
+        text = _DATE_RE.sub(lambda m: _repl(m, "date"), text)
+        text = _NUM_RE.sub(lambda m: _repl(m, "number"), text)
+        text = _ID_RE.sub(lambda m: _repl(m, "id"), text)
 
         return text, protected_spans
 

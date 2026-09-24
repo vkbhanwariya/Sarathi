@@ -40,6 +40,7 @@ from sarathi.shakti.ocr.engine.critical import (
     DEFAULT_CRITICAL_RETRY_THRESHOLD,
     DEFAULT_CRITICAL_REVIEW_THRESHOLD,
     CriticalityType,
+    classify_label_anchor,
     classify_span,
     repair_critical_token,
     validate_critical_token,
@@ -262,15 +263,33 @@ def _recover_critical_spans(
     eff_max_crops = max(1, min(5, user_max_crops))
 
     candidates: list[tuple[int, TextSpan, CriticalityType, float]] = []
+    prev_label_type: CriticalityType | None = None
+
     for idx, span in enumerate(spans):
-        if not span.text.strip() or span.bounding_box is None:
+        text = span.text.strip()
+        if not text or span.bounding_box is None:
+            prev_label_type = None
             continue
-        is_crit, crit_type = classify_span(span.text)
+
+        # 1. Check if current span itself acts as a label anchor for the next span
+        anchor_type = classify_label_anchor(text)
+        if anchor_type is not None:
+            prev_label_type = anchor_type
+            continue
+
+        # 2. Check if span is critical directly or context-anchored by preceding label
+        is_crit, crit_type = classify_span(text)
+        if not is_crit and prev_label_type is not None:
+            is_crit = True
+            crit_type = prev_label_type
+
+        prev_label_type = None
+
         if not is_crit or crit_type is None:
             continue
 
         conf = span.confidence if span.confidence is not None else 0.0
-        is_valid, _ = validate_critical_token(span.text, crit_type)
+        is_valid, _ = validate_critical_token(text, crit_type)
         if conf < crit_retry_thresh or not is_valid:
             candidates.append((idx, span, crit_type, conf))
 

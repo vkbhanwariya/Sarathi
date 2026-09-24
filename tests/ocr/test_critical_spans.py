@@ -316,3 +316,52 @@ def test_devanagari_akshara_synthesis_in_parser() -> None:
     assert spans[0].text == "हूँ"
     assert spans[1].text == "को"
     assert "\u094d\u093f" in spans[2].text
+
+
+def test_classify_label_anchor() -> None:
+    """Verify classify_label_anchor detects statutory, account, date, and currency anchors."""
+    from sarathi.shakti.ocr.engine.critical import classify_label_anchor
+
+    assert classify_label_anchor("PAN:") == CriticalityType.STATUTORY_IDENTIFIER
+    assert classify_label_anchor("GSTIN") == CriticalityType.STATUTORY_IDENTIFIER
+    assert classify_label_anchor("A/C No:") == CriticalityType.ACCOUNT_REFERENCE
+    assert classify_label_anchor("Date:") == CriticalityType.DATE
+    assert classify_label_anchor("Total Amount:") == CriticalityType.CURRENCY_AMOUNT
+    assert classify_label_anchor("Random General Text") is None
+
+
+def test_context_anchored_recovery_triggers_on_corrupted_statutory_token() -> None:
+    """Verify that a corrupted statutory token following a label anchor enters crop recovery."""
+    engine = RapidOCREngine(default_lang="en")
+
+    invoked_crops: list[Any] = []
+
+    def mock_call(img_arr: Any, **kwargs: Any) -> DummyOutput:
+        if kwargs.get("use_det") is False:
+            invoked_crops.append(img_arr)
+            # Re-recognizer cleanly recognizes the repaired PAN
+            return DummyOutput(txts=["ABCPE1234F"], boxes=[], scores=[0.96])
+        # Return label span 'PAN:' followed by noisy statutory token with character '?'
+        txts = ["PAN:", "ABcPE1234?"]
+        boxes = [
+            [(10, 10), (50, 10), (50, 30), (10, 30)],
+            [(60, 10), (160, 10), (160, 30), (60, 30)],
+        ]
+        scores = [0.95, 0.70]
+        return DummyOutput(txts=txts, boxes=boxes, scores=scores)
+
+    engine._engine = mock_call
+
+    img = Image.new("RGB", (200, 200), color="white")
+    page_data, _, _, _ = engine.ocr_page(
+        image=img,
+        page_number=1,
+        input_id="inp-anchor-test",
+        profile=ExecutionProfile.ACCURATE,
+    )
+
+    # Corrupted token was recovered because of the preceding 'PAN:' anchor
+    assert len(invoked_crops) == 1
+    recovered_spans = [s for s in page_data.spans if s.metadata.get("critical_recovered")]
+    assert len(recovered_spans) == 1
+    assert recovered_spans[0].text == "ABCPE1234F"

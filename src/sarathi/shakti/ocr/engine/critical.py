@@ -81,6 +81,49 @@ _PERCENTAGE_RE: Final[re.Pattern[str]] = re.compile(
     re.IGNORECASE,
 )
 
+# Label anchors that unambiguously introduce a critical entity in forms, invoices, and legal docs
+_LABEL_ANCHOR_PATTERNS: Final[tuple[tuple[re.Pattern[str], CriticalityType], ...]] = (
+    (
+        re.compile(
+            r"^(?:GSTIN|GST|जीएसटी|PAN|पैन|IFSC|आईएफएससी|TAN|टैन|CIN|CNR)(?:\s*(?:No\.?|Number|संख्या|सं\.?))?[:\s\-#.]*$",
+            re.IGNORECASE,
+        ),
+        CriticalityType.STATUTORY_IDENTIFIER,
+    ),
+    (
+        re.compile(
+            r"^(?:A/C|Acct|Account|खाता|Chq|Cheque|चेक|Ref|Reference|संदर्भ|UTR|Txn|Transaction|NEFT|RTGS|IMPS)(?:\s*(?:No\.?|Number|संख्या|सं\.?))?[:\s\-#.]*$",
+            re.IGNORECASE,
+        ),
+        CriticalityType.ACCOUNT_REFERENCE,
+    ),
+    (
+        re.compile(
+            r"^(?:Date|Dated|दिनांक|तारीख)[:\s\-#.]*$",
+            re.IGNORECASE,
+        ),
+        CriticalityType.DATE,
+    ),
+    (
+        re.compile(
+            r"^(?:(?:Total|Net|Gross)\s+)?(?:Amount|Total|Bal(?:ance)?|राशि|कुल|शेष)[:\s\-#.]*$",
+            re.IGNORECASE,
+        ),
+        CriticalityType.CURRENCY_AMOUNT,
+    ),
+)
+
+
+def classify_label_anchor(text: str) -> CriticalityType | None:
+    """Identify whether a short text run serves as a preceding label anchor for a critical entity."""
+    clean = text.strip()
+    if not clean or len(clean) > 25:
+        return None
+    for pat, ctype in _LABEL_ANCHOR_PATTERNS:
+        if pat.search(clean):
+            return ctype
+    return None
+
 
 def classify_span(text: str) -> tuple[bool, CriticalityType | None]:
     """Classify whether a text span contains high-consequence financial or statutory tokens.
@@ -118,6 +161,11 @@ def classify_span(text: str) -> tuple[bool, CriticalityType | None]:
     # 6. Percentage / Rate check
     if _PERCENTAGE_RE.search(clean):
         return True, CriticalityType.PERCENTAGE_RATE
+
+    # 7. Check if span itself begins with a statutory label prefix
+    for pat, ctype in _LABEL_ANCHOR_PATTERNS:
+        if pat.search(clean):
+            return True, ctype
 
     return False, None
 
@@ -197,7 +245,13 @@ def repair_critical_token(text: str, crit_type: CriticalityType | None = None) -
 
     # 3. STATUTORY IDENTIFIER REPAIR
     elif crit_type == CriticalityType.STATUTORY_IDENTIFIER:
-        candidate = re.sub(r"[\s\-_]", "", clean).upper()
+        val_clean = re.sub(
+            r"^(?:PAN|GSTIN|IFSC|CIN|CNR|TAN|पैन|जीएसटी)[:\s\-#]*",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        candidate = re.sub(r"[\s\-_]", "", val_clean).upper()
         # Check IFSC candidate (11 chars)
         if len(candidate) == 11 and candidate[:4].isalnum():
             from sarathi.shakti.bank_statements.utr_repair import is_valid_ifsc, repair_ifsc
@@ -306,7 +360,13 @@ def validate_critical_token(text: str, crit_type: CriticalityType | None = None)
         return False, "invalid_date_format"
 
     if crit_type == CriticalityType.STATUTORY_IDENTIFIER:
-        candidate = re.sub(r"[\s\-_]", "", clean).upper()
+        val_clean = re.sub(
+            r"^(?:PAN|GSTIN|IFSC|CIN|CNR|TAN|पैन|जीएसटी)[:\s\-#]*",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        candidate = re.sub(r"[\s\-_]", "", val_clean).upper()
         if len(candidate) == 10:
             from sarathi.shakti.statutory.checksums import verify_pan
 
@@ -336,6 +396,7 @@ __all__ = [
     "DEFAULT_CRITICAL_RETRY_THRESHOLD",
     "DEFAULT_CRITICAL_REVIEW_THRESHOLD",
     "CriticalityType",
+    "classify_label_anchor",
     "classify_span",
     "repair_critical_token",
     "validate_critical_token",
