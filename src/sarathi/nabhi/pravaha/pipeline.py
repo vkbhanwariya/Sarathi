@@ -224,7 +224,7 @@ def _safe_cache_put(
     if smriti is None or cache_key is None or result is None or result.next_requirement is not None:
         return
     try:
-        smriti.put(cache_key, result)
+        cached = smriti.put(cache_key, result)
     except Exception as cache_err:
         if darpana is not None:
             from sarathi.darpana import MarutiRecord
@@ -245,9 +245,7 @@ def _safe_cache_put(
             )
         return
 
-    from sarathi.smriti.serialization import is_cacheable_result
-
-    if not is_cacheable_result(result) and darpana is not None:
+    if not cached and darpana is not None:
         from sarathi.darpana import MarutiRecord
 
         darpana.record_maruti(

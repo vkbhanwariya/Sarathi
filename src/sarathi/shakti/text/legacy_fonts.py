@@ -130,6 +130,7 @@ class LegacyFontProfile:
     compiled_forward_regex: Any = None
     compiled_reverse_regex: Any = None
     compiled_reverse_map: Mapping[str, str] | None = None
+    compiled_context_rules: tuple[tuple[re.Pattern[str], str], ...] = ()
 
 
 def _validate_and_compile_profile(
@@ -236,6 +237,9 @@ def _validate_and_compile_profile(
     context_rules = tuple(
         tuple(c) for c in data.get("context_rules", ()) if isinstance(c, (list, tuple)) and len(c) == 2
     )
+    compiled_context_rules = tuple(
+        (re.compile(pat_str), repl) for pat_str, repl in context_rules
+    )
     preserve_ascii_digits = bool(data.get("preserve_ascii_digits", True))
     cluster_pattern = str(data.get("cluster_pattern", ""))
 
@@ -262,6 +266,7 @@ def _validate_and_compile_profile(
         compiled_forward_regex=forward_re,
         compiled_reverse_regex=reverse_re,
         compiled_reverse_map=reverse_map,
+        compiled_context_rules=compiled_context_rules,
     )
 
 

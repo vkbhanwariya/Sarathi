@@ -169,13 +169,16 @@ class FontConverter:
                 replacement_ops += cnt
 
         # Pass 3: Context-Sensitive Rewrites
-        if profile.context_rules:
-            for pat_str, repl in profile.context_rules:
-                pat = re.compile(pat_str)
-                new_text, cnt = pat.subn(repl, cur_text)
-                if cnt > 0:
-                    cur_text = new_text
-                    replacement_ops += cnt
+        active_context_rules = (
+            profile.compiled_context_rules
+            if profile.compiled_context_rules
+            else tuple((re.compile(p), r) for p, r in profile.context_rules)
+        )
+        for pat, repl in active_context_rules:
+            new_text, cnt = pat.subn(repl, cur_text)
+            if cnt > 0:
+                cur_text = new_text
+                replacement_ops += cnt
 
         # Pass 4: Declarative Pre-Base Matra Reordering (zero family branching)
         if profile.prefixes:

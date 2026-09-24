@@ -278,9 +278,13 @@ def is_cacheable_result(result: Result) -> bool:
     return True
 
 
-def serialize_result(result: Result, artifacts_dir: Path | None = None) -> str:
+def serialize_result(
+    result: Result,
+    artifacts_dir: Path | None = None,
+    validate: bool = True,
+) -> str:
     """Serialize canonical Result dataclass into deterministic JSON string."""
-    if not is_cacheable_result(result):
+    if validate and not is_cacheable_result(result):
         raise ValueError(f"Result with data of type {type(result.data).__name__} is not cacheable.")
 
     if isinstance(result.data, CanonicalDocument):

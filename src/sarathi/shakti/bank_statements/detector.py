@@ -7,6 +7,7 @@ bank statements from non-bank content and identify the specific bank profile.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -91,7 +92,11 @@ def load_bank_profiles(banks_dir: Path | None = None) -> list[dict[str, Any]]:
     return profiles
 
 
-def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = None) -> DetectionEvidence:
+def detect_bank_statement(
+    document: CanonicalDocument,
+    banks_dir: Path | None = None,
+    profiles: Sequence[dict[str, Any]] | None = None,
+) -> DetectionEvidence:
     """Analyze a CanonicalDocument and determine if it represents a bank statement.
 
     Examines full document text, metadata, and extracted tables against bank keywords,
@@ -100,11 +105,12 @@ def detect_bank_statement(document: CanonicalDocument, banks_dir: Path | None = 
     Args:
         document: Canonical document extracted from native file or OCR.
         banks_dir: Optional path to bank profiles directory.
+        profiles: Optional pre-loaded bank profile dictionaries. If None, loaded from banks_dir.
 
     Returns:
         DetectionEvidence with factual classification and matched profile.
     """
-    profiles = load_bank_profiles(banks_dir)
+    profiles = list(profiles) if profiles is not None else load_bank_profiles(banks_dir)
 
     all_tables = list(document.tables)
     for page in document.pages:

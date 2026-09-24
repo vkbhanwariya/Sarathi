@@ -130,7 +130,11 @@ class BankStatementCapability:
                 else nullcontext()
             )
             with det_scope:
-                detection = detect_bank_statement(doc, banks_dir=self._banks_dir)
+                detection = detect_bank_statement(
+                    doc,
+                    banks_dir=self._banks_dir,
+                    profiles=list(self._profiles.values()),
+                )
 
             if not detection.is_bank_statement:
                 raise DoshError(

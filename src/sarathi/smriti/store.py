@@ -147,15 +147,15 @@ class SQLiteCacheStore:
         res, _ = self.get_with_created_at(key)
         return res
 
-    def put(self, key: CacheKey, result: Result) -> None:
+    def put(self, key: CacheKey, result: Result, validate: bool = True) -> bool:
         """Store serialized result in SQLite store and enforce L2 capacity limits."""
-        if not is_cacheable_result(result):
-            return
+        if validate and not is_cacheable_result(result):
+            return False
 
         try:
-            data_json = serialize_result(result, artifacts_dir=self._artifacts_dir)
+            data_json = serialize_result(result, artifacts_dir=self._artifacts_dir, validate=False)
         except (ValueError, TypeError):
-            return
+            return False
 
         now = time.time()
 
@@ -189,6 +189,7 @@ class SQLiteCacheStore:
                     conn.execute(f"DELETE FROM smriti_entries WHERE key_hash IN ({placeholders})", evicted_keys)
                     conn.execute(f"DELETE FROM smriti_artifact_refs WHERE key_hash IN ({placeholders})", evicted_keys)
                     self._reclaim_unreferenced_artifacts(conn, evicted_jsons)
+            return True
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
         """Invalidate entries from persistent SQLite store and clean up orphaned artifact blobs."""
@@ -268,13 +269,14 @@ class SmritiCache:
         res, _ = self.get_with_tier(key)
         return res
 
-    def put(self, key: CacheKey, result: Result) -> None:
+    def put(self, key: CacheKey, result: Result) -> bool:
         """Write through both L1 Memory and L2 SQLite cache if cacheable."""
         if not is_cacheable_result(result):
-            return
-        self._l1.put(key, result)
+            return False
+        self._l1.put(key, result, validate=False)
         if self._l2 is not None:
-            self._l2.put(key, result)
+            self._l2.put(key, result, validate=False)
+        return True
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
         """Invalidate across both L1 Memory and L2 SQLite tiers.

@@ -154,10 +154,16 @@ class MemoryCache:
             self._cache.move_to_end(key.key_hash)
             return _defensive_copy(entry.result)
 
-    def put(self, key: CacheKey, result: Result, created_at: float | None = None) -> None:
+    def put(
+        self,
+        key: CacheKey,
+        result: Result,
+        created_at: float | None = None,
+        validate: bool = True,
+    ) -> bool:
         """Store result in memory, evicting LRU items if at count or byte capacity."""
-        if not is_cacheable_result(result):
-            return
+        if validate and not is_cacheable_result(result):
+            return False
 
         with self._lock:
             now = time.time()
@@ -176,7 +182,7 @@ class MemoryCache:
                     size_bytes=est_size,
                 )
                 self._current_bytes += est_size
-                return
+                return True
 
             # Evict LRU items if at count capacity or byte capacity
             while self._cache and (
@@ -193,6 +199,7 @@ class MemoryCache:
                 size_bytes=est_size,
             )
             self._current_bytes += est_size
+            return True
 
     def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
         """Invalidate specific key, entire capability, or all entries."""
