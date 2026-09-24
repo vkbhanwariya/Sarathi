@@ -166,3 +166,46 @@ def test_resolve_best_profile_matches_sbi_schema() -> None:
     assert "date" in mapped_fields
     assert "reference_number" in mapped_fields
     assert "balance" in mapped_fields
+
+
+def test_extract_sample_data_rows() -> None:
+    """extract_sample_data_rows must sample first 3, middle distributed, and last 3 rows."""
+    from sarathi.shakti.bank_statements.mapper import extract_sample_data_rows
+
+    # Short table <= 8 rows returns all rows
+    short_rows = [(f"row_{i}",) for i in range(5)]
+    assert extract_sample_data_rows(short_rows) == tuple(short_rows)
+
+    # Long table with 20 rows: head (0, 1, 2), mid, tail (17, 18, 19)
+    long_rows = [(f"row_{i}",) for i in range(20)]
+    sampled = extract_sample_data_rows(long_rows, head_count=3, mid_count=2, tail_count=3)
+    assert len(sampled) == 8
+    sampled_indices = [int(r[0].split("_")[1]) for r in sampled]
+    assert sampled_indices[:3] == [0, 1, 2]
+    assert sampled_indices[-3:] == [17, 18, 19]
+    # Middle indices must lie strictly between head and tail
+    assert 2 < sampled_indices[3] < sampled_indices[4] < 17
+
+
+def test_resolve_best_profile_with_sample_rows_boosts_confidence() -> None:
+    """Providing factual sample rows validates data types and boosts mapping confidence score."""
+    from sarathi.shakti.bank_statements.mapper import HeaderMapper
+
+    mapper = HeaderMapper()
+    headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
+    sample_rows = [
+        ("01/01/2026", "01/01/2026", "SALARY CREDIT", "REF100", "", "50,000.00", "50,000.00"),
+        ("05/01/2026", "05/01/2026", "ELECTRICITY BILL", "REF101", "1,500.00", "", "48,500.00"),
+        ("10/01/2026", "10/01/2026", "GROCERY STORE", "REF102", "3,200.00", "", "45,300.00"),
+    ]
+
+    # Without sample rows
+    _, _, score_no_samples = mapper.resolve_best_profile(headers, candidate_profile="sbi")
+
+    # With sample rows verifying dates, decimals, and descriptions
+    prof_with_samples, _, score_with_samples = mapper.resolve_best_profile(
+        headers, candidate_profile="sbi", sample_rows=sample_rows
+    )
+
+    assert prof_with_samples == "sbi"
+    assert score_with_samples > score_no_samples

@@ -28,7 +28,7 @@ from sarathi.shakti.bank_statements.converter import (
 )
 from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.detector import detect_bank_statement, load_bank_profiles
-from sarathi.shakti.bank_statements.mapper import HeaderMapper
+from sarathi.shakti.bank_statements.mapper import HeaderMapper, extract_sample_data_rows
 from sarathi.shakti.bank_statements.models import (
     AccountIdentity,
     BankStatement,
@@ -272,9 +272,10 @@ class BankStatementCapability:
                 continue
 
             hdr_cells, data_rows = extracted_table
+            sample_rows = extract_sample_data_rows(data_rows)
 
             resolved_prof, best_mappings, _ = self._mapper.resolve_best_profile(
-                hdr_cells, candidate_profile=profile_id
+                hdr_cells, candidate_profile=profile_id, sample_rows=sample_rows
             )
             if resolved_prof and resolved_prof != profile_id:
                 active_profile = self._profiles.get(resolved_prof, {})

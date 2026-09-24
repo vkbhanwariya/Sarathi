@@ -61,7 +61,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/bank_statements/converter.py` | Financial Value Converter for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `parse_decimal_amount()`, `parse_date()`, `parse_time()` |
 | `shakti/bank_statements/deduplicator.py` | Deterministic Deduplicator for Bank Statement Transactions | **In-Memory / Polars Columnar** | `DeduplicationResult`, `deduplicate_transactions()` |
 | `shakti/bank_statements/detector.py` | Bank Statement and Profile Detector | **In-Memory / Polars Columnar** | `DetectionEvidence`, `load_bank_profiles()`, `detect_bank_statement()` |
-| `shakti/bank_statements/mapper.py` | Header Mapper for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `ColumnMapping`, `HeaderMapper`, `load_bank_profile_yaml()` |
+| `shakti/bank_statements/mapper.py` | Header Mapper for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `ColumnMapping`, `HeaderMapper`, `load_bank_profile_yaml()`, `extract_sample_data_rows()` |
 | `shakti/bank_statements/models.py` | Typed Decimal-based Financial Models and Contracts for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `ValidationStatus`, `DuplicateDecision`, `AccountIdentity`, `ValidationIssue`, `Transaction` |
 | `shakti/bank_statements/plugin.py` | Bank Statement Consolidation Plugin Declaration for Sarathi | **In-Memory / Polars Columnar** | `PLUGIN_INFO`, `CAPABILITY_DECLARATION` |
 | `shakti/bank_statements/provider.py` | Provider implementation for Bank Statement Consolidation | **In-Memory / Polars Columnar** | `BankStatementsProvider` |

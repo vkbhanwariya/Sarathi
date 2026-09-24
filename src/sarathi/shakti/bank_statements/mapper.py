@@ -13,7 +13,9 @@ Resolution hierarchy:
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,7 @@ except ImportError:
 import yaml
 
 from sarathi.dosh import DoshError, FailureCode
+from sarathi.shakti.bank_statements.converter import parse_date, parse_decimal_amount
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
@@ -103,6 +106,112 @@ def _preindex_header_aliases(source: dict[str, Any]) -> dict[str, tuple[tuple[st
     return indexed
 
 
+_SAMPLE_NULL_CELLS = frozenset(("", "-", "--", "na", "n/a", "nil", "null", "none"))
+
+
+def extract_sample_data_rows(
+    rows: Sequence[Sequence[Any]],
+    head_count: int = 3,
+    mid_count: int = 2,
+    tail_count: int = 3,
+) -> tuple[Sequence[Any], ...]:
+    """Sample first N rows, distributed middle rows, and last N rows without extra overhead.
+
+    Strategy:
+    - First 3 rows (opening transactions)
+    - 2 distributed middle rows (regular transactions)
+    - Last 3 rows (closing transactions)
+    """
+    total = len(rows)
+    if total <= head_count + mid_count + tail_count:
+        return tuple(rows)
+
+    sampled_indices: list[int] = list(range(head_count))
+
+    # Distributed middle samples
+    if mid_count > 0:
+        step = (total - head_count - tail_count) / (mid_count + 1)
+        for i in range(1, mid_count + 1):
+            idx = int(head_count + i * step)
+            if idx not in sampled_indices and idx < total - tail_count:
+                sampled_indices.append(idx)
+
+    # Last tail_count rows
+    for idx in range(total - tail_count, total):
+        if idx not in sampled_indices:
+            sampled_indices.append(idx)
+
+    sampled_indices.sort()
+    return tuple(rows[i] for i in sampled_indices)
+
+
+def _score_sample_data(
+    mappings: list[ColumnMapping],
+    sample_rows: Sequence[Sequence[Any]],
+    profile_data: dict[str, Any] | None = None,
+) -> float:
+    """Evaluate candidate column mappings against sampled data cells.
+
+    Inspects cells from head, middle, and tail rows to verify:
+    - Date columns match actual dates and optionally profile date_formats.
+    - Debit, credit, amount, balance columns contain valid decimal numbers.
+    - Text/description columns contain alphabetical characters.
+    """
+    if not sample_rows or not mappings:
+        return 0.0
+
+    score_delta = 0.0
+    date_fmts = tuple(profile_data.get("date_formats", ())) if profile_data else ()
+
+    for m in mappings:
+        col_idx = m.column_index
+        field = m.canonical_field
+        cells = [
+            str(r[col_idx]).strip()
+            for r in sample_rows
+            if col_idx < len(r)
+            and r[col_idx] is not None
+            and str(r[col_idx]).strip().lower() not in _SAMPLE_NULL_CELLS
+        ]
+        if not cells:
+            continue
+
+        if field in ("date", "value_date"):
+            valid_dates = sum(1 for c in cells if parse_date(c) is not None)
+            if valid_dates > 0:
+                score_delta += 1.5 * (valid_dates / len(cells))
+                if date_fmts:
+                    matched_profile_fmt = False
+                    for c in cells:
+                        for fmt in date_fmts:
+                            try:
+                                datetime.strptime(c, fmt)
+                                matched_profile_fmt = True
+                                break
+                            except (ValueError, TypeError):
+                                pass
+                        if matched_profile_fmt:
+                            break
+                    if matched_profile_fmt:
+                        score_delta += 1.0
+            else:
+                score_delta -= 2.0
+
+        elif field in ("debit", "credit", "amount", "balance"):
+            valid_amounts = sum(1 for c in cells if parse_decimal_amount(c) is not None)
+            if valid_amounts > 0:
+                score_delta += 1.5 * (valid_amounts / len(cells))
+            else:
+                score_delta -= 2.0
+
+        elif field == "description":
+            has_text = sum(1 for c in cells if any(ch.isalpha() for ch in c))
+            if has_text > 0:
+                score_delta += 0.5 * (has_text / len(cells))
+
+    return score_delta
+
+
 class HeaderMapper:
     """Resolves raw table headers to canonical field names."""
 
@@ -157,6 +266,8 @@ class HeaderMapper:
         mappings: list[ColumnMapping],
         is_candidate: bool = False,
         candidate_profile: str | None = None,
+        profile_data: dict[str, Any] | None = None,
+        sample_rows: Sequence[Sequence[Any]] | None = None,
     ) -> float:
         """Calculate a composite quality score for a candidate column mapping."""
         if not mappings:
@@ -192,21 +303,30 @@ class HeaderMapper:
         if is_candidate and candidate_profile and candidate_profile != "generic":
             score += 1.0
 
+        if sample_rows:
+            score += _score_sample_data(mappings, sample_rows, profile_data=profile_data)
+
         return score
 
     def resolve_best_profile(
         self,
         headers: list[str] | tuple[str, ...],
         candidate_profile: str | None = None,
+        sample_rows: Sequence[Sequence[Any]] | None = None,
     ) -> tuple[str | None, list[ColumnMapping], float]:
-        """Score all registered bank profiles against the extracted table headers and resolve the best match.
+        """Score all registered bank profiles against the extracted table headers and sample rows.
 
         Returns:
             Tuple of (best_profile_id, column_mappings, score).
         """
+        cand_data = self._profiles.get(candidate_profile or "")
         candidate_mappings = self.map_headers(headers, profile_id=candidate_profile)
         candidate_score = self._score_mappings(
-            candidate_mappings, is_candidate=True, candidate_profile=candidate_profile
+            candidate_mappings,
+            is_candidate=True,
+            candidate_profile=candidate_profile,
+            profile_data=cand_data,
+            sample_rows=sample_rows,
         )
 
         best_profile: str | None = (
@@ -216,17 +336,27 @@ class HeaderMapper:
         best_score = candidate_score
 
         generic_mappings = self.map_headers(headers, profile_id=None)
-        generic_score = self._score_mappings(generic_mappings, is_candidate=False)
+        generic_score = self._score_mappings(
+            generic_mappings,
+            is_candidate=False,
+            profile_data=self._common_config,
+            sample_rows=sample_rows,
+        )
         if generic_score > best_score:
             best_profile = None
             best_mappings = generic_mappings
             best_score = generic_score
 
-        for prof_id in self._profiles:
+        for prof_id, prof_data in self._profiles.items():
             if prof_id == candidate_profile:
                 continue
             prof_mappings = self.map_headers(headers, profile_id=prof_id)
-            prof_score = self._score_mappings(prof_mappings, is_candidate=False)
+            prof_score = self._score_mappings(
+                prof_mappings,
+                is_candidate=False,
+                profile_data=prof_data,
+                sample_rows=sample_rows,
+            )
 
             if prof_score > best_score:
                 best_profile = prof_id
