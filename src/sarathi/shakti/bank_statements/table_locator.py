@@ -120,7 +120,7 @@ def reconstruct_table_from_spans(spans: Sequence[TextSpan]) -> TableData | None:
         bbox = s.bounding_box
         assert bbox is not None
         placed = False
-        for row in rows_spans:
+        for row in reversed(rows_spans):
             ref_bbox = row[0].bounding_box
             assert ref_bbox is not None
             row_h = max(10.0, ref_bbox[3] - ref_bbox[1])
@@ -129,6 +129,10 @@ def reconstruct_table_from_spans(spans: Sequence[TextSpan]) -> TableData | None:
             if abs(y_mid_s - y_mid_ref) <= row_h * 0.6:
                 row.append(s)
                 placed = True
+                break
+            # Since sorted_spans is ordered by Y (ascending), earlier rows in rows_spans
+            # have even smaller y_mid_ref. If current span is already far below, prune search.
+            if (y_mid_s - y_mid_ref) > row_h * 2.0:
                 break
         if not placed:
             rows_spans.append([s])

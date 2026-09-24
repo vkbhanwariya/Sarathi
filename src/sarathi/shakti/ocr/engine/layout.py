@@ -117,11 +117,17 @@ def _cluster_spans_into_grid(
 
     col_x_starts.sort()
     col_clusters: list[list[float]] = [[col_x_starts[0]]]
+    curr_sum = col_x_starts[0]
+    curr_count = 1
     for x in col_x_starts[1:]:
-        if abs(x - statistics.mean(col_clusters[-1])) < 35.0:
+        if abs(x - (curr_sum / curr_count)) < 35.0:
             col_clusters[-1].append(x)
+            curr_sum += x
+            curr_count += 1
         else:
             col_clusters.append([x])
+            curr_sum = x
+            curr_count = 1
 
     col_anchors = [statistics.mean(c) for c in col_clusters]
     num_cols = len(col_anchors)
