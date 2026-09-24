@@ -350,10 +350,19 @@ class HeaderMapper:
         for prof_id, prof_data in self._profiles.items():
             if prof_id == candidate_profile:
                 continue
+            is_cand = bool(
+                candidate_profile
+                and candidate_profile != "generic"
+                and (
+                    prof_data.get("parent_bank") == candidate_profile
+                    or prof_id.startswith(f"{candidate_profile}_")
+                )
+            )
             prof_mappings = self.map_headers(headers, profile_id=prof_id)
             prof_score = self._score_mappings(
                 prof_mappings,
-                is_candidate=False,
+                is_candidate=is_cand,
+                candidate_profile=candidate_profile,
                 profile_data=prof_data,
                 sample_rows=sample_rows,
             )
