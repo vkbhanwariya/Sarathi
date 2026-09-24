@@ -132,9 +132,11 @@ metadata_patterns:                    # Regex to extract account metadata from s
   account_holder: '(?:Customer|Account\s*Holder|Name)\s*[:\-]?\s*([^\n\r]+)'
   ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})'
   cif: 'CIF(?:\s*No\.?)?\s*[:\-]?\s*([0-9]{9,12})'
+  opening_balance: '(?:Opening\s*(?:Balance|Bal)?|Bal\s*b\/f)\s*[:\-]?\s*([0-9,]+\.\d{2})'
+  closing_balance: '(?:Closing\s*(?:Balance|Bal)?|Bal\s*c\/f)\s*[:\-]?\s*([0-9,]+\.\d{2})'
 
 # Optional flags:
-# signed_amounts: false               # Set true only if single amount column with +/- signs or Cr/Dr suffix
+# signed_amounts: true                # Set true for single amount column with +/- signs, or Cr/Dr/C/D direction flag
 ```
 
 ---
@@ -179,7 +181,7 @@ for p_idx, p in enumerate(res.data.pages):
    - If **different schema/layout**: **DO NOT MIX SCHEMAS**. Create `<bank>_<container>_fmt2.yaml`!
 3. Copy the exact column headers observed in Step 1 into `headers:`.
 4. Note the date format in sample rows and set `date_formats:`.
-5. Verify account number and IFSC regex match the statement header text.
+5. Verify account number, IFSC regex, and boundary balances match the statement header text.
 
 ### Step 3: Run Bank Statements Test Suite
 Verify that the YAML passes validation and no regressions are introduced:
@@ -194,6 +196,9 @@ Check that deliverable artifacts are produced:
 - `Output/<run_id>/Consolidated_Bank_Statement.xlsx`
 - `Output/<run_id>/Consolidated_Bank_Statement.parquet`
 
+### Step 5: Add Anonymized Mock Fixture for Permanent Regression Protection
+Create a 3-row PII-free mock test fixture in `tests/bank_statements/fixtures/` and add a test in `test_identity.py` or `test_end_to_end.py` to guarantee this new layout is permanently locked and protected against regressions.
+
 ---
 
 ## 7. Common Edge Cases & Fixes
@@ -204,5 +209,8 @@ Check that deliverable artifacts are produced:
 | `ZERO_TRANSACTIONS_EXTRACTED` | Header row not recognized by `find_header_row_index`. | Add missing token to `_DATE_TOKENS` or `_AMOUNT_TOKENS` in `table_locator.py`. |
 | Multi-line Headers | Bank header spans 2 rows (e.g. `Txn` on Row 0, `Date` on Row 1). | Ensure both rows are concatenated or normalized in `table_locator.py`. |
 | Schema Collision / Mixed Formats | Trying to merge 2 different layouts or single-amount vs dual-column into one profile. | Partition into `<bank>_<container>_fmt1.yaml` and `<bank>_<container>_fmt2.yaml`. Never merge distinct layouts into one profile. |
+| Single Amount Column (Cr/Dr/C/D) | Single amount column requires explicit direction indicator mapping. | Map `direction:` to `["type", "dr/cr", "cr/dr", "indicator"]` and set `signed_amounts: true`. |
+| Boundary Balances Outside Table | Opening/closing balance printed in header text rather than table rows. | Add `opening_balance` and `closing_balance` regex to `metadata_patterns:`. |
+| Multi-Page B/F & C/F Rows | Page break carry-forward rows parsed as transactions. | `row_classifier.py` automatically flags `b/f`, `c/f`, `b/d`, `c/d` as boundary balances or continuation rows. |
 | Date parsing error | Non-standard format (e.g. `23/09/26` 2-digit year). | Add `"%d/%m/%y"` to `date_formats:`. |
 | Devanagari defect warning | Legacy font converter triggered on ASCII symbols in PDF. | Ensure `convert_legacy_fonts` is disabled for English bank statements. |

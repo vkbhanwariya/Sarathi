@@ -23,8 +23,32 @@ class RowType(StrEnum):
 _HEADER_KEYWORDS = frozenset(
     {"date", "txn date", "transaction date", "particulars", "description", "narration", "debit", "credit", "balance"}
 )
-_OPENING_KEYWORDS = frozenset({"opening balance", "b/f", "brought forward", "balance b/f", "opening bal"})
-_CLOSING_KEYWORDS = frozenset({"closing balance", "c/f", "carried forward", "balance c/f", "closing bal"})
+_OPENING_KEYWORDS = frozenset(
+    {
+        "opening balance",
+        "b/f",
+        "brought forward",
+        "balance b/f",
+        "opening bal",
+        "balance b/d",
+        "bal b/f",
+        "bal b/d",
+        "b/d",
+    }
+)
+_CLOSING_KEYWORDS = frozenset(
+    {
+        "closing balance",
+        "c/f",
+        "carried forward",
+        "balance c/f",
+        "closing bal",
+        "balance c/d",
+        "bal c/f",
+        "bal c/d",
+        "c/d",
+    }
+)
 _EOD_KEYWORDS = frozenset({"eod balance", "end of day balance", "daily balance", "eod bal", "daily bal"})
 _SUMMARY_KEYWORDS = frozenset({"total", "grand total", "total transactions", "summary"})
 _DATE_RE = re.compile(

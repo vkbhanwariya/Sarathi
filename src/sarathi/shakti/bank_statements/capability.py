@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from contextlib import nullcontext
 from dataclasses import replace
@@ -51,8 +52,8 @@ from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 
-_EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "w/d", "out", "paid out"})
-_EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "dep", "in", "paid in"})
+_EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "w/d", "out", "paid out", "d"})
+_EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "dep", "in", "paid in", "c"})
 _BLANK_DATE_MARKERS = frozenset({"", "-", "--", "''", '"', "do", "ditto", "same"})
 
 
@@ -459,6 +460,23 @@ class BankStatementCapability:
                 metadata["eod_balances"] = tuple(eod_balances)
             if summary_rows:
                 metadata["summary_rows"] = tuple(summary_rows)
+
+        patterns = active_profile.get("metadata_patterns", {})
+        if patterns:
+            search_target = doc.text + " " + " ".join(p.text for p in doc.pages if p.text)
+            if open_bal is None and "opening_balance" in patterns:
+                m_open = re.search(patterns["opening_balance"], search_target, re.IGNORECASE)
+                if m_open:
+                    parsed_open = parse_decimal_amount(m_open.group(1))
+                    if parsed_open is not None:
+                        open_bal = parsed_open
+
+            if close_bal is None and "closing_balance" in patterns:
+                m_close = re.search(patterns["closing_balance"], search_target, re.IGNORECASE)
+                if m_close:
+                    parsed_close = parse_decimal_amount(m_close.group(1))
+                    if parsed_close is not None:
+                        close_bal = parsed_close
 
         return raw_txns, open_bal, close_bal, issues
 

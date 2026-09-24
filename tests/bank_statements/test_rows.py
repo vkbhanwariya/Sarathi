@@ -508,3 +508,110 @@ def test_scanned_ocr_table_reconstruction_from_spans(tmp_path: Path) -> None:
     assert tx2.credit == Decimal("50000.00")
     assert tx2.debit is None
     assert tx2.running_balance == Decimal("68000.00")
+
+
+def test_classify_bd_and_cd_rows() -> None:
+    """Rows with B/D and C/D ledger balance tokens must classify accurately."""
+    assert classify_row(["01/01/2026", "BAL B/D", "", "", "", "12000.00"]) == RowType.OPENING_BALANCE
+    assert classify_row(["01/01/2026", "BALANCE B/D", "", "", "", "12000.00"]) == RowType.OPENING_BALANCE
+    assert classify_row(["31/01/2026", "BAL C/D", "", "", "", "25000.00"]) == RowType.CLOSING_BALANCE
+    assert classify_row(["31/01/2026", "BALANCE C/D", "", "", "", "25000.00"]) == RowType.CLOSING_BALANCE
+
+
+def test_single_amount_with_single_letter_d_c_indicators(tmp_path: Path) -> None:
+    """Single amount column with D / C direction flags resolves accurately to debit / credit."""
+    from decimal import Decimal
+
+    doc_text = """
+    STATE BANK OF INDIA
+    Account Number: 12345678901
+    IFSC: SBIN0001234
+    """
+    table = TableData(
+        headers=("Txn Date", "Narration", "Ref No", "Amount", "Type", "Balance"),
+        rows=(
+            ("01/01/2026", "ATM CASH WDL", "ATM101", "2,000.00", "D", "18,000.00"),
+            ("05/01/2026", "SALARY DEPOSIT", "NEFT202", "50,000.00", "C", "68,000.00"),
+        ),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-single-amt",
+        text=doc_text,
+        tables=(table,),
+    )
+    dummy = tmp_path / "dummy.pdf"
+    dummy.write_bytes(b"dummy")
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-single-amt",
+        requirement="bank_statements",
+        inputs=(InputRef("in-single-amt", dummy, "dummy.pdf", dummy.stat().st_size),),
+    )
+    ctx = ExecutionContext("run-1", "req-single-amt", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res, Result)
+    stmt = res.data.statements[0]
+    assert len(stmt.transactions) == 2
+    assert stmt.transactions[0].debit == Decimal("2000.00")
+    assert stmt.transactions[0].credit is None
+    assert stmt.transactions[1].credit == Decimal("50000.00")
+    assert stmt.transactions[1].debit is None
+
+
+def test_boundary_balance_from_metadata_patterns_fallback(tmp_path: Path) -> None:
+    """Boundary balances in header text outside the table are extracted via metadata_patterns."""
+    from decimal import Decimal
+
+    # Profile with opening/closing balance regex
+    custom_banks = tmp_path / "banks"
+    custom_banks.mkdir(parents=True)
+    custom_profile = custom_banks / "sbi_test.yaml"
+    custom_profile.write_text(
+        """
+profile_id: "sbi_test"
+parent_bank: "sbi"
+bank_name: "State Bank of India"
+headers:
+  date: ["txn date"]
+  description: ["narration"]
+  debit: ["debit"]
+  credit: ["credit"]
+  balance: ["balance"]
+metadata_patterns:
+  account_number: 'A\\/c\\s*No\\.?\\s*[:\\-]?\\s*([0-9]{11})'
+  opening_balance: 'Opening\\s*Balance\\s*[:\\-]?\\s*([0-9,]+\\.\\d{2})'
+  closing_balance: 'Closing\\s*Balance\\s*[:\\-]?\\s*([0-9,]+\\.\\d{2})'
+""",
+        encoding="utf-8",
+    )
+
+    doc_text = """
+    STATE BANK OF INDIA
+    A/c No: 12345678901
+    Opening Balance: 10,000.00
+    Closing Balance: 13,000.00
+    """
+    table = TableData(
+        headers=("Txn Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(
+            ("01/01/2026", "INTEREST CR", "", "3,000.00", "13,000.00"),
+        ),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-meta-bal",
+        text=doc_text,
+        tables=(table,),
+    )
+    dummy = tmp_path / "dummy.pdf"
+    dummy.write_bytes(b"dummy")
+    cap = BankStatementCapability(banks_dir=custom_banks)
+    req = Request(
+        request_id="req-meta-bal",
+        requirement="bank_statements",
+        inputs=(InputRef("in-meta-bal", dummy, "dummy.pdf", dummy.stat().st_size),),
+    )
+    ctx = ExecutionContext("run-1", "req-meta-bal", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+    assert stmt.opening_balance == Decimal("10000.00")
+    assert stmt.closing_balance == Decimal("13000.00")
