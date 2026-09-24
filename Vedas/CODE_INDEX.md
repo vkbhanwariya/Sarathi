@@ -116,7 +116,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/ocr/engine/checkpoint.py` | Content-addressed per-page OCR checkpoint cache for atomic resumption and crash recovery | **Primary iGPU (OpenVINO FP16)** | `get_default_checkpoint_dir()`, `compute_doc_hash()`, `compute_params_hash()`, `get_checkpoint_path()`, `serialize_page_data()` |
 | `shakti/ocr/engine/common.py` | Shared constants, regexes, and language definitions for the OCR engine | **Primary iGPU (OpenVINO FP16)** | `STAGE_NAME`, `PLUGIN_ID`, `CAPABILITY_ID` |
 | `shakti/ocr/engine/coordinator.py` | RapidOCR + OpenVINO engine coordinator for Sarathi | **Primary iGPU (OpenVINO FP16)** | `RapidOCREngine` |
-| `shakti/ocr/engine/critical.py` | Consequence-driven Critical Span Detector for OCR verification and retry | **Primary iGPU (OpenVINO FP16)** | `CriticalityType`, `classify_span()`, `repair_critical_token()`, `validate_critical_token()` |
+| `shakti/ocr/engine/critical.py` | Consequence-driven Critical Span Detector for OCR verification and retry | **Primary iGPU (OpenVINO FP16)** | `CriticalityType`, `classify_label_anchor()`, `classify_span()`, `repair_critical_token()`, `validate_critical_token()` |
 | `shakti/ocr/engine/factory.py` | Verified RapidOCR + OpenVINO Engine Instance Factory for Sarathi | **Primary iGPU (OpenVINO FP16)** | `resolve_engine_keys()`, `build_rapidocr_instance()` |
 | `shakti/ocr/engine/layout.py` | Layout and Table Reconstruction Engine for Sarathi OCR | **Primary iGPU (OpenVINO FP16)** | `detect_ruled_tables()`, `detect_borderless_tables()`, `reconstruct_layout()`, `group_paragraphs()`, `detect_column_count()` |
 | `shakti/ocr/engine/openvino.py` | OpenVINO environment configuration, device patching, and safe model resolution | **Primary iGPU (OpenVINO FP16)** | `is_safe_filename()`, `disable_openvino_telemetry()`, `get_shared_openvino_core()`, `patch_rapidocr_openvino_device()`, `resolve_target_device()` |
@@ -159,6 +159,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | `shakti/translation/proper_noun_guard.py` | Proper-Noun Legal Transliteration Guard for NMT Translation | **Standard Logic** | `ProperNounGuard`, `transliterate_devanagari_to_latin()` |
 | `shakti/translation/protector.py` | Span Protection and Byte-for-Byte Restoration Engine for Translation | **Standard Logic** | `TranslationProtector` |
 | `shakti/translation/provider.py` | Provider implementation for Shakti Machine Translation | **Multi-core CPU (Neural AVX2)** | `TranslationProvider` |
+| `shakti/translation/validator.py` | Post-Translation Factual-Equivalence and Quality Validator | **Standard Logic** | `extract_factual_tokens()`, `validate_factual_equivalence()` |
 | `shakti/translation/xlsx_transformer.py` | In-place Excel (.xlsx) translation transcoder and table workbook builder for Sarathi | **Standard Logic** | `transform_xlsx_translation_artifact()`, `build_xlsx_from_tables()` |
 
 ## Yantra (Device Scheduling & Hardware Concurrency)

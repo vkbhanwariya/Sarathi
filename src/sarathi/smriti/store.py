@@ -121,8 +121,9 @@ class SQLiteCacheStore:
             if row is None:
                 return None, None
 
-            data_json, created_at = row
+            data_json, raw_created_at = row
             now = time.time()
+            created_at = float(raw_created_at)
             if not self._policy.is_valid(created_at, now):
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
                 conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
@@ -133,14 +134,17 @@ class SQLiteCacheStore:
                 "UPDATE smriti_entries SET accessed_at = ? WHERE key_hash = ?",
                 (now, key.key_hash),
             )
-            try:
-                res = deserialize_result(data_json, artifacts_dir=self._artifacts_dir)
-                return res, float(created_at)
-            except (json.JSONDecodeError, ValueError, KeyError, TypeError):
+
+        # Deserialize and verify artifact sidecars outside the SQLite database lock
+        try:
+            res = deserialize_result(data_json, artifacts_dir=self._artifacts_dir)
+            return res, created_at
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError):
+            with self._lock, self._get_connection() as conn:
                 conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
                 conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
                 self._reclaim_unreferenced_artifacts(conn, [data_json])
-                return None, None
+            return None, None
 
     def get(self, key: CacheKey) -> Result | None:
         """Retrieve serialized result from SQLite store if valid."""

@@ -175,13 +175,16 @@ class TextProtector(BaseSpanProtector):
                 return " ".join(res_parts)
 
             text = _TITLECASE_PHRASE_RE.sub(_titlecase_repl, text)
-            text = _KNOWN_LATIN_RE.sub(lambda m: _repl(m, "known_latin"), text)
 
-        # 4. Protect strongly evidenced Percentages, Dates, Numbers, and Reference IDs
+        # 4. Protect strongly evidenced Percentages, Dates, IDs, and Numbers
         text = _PERCENT_RE.sub(lambda m: _repl(m, "percent"), text)
         text = _DATE_RE.sub(lambda m: _repl(m, "date"), text)
-        text = _NUM_RE.sub(lambda m: _repl(m, "number"), text)
         text = _ID_RE.sub(lambda m: _repl(m, "id"), text)
+        text = _NUM_RE.sub(lambda m: _repl(m, "number"), text)
+
+        # 5. For unknown-font content, protect remaining standalone known institutional/legal terms
+        if not is_explicit_legacy:
+            text = _KNOWN_LATIN_RE.sub(lambda m: _repl(m, "known_latin"), text)
 
         return text, protected_spans
 
