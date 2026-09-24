@@ -133,10 +133,10 @@ class Manthan:
         """
         if not isinstance(request, Request):
             raise TypeError(f"request must be a Request instance, got {type(request).__name__}.")
-        if not isinstance(next_requirement, str):
-            raise TypeError(f"next_requirement must be a string, got {type(next_requirement).__name__}.")
-
-        continuation_request = replace(request, requirement=next_requirement)
+        meta = dict(request.metadata) if request.metadata else {}
+        if "original_requirement" not in meta:
+            meta["original_requirement"] = request.requirement
+        continuation_request = replace(request, requirement=next_requirement, metadata=meta)
         next_plan = self.resolve(continuation_request)
         completed = set(completed_capability_ids)
 

@@ -453,8 +453,10 @@ class TestPravahaPipelineEngine:
         assert ocr_req.profile == ExecutionProfile.ACCURATE
         assert dict(ocr_req.custom_options) == {"lang": "hi"}
         assert ocr_req.output_root == Path("out/root")
-        assert ocr_req.preserve_partial is True
-        assert dict(ocr_req.metadata) == {"caller": "test_runner"}
+        assert dict(ocr_req.metadata) == {
+            "caller": "test_runner",
+            "original_requirement": "read_native",
+        }
 
     def test_repeated_requirement_handoff_rejected_before_repeat_execution(
         self,

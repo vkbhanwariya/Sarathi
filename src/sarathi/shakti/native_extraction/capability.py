@@ -616,11 +616,12 @@ class NativeExtractionCapability:
 
         next_req = None
         resume_self = False
+        orig_req = (request.metadata.get("original_requirement") if request.metadata else None) or request.requirement
         if needs_ocr:
             next_req = "ocr"
             resume_self = bool(request.custom_options and request.custom_options.get("statutory"))
         elif (
-            request.requirement == "read_native"
+            (request.requirement == "read_native" or orig_req == "read_native")
             and bool(request.custom_options and request.custom_options.get("statutory"))
             and any(bool(d.text.strip()) or bool(d.tables) for d in extracted_docs)
         ):

@@ -809,6 +809,7 @@ class TranslationCapability:
                     or doc.detected_type in ("spreadsheet", "csv", "tabular")
                 )
 
+                is_xlsm_input = False
                 if (
                     matching_inp
                     and matching_inp.source_path
@@ -816,17 +817,20 @@ class TranslationCapability:
                     and matching_inp.source_path.is_file()
                 ):
                     xlsx_source_path = matching_inp.source_path
+                    is_xlsm_input = str(xlsx_source_path).lower().endswith(".xlsm")
 
                 if xlsx_source_path is not None:
                     try:
                         raw_xlsx_bytes = xlsx_source_path.read_bytes()
+                        out_ext = ".xlsm" if is_xlsm_input else ".xlsx"
                         xlsx_payload = transform_xlsx_translation_artifact(
                             raw_xlsx_bytes,
                             translate_fn=_batch_trans,
-                            filename=f"Translated_Document{suffix}.xlsx",
+                            filename=f"Translated_Document{suffix}{out_ext}",
                             role="translated_document",
                             warnings=doc_warnings,
                             is_hindi_target=(tgt_lang == "hi"),
+                            keep_vba=True if is_xlsm_input else None,
                         )
                     except Exception as exc:
                         doc_warnings.append(

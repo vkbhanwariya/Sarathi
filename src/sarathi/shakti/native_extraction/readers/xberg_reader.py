@@ -10,6 +10,7 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -35,6 +36,11 @@ from sarathi.shakti.text.typography import (
 )
 
 _TERMINAL_PUNCT = (".", "।", "!", "?", ";", ":")
+
+_FINANCIAL_OR_STATUTORY_RE = re.compile(
+    r"(?:[₹$€£]|Rs\.?|INR|USD|\bAmount\b|\bTotal\b|\bBalance\b|\bDue\b|\bInvoice\b|\bPayment\b|\bTax\b|\bGSTIN\b|\bPAN\b|\bDebit\b|\bCredit\b)",
+    re.IGNORECASE,
+)
 
 
 def is_xberg_available() -> bool:
@@ -187,23 +193,31 @@ def read_document_with_xberg(
     # Running header/footer detection across pages
     header_templates: set[str] = set()
     footer_templates: set[str] = set()
-    if skip_header_footer and len(raw_pages) >= 2:
+    total_pages = len(raw_pages)
+    if skip_header_footer and total_pages >= 2:
         header_counts: dict[str, set[int]] = defaultdict(set)
         footer_counts: dict[str, set[int]] = defaultdict(set)
+        min_pages = max(2, int(total_pages * 0.5)) if total_pages >= 3 else 2
+
         for p_idx, p in enumerate(raw_pages):
             raw_text = getattr(p, "content", None) or ""
             p_lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
             if p_lines:
                 for ln in p_lines[:2]:
+                    # Never suppress financial or statutory content
+                    if _FINANCIAL_OR_STATUTORY_RE.search(ln):
+                        continue
                     tmpl = normalize_header_template(ln)
                     if tmpl:
                         header_counts[tmpl].add(p_idx)
                 for ln in p_lines[-2:]:
+                    if _FINANCIAL_OR_STATUTORY_RE.search(ln):
+                        continue
                     tmpl = normalize_header_template(ln)
                     if tmpl:
                         footer_counts[tmpl].add(p_idx)
-        header_templates = {tmpl for tmpl, p_set in header_counts.items() if len(p_set) >= 2}
-        footer_templates = {tmpl for tmpl, p_set in footer_counts.items() if len(p_set) >= 2}
+        header_templates = {tmpl for tmpl, p_set in header_counts.items() if len(p_set) >= min_pages}
+        footer_templates = {tmpl for tmpl, p_set in footer_counts.items() if len(p_set) >= min_pages}
 
     # Convert extracted pages and spans
     pages: list[PageData] = []
@@ -247,10 +261,11 @@ def read_document_with_xberg(
 
             for l_idx, ln in enumerate(non_empty_lines):
                 trimmed = ln.strip()
+                is_financial = bool(_FINANCIAL_OR_STATUTORY_RE.search(trimmed))
                 tmpl = normalize_header_template(trimmed)
-                if skip_header_footer and l_idx < 2 and tmpl in header_templates:
+                if skip_header_footer and not is_financial and l_idx < 2 and tmpl in header_templates:
                     p_headers.append(trimmed)
-                elif skip_header_footer and l_idx >= len(non_empty_lines) - 2 and tmpl in footer_templates:
+                elif skip_header_footer and not is_financial and l_idx >= len(non_empty_lines) - 2 and tmpl in footer_templates:
                     p_footers.append(trimmed)
                 else:
                     body_lines.append(ln)

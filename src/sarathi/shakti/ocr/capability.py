@@ -666,7 +666,7 @@ class OCRCapability:
                         for item in page_iter:
                             while not stop_event.is_set():
                                 try:
-                                    prefetch_q.put(item, timeout=0.1)
+                                    prefetch_q.put(item, timeout=0.05)
                                     break
                                 except queue.Full:
                                     continue
@@ -675,17 +675,29 @@ class OCRCapability:
                     except Exception as e:
                         producer_exc.append(e)
                     finally:
-                        try:
-                            prefetch_q.put(None, timeout=0.2)
-                        except Exception:
-                            pass
+                        while not stop_event.is_set():
+                            try:
+                                prefetch_q.put(None, timeout=0.05)
+                                break
+                            except queue.Full:
+                                continue
 
                 producer_th = threading.Thread(target=_prefetch_producer, daemon=True)
                 producer_th.start()
 
                 try:
                     while True:
-                        item = prefetch_q.get()
+                        if context.cancellation_token is not None and context.cancellation_token.is_cancelled:
+                            stop_event.set()
+                            context.cancellation_token.check_cancelled()
+                        try:
+                            item = prefetch_q.get(timeout=0.1)
+                        except queue.Empty:
+                            if not producer_th.is_alive() and prefetch_q.empty():
+                                if producer_exc:
+                                    raise producer_exc[0]
+                                break
+                            continue
                         if item is None:
                             break
                         page_idx, img = item

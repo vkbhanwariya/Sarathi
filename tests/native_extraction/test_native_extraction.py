@@ -1416,7 +1416,16 @@ def test_native_extraction_statutory_resumed_with_ocr_result_continues_to_statut
     assert res1.next_requirement == "ocr"
     assert res1.resume_self is True
 
-    # Step 2: Simulated OCR output
+    # Step 2: Manthan resolves continuation request (requirement='ocr')
+    from sarathi.agni import Agni
+    agni = Agni()
+    manthan = agni.manthan
+
+    continuation_req, _ = manthan.resolve_continuation(req, res1.next_requirement, remaining_capability_ids=("native_extraction",))
+    assert continuation_req.requirement == "ocr"
+    assert continuation_req.metadata.get("original_requirement") == "read_native"
+
+    # Simulated OCR output
     ocr_doc = CanonicalDocument(
         document_id="doc-inp-scanned",
         source_input_id="inp-scanned",
@@ -1433,8 +1442,8 @@ def test_native_extraction_statutory_resumed_with_ocr_result_continues_to_statut
         provenance=(ProvenanceRecord(source_input_id="inp-scanned", capability_id="ocr", stage="ocr"),),
     )
 
-    # Step 3: Resumed execution with OCR result must continue to statutory without repeating OCR
-    res2 = cap.execute(req, ctx, prior_result=ocr_result)
+    # Step 3: Resumed execution with Manthan's continuation request must continue to statutory
+    res2 = cap.execute(continuation_req, ctx, prior_result=ocr_result)
     assert res2.next_requirement == "statutory"
     assert res2.resume_self is False
     assert len(res2.artifact_payloads) > 0

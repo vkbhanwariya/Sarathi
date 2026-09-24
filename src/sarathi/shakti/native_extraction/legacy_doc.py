@@ -26,7 +26,8 @@ def is_word_converter_available() -> bool:
 _CONVERT_PS_SCRIPT = r"""
 param(
     [Parameter(Mandatory=$true)][string]$docPath,
-    [Parameter(Mandatory=$true)][string]$docxPath
+    [Parameter(Mandatory=$true)][string]$docxPath,
+    [Parameter(Mandatory=$false)][string]$pidPath
 )
 $ErrorActionPreference = 'Stop'
 
@@ -35,9 +36,19 @@ if (-not (Test-Path $docPath)) {
     exit 1
 }
 
+$beforePids = @(Get-Process -Name WINWORD -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
 $word = New-Object -ComObject Word.Application
 $word.Visible = $false
 $word.DisplayAlerts = 0
+
+$afterPids = @(Get-Process -Name WINWORD -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+$conversionPid = $afterPids | Where-Object { $beforePids -notcontains $_ } | Select-Object -First 1
+
+if ($pidPath -and $conversionPid) {
+    try {
+        [System.IO.File]::WriteAllText($pidPath, [string]$conversionPid)
+    } catch {}
+}
 
 try {
     # Open(FileName, ConfirmConversions, ReadOnly)
@@ -52,29 +63,6 @@ try {
     [System.GC]::WaitForPendingFinalizers()
 }
 """
-
-
-def _get_running_word_pids() -> set[int]:
-    """Return set of currently running WINWORD.EXE process IDs."""
-    if sys.platform != "win32":
-        return set()
-    try:
-        out = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq WINWORD.EXE", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        pids: set[int] = set()
-        for line in out.stdout.splitlines():
-            line = line.strip()
-            if line and "WINWORD.EXE" in line.upper():
-                parts = [p.strip(' "') for p in line.split(",")]
-                if len(parts) >= 2 and parts[1].isdigit():
-                    pids.add(int(parts[1]))
-        return pids
-    except Exception:
-        return set()
 
 
 def convert_doc_to_docx(
@@ -116,6 +104,7 @@ def convert_doc_to_docx(
     out_filename = f"{resolved_doc.stem}_{uuid.uuid4().hex[:8]}.docx"
     target_docx = target_dir / out_filename
 
+    pid_file = target_dir / f"_pid_{uuid.uuid4().hex[:8]}.txt"
     script_file = target_dir / f"_convert_{uuid.uuid4().hex[:8]}.ps1"
     script_file.write_text(_CONVERT_PS_SCRIPT, encoding="utf-8")
 
@@ -129,9 +118,9 @@ def convert_doc_to_docx(
         str(script_file),
         str(resolved_doc),
         str(target_docx),
+        str(pid_file),
     ]
 
-    pids_before = _get_running_word_pids()
     try:
         proc = subprocess.run(
             cmd,
@@ -141,15 +130,26 @@ def convert_doc_to_docx(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        if sys.platform == "win32":
-            pids_after = _get_running_word_pids()
-            new_pids = pids_after - pids_before
-            for pid in new_pids:
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", str(pid)],
-                    capture_output=True,
-                    check=False,
-                )
+        if sys.platform == "win32" and pid_file.is_file():
+            try:
+                raw_pid = pid_file.read_text(encoding="utf-8").strip()
+                if raw_pid.isdigit():
+                    conversion_pid = int(raw_pid)
+                    # Verify this process is indeed WINWORD.EXE owned by this conversion before terminating
+                    chk = subprocess.run(
+                        ["tasklist", "/FI", f"PID eq {conversion_pid}", "/FO", "CSV", "/NH"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if "WINWORD.EXE" in chk.stdout.upper():
+                        subprocess.run(
+                            ["taskkill", "/F", "/PID", str(conversion_pid)],
+                            capture_output=True,
+                            check=False,
+                        )
+            except Exception:
+                pass
         raise DoshError(
             code=FailureCode.EXECUTION_FAILED,
             message=f"Conversion of legacy .doc file timed out after {timeout_seconds}s.",
@@ -160,11 +160,12 @@ def convert_doc_to_docx(
             message=f"Failed to execute Word conversion subprocess: {exc}",
         ) from exc
     finally:
-        try:
-            if script_file.exists():
-                script_file.unlink()
-        except OSError:
-            pass
+        for f in (script_file, pid_file):
+            try:
+                if f.exists():
+                    f.unlink()
+            except OSError:
+                pass
 
     if proc.returncode != 0 or not target_docx.is_file() or target_docx.stat().st_size == 0:
         err_msg = (proc.stderr or proc.stdout or "Unknown conversion error").strip()

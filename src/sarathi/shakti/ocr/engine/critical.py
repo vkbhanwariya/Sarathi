@@ -296,14 +296,23 @@ def repair_critical_token(text: str, crit_type: CriticalityType | None = None) -
                         chars[i] = _LETTER_TO_DIGIT[chars[i]]
                 if chars[11].isdigit() and chars[11] in _DIGIT_TO_LETTER:
                     chars[11] = _DIGIT_TO_LETTER[chars[11]]
-                chars[13] = "Z"
+                if chars[13] in ("2", "z"):
+                    chars[13] = "Z"
                 prefix14 = "".join(chars[:14])
                 expected_digit = calculate_gstin_check_digit(prefix14)
+                # Check digit must validate candidate, never manufacture an artificial identity.
+                # Only accept repair if expected_digit matches observed 15th char or its character confusion.
                 if expected_digit is not None:
-                    chars[14] = expected_digit
-                    rep_gstin = "".join(chars)
-                    if verify_gstin(rep_gstin):
-                        return rep_gstin, True
+                    obs14 = chars[14]
+                    if obs14 == expected_digit or (
+                        obs14 in _LETTER_TO_DIGIT and _LETTER_TO_DIGIT[obs14] == expected_digit
+                    ) or (
+                        obs14 in _DIGIT_TO_LETTER and _DIGIT_TO_LETTER[obs14] == expected_digit
+                    ):
+                        chars[14] = expected_digit
+                        rep_gstin = "".join(chars)
+                        if verify_gstin(rep_gstin):
+                            return rep_gstin, True
 
     # 4. ACCOUNT / BANKING REFERENCE REPAIR
     elif crit_type == CriticalityType.ACCOUNT_REFERENCE:

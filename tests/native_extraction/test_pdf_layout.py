@@ -259,3 +259,30 @@ def test_read_document_with_xberg_confidence_none_and_skip_header_footer() -> No
         assert "Confidential Internal Audit" not in p.text
         assert "Annual Report 2026" in str(p.metadata.get("header", ""))
         assert "Confidential Internal Audit" in str(p.metadata.get("footer", ""))
+
+
+def test_xberg_header_suppression_preserves_changing_financial_content() -> None:
+    """Verify that lines with changing financial amounts (e.g. Amount due 100 vs Amount due 200)
+
+    are never suppressed as repeated headers across pages.
+    """
+    from sarathi.shakti.native_extraction.readers.xberg_reader import read_document_with_xberg
+
+    doc = pymupdf.open()
+    # Page 1
+    page1 = doc.new_page(width=595, height=842)
+    page1.insert_text((72, 50), "Amount due 100", fontsize=11)
+    page1.insert_text((72, 120), "Line item 1 details", fontsize=10)
+
+    # Page 2
+    page2 = doc.new_page(width=595, height=842)
+    page2.insert_text((72, 50), "Amount due 200", fontsize=11)
+    page2.insert_text((72, 120), "Line item 2 details", fontsize=10)
+
+    data = doc.tobytes()
+    doc.close()
+
+    cdoc, _, _ = read_document_with_xberg(data, "inp-fin-header", skip_header_footer=True)
+    assert len(cdoc.pages) == 2
+    assert "Amount due 100" in cdoc.pages[0].text
+    assert "Amount due 200" in cdoc.pages[1].text

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import io
 import re
+import zipfile
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 import openpyxl
@@ -24,6 +26,7 @@ from sarathi.sankalpa import ArtifactIntent, ArtifactPayload, TableData, Warning
 _EXCEL_MIME_TYPE: str = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+_XLSM_MIME_TYPE: str = "application/vnd.ms-excel.sheet.macroEnabled.12"
 _INVALID_SHEET_TITLE_CHARS: re.Pattern[str] = re.compile(r"[:\\/?*\[\]]")
 _NUMBER_PATTERN: re.Pattern[str] = re.compile(r"^[-+]?\d+(?:[.,]\d+)?%?$")
 
@@ -84,8 +87,9 @@ def transform_xlsx_translation_artifact(
     is_hindi_target: bool = True,
     batch_size: int = 64,
     preserve_sheet_names: bool = True,
+    keep_vba: bool | None = None,
 ) -> ArtifactPayload:
-    """Transform an existing XLSX file in-place by translating story cells while preserving 100% of formatting.
+    """Transform an existing XLSX/XLSM file in-place by translating story cells while preserving 100% of formatting.
 
     Preserves untouched:
     - Formulas: (=SUM, =AVERAGE, =IF, etc.) remain intact.
@@ -93,9 +97,48 @@ def transform_xlsx_translation_artifact(
     - Cell Styles: Fills, borders, alignments, and number formats are unmodified.
     - Multiple Sheets: All worksheets, charts, and table geometries are preserved.
     - Sheet Names: Preserved by default to prevent breaking cross-sheet formula references.
+    - VBA Macros: Preserved for .xlsm files when keep_vba is enabled.
     """
-    in_buf = io.BytesIO(input_bytes)
-    wb = openpyxl.load_workbook(in_buf, data_only=False)
+    has_vba = False
+    zf_io = io.BytesIO(input_bytes)
+    try:
+        with zipfile.ZipFile(zf_io, "r") as zf:
+            has_vba = any("vbaProject.bin" in name for name in zf.namelist())
+    except Exception:
+        has_vba = False
+    finally:
+        try:
+            zf_io.close()
+        except Exception:
+            pass
+
+    eff_keep_vba = keep_vba if keep_vba is not None else has_vba
+    is_xlsm = filename.lower().endswith(".xlsm") or has_vba
+    if is_xlsm and not filename.lower().endswith(".xlsm"):
+        filename = f"{Path(filename).stem}.xlsm"
+
+    wb = None
+    vba_preserved = False
+    if eff_keep_vba:
+        try:
+            in_buf = io.BytesIO(input_bytes)
+            wb = openpyxl.load_workbook(in_buf, data_only=False, keep_vba=True)
+            vba_preserved = True
+        except Exception:
+            wb = None
+
+    if wb is None:
+        in_buf = io.BytesIO(input_bytes)
+        wb = openpyxl.load_workbook(in_buf, data_only=False, keep_vba=False)
+        if has_vba and warnings is not None:
+            warnings.append(
+                WarningRecord(
+                    code="TRANSLATION_VBA_STRIPPED",
+                    message="Macro-enabled (.xlsm) workbook VBA macros could not be preserved and were stripped.",
+                    stage="translation",
+                    context={"filename": filename},
+                )
+            )
 
     try:
         cells_to_translate: list[tuple[Cell, str]] = []
@@ -165,11 +208,12 @@ def transform_xlsx_translation_artifact(
     finally:
         wb.close()
 
+    mime_type = _XLSM_MIME_TYPE if (is_xlsm and vba_preserved) else _EXCEL_MIME_TYPE
     return ArtifactPayload(
         intent=ArtifactIntent(
             name=filename,
             role=role,
-            media_type=_EXCEL_MIME_TYPE,
+            media_type=mime_type,
         ),
         content=content_bytes,
     )

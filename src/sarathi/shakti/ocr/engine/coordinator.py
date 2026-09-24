@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import queue
+import re
 import threading
 import unicodedata
 from collections.abc import Mapping, Sequence
@@ -723,13 +724,29 @@ class RapidOCREngine:
                 if span.confidence is not None and span.text.strip():
                     is_crit, crit_type = classify_span(span.text)
                     eff_threshold = critical_review_threshold if is_crit else review_threshold
-                    if span.confidence < eff_threshold:
-                        code = "OCR_CRITICAL_SPAN_LOW_CONFIDENCE" if is_crit else "OCR_LOW_CONFIDENCE"
+                    checksum_failed = False
+                    if is_crit and crit_type == CriticalityType.STATUTORY_IDENTIFIER:
+                        clean_tok = re.sub(r"[^A-Za-z0-9]", "", span.text).upper()
+                        if len(clean_tok) == 15 and clean_tok[:2].isdigit():
+                            from sarathi.shakti.statutory.checksums import verify_gstin
+
+                            if not verify_gstin(clean_tok):
+                                checksum_failed = True
+
+                    if span.confidence < eff_threshold or checksum_failed:
+                        code = "OCR_CRITICAL_CHECKSUM_FAILED" if checksum_failed else (
+                            "OCR_CRITICAL_SPAN_LOW_CONFIDENCE" if is_crit else "OCR_LOW_CONFIDENCE"
+                        )
                         crit_label = f" [{crit_type.value}]" if is_crit and crit_type else ""
+                        msg = (
+                            f"Statutory checksum verification failed for '{span.text}' - human review required"
+                            if checksum_failed
+                            else f"Low confidence{crit_label} text span ({span.confidence:.1%}): '{span.text}'"
+                        )
                         warnings.append(
                             WarningRecord(
                                 code=code,
-                                message=f"Low confidence{crit_label} text span ({span.confidence:.1%}): '{span.text}'",
+                                message=msg,
                                 stage=STAGE_NAME,
                                 context={
                                     "source": span.text,
@@ -737,6 +754,7 @@ class RapidOCREngine:
                                     "output": span.text,
                                     "output_text": span.text,
                                     "confidence": span.confidence,
+                                    "checksum_valid": not checksum_failed,
                                     "span_id": span.metadata.get("span_id", f"span-p{page_number}-{s_idx}"),
                                     "attempt_id": span.metadata.get("attempt_id", f"span-p{page_number}-{s_idx}"),
                                     "page_number": page_number,

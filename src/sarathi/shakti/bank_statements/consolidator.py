@@ -33,12 +33,22 @@ from sarathi.shakti.bank_statements.models import (
 
 def _account_group_key(stmt: BankStatement) -> tuple:
     ident = stmt.account_identity
-    if ident and ident.account_fingerprint:
+    if not ident:
+        return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
+
+    # If account_fingerprint exists, it is either:
+    # 1. Derived from a full unmasked account number (strong identity), OR
+    # 2. Derived from a masked account number + account holder (strong combined identity).
+    # In both cases, statements sharing this fingerprint safely belong to the same account.
+    if ident.account_fingerprint:
         return ("fingerprint", stmt.bank_name.lower().strip(), ident.account_fingerprint)
-    if ident and ident.masked_account_number:
-        return ("masked", stmt.bank_name.lower().strip(), ident.masked_account_number)
-    if ident and ident.account_holder:
-        return ("holder", stmt.bank_name.lower().strip(), ident.account_holder.lower().strip())
+
+    # If account_fingerprint is None, the statement has an already-masked number without account holder.
+    # We must not conflate distinct people having accounts with the same trailing 4 digits.
+    holder = ident.account_holder.lower().strip() if ident.account_holder else None
+    if holder:
+        return ("holder", stmt.bank_name.lower().strip(), holder)
+
     return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
 
 

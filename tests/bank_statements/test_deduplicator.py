@@ -651,3 +651,54 @@ def test_deduplicate_preserves_legitimate_repeated_statement_rows() -> None:
     assert len(res.unique_transactions) == 3
     total_debits = sum(t.debit for t in res.unique_transactions if t.debit is not None)
     assert total_debits == Decimal("200.00")
+
+
+def test_masked_account_numbers_distinct_holders_never_deduplicate() -> None:
+    """Verify that two statements displaying the same masked account number (XXXXXX1234)
+
+    belonging to different people (Alice vs Bob) never get merged or have their transactions deleted.
+    """
+    ident_alice = create_account_identity("State Bank of India", "XXXXXX1234", account_holder="Alice")
+    ident_bob = create_account_identity("State Bank of India", "XXXXXX1234", account_holder="Bob")
+
+    # Both identities must have distinct fingerprints
+    assert ident_alice.account_fingerprint != ident_bob.account_fingerprint
+
+    tx_alice = Transaction(
+        transaction_date=date(2026, 1, 15),
+        description="Electricity Bill",
+        bank_name="State Bank of India",
+        debit=Decimal("500.00"),
+        running_balance=Decimal("10000.00"),
+        account_identity=ident_alice,
+        sequence_id=1,
+    )
+    tx_bob = Transaction(
+        transaction_date=date(2026, 1, 15),
+        description="Electricity Bill",
+        bank_name="State Bank of India",
+        debit=Decimal("500.00"),
+        running_balance=Decimal("10000.00"),
+        account_identity=ident_bob,
+        sequence_id=1,
+    )
+
+    stmt_alice = BankStatement(
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident_alice,
+        transactions=(tx_alice,),
+        statement_id="stmt_alice",
+    )
+    stmt_bob = BankStatement(
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident_bob,
+        transactions=(tx_bob,),
+        statement_id="stmt_bob",
+    )
+
+    res = consolidate_statements([stmt_alice, stmt_bob])
+    # Both transactions must be preserved; neither must be deleted as a duplicate
+    assert len(res.transactions) == 2
+    assert res.total_debit == Decimal("1000.00")

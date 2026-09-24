@@ -235,6 +235,12 @@ def test_repair_critical_token_statutory() -> None:
     assert was_rep is True
     assert rep == "SBIN0001234"
 
+    # GSTIN with middle typo: 27AAPFU0939F1ZV -> simulated OCR error 27AAPFU0949F1ZV
+    # Checksum MUST NOT manufacture 27AAPFU0949F1ZT; observed text must be preserved.
+    rep, was_rep = repair_critical_token("27AAPFU0949F1ZV", CriticalityType.STATUTORY_IDENTIFIER)
+    assert was_rep is False
+    assert rep == "27AAPFU0949F1ZV"
+
 
 def test_validate_critical_token() -> None:
     """Verify validate_critical_token checks statutory and financial syntaxes."""

@@ -7,6 +7,7 @@ Float arithmetic is strictly prohibited.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -65,15 +66,25 @@ def create_account_identity(
 
     if raw_account_number and raw_account_number.strip():
         clean_acc = raw_account_number.strip()
+        is_already_masked = bool(re.search(r"[xX*]", clean_acc))
         # Mask leading digits, retain last 4
         if len(clean_acc) >= 4:
             masked = "X" * (len(clean_acc) - 4) + clean_acc[-4:]
         else:
             masked = "X" * len(clean_acc)
 
-        # Deterministic SHA-256 fingerprint scoped to bank and account
-        raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}"
-        fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
+        # A masked account number (e.g. XXXXXX1234) is weak evidence that cannot uniquely identify
+        # an account across different people. It requires account_holder to form a safe identity fingerprint.
+        if is_already_masked:
+            if account_holder and account_holder.strip():
+                raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}:{account_holder.strip().lower()}"
+                fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
+            else:
+                fingerprint = None
+        else:
+            # Deterministic SHA-256 fingerprint for full unmasked account
+            raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}"
+            fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
 
     return AccountIdentity(
         bank_name=bank_name.strip(),

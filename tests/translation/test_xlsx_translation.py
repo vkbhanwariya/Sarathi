@@ -15,6 +15,7 @@ from sarathi.sankalpa import (
     Request,
     Result,
     TableData,
+    WarningRecord,
 )
 from sarathi.shakti.translation.capability import TranslationCapability
 from sarathi.shakti.translation.engine import TranslatorBackend
@@ -267,3 +268,56 @@ def test_translation_capability_csv_tabular_e2e(tmp_path: Path) -> None:
     wb = openpyxl.load_workbook(io.BytesIO(xlsx_art.content))
     ws = wb.active
     assert "TR:" in str(ws.cell(row=2, column=1).value)
+
+
+def test_transform_xlsm_preserves_vba_and_media_type() -> None:
+    """Verify that macro-enabled .xlsm files preserve VBA macros and export as .xlsm."""
+    import zipfile
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "Revenue"
+    ws["B1"] = 1000
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    wb.close()
+
+    # Inject an inert dummy vbaProject.bin into the package to simulate an .xlsm workbook
+    xlsm_buf = io.BytesIO()
+    src_io = io.BytesIO(buf.getvalue())
+    try:
+        with zipfile.ZipFile(src_io, "r") as src_zip:
+            with zipfile.ZipFile(xlsm_buf, "w") as dst_zip:
+                for item in src_zip.infolist():
+                    data = src_zip.read(item.filename)
+                    if item.filename == "[Content_Types].xml":
+                        data = data.replace(
+                            b"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+                            b"application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+                        )
+                    dst_zip.writestr(item, data)
+                dst_zip.writestr("xl/vbaProject.bin", b"VBA_DUMMY_CODE_PACKAGE")
+    finally:
+        src_io.close()
+
+    input_xlsm = xlsm_buf.getvalue()
+    warns: list[WarningRecord] = []
+
+    payload = transform_xlsx_translation_artifact(
+        input_bytes=input_xlsm,
+        translate_fn=lambda b: [f"HI_{x}" for x in b],
+        filename="Financial_Report.xlsm",
+        warnings=warns,
+    )
+
+    assert payload.intent.name.endswith(".xlsm")
+    assert payload.intent.media_type == "application/vnd.ms-excel.sheet.macroEnabled.12"
+
+    res_io = io.BytesIO(payload.content)
+    try:
+        with zipfile.ZipFile(res_io, "r") as zf:
+            assert "xl/vbaProject.bin" in zf.namelist()
+            assert zf.read("xl/vbaProject.bin") == b"VBA_DUMMY_CODE_PACKAGE"
+    finally:
+        res_io.close()
