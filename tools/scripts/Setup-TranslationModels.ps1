@@ -83,7 +83,7 @@ $transRoot = Join-Path $root 'data\translation'
 $modelsDir = Join-Path $transRoot 'models'
 
 if (-not (Test-Path -LiteralPath $transRoot -PathType Container)) {
-    throw "Translation data directory not found at '$transRoot'."
+    $null = New-Item -ItemType Directory -Path $transRoot -Force
 }
 
 if (-not (Test-Path -LiteralPath $modelsDir -PathType Container)) {

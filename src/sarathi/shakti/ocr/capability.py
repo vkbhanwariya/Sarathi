@@ -235,6 +235,7 @@ class OCRCapability:
                 img,
                 page_idx,
                 inp_ref.input_id,
+                dpi=dpi,
                 **ocr_kwargs,
             )
         finally:
@@ -554,6 +555,16 @@ class OCRCapability:
                             c_pdata_meta = dict(c_pdata.metadata)
                             c_pdata_meta["source_input_id"] = inp.input_id
                             c_pdata = dataclasses.replace(c_pdata, metadata=c_pdata_meta)
+                        if c_warns:
+                            reb_warns: list[WarningRecord] = []
+                            for w in c_warns:
+                                if w.context and w.context.get("input_id") != inp.input_id:
+                                    w_ctx = dict(w.context)
+                                    w_ctx["input_id"] = inp.input_id
+                                    reb_warns.append(dataclasses.replace(w, context=w_ctx))
+                                else:
+                                    reb_warns.append(w)
+                            c_warns = reb_warns
                         doc_page_results[inp.input_id].append((p_idx, c_pdata, c_prov, c_warns))
                         skip_pages.add(p_idx)
                         if progress_cb is not None:

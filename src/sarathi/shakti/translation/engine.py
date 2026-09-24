@@ -615,8 +615,9 @@ class CTranslate2NativeBackend:
             spm_tgt = self._spms[spm_tgt_key]
 
         is_krutrim = norm_engine in ("krutrim", "krutrim_translate") or "krutrim" in str(model_path).lower()
-        eff_max_tokens = 4096 if is_krutrim else MAX_SENTENCE_TOKENS
         eff_max_input_len = 4096 if is_krutrim else 1024
+        # Subtract the 2 prepended language prefix tokens [src_tag, tgt_tag] so total input <= eff_max_input_len
+        eff_max_tokens = (eff_max_input_len - 2) if is_krutrim else MAX_SENTENCE_TOKENS
 
         # Split sentences longer than eff_max_tokens tokens into token-bounded chunks
         sentence_chunks: list[list[tuple[str, str]]] = []

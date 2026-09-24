@@ -11,10 +11,13 @@ import csv
 import io
 import logging
 import mimetypes
+import threading
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_PYMUPDF_LOCK = threading.Lock()
 
 
 def build_document_preview(path_str: str) -> tuple[int, dict[str, Any]]:
@@ -107,16 +110,20 @@ def build_document_preview(path_str: str) -> tuple[int, dict[str, Any]]:
         try:
             import pymupdf
 
-            doc = pymupdf.open(str(target_file))
-            page_count = len(doc)
-            b64_page = ""
-            text_snippet = ""
-            if page_count > 0:
-                page = doc.load_page(0)
-                pix = page.get_pixmap(dpi=120)
-                b64_page = base64.b64encode(pix.tobytes("png")).decode("ascii")
-                text_snippet = page.get_text()[:6000]
-            doc.close()
+            with _PYMUPDF_LOCK:
+                doc = pymupdf.open(str(target_file))
+                try:
+                    page_count = len(doc)
+                    b64_page = ""
+                    text_snippet = ""
+                    if page_count > 0:
+                        page = doc.load_page(0)
+                        pix = page.get_pixmap(dpi=120)
+                        b64_page = base64.b64encode(pix.tobytes("png")).decode("ascii")
+                        text_snippet = page.get_text()[:6000]
+                finally:
+                    doc.close()
+
             return 200, {
                 "ok": True,
                 "type": "pdf",
@@ -201,34 +208,36 @@ def render_pdf_page(
     try:
         import pymupdf
 
-        doc = pymupdf.open(str(target_file))
-        page_count = len(doc)
-        if page_count == 0:
-            doc.close()
-            return 400, {"ok": False, "error": "PDF contains no pages."}
+        with _PYMUPDF_LOCK:
+            doc = pymupdf.open(str(target_file))
+            try:
+                page_count = len(doc)
+                if page_count == 0:
+                    return 400, {"ok": False, "error": "PDF contains no pages."}
 
-        page_idx = max(0, min(page_number - 1, page_count - 1))
-        page = doc.load_page(page_idx)
+                page_idx = max(0, min(page_number - 1, page_count - 1))
+                page = doc.load_page(page_idx)
 
-        clip_rect = None
-        if clip_bbox and len(clip_bbox) == 4:
-            padding = 40  # PDF points (~0.55 inch)
-            page_rect = page.rect
-            clip_rect = pymupdf.Rect(
-                max(page_rect.x0, clip_bbox[0] - padding),
-                max(page_rect.y0, clip_bbox[1] - padding),
-                min(page_rect.x1, clip_bbox[2] + padding),
-                min(page_rect.y1, clip_bbox[3] + padding),
-            )
+                clip_rect = None
+                if clip_bbox and len(clip_bbox) == 4:
+                    padding = 40  # PDF points (~0.55 inch)
+                    page_rect = page.rect
+                    clip_rect = pymupdf.Rect(
+                        max(page_rect.x0, clip_bbox[0] - padding),
+                        max(page_rect.y0, clip_bbox[1] - padding),
+                        min(page_rect.x1, clip_bbox[2] + padding),
+                        min(page_rect.y1, clip_bbox[3] + padding),
+                    )
 
-        if clip_rect and not clip_rect.is_empty:
-            pix = page.get_pixmap(dpi=150, clip=clip_rect)
-        else:
-            pix = page.get_pixmap(dpi=120)
+                if clip_rect and not clip_rect.is_empty:
+                    pix = page.get_pixmap(dpi=150, clip=clip_rect)
+                else:
+                    pix = page.get_pixmap(dpi=120)
 
-        b64_page = base64.b64encode(pix.tobytes("png")).decode("ascii")
-        text_snippet = page.get_text()[:6000]
-        doc.close()
+                b64_page = base64.b64encode(pix.tobytes("png")).decode("ascii")
+                text_snippet = page.get_text()[:6000]
+            finally:
+                doc.close()
 
         return 200, {
             "ok": True,

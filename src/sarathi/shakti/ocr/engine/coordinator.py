@@ -55,6 +55,7 @@ from sarathi.shakti.ocr.engine.preprocessing import (
     choose_page_rotation,
     is_low_contrast_image,
 )
+from sarathi.shakti.ocr.engine.rasterize import resolve_ocr_dpi
 from sarathi.shakti.ocr.engine.readiness import check_ocr_readiness
 from sarathi.shakti.text.typography import (
     contains_devanagari,
@@ -538,9 +539,13 @@ class RapidOCREngine:
         custom_options: Mapping[str, Any] | None = None,
         execution_binding: ExecutionBinding | None = None,
         cancellation_token: CancellationToken | None = None,
+        dpi: int | None = None,
     ) -> tuple[PageData, ProvenanceRecord, ConfidenceValue | None, tuple[WarningRecord, ...]]:
         """Run PP-OCR OpenVINO on a single image and return factual PageData, Provenance, and Warnings."""
         check_cancelled(cancellation_token)
+
+        if dpi is None:
+            dpi = resolve_ocr_dpi(profile, custom_options)
 
         target_device = resolve_target_device(execution_binding)
         lang_opt = custom_options.get("lang") if custom_options else None
@@ -760,6 +765,7 @@ class RapidOCREngine:
                                     "page_number": page_number,
                                     "input_id": input_id,
                                     "bbox": list(span.bounding_box) if span.bounding_box else None,
+                                    "dpi": dpi,
                                     "is_review_item": True,
                                     "is_critical": is_crit,
                                     "criticality_type": crit_type.value if crit_type else None,

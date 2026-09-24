@@ -286,20 +286,17 @@ def test_transform_xlsm_preserves_vba_and_media_type() -> None:
     # Inject an inert dummy vbaProject.bin into the package to simulate an .xlsm workbook
     xlsm_buf = io.BytesIO()
     src_io = io.BytesIO(buf.getvalue())
-    try:
-        with zipfile.ZipFile(src_io, "r") as src_zip:
-            with zipfile.ZipFile(xlsm_buf, "w") as dst_zip:
-                for item in src_zip.infolist():
-                    data = src_zip.read(item.filename)
-                    if item.filename == "[Content_Types].xml":
-                        data = data.replace(
-                            b"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
-                            b"application/vnd.ms-excel.sheet.macroEnabled.main+xml",
-                        )
-                    dst_zip.writestr(item, data)
-                dst_zip.writestr("xl/vbaProject.bin", b"VBA_DUMMY_CODE_PACKAGE")
-    finally:
-        src_io.close()
+    with zipfile.ZipFile(src_io, "r") as src_zip:
+        with zipfile.ZipFile(xlsm_buf, "w") as dst_zip:
+            for item in src_zip.infolist():
+                data = src_zip.read(item.filename)
+                if item.filename == "[Content_Types].xml":
+                    data = data.replace(
+                        b"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+                        b"application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+                    )
+                dst_zip.writestr(item, data)
+            dst_zip.writestr("xl/vbaProject.bin", b"VBA_DUMMY_CODE_PACKAGE")
 
     input_xlsm = xlsm_buf.getvalue()
     warns: list[WarningRecord] = []
@@ -315,9 +312,42 @@ def test_transform_xlsm_preserves_vba_and_media_type() -> None:
     assert payload.intent.media_type == "application/vnd.ms-excel.sheet.macroEnabled.12"
 
     res_io = io.BytesIO(payload.content)
-    try:
-        with zipfile.ZipFile(res_io, "r") as zf:
-            assert "xl/vbaProject.bin" in zf.namelist()
-            assert zf.read("xl/vbaProject.bin") == b"VBA_DUMMY_CODE_PACKAGE"
-    finally:
-        res_io.close()
+    with zipfile.ZipFile(res_io, "r") as zf:
+        assert "xl/vbaProject.bin" in zf.namelist()
+        assert zf.read("xl/vbaProject.bin") == b"VBA_DUMMY_CODE_PACKAGE"
+
+
+def test_transform_xlsx_synchronizes_table_column_names() -> None:
+    """Verify openpyxl TableColumn names are updated in sync with translated header cells."""
+    from openpyxl.worksheet.table import Table, TableColumn
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "EntriesSheet"
+    ws.append(["Category", "Amount"])
+    ws.append(["Groceries", 500])
+    tab = Table(displayName="EntriesTable", ref="A1:B2")
+    tab.tableColumns = [TableColumn(id=1, name="Category"), TableColumn(id=2, name="Amount")]
+    ws.add_table(tab)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    input_bytes = buf.getvalue()
+
+    trans_map = {"Category": "श्रेणी", "Amount": "राशि", "Groceries": "किराना"}
+    payload = transform_xlsx_translation_artifact(
+        input_bytes=input_bytes,
+        translate_fn=lambda b: [trans_map.get(x, x) for x in b],
+        filename="Table_Doc.xlsx",
+        is_hindi_target=True,
+    )
+
+    out_io = io.BytesIO(payload.content)
+    res_wb = openpyxl.load_workbook(out_io)
+    res_ws = res_wb.active
+    res_tab = list(res_ws.tables.values())[0]
+
+    assert [c.name for c in res_tab.tableColumns] == ["श्रेणी", "राशि"]
+    assert res_ws["A1"].value == "श्रेणी"
+    assert res_ws["B1"].value == "राशि"
+    res_wb.close()

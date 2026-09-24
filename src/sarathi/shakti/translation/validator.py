@@ -29,25 +29,53 @@ _ALPHANUMERIC_ID_RE = re.compile(
 )
 
 _DATE_RE = re.compile(r"\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b")
-_NUM_RE = re.compile(r"\b\d+(?:,\d+)*(?:\.\d+)?\b")
+_PERCENT_RE = re.compile(r"(?<!\w)[-+]?\d+(?:,\d+)*(?:\.\d+)?\s*%", re.IGNORECASE)
+_CURRENCY_RE = re.compile(
+    r"(?:₹|Rs\.?|INR|रु\.?|\$|USD|€|EUR|£|GBP)\s*[-+]?\d+(?:,\d+)*(?:\.\d+)?"
+    r"|(?<!\w)[-+]?\d+(?:,\d+)*(?:\.\d+)?\s*(?:₹|Rs\.?|INR|रु\.?|रुपये|\$|USD|€|EUR|£|GBP)(?!\w)",
+    re.IGNORECASE,
+)
+_NUM_RE = re.compile(r"(?<!\w)[-+]?\d+(?:,\d+)*(?:\.\d+)?(?!\w)")
 _EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}", re.IGNORECASE)
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 
 
+def _parse_currency(raw: str) -> tuple[str, str]:
+    """Parse raw currency expression into canonical currency prefix and numeric amount string."""
+    raw_lower = raw.lower()
+    if any(k in raw_lower for k in ("$", "usd")):
+        sym = "$"
+    elif any(k in raw_lower for k in ("€", "eur")):
+        sym = "€"
+    elif any(k in raw_lower for k in ("£", "gbp")):
+        sym = "£"
+    else:
+        sym = "₹"
+    m = re.search(r"[-+]?\d+(?:,\d+)*(?:\.\d+)?", raw)
+    amt = m.group(0) if m else raw
+    return sym, amt
+
+
 def _normalize_token(tok: str) -> str:
-    """Normalize digits and delimiters for multiset comparison."""
-    norm = normalize_devanagari_numerals(tok)
-    if re.fullmatch(r"\d+(?:,\d+)*(?:\.\d+)?", norm):
-        norm = norm.replace(",", "")
+    """Normalize digits, signs, percentages, and delimiters for multiset comparison."""
+    norm = normalize_devanagari_numerals(tok).strip()
+    is_pct = norm.endswith("%")
+    core = norm[:-1].strip() if is_pct else norm
+    m = re.fullmatch(r"([-+]?)(\d+(?:,\d+)*(?:\.\d+)?)", core)
+    if m:
+        sign, digits = m.group(1), m.group(2)
+        digits = digits.replace(",", "")
+        core = f"{sign}{digits}"
+        norm = f"{core}%" if is_pct else core
     return norm.strip().lower()
 
 
 def extract_factual_tokens(text: str) -> list[str]:
-    """Extract factual tokens (emails, URLs, statutory IDs, dates, numbers) from text.
+    """Extract factual tokens (emails, URLs, statutory IDs, dates, percentages, currencies, numbers) from text.
 
     Applies prioritized span masking so higher-precedence entities (URLs, emails,
-    statutory IDs, dates) prevent their constituent substrings from being double-counted
-    as alphanumeric IDs or numeric amounts.
+    statutory IDs, dates, percentages, currencies) prevent their constituent substrings
+    from being double-counted as alphanumeric IDs or bare numbers.
     """
     if not text:
         return []
@@ -55,13 +83,19 @@ def extract_factual_tokens(text: str) -> list[str]:
     norm_chars = list(normalize_devanagari_numerals(text))
     tokens: list[str] = []
 
-    def _extract_and_mask(regex: re.Pattern[str], filter_fn=None) -> None:
+    def _extract_and_mask(regex: re.Pattern[str], filter_fn=None, is_currency: bool = False) -> None:
         curr_text = "".join(norm_chars)
         for m in regex.finditer(curr_text):
             tok_raw = m.group(0)
             if filter_fn and not filter_fn(tok_raw):
                 continue
-            tokens.append(_normalize_token(tok_raw))
+            if is_currency:
+                curr_sym, amt = _parse_currency(tok_raw)
+                norm_amt = _normalize_token(amt)
+                tokens.append(f"{curr_sym}{norm_amt}")
+                tokens.append(norm_amt)
+            else:
+                tokens.append(_normalize_token(tok_raw))
             for i in range(m.start(), m.end()):
                 norm_chars[i] = " "
 
@@ -78,12 +112,14 @@ def extract_factual_tokens(text: str) -> list[str]:
     # 4. Alphanumeric IDs
     _extract_and_mask(_ALPHANUMERIC_ID_RE)
 
-    # 5. Standalone numbers / amounts (filter out 1-2 digit trivial numbers)
-    def _is_significant_num(raw: str) -> bool:
-        clean = raw.replace(",", "")
-        return len(clean) >= 3 or "." in clean
+    # 5. Percentages (e.g. 5%, 18%, -2.5%)
+    _extract_and_mask(_PERCENT_RE)
 
-    _extract_and_mask(_NUM_RE, filter_fn=_is_significant_num)
+    # 6. Currency amounts (e.g. Rs. 50, ₹1,50,000, $100)
+    _extract_and_mask(_CURRENCY_RE, is_currency=True)
+
+    # 7. Standalone and signed numbers (no digit-length cutoff)
+    _extract_and_mask(_NUM_RE)
 
     return tokens
 

@@ -19,7 +19,7 @@ from typing import Any
 import openpyxl
 from openpyxl.cell.cell import Cell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, range_boundaries
 
 from sarathi.sankalpa import ArtifactIntent, ArtifactPayload, TableData, WarningRecord
 
@@ -200,6 +200,35 @@ def transform_xlsx_translation_artifact(
                         )
                     else:
                         cell.font = Font(name=target_font_name)
+
+            # 5. Synchronize openpyxl structured table column headers with updated cell values
+            for ws in wb.worksheets:
+                if hasattr(ws, "tables"):
+                    for tbl in list(ws.tables.values()):
+                        try:
+                            if not tbl.ref:
+                                continue
+                            min_col, min_row, max_col, max_row = range_boundaries(tbl.ref)
+                            col_count = max_col - min_col + 1
+                            if not tbl.tableColumns:
+                                from openpyxl.worksheet.table import TableColumn
+
+                                tbl.tableColumns = [TableColumn(id=i + 1, name=f"Column{i + 1}") for i in range(col_count)]
+                            seen_names: dict[str, int] = {}
+                            for col_idx in range(min_col, max_col + 1):
+                                offset = col_idx - min_col
+                                if offset < len(tbl.tableColumns):
+                                    header_cell = ws.cell(row=min_row, column=col_idx)
+                                    if header_cell.value is not None:
+                                        base_name = str(header_cell.value).strip() or f"Column{offset + 1}"
+                                        seen_names[base_name] = seen_names.get(base_name, 0) + 1
+                                        count = seen_names[base_name]
+                                        unique_name = base_name if count == 1 else f"{base_name}{count}"
+                                        tbl.tableColumns[offset].name = unique_name
+                                        if unique_name != str(header_cell.value):
+                                            header_cell.value = unique_name
+                        except Exception:
+                            pass
 
         out_buf = io.BytesIO()
         wb.save(out_buf)

@@ -199,15 +199,16 @@ class SQLiteCacheStore:
                     self._reclaim_unreferenced_artifacts(conn, evicted_jsons)
             return True
 
-    def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
+    def invalidate(self, key: CacheKey | str | None = None, capability_id: str | None = None) -> int:
         """Invalidate entries from persistent SQLite store and clean up orphaned artifact blobs."""
         with self._lock, self._get_connection() as conn:
             if key is not None:
+                key_hash = key.key_hash if hasattr(key, "key_hash") else str(key)
                 row = conn.execute(
-                    "SELECT data_json FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)
+                    "SELECT data_json FROM smriti_entries WHERE key_hash = ?", (key_hash,)
                 ).fetchone()
-                cur = conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key.key_hash,))
-                conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key.key_hash,))
+                cur = conn.execute("DELETE FROM smriti_entries WHERE key_hash = ?", (key_hash,))
+                conn.execute("DELETE FROM smriti_artifact_refs WHERE key_hash = ?", (key_hash,))
                 if row:
                     self._reclaim_unreferenced_artifacts(conn, [row[0]])
                 return cur.rowcount
@@ -286,7 +287,7 @@ class SmritiCache:
             self._l2.put(key, result, validate=False)
         return True
 
-    def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
+    def invalidate(self, key: CacheKey | str | None = None, capability_id: str | None = None) -> int:
         """Invalidate across both L1 Memory and L2 SQLite tiers.
 
         Returns total persistent entries invalidated in L2 (or L1 if L2 is not configured).
@@ -294,6 +295,10 @@ class SmritiCache:
         l1_count = self._l1.invalidate(key=key, capability_id=capability_id)
         l2_count = self._l2.invalidate(key=key, capability_id=capability_id) if self._l2 else 0
         return l2_count if self._l2 is not None else l1_count
+
+    def invalidate_key(self, key: CacheKey | str) -> int:
+        """Invalidate a specific cache key across all tiers."""
+        return self.invalidate(key=key)
 
     def clear(self) -> int:
         """Clear all entries across both L1 Memory and L2 SQLite cache tiers."""

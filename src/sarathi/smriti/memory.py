@@ -73,33 +73,65 @@ def _defensive_copy(value: Any) -> Any:
 
 def _estimate_data_bytes(val: Any, depth: int = 0) -> int:
     """Recursively estimate in-memory byte size of cached data payloads."""
-    if depth > 4 or val is None:
+    if depth > 5 or val is None:
         return 0
     if isinstance(val, (bytes, bytearray)):
         return len(val)
     if isinstance(val, str):
         return len(val.encode("utf-8", errors="ignore"))
+    if isinstance(val, (int, float, bool)):
+        return 16
+
+    size = 0
+    is_composite = False
+
     if hasattr(val, "text") and isinstance(val.text, str):
-        size = len(val.text.encode("utf-8", errors="ignore"))
-        if hasattr(val, "tables") and isinstance(val.tables, (list, tuple)):
-            for t in val.tables:
-                if hasattr(t, "rows") and isinstance(t.rows, (list, tuple)):
-                    for r in t.rows:
-                        if isinstance(r, (list, tuple)):
-                            size += sum(len(str(c).encode("utf-8", errors="ignore")) for c in r)
-        return size
+        is_composite = True
+        size += len(val.text.encode("utf-8", errors="ignore"))
+
+    if hasattr(val, "tables") and isinstance(val.tables, (list, tuple)):
+        is_composite = True
+        for t in val.tables:
+            size += 128
+            if hasattr(t, "headers") and isinstance(t.headers, (list, tuple)):
+                size += sum(len(str(h).encode("utf-8", errors="ignore")) + 16 for h in t.headers)
+            if hasattr(t, "rows") and isinstance(t.rows, (list, tuple)):
+                for r in t.rows:
+                    if isinstance(r, (list, tuple)):
+                        size += sum(len(str(c).encode("utf-8", errors="ignore")) + 16 for c in r)
+            if hasattr(t, "metadata") and isinstance(t.metadata, (dict, Mapping, MappingProxyType)):
+                size += _estimate_data_bytes(t.metadata, depth + 1)
+
     if hasattr(val, "pages") and isinstance(val.pages, (list, tuple)):
-        size = 0
+        is_composite = True
         for p in val.pages:
-            if hasattr(p, "text") and isinstance(p.text, str):
-                size += len(p.text.encode("utf-8", errors="ignore"))
-        return size
-    if isinstance(val, (list, tuple, set, frozenset)):
-        return sum(_estimate_data_bytes(item, depth + 1) for item in val)
-    if isinstance(val, (dict, Mapping, MappingProxyType)):
-        return sum(_estimate_data_bytes(k, depth + 1) + _estimate_data_bytes(v, depth + 1) for k, v in val.items())
+            size += 128 + _estimate_data_bytes(p, depth + 1)
+
+    if hasattr(val, "spans") and isinstance(val.spans, (list, tuple)):
+        is_composite = True
+        for s in val.spans:
+            size += 128
+            if hasattr(s, "text") and isinstance(s.text, str):
+                size += len(s.text.encode("utf-8", errors="ignore"))
+            if hasattr(s, "metadata") and isinstance(s.metadata, (dict, Mapping, MappingProxyType)):
+                size += _estimate_data_bytes(s.metadata, depth + 1)
+
+    if hasattr(val, "metadata") and isinstance(val.metadata, (dict, Mapping, MappingProxyType)):
+        is_composite = True
+        size += _estimate_data_bytes(val.metadata, depth + 1)
+
     if hasattr(val, "content") and isinstance(val.content, (bytes, str)):
-        return len(val.content) if isinstance(val.content, bytes) else len(val.content.encode("utf-8", errors="ignore"))
+        is_composite = True
+        size += len(val.content) if isinstance(val.content, bytes) else len(val.content.encode("utf-8", errors="ignore"))
+
+    if is_composite:
+        return size
+
+    if isinstance(val, (list, tuple, set, frozenset)):
+        return 64 + sum(_estimate_data_bytes(item, depth + 1) for item in val)
+    if isinstance(val, (dict, Mapping, MappingProxyType)):
+        return 64 + sum(_estimate_data_bytes(k, depth + 1) + _estimate_data_bytes(v, depth + 1) for k, v in val.items())
+
     return 64
 
 
@@ -172,17 +204,8 @@ class MemoryCache:
             est_size = _estimate_result_bytes(result_copy)
 
             if key.key_hash in self._cache:
-                old_entry = self._cache[key.key_hash]
+                old_entry = self._cache.pop(key.key_hash)
                 self._current_bytes = max(0, self._current_bytes - old_entry.size_bytes)
-                self._cache.move_to_end(key.key_hash)
-                self._cache[key.key_hash] = MemoryCacheEntry(
-                    key=key,
-                    result=result_copy,
-                    created_at=entry_created_at,
-                    size_bytes=est_size,
-                )
-                self._current_bytes += est_size
-                return True
 
             # Evict LRU items if at count capacity or byte capacity
             while self._cache and (
@@ -201,12 +224,13 @@ class MemoryCache:
             self._current_bytes += est_size
             return True
 
-    def invalidate(self, key: CacheKey | None = None, capability_id: str | None = None) -> int:
+    def invalidate(self, key: CacheKey | str | None = None, capability_id: str | None = None) -> int:
         """Invalidate specific key, entire capability, or all entries."""
         with self._lock:
             if key is not None:
-                if key.key_hash in self._cache:
-                    entry = self._cache.pop(key.key_hash)
+                key_hash = key.key_hash if hasattr(key, "key_hash") else str(key)
+                if key_hash in self._cache:
+                    entry = self._cache.pop(key_hash)
                     self._current_bytes = max(0, self._current_bytes - entry.size_bytes)
                     return 1
                 return 0

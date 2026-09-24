@@ -705,3 +705,56 @@ def test_sqlite_store_accessed_at_coarsening(tmp_path: Path, monkeypatch) -> Non
             "SELECT accessed_at FROM smriti_entries WHERE key_hash = ?", (key.key_hash,)
         ).fetchone()[0]
     assert accessed_65 == start_time + 65.0
+
+
+def test_memory_cache_replacement_enforces_byte_budget_eviction() -> None:
+    """Replacing an existing key with a larger item must evict LRU items to satisfy max_bytes_l1."""
+    from sarathi.sankalpa import ArtifactIntent, ArtifactPayload, CanonicalDocument, Result
+    from sarathi.smriti.key import CacheKey
+    from sarathi.smriti.memory import MemoryCache
+    from sarathi.smriti.policy import CachePolicy
+
+    policy = CachePolicy(max_entries_l1=100, max_bytes_l1=3000)
+    cache = MemoryCache(policy=policy)
+
+    p1 = ArtifactPayload(intent=ArtifactIntent("p1.bin", "export", "application/octet-stream"), content=b"A" * 1000)
+    res1 = Result(data=CanonicalDocument("doc-1", text="result-1"), artifact_payloads=(p1,))
+    key1 = CacheKey(capability_id="test", fingerprint="fp1", profile="instant", key_hash="k1")
+
+    p2 = ArtifactPayload(intent=ArtifactIntent("p2.bin", "export", "application/octet-stream"), content=b"B" * 1000)
+    res2 = Result(data=CanonicalDocument("doc-2", text="result-2"), artifact_payloads=(p2,))
+    key2 = CacheKey(capability_id="test", fingerprint="fp2", profile="instant", key_hash="k2")
+
+    cache.put(key1, res1)
+    cache.put(key2, res2)
+    assert len(cache) == 2
+
+    # Now replace key2 with a larger item (2000 bytes) -> total with key1 would be ~3300 > 3000
+    p2_large = ArtifactPayload(intent=ArtifactIntent("p2_lg.bin", "export", "application/octet-stream"), content=b"B" * 2000)
+    res2_large = Result(data=CanonicalDocument("doc-2", text="result-2"), artifact_payloads=(p2_large,))
+    cache.put(key2, res2_large)
+
+    # Key1 should have been evicted to respect max_bytes_l1
+    assert cache.get(key1) is None
+    assert cache.get(key2) is not None
+    assert cache.current_bytes <= 3000
+
+
+def test_estimate_data_bytes_includes_pages_spans_and_metadata() -> None:
+    """Document size estimation must incorporate pages, spans, and metadata bytes."""
+    from sarathi.sankalpa import CanonicalDocument, PageData, TextSpan
+    from sarathi.smriti.memory import _estimate_data_bytes
+
+    spans = tuple(
+        TextSpan(text=f"Span text content {i}", bounding_box=(0.0, 0.0, 10.0, 10.0), confidence=0.95)
+        for i in range(50)
+    )
+    pages = tuple(
+        PageData(page_number=i, text=f"Page text {i}", spans=spans, metadata={"key": "x" * 100})
+        for i in range(1, 6)
+    )
+    doc = CanonicalDocument("doc-rich", text="summary", pages=pages, metadata={"meta_field": "m" * 500})
+
+    size = _estimate_data_bytes(doc)
+    # 5 pages * 50 spans each = 250 spans (each ~150B) plus text and metadata -> size should be > 20,000 bytes
+    assert size > 20000

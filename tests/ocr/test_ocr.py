@@ -1971,7 +1971,7 @@ def test_ocr_cross_input_concurrency_with_bounded_subtasks(tmp_path: Path) -> No
     max_active = 0
     lock = threading.Lock()
 
-    def mock_ocr_page(img, page_idx, input_id, profile=None, custom_options=None, execution_binding=None):
+    def mock_ocr_page(img, page_idx, input_id, profile=None, custom_options=None, execution_binding=None, **kwargs):
         nonlocal active_count, max_active
         with lock:
             active_count += 1

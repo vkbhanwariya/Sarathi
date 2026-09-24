@@ -373,10 +373,9 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                     if await request.is_disconnected():
                         return
                     state = mukha.get_application_view_state()
-                    runner_revision = mukha.runner.state_revision
                     is_running = bool(state.active_run and state.active_run.status == "RUNNING")
-                    if runner_revision != last_revision or state.state_revision != last_revision:
-                        last_revision = max(runner_revision, state.state_revision)
+                    if state.state_revision != last_revision:
+                        last_revision = state.state_revision
                         serialized = _fast_json_dumps(
                             {
                                 "ok": True,
@@ -451,12 +450,15 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
             try:
                 parts = [float(v) for v in bbox_raw.split(",")]
                 if len(parts) == 4:
-                    # OCR bboxes are in pixel coords of the rasterised image (default 200 DPI).
+                    # OCR bboxes are in pixel coords of the rasterised image (150 DPI for instant profile, 200/250 DPI for accurate/high_dpi).
                     # PyMuPDF clip expects PDF points (72 DPI), so convert.
                     try:
-                        source_dpi = float(request.query_params.get("dpi", "200"))
+                        raw_dpi = request.query_params.get("dpi")
+                        source_dpi = float(raw_dpi) if raw_dpi else 150.0
+                        if source_dpi <= 0:
+                            source_dpi = 150.0
                     except (ValueError, TypeError):
-                        source_dpi = 200.0
+                        source_dpi = 150.0
                     scale = 72.0 / source_dpi
                     clip_bbox = (parts[0] * scale, parts[1] * scale, parts[2] * scale, parts[3] * scale)
             except (ValueError, TypeError):

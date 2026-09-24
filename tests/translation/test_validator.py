@@ -68,3 +68,27 @@ def test_extract_factual_tokens_prioritized_masking_prevents_subtoken_leak() -> 
     assert "999" not in tokens
     # PAN number 1234 must NOT be leaked as a standalone number
     assert "1234" not in tokens
+
+
+def test_validate_factual_equivalence_flags_percentage_discrepancy() -> None:
+    source = "The tax rate is 5% on base."
+    target = "The tax rate is 9% on base."
+    warnings = validate_factual_equivalence(source, target)
+    missing = [w.context.get("token") for w in warnings if w.context]
+    assert "5%" in missing
+
+
+def test_validate_factual_equivalence_flags_small_currency_discrepancy() -> None:
+    source = "Handling charge is Rs. 50."
+    target = "Handling charge is Rs. 75."
+    warnings = validate_factual_equivalence(source, target)
+    missing = [w.context.get("token") for w in warnings if w.context]
+    assert "50" in missing or "₹50" in missing
+
+
+def test_validate_factual_equivalence_flags_signed_number_discrepancy() -> None:
+    source = "Adjustment amount is +100."
+    target = "Adjustment amount is -100."
+    warnings = validate_factual_equivalence(source, target)
+    missing = [w.context.get("token") for w in warnings if w.context]
+    assert "+100" in missing

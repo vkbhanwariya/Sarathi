@@ -78,6 +78,9 @@ export function Review({
     let url = `/api/inputs/${encodeURIComponent(item.source_input_id)}/pdf_page?page=${item.page_number}`;
     if (item.source_bbox) {
       url += `&bbox=${item.source_bbox.join(",")}`;
+      if (item.source_dpi) {
+        url += `&dpi=${item.source_dpi}`;
+      }
     }
     fetch(url, { headers: { Accept: "application/json" } })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load page"))))
@@ -93,7 +96,7 @@ export function Review({
         if (!cancelled) setSourcePageLoading(false);
       });
     return () => { cancelled = true; };
-  }, [item?.item_id, item?.source_input_id, item?.page_number]);
+  }, [item?.item_id, item?.source_input_id, item?.page_number, item?.source_bbox, item?.source_dpi]);
 
   // Jump to next pending issue shortcut
   const jumpToNextIssue = () => {

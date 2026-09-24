@@ -180,7 +180,7 @@ def _lookup_cache(
     # Invariant: Never replay intermediate escalation/handoff states from cache
     if cached_result is not None and cached_result.next_requirement is not None:
         try:
-            smriti.invalidate_key(cache_key)
+            smriti.invalidate(key=cache_key)
         except Exception:
             pass
         cached_result = None
@@ -291,7 +291,7 @@ def _handle_stage_failure(
     if is_cancelled:
         if smriti is not None and cache_key is not None:
             try:
-                smriti.invalidate_key(cache_key)
+                smriti.invalidate(key=cache_key)
             except Exception:
                 pass
         raise dosh_err
@@ -302,7 +302,7 @@ def _handle_stage_failure(
     if not is_retry_allowed:
         if smriti is not None and cache_key is not None:
             try:
-                smriti.invalidate_key(cache_key)
+                smriti.invalidate(key=cache_key)
             except Exception:
                 pass
         if quarantine_store is not None:
