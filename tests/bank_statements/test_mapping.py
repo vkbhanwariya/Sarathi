@@ -3,7 +3,14 @@ from pathlib import Path
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.shakti.bank_statements.mapper import HeaderMapper
+from sarathi.shakti.bank_statements.mapper import HeaderMapper as _orig_mapper
+
+_FIXTURE_BANKS_DIR = Path(__file__).parent / "fixtures" / "banks"
+
+
+def HeaderMapper(banks_dir: Path | None = None) -> _orig_mapper:
+    target = banks_dir if banks_dir is not None else _FIXTURE_BANKS_DIR
+    return _orig_mapper(banks_dir=target)
 
 
 def test_map_sbi_headers_exact() -> None:
@@ -189,8 +196,6 @@ def test_extract_sample_data_rows() -> None:
 
 def test_resolve_best_profile_with_sample_rows_boosts_confidence() -> None:
     """Providing factual sample rows validates data types and boosts mapping confidence score."""
-    from sarathi.shakti.bank_statements.mapper import HeaderMapper
-
     mapper = HeaderMapper()
     headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
     sample_rows = [

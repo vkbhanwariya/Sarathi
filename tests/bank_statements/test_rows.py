@@ -593,9 +593,7 @@ metadata_patterns:
     """
     table = TableData(
         headers=("Txn Date", "Narration", "Debit", "Credit", "Balance"),
-        rows=(
-            ("01/01/2026", "INTEREST CR", "", "3,000.00", "13,000.00"),
-        ),
+        rows=(("01/01/2026", "INTEREST CR", "", "3,000.00", "13,000.00"),),
     )
     doc = CanonicalDocument(
         document_id="doc-meta-bal",

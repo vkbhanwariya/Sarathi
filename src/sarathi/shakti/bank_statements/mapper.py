@@ -31,6 +31,7 @@ except ImportError:
     def _calc_similarity(s1: str, s2: str) -> float:
         return SequenceMatcher(None, s1, s2).ratio()
 
+
 import yaml
 
 from sarathi.dosh import DoshError, FailureCode
@@ -169,9 +170,7 @@ def _score_sample_data(
         cells = [
             str(r[col_idx]).strip()
             for r in sample_rows
-            if col_idx < len(r)
-            and r[col_idx] is not None
-            and str(r[col_idx]).strip().lower() not in _SAMPLE_NULL_CELLS
+            if col_idx < len(r) and r[col_idx] is not None and str(r[col_idx]).strip().lower() not in _SAMPLE_NULL_CELLS
         ]
         if not cells:
             continue
@@ -231,8 +230,7 @@ class HeaderMapper:
         )
         self._common_aliases_indexed = _preindex_header_aliases(self._common_config.get("aliases", {}))
         self._profiles_headers_indexed = {
-            pid: _preindex_header_aliases(data.get("headers", {}))
-            for pid, data in self._profiles.items()
+            pid: _preindex_header_aliases(data.get("headers", {})) for pid, data in self._profiles.items()
         }
 
     def map_headers(
@@ -313,50 +311,40 @@ class HeaderMapper:
         headers: list[str] | tuple[str, ...],
         candidate_profile: str | None = None,
         sample_rows: Sequence[Sequence[Any]] | None = None,
+        min_threshold: float = 5.0,
     ) -> tuple[str | None, list[ColumnMapping], float]:
-        """Score all registered bank profiles against the extracted table headers and sample rows.
+        """Score registered bank profiles first. Fall back to common/generic ONLY if no profile meets threshold.
 
         Returns:
             Tuple of (best_profile_id, column_mappings, score).
         """
-        cand_data = self._profiles.get(candidate_profile or "")
-        candidate_mappings = self.map_headers(headers, profile_id=candidate_profile)
-        candidate_score = self._score_mappings(
-            candidate_mappings,
-            is_candidate=True,
-            candidate_profile=candidate_profile,
-            profile_data=cand_data,
-            sample_rows=sample_rows,
-        )
+        best_profile: str | None = None
+        best_mappings: list[ColumnMapping] = []
+        best_score = 0.0
 
-        best_profile: str | None = (
-            candidate_profile if (candidate_profile and candidate_profile != "generic") else None
-        )
-        best_mappings = candidate_mappings
-        best_score = candidate_score
+        # 1. Score candidate profile first if specified and registered
+        if candidate_profile and candidate_profile != "generic" and candidate_profile in self._profiles:
+            cand_data = self._profiles[candidate_profile]
+            cand_mappings = self.map_headers(headers, profile_id=candidate_profile)
+            cand_score = self._score_mappings(
+                cand_mappings,
+                is_candidate=True,
+                candidate_profile=candidate_profile,
+                profile_data=cand_data,
+                sample_rows=sample_rows,
+            )
+            best_profile = candidate_profile
+            best_mappings = cand_mappings
+            best_score = cand_score
 
-        generic_mappings = self.map_headers(headers, profile_id=None)
-        generic_score = self._score_mappings(
-            generic_mappings,
-            is_candidate=False,
-            profile_data=self._common_config,
-            sample_rows=sample_rows,
-        )
-        if generic_score > best_score:
-            best_profile = None
-            best_mappings = generic_mappings
-            best_score = generic_score
-
+        # 2. Score all other registered bank profiles
         for prof_id, prof_data in self._profiles.items():
             if prof_id == candidate_profile:
                 continue
             is_cand = bool(
                 candidate_profile
                 and candidate_profile != "generic"
-                and (
-                    prof_data.get("parent_bank") == candidate_profile
-                    or prof_id.startswith(f"{candidate_profile}_")
-                )
+                and (prof_data.get("parent_bank") == candidate_profile or prof_id.startswith(f"{candidate_profile}_"))
             )
             prof_mappings = self.map_headers(headers, profile_id=prof_id)
             prof_score = self._score_mappings(
@@ -372,8 +360,25 @@ class HeaderMapper:
                 best_mappings = prof_mappings
                 best_score = prof_score
 
-        return best_profile, best_mappings, round(best_score, 2)
+        # 3. If a registered bank profile matches with score >= threshold, return it directly.
+        # Common is NOT evaluated when a valid catalogued profile matches.
+        if best_profile is not None and best_score >= min_threshold:
+            return best_profile, best_mappings, round(best_score, 2)
 
+        # 4. FINAL FALLBACK: If no registered profile meets threshold, evaluate common.yaml
+        generic_mappings = self.map_headers(headers, profile_id=None)
+        generic_score = self._score_mappings(
+            generic_mappings,
+            is_candidate=False,
+            profile_data=self._common_config,
+            sample_rows=sample_rows,
+        )
+        if generic_score > best_score:
+            best_profile = None  # None indicates generic/common fallback
+            best_mappings = generic_mappings
+            best_score = generic_score
+
+        return best_profile, best_mappings, round(best_score, 2)
 
     def _match_header(
         self,

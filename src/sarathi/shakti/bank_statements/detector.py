@@ -262,6 +262,24 @@ def detect_bank_statement(
         matched_profile_id = "generic"
         matched_bank_name = "Generic Bank"
 
+    if matched_profile_id == "generic" and raw_acc_num is None:
+        target_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
+        common_cfg = load_bank_profile_yaml(target_dir / "common.yaml")
+        gen_patterns = common_cfg.get("metadata_patterns", {})
+        search_target = composite_raw if composite_raw.strip() else document.text
+        if "account_number" in gen_patterns:
+            m_acc = re.search(gen_patterns["account_number"], search_target, re.IGNORECASE)
+            if m_acc:
+                raw_acc_num = m_acc.group(1).strip()
+        if "account_holder" in gen_patterns:
+            m_holder = re.search(gen_patterns["account_holder"], search_target, re.IGNORECASE)
+            if m_holder:
+                raw_acc_holder = m_holder.group(1).strip()
+        if "ifsc" in gen_patterns:
+            m_ifsc = re.search(gen_patterns["ifsc"], search_target, re.IGNORECASE)
+            if m_ifsc:
+                raw_ifsc = m_ifsc.group(1).strip()
+
     account_identity: AccountIdentity | None = None
     if matched_bank_name:
         account_identity = create_account_identity(

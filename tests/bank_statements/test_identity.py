@@ -1,12 +1,24 @@
 """Tests for Bank Statement and Profile Detection."""
 
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request, Result, TableData
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
-from sarathi.shakti.bank_statements.detector import detect_bank_statement
+from sarathi.shakti.bank_statements.detector import detect_bank_statement as _orig_detect
 
 _HDFC_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "hdfc_statement.csv"
+_FIXTURE_BANKS_DIR = Path(__file__).parent / "fixtures" / "banks"
+
+
+def detect_bank_statement(
+    document: CanonicalDocument,
+    banks_dir: Path | None = None,
+    profiles: Sequence[dict[str, Any]] | None = None,
+):
+    target_banks = banks_dir if banks_dir is not None else _FIXTURE_BANKS_DIR
+    return _orig_detect(document, banks_dir=target_banks, profiles=profiles)
 
 
 def test_detect_sbi_bank_statement() -> None:
@@ -163,7 +175,7 @@ def test_ifsc_extraction_and_propagation() -> None:
     assert evidence.account_identity is not None
     assert evidence.account_identity.ifsc == "ICIC0000001"
 
-    cap = BankStatementCapability()
+    cap = BankStatementCapability(banks_dir=_FIXTURE_BANKS_DIR)
     req = Request(
         request_id="req-test",
         requirement="bank_statements",
