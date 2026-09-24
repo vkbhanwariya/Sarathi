@@ -101,6 +101,14 @@ def main(argv: list[str] | None = None) -> int:
         default=False,
         help="Launch interactive Mukha web dashboard",
     )
+    parser.add_argument(
+        "--dry-run",
+        "--plan",
+        dest="dry_run",
+        action="store_true",
+        default=False,
+        help="Preview execution plan, resolved capabilities, and device allocations without running inference",
+    )
     args = parser.parse_args(argv)
 
     is_bare_interactive = argv is None and sys.stdin.isatty() and len(sys.argv) <= 1
@@ -262,6 +270,33 @@ def main(argv: list[str] | None = None) -> int:
             custom_options=custom_opts,
             output_root=agni.output_root,
         )
+
+        if args.dry_run:
+            from sarathi.mukha.web.planner import preview_execution_plan
+
+            preview = preview_execution_plan(
+                agni=agni,
+                paths=[p.source_path for p in input_refs],
+                requirement=req.requirement,
+                profile=req.profile,
+                recursive=scan_recursive,
+                custom_options=req.custom_options,
+            )
+            if not preview.get("ok"):
+                print(f"Planning error: {preview.get('error')}", file=sys.stderr)
+                return 1
+
+            print(f"Plan Preview: Requirement '{preview['requirement']}' (Profile: {preview['profile']})")
+            print(f"Input Documents: {preview['document_count']} file(s)")
+            print(f"Resolved Capabilities: {', '.join(preview['capabilities']) or 'None'}")
+            print("Execution Stages:")
+            for s in preview["stages"]:
+                print(f"  - [{s['stage_id']}] {s['name']}")
+            print("Allocated Devices:")
+            for d in preview["devices"]:
+                status = "Available" if d.get("is_available") else "Unavailable"
+                print(f"  - {d['device_id']} ({d['device_type']}): {status}")
+            return 0
 
         try:
             result = agni.execute(req)

@@ -265,6 +265,55 @@ class TestMukhaInputAndIntakeTruth:
         captured_rec = capsys.readouterr()
         assert "Status: Success" in captured_rec.out
 
+    def test_cli_dry_run_plan_preview(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        from sarathi.__main__ import main
+
+        doc = tmp_path / "plan_doc.txt"
+        doc.write_text("dry run test document", encoding="utf-8")
+
+        runtime_root = tmp_path / "Runtime"
+        output_root = tmp_path / "Output"
+
+        exit_code = main(
+            [
+                "--input",
+                str(doc),
+                "--runtime-root",
+                str(runtime_root),
+                "--output-root",
+                str(output_root),
+                "--requirement",
+                "read_native",
+                "--dry-run",
+            ]
+        )
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "Plan Preview: Requirement 'read_native'" in captured.out
+        assert "Input Documents: 1 file(s)" in captured.out
+        assert "Execution Stages:" in captured.out
+        assert "Allocated Devices:" in captured.out
+        # Verify no document processing artifacts were actually generated in output_root
+        assert not output_root.exists() or len(list(output_root.glob("**/*.*"))) == 0
+
+        # Verify --plan alias functions identically
+        exit_code_plan = main(
+            [
+                "--input",
+                str(doc),
+                "--runtime-root",
+                str(runtime_root),
+                "--output-root",
+                str(output_root),
+                "--requirement",
+                "read_native",
+                "--plan",
+            ]
+        )
+        assert exit_code_plan == 0
+        captured_plan = capsys.readouterr()
+        assert "Plan Preview: Requirement 'read_native'" in captured_plan.out
+
     def test_cli_intake_defaults_to_input_root(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         from sarathi.__main__ import main
 

@@ -443,3 +443,31 @@ def test_multidoc_digest_content_sensitivity() -> None:
     digest_b = compute_prior_result_digest(res_b)
 
     assert digest_a != digest_b
+
+
+def test_golden_cache_key_hash_stability() -> None:
+    """Golden regression guard: verify BLAKE2b cache key hash produces exact pinned hex digest."""
+    inp = InputRef(
+        source_path=Path("invoice.pdf"),
+        input_id="golden-inp-1",
+        display_name="invoice.pdf",
+        size_bytes=2048,
+        media_type="application/pdf",
+    )
+    doc = CanonicalDocument(
+        document_id="golden-doc-1",
+        source_input_id="golden-inp-1",
+        detected_type="application/pdf",
+        text="Golden Reference Invoice Text",
+    )
+    req = Request(
+        request_id="req-golden-01",
+        requirement="ocr",
+        inputs=(inp,),
+        profile=ExecutionProfile.ACCURATE,
+    )
+    key = compute_cache_key(req, "ocr", "1.0.0", prior_result=Result(data=doc))
+
+    # Pinned 64-character BLAKE2b hex hash invariant
+    assert key.key_hash == "e4f0042f42acce8808f9225fb72125b94fb04935854d5ccafc7f6ce35b76521b"
+    assert len(key.key_hash) == 64
