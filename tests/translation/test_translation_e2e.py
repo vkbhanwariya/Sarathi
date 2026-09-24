@@ -758,3 +758,29 @@ def test_translation_batch_deduplication_preserves_order_and_content(test_backen
     assert len(out_lines) == 4
     assert out_lines[0] == out_lines[1] == out_lines[3]
     assert out_lines[2] != out_lines[0]
+
+
+def test_translation_devanagari_numerals_normalized_to_ascii(test_backend: Any) -> None:
+    """Proves Devanagari numerals (०-९) and currency markers in Hindi are normalized to ASCII in English."""
+    trans_cap = TranslationCapability(backend=test_backend)
+    # Hindi text containing Devanagari date, amount, and currency symbol
+    hindi_text = "दिनांक १५/०३/२०२५ को रु. १,५०,००० का भुगतान किया गया।"
+    doc = CanonicalDocument(
+        document_id="doc-num-norm",
+        source_input_id="inp-num-norm",
+        text=hindi_text,
+    )
+    req = Request(
+        request_id="req-num-norm",
+        requirement="translation",
+        inputs=(InputRef("inp-num-norm", Path("dummy.txt"), "dummy.txt", 100),),
+    )
+    ctx = ExecutionContext("run-num-norm", "req-num-norm", "t-num-norm", "s-num-norm")
+    res = trans_cap.execute(req, ctx, prior_result=Result(data=doc))
+    assert isinstance(res.data, CanonicalDocument)
+    out_text = res.data.text
+    # Must contain ASCII digits 15/03/2025 and 1,50,000, not Devanagari digits
+    assert "15/03/2025" in out_text
+    assert "1,50,000" in out_text
+    assert "Rs." in out_text
+    assert not any(c in out_text for c in "०१२३४५६७८९")

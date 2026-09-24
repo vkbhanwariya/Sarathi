@@ -51,6 +51,7 @@ from sarathi.shakti.translation.legal_context import LegalContextBuilder
 from sarathi.shakti.translation.models import TranslationDirection, TranslationResult
 from sarathi.shakti.translation.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.translation.protector import TranslationProtector
+from sarathi.shakti.translation.validator import validate_factual_equivalence
 from sarathi.shakti.translation.xlsx_transformer import (
     build_xlsx_from_tables,
     transform_xlsx_translation_artifact,
@@ -895,6 +896,14 @@ class TranslationCapability:
                                 stage="translation",
                             )
                         )
+
+                # Run post-translation factual equivalence gate between source and target text
+                factual_warnings = validate_factual_equivalence(
+                    source_text=doc.text,
+                    target_text=translated_doc.text,
+                    direction=direction,
+                )
+                doc_warnings.extend(factual_warnings)
 
                 delivered_payloads = [txt_payload, docx_payload]
                 if xlsx_payload is not None:

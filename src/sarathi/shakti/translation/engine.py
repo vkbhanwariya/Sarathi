@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import DeviceType, ExecutionBinding, ExecutionProfile
+from sarathi.shakti.text.typography import normalize_devanagari_numerals
 from sarathi.shakti.translation.court_templates import CourtTemplateMatcher
 from sarathi.shakti.translation.glossary import GlossaryStore
 from sarathi.shakti.translation.harmonizer import GlossaryHarmonizer
@@ -549,10 +550,11 @@ class CTranslate2NativeBackend:
                 )
                 if device == "cpu":
                     # On hybrid P+E architecture (e.g. Core Ultra 5 125H with 4 P-cores + 8 E-cores),
-                    # pin intra-op parallelism to physical P-cores (4) with AVX2/AVX-VNNI acceleration
-                    # to prevent barrier synchronization jitter across heterogeneous cores.
-                    inter_threads = max(1, approved)
-                    intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // inter_threads))
+                    # pin intra-op parallelism to physical P-cores (4) with AVX2/AVX-VNNI acceleration.
+                    # Bound inter_threads to 2 when intra_threads is 4 to prevent oversubscribing
+                    # the 4 physical P-cores (8 threads) with 24+ thrashing threads.
+                    intra_threads = 4 if cpu_count >= 12 else max(2, min(4, (cpu_count + 1) // max(1, approved)))
+                    inter_threads = max(1, min(2 if intra_threads >= 4 else 4, approved))
                     os.environ.setdefault("KMP_BLOCKTIME", "0")
                     os.environ.setdefault("OMP_PROC_BIND", "close")
                 else:
@@ -1178,6 +1180,9 @@ class CTranslate2TranslationEngine:
                 final_text = clean_krutrim_legal_text(
                     final_text, is_hindi=(direction == TranslationDirection.EN_TO_HI)
                 )
+            if direction == TranslationDirection.HI_TO_EN:
+                final_text = normalize_devanagari_numerals(final_text)
+                final_text = re.sub(r"\b(?:रु|रू)\.?\s*", "Rs. ", final_text)
 
             metadata: dict[str, Any] = {
                 "sentences_count": len(sent_records),

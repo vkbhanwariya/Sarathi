@@ -7,13 +7,10 @@ from __future__ import annotations
 # PyMuPDF decodes bytes 0x80..0xFF into MacRoman Unicode representations.
 MACROMAN_SIGNATURES: frozenset[str] = frozenset(
     {
-        "\u2044",  # ⁄ (fraction slash, MacRoman 0xDA)
-        "\u25ca",  # ◊ (lozenge, MacRoman 0xD7)
-        "\u201a",  # ‚ (single low-9 quotation mark, MacRoman 0xE2)
-        "\ufb02",  # ﬂ (latin small ligature fl, MacRoman 0xDE)
-        "\ufb01",  # ﬁ (latin small ligature fi, MacRoman 0xDD)
-        "\u0178",  # Ÿ (latin capital letter y with diaeresis, MacRoman 0xD9)
-        "\u00ca",  # Ê (latin capital letter e with circumflex, MacRoman 0x83 / 0xE6)
+        "\u2044",  # ⁄ (fraction slash, MacRoman 0xDA - not present in Windows-1252)
+        "\u25ca",  # ◊ (lozenge, MacRoman 0xD7 - not present in Windows-1252)
+        "\ufb02",  # ﬂ (latin small ligature fl, MacRoman 0xDE - not present in Windows-1252)
+        "\ufb01",  # ﬁ (latin small ligature fi, MacRoman 0xDD - not present in Windows-1252)
     }
 )
 

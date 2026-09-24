@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
@@ -45,6 +46,7 @@ from sarathi.shakti.font_conversion.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.font_conversion.protector import TextProtector
 from sarathi.shakti.font_conversion.telemetry import emit_conversion_telemetry
 from sarathi.shakti.font_conversion.validator import FontConversionValidator
+from sarathi.shakti.text.legacy_fonts import LegacyFontProfile
 from sarathi.sutra import get_canonical_data_root
 
 _CANONICAL_FONTS_DIR = get_canonical_data_root() / "fonts"
@@ -56,21 +58,33 @@ def _normalize_font_key(font: str | None) -> str | None:
     return "".join(c for c in font.lower() if c.isalnum())
 
 
-def _stitch_compatible_page_spans(spans: tuple[TextSpan, ...] | list[TextSpan]) -> tuple[TextSpan, ...]:
-    """Merge adjacent compatible runs within each paragraph to resolve cross-run split Aksharas."""
+def _stitch_compatible_page_spans(
+    spans: tuple[TextSpan, ...] | list[TextSpan],
+    profiles: Mapping[str, LegacyFontProfile] | None = None,
+) -> tuple[TextSpan, ...]:
+    """Merge adjacent compatible legacy font runs within each paragraph to resolve cross-run split Aksharas."""
     if not spans:
         return ()
+    active_profiles = profiles if profiles is not None else load_font_profiles()
     stitched: list[TextSpan] = []
     for s in spans:
         if not isinstance(s, TextSpan) or not s.text:
             continue
-        s_font = _normalize_font_key(s.metadata.get("font_name")) if s.metadata else None
+        s_font = s.metadata.get("font_name") if s.metadata else None
         s_p_idx = s.metadata.get("paragraph_index") if s.metadata else None
+
+        # Only stitch adjacent runs that declare an explicit, recognized legacy font profile
+        p_id = resolve_profile_from_font_name(s_font, active_profiles)[0] if s_font else None
+        if p_id is None:
+            stitched.append(s)
+            continue
+
         if stitched:
             prev = stitched[-1]
-            prev_font = _normalize_font_key(prev.metadata.get("font_name")) if prev.metadata else None
+            prev_font = prev.metadata.get("font_name") if prev.metadata else None
             prev_p_idx = prev.metadata.get("paragraph_index") if prev.metadata else None
-            if s_font == prev_font and (s_p_idx is None or s_p_idx == prev_p_idx):
+            prev_pid = resolve_profile_from_font_name(prev_font, active_profiles)[0] if prev_font else None
+            if prev_pid == p_id and (s_p_idx is not None and s_p_idx == prev_p_idx):
                 merged_text = prev.text + s.text
                 merged_meta = dict(prev.metadata) if prev.metadata else {}
                 c_prev = prev.confidence
@@ -384,7 +398,7 @@ class FontConversionCapability:
         has_any_spans = any(bool(p.spans) for p in doc.pages)
         for p in doc.pages:
             if p.spans:
-                stitched_spans = _stitch_compatible_page_spans(p.spans)
+                stitched_spans = _stitch_compatible_page_spans(p.spans, profiles=self._profiles)
                 stitched_pages.append(
                     PageData(
                         page_number=p.page_number,
