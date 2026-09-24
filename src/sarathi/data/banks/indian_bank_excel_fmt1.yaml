@@ -1,0 +1,32 @@
+profile_id: indian_bank_excel_fmt1
+parent_bank: indian_bank
+bank_name: Indian Bank
+container_format: excel
+layout_variant: fmt1
+aliases:
+- indian bank
+- allahabad bank
+- idib
+identification_keywords:
+- indian bank
+- dr_amount
+- cr_amount
+- host_branch
+headers:
+  date:
+  - tran_date
+  description:
+  - narration
+  - tran_desc
+  cheque_number:
+  - instr_no
+  reference_number:
+  - journal_number
+  debit:
+  - dr_amount
+  credit:
+  - cr_amount
+  balance:
+  - balance
+date_formats:
+- '%Y-%m-%d'

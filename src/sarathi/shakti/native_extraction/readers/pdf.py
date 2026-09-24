@@ -558,11 +558,11 @@ def read_pdf(
                         snap_tolerance=3.0,
                         join_tolerance=3.0,
                         min_words_vertical=1,
-                        refine=True,
+                        refine=False,
                     )
                 except Exception:
                     try:
-                        tabs = page.find_tables(refine=True)
+                        tabs = page.find_tables(refine=False)
                     except (pymupdf.FileDataError, ValueError):
                         warnings.append(
                             WarningRecord(

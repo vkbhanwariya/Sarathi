@@ -78,12 +78,33 @@ def get_table_header_and_data_rows(
         return None
 
     if hdr_idx == -1 and table.headers:
-        return tuple(str(c) for c in table.headers), table.rows
+        raw_headers, raw_data_rows = tuple(str(c) for c in table.headers), table.rows
+    elif hdr_idx >= 0 and len(table.rows) > hdr_idx:
+        raw_headers, raw_data_rows = tuple(str(c) for c in table.rows[hdr_idx]), table.rows[hdr_idx + 1 :]
+    else:
+        return None
 
-    if hdr_idx >= 0 and len(table.rows) > hdr_idx:
-        return tuple(str(c) for c in table.rows[hdr_idx]), table.rows[hdr_idx + 1 :]
+    # Handle spreadsheets with merged cells where header strings occupy a single cell in a wide span
+    if raw_headers and sum(1 for c in raw_headers if not str(c).strip()) > len(raw_headers) // 2:
+        hdr_positions = [(i, str(h).strip()) for i, h in enumerate(raw_headers) if str(h).strip()]
+        if hdr_positions and raw_data_rows:
+            col_counts = {
+                c_i: sum(1 for r in raw_data_rows if c_i < len(r) and str(r[c_i]).strip())
+                for c_i in range(len(raw_headers))
+            }
+            active_cols = [c_i for c_i, cnt in col_counts.items() if cnt > 0]
+            if active_cols:
+                aligned = [""] * len(raw_headers)
+                for h_i, h_text in hdr_positions:
+                    candidates = [a for a in active_cols if abs(a - h_i) <= 5]
+                    if candidates:
+                        best_c = max(candidates, key=lambda a: (col_counts[a], -abs(a - h_i)))
+                        aligned[best_c] = h_text
+                    else:
+                        aligned[h_i] = h_text
+                return tuple(aligned), raw_data_rows
 
-    return None
+    return raw_headers, raw_data_rows
 
 
 def classify_table(table: TableData) -> TableType:

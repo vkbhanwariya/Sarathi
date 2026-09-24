@@ -153,7 +153,7 @@ def test_e2e_sbi_bank_statement_consolidation(tmp_path: Path) -> None:
 
     assert len(consolidation.statements) == 1
     stmt = consolidation.statements[0]
-    assert stmt.bank_profile in ("sbi", "generic")
+    assert stmt.bank_profile.startswith("sbi") or stmt.bank_profile == "generic"
     assert stmt.bank_name in ("State Bank of India", "Generic Bank")
     assert stmt.account_identity is not None
     assert stmt.account_identity.masked_account_number == "XXXXXXX6789"
@@ -334,7 +334,7 @@ def test_e2e_hdfc_multiline_narration_consolidation(tmp_path: Path) -> None:
 
     assert len(consolidation.statements) == 1
     stmt = consolidation.statements[0]
-    assert stmt.bank_profile in ("hdfc", "generic")
+    assert stmt.bank_profile.startswith("hdfc") or stmt.bank_profile == "generic"
     assert len(stmt.transactions) == 2
 
     # Check multiline narration merged

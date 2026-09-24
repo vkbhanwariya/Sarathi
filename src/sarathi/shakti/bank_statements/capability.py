@@ -281,7 +281,8 @@ class BankStatementCapability:
             if resolved_prof and resolved_prof != profile_id:
                 active_profile = self._profiles.get(resolved_prof, {})
                 has_signed_semantics = bool(active_profile.get("signed_amounts", False))
-                metadata["resolved_profile"] = resolved_prof
+                if metadata is not None:
+                    metadata["resolved_profile"] = resolved_prof
 
             mappings = {m.canonical_field: m.column_index for m in best_mappings}
             d_col, desc_col = mappings.get("date"), mappings.get("description")
@@ -302,7 +303,7 @@ class BankStatementCapability:
                 match classify_row(row_cells, date_col_idx=d_col, amount_col_indices=amt_indices):
                     case RowType.OPENING_BALANCE:
                         parsed_open = parse_decimal_amount(_get_raw_cell(row, b_col))
-                        if parsed_open is not None:
+                        if parsed_open is not None and open_bal is None:
                             open_bal = parsed_open
                     case RowType.CLOSING_BALANCE:
                         parsed_close = parse_decimal_amount(_get_raw_cell(row, b_col))
@@ -381,7 +382,11 @@ class BankStatementCapability:
                         tx_val_date = parse_date(_get_raw_cell(row, val_date_col)) if val_date_col is not None else None
 
                         tx_debit = parse_decimal_amount(_get_raw_cell(row, dr_col))
+                        if tx_debit is not None:
+                            tx_debit = abs(tx_debit)
                         tx_credit = parse_decimal_amount(_get_raw_cell(row, cr_col))
+                        if tx_credit is not None:
+                            tx_credit = abs(tx_credit)
                         tx_bal = parse_decimal_amount(_get_raw_cell(row, b_col))
 
                         # Handle single amount column with strict explicit direction or signed semantics

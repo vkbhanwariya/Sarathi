@@ -1,0 +1,47 @@
+profile_id: sbi_pdf_fmt1
+parent_bank: sbi
+bank_name: State Bank of India
+container_format: pdf
+layout_variant: fmt1
+aliases:
+- state bank of india
+- sbi
+- sbin
+identification_keywords:
+- state bank of india
+- sbi
+- onlinesbi.sbi
+- onlinesbi.com
+headers:
+  date:
+  - post date
+  - 'post
+
+    date'
+  - postdate
+  time:
+  - post time
+  - posttime
+  cheque_number:
+  - cheque number
+  - 'cheque
+
+    number'
+  - chequenumber
+  description:
+  - description
+  debit:
+  - debit
+  credit:
+  - credit
+  balance:
+  - balance
+  reference_number:
+  - jrnl no
+  - jrnlno
+date_formats:
+- '%d-%m-%Y'
+metadata_patterns:
+  account_number: Account\s*Number\s*([0-9]{11,18})
+  account_holder: Account\s*Holder\s*Name\s*([^\n\r]+)
+  cif: CIF\s*No\s*([0-9]{11})

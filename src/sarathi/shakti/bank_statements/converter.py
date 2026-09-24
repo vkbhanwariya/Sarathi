@@ -11,9 +11,19 @@ from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-_DATE_FORMATS = ("%d/%m/%Y", "%Y/%m/%d", "%d/%m/%y", "%d %b %Y", "%d %B %Y", "%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d")
+_DATE_FORMATS = (
+    "%d/%m/%Y",
+    "%Y/%m/%d",
+    "%d/%m/%y",
+    "%d %b %Y",
+    "%d %B %Y",
+    "%d-%b-%Y",
+    "%d-%B-%Y",
+    "%Y-%m-%d",
+    "%d%m%Y",
+)
 _TIME_FORMATS = ("%H:%M:%S", "%I:%M:%S %p", "%H:%M", "%I:%M %p")
-_NULL_WORDS = frozenset(("", "-", "--", "na", "n/a", "nil", "null"))
+_NULL_WORDS = frozenset(("", "-", "--", "na", "n/a", "nil", "null", "'", '"'))
 _CURRENCY_PREFIX_RE = re.compile(r"^(?:[₹$€£]|rs\.?|inr|usd|eur|gbp)\s*", re.IGNORECASE)
 _SUFFIX_RE = re.compile(r"(?:\s*(?:dr\.?|cr\.?)|/\-+)$", re.IGNORECASE)
 
@@ -76,7 +86,7 @@ def parse_date(raw_val: Any) -> date | None:
         case date():
             return raw_val
         case str():
-            date_str = raw_val.strip()
+            date_str = raw_val.strip().replace("\n", "").replace("\xa0", " ").strip("\"'")
             if not date_str:
                 return None
             try:

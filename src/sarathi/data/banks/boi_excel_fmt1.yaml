@@ -1,0 +1,33 @@
+profile_id: boi_excel_fmt1
+parent_bank: boi
+bank_name: Bank of India
+container_format: excel
+layout_variant: fmt1
+aliases:
+- bank of india
+- boi
+- bkid
+identification_keywords:
+- bank of india
+- boi
+- bkid
+headers:
+  date:
+  - tran_date
+  description:
+  - tran_particular
+  - tran_rmks
+  reference_number:
+  - tran_id
+  cheque_number:
+  - instrmnt_num
+  debit:
+  - debit
+  credit:
+  - credit
+  balance:
+  - balance
+date_formats:
+- '%d-%m-%Y'
+metadata_patterns:
+  account_number: ACC_NO\s*[:\-]?\s*([0-9]{12,18})

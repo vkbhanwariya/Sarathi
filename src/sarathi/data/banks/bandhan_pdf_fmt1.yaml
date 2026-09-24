@@ -1,0 +1,45 @@
+profile_id: bandhan_pdf_fmt1
+parent_bank: bandhan
+bank_name: Bandhan Bank
+container_format: pdf
+layout_variant: fmt1
+aliases:
+- bandhan bank
+- bandhan
+identification_keywords:
+- bandhan bank
+- bandhan
+- bdbl0001378
+- jodhpur.branch@bandhanbank.com
+headers:
+  date:
+  - 'trans
+
+    date'
+  - trans date
+  value_date:
+  - 'value
+
+    date'
+  - value date
+  cheque_number:
+  - 'cheque /
+
+    instrument'
+  - cheque / instrument
+  description:
+  - description
+  debit:
+  - debits
+  credit:
+  - credits
+  balance:
+  - balance
+date_formats:
+- '%d-%b-%Y'
+- '%d-%B-%Y'
+metadata_patterns:
+  account_number: Account\s*No:\s*([0-9]{10,18})
+  account_holder: Account\s*Title:\s*([^\n\r]+)
+  ifsc: IFSC:\s*([A-Z]{4}0[A-Z0-9]{6})
+  cif: Customer\s*Number:\s*([0-9]{8,12})

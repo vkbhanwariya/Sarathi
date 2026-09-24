@@ -1,0 +1,35 @@
+profile_id: federal_excel_fmt1
+parent_bank: federal
+bank_name: Federal Bank
+container_format: excel
+layout_variant: fmt1
+aliases:
+- federal bank
+- federal
+- fbl
+identification_keywords:
+- federal bank
+- fbl
+- tran sub type
+- tran particular
+headers:
+  date:
+  - tran date
+  value_date:
+  - value date
+  description:
+  - tran particular
+  - tran rmks
+  - tran particular 2
+  reference_number:
+  - tran id
+  debit:
+  - debit
+  credit:
+  - credit
+  balance:
+  - balance
+date_formats:
+- '%Y-%m-%d'
+metadata_patterns:
+  account_number: (?:ACCOUNT[,\s]*|^)([0-9]{12,18})

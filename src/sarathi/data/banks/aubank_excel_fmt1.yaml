@@ -1,0 +1,42 @@
+profile_id: aubank_excel_fmt1
+parent_bank: aubank
+bank_name: AU Small Finance Bank
+container_format: excel
+layout_variant: fmt1
+signed_amounts: true
+aliases:
+- au bank
+- au small finance bank
+- ausfbank
+identification_keywords:
+- ausfbank
+- au small finance
+- aubank
+headers:
+  date:
+  - transaction date
+  description:
+  - '"transaction description"'
+  - transaction description
+  cheque_number:
+  - '"referance cheque no"'
+  - referance cheque no
+  - reference cheque no
+  reference_number:
+  - '"transaction ref no"'
+  - transaction ref no
+  - '"user referance no"'
+  - user referance no
+  amount:
+  - '"transaction amount"'
+  - transaction amount
+  direction:
+  - '"flag debit credit"'
+  - flag debit credit
+  balance:
+  - balance
+date_formats:
+- '%Y-%m-%d %H:%M:%S'
+- '%Y-%m-%d'
+metadata_patterns:
+  account_number: Account\s*No[\s\":]*([A-Z0-9]{9,20})

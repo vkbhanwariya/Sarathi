@@ -199,6 +199,12 @@ def detect_bank_statement(
     for prof in profiles:
         prof_id = prof.get("profile_id", "")
         bank_name = prof.get("bank_name", prof_id)
+        parent_bank = prof.get("parent_bank", prof_id)
+        prof_container = prof.get("container_format", "").lower()
+        doc_type = (document.detected_type or "").lower()
+        if doc_type in ("xlsx", "xls"):
+            doc_type = "excel"
+
         all_kw = prof.get("identification_keywords", []) + prof.get("aliases", [])
         matches = [kw for kw in all_kw if kw.lower() in full_text]
         if not matches:
@@ -206,6 +212,10 @@ def detect_bank_statement(
 
         cand_score = min(0.4, 0.15 * len(matches))
         cand_reasons = [f"Matched bank profile '{prof_id}' ({bank_name}) on keywords {matches[:4]}."]
+
+        if prof_container and doc_type and prof_container == doc_type:
+            cand_score += 0.25
+            cand_reasons.append(f"Matched container format '{doc_type}'.")
 
         patterns = prof.get("metadata_patterns", {})
         search_target = composite_raw if composite_raw.strip() else document.text
@@ -234,7 +244,7 @@ def detect_bank_statement(
                 cand_score += 0.1
                 cand_reasons.append(f"Extracted IFSC pattern: {m_ifsc_val}")
 
-        cand_tuple = (cand_score, prof_id, bank_name, m_acc_val, m_holder_val, m_ifsc_val, cand_reasons)
+        cand_tuple = (cand_score, prof_id, bank_name, m_acc_val, m_holder_val, m_ifsc_val, cand_reasons, parent_bank)
         if not top_candidates or cand_score > top_candidates[0][0]:
             top_candidates = [cand_tuple]
         elif cand_score == top_candidates[0][0]:
@@ -242,21 +252,29 @@ def detect_bank_statement(
 
     if top_candidates:
         if len(top_candidates) == 1:
-            cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons = (
+            cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons, _ = (
                 top_candidates[0]
             )
             score += cand_score
             reasons.extend(cand_reasons)
         else:
-            # Exact tie between competing profiles: mark ambiguous, default to generic
-            tied_names = [c[1] for c in top_candidates]
-            cand_score = top_candidates[0][0]
-            matched_profile_id = "generic"
-            matched_bank_name = None
-            score += cand_score
-            reasons.append(
-                f"Ambiguous bank profiles with identical evidence score ({cand_score:.2f}): {tied_names}. Defaulted to generic profile."
-            )
+            parent_banks = {c[7] for c in top_candidates}
+            if len(parent_banks) == 1:
+                cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons, _ = (
+                    top_candidates[0]
+                )
+                score += cand_score
+                reasons.extend(cand_reasons)
+            else:
+                # Exact tie between competing profiles of different banks: mark ambiguous, default to generic
+                tied_names = [c[1] for c in top_candidates]
+                cand_score = top_candidates[0][0]
+                matched_profile_id = "generic"
+                matched_bank_name = None
+                score += cand_score
+                reasons.append(
+                    f"Ambiguous bank profiles with identical evidence score ({cand_score:.2f}): {tied_names}. Defaulted to generic profile."
+                )
 
     if score >= 0.5 and matched_profile_id is None:
         matched_profile_id = "generic"

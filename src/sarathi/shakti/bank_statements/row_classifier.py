@@ -23,32 +23,30 @@ class RowType(StrEnum):
 _HEADER_KEYWORDS = frozenset(
     {"date", "txn date", "transaction date", "particulars", "description", "narration", "debit", "credit", "balance"}
 )
-_OPENING_KEYWORDS = frozenset(
+_OPENING_PHRASES = frozenset(
     {
         "opening balance",
-        "b/f",
         "brought forward",
         "balance b/f",
         "opening bal",
         "balance b/d",
         "bal b/f",
         "bal b/d",
-        "b/d",
     }
 )
-_CLOSING_KEYWORDS = frozenset(
+_CLOSING_PHRASES = frozenset(
     {
         "closing balance",
-        "c/f",
         "carried forward",
         "balance c/f",
         "closing bal",
         "balance c/d",
         "bal c/f",
         "bal c/d",
-        "c/d",
     }
 )
+_SHORT_OPENING_RE = re.compile(r"(?:\b|\s)(?:b/f|b/d)(?:\b|\s|\.\.\.)", re.IGNORECASE)
+_SHORT_CLOSING_RE = re.compile(r"(?:\b|\s)(?:c/f|c/d)(?:\b|\s|\.\.\.)", re.IGNORECASE)
 _EOD_KEYWORDS = frozenset({"eod balance", "end of day balance", "daily balance", "eod bal", "daily bal"})
 _SUMMARY_KEYWORDS = frozenset({"total", "grand total", "total transactions", "summary"})
 _DATE_RE = re.compile(
@@ -82,9 +80,15 @@ def classify_row(
 
     row_str = " ".join(cleaned).lower()
 
-    if any(k in row_str for k in _CLOSING_KEYWORDS):
+    if any(k in row_str for k in ("elapsed:", "---", "legend :", "end of statement")):
+        return RowType.NOISE
+
+    if all(re.match(r"^[\*\-_=\.]+$", c) for c in cleaned if c):
+        return RowType.NOISE
+
+    if any(k in row_str for k in _CLOSING_PHRASES) or bool(_SHORT_CLOSING_RE.search(row_str)):
         return RowType.CLOSING_BALANCE
-    if any(k in row_str for k in _OPENING_KEYWORDS):
+    if any(k in row_str for k in _OPENING_PHRASES) or bool(_SHORT_OPENING_RE.search(row_str)):
         return RowType.OPENING_BALANCE
     if any(k in row_str for k in _EOD_KEYWORDS):
         return RowType.EOD_BALANCE

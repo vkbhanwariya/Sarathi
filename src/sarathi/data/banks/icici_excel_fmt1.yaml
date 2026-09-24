@@ -1,0 +1,31 @@
+profile_id: icici_excel_fmt1
+parent_bank: icici
+bank_name: ICICI Bank
+container_format: excel
+layout_variant: fmt1
+aliases:
+- icici bank
+- icici
+identification_keywords:
+- icici bank
+- icici
+- icic0007469
+headers:
+  date:
+  - date_of_transaction
+  description:
+  - narration
+  cheque_number:
+  - instrument_number
+  debit:
+  - debit_amount
+  credit:
+  - credit_amount
+  balance:
+  - line_balance
+date_formats:
+- '%d-%m-%Y'
+metadata_patterns:
+  account_number: Account_Number\s*[:\-]?\s*([0-9]{12})
+  ifsc: IFSC_Code\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})
+  account_holder: Customer_Name\s*[:\-]?\s*([^\n\r]+)

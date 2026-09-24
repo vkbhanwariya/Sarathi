@@ -1,0 +1,39 @@
+profile_id: bandhan_excel_fmt1
+parent_bank: bandhan
+bank_name: Bandhan Bank
+container_format: excel
+layout_variant: fmt1
+aliases:
+- bandhan bank
+- bandhan
+identification_keywords:
+- bandhan bank
+- bandhan
+- bdbl
+headers:
+  date:
+  - trans date
+  - 'trans
+
+    date'
+  value_date:
+  - value date
+  - 'value
+
+    date'
+  cheque_number:
+  - cheque / instrument
+  - 'cheque /
+
+    instrument'
+  description:
+  - description
+  debit:
+  - debits
+  credit:
+  - credits
+  balance:
+  - balance
+date_formats:
+- '%Y-%m-%d'
+- '%d-%b-%Y'
