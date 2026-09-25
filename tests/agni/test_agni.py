@@ -661,21 +661,23 @@ class TestAgniBootstrap:
         )
         warmup_calls = []
 
-        # Find a capability with warmup
-        cap = next(c for c in agni.capabilities.values() if hasattr(c, "warmup"))
-        monkeypatch.setattr(cap, "warmup", lambda execution_binding=None: warmup_calls.append(execution_binding))
+        # Patch all capabilities with warmup to prevent accidental heavy neural model spin-up
+        warmable_caps = [c for c in agni.capabilities.values() if hasattr(c, "warmup")]
+        num_warmable = len(warmable_caps)
+        assert num_warmable > 0
+        for c in warmable_caps:
+            monkeypatch.setattr(c, "warmup", lambda execution_binding=None: warmup_calls.append(execution_binding))
 
         # Synchronous prewarm test
         agni.prewarm(async_mode=False)
-        assert len(warmup_calls) == 1
-        assert warmup_calls[0] is not None
-        assert warmup_calls[0].device_id is not None
+        assert len(warmup_calls) == num_warmable
+        assert all(b is not None and b.device_id is not None for b in warmup_calls[:num_warmable])
 
         # Asynchronous prewarm test
         thread = agni.prewarm(async_mode=True)
         assert thread is not None
         thread.join(timeout=2.0)
-        assert len(warmup_calls) == 2
+        assert len(warmup_calls) == num_warmable * 2
 
     def test_agni_prewarm_capability_aware_device_resolution(self, tmp_path: Path) -> None:
         """Agni._resolve_preferred_binding gives GPU to OpenVINO OCR and CPU to Translation."""

@@ -3,8 +3,20 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "Vedas/**"
+      - ".agents/**"
+      - ".vscode/**"
+      - ".gitignore"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "Vedas/**"
+      - ".agents/**"
+      - ".vscode/**"
+      - ".gitignore"
   workflow_dispatch:
 
 permissions:
@@ -82,7 +94,7 @@ jobs:
         run: npm run build
 
   test:
-    name: Unit & Integration Tests
+    name: Unit & Integration Tests (Deterministic)
     needs: [lint]
     runs-on: ubuntu-24.04
     steps:
@@ -101,15 +113,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --group dev
 
-      - name: Provision verified OCR models
-        shell: pwsh
-        run: ./tools/scripts/Setup-OCRModels.ps1
-
       - name: Run deterministic test suite
-        run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture"
-
-      - name: Run real model validation suite
-        run: uv run --group dev --all-extras pytest -q -m "real_model"
+        run: uv run --group dev --all-extras pytest -q -m "not browser and not performance and not real_model and not architecture and not slow"
 
   windows-smoke:
     name: Windows CI Smoke
@@ -132,10 +137,11 @@ jobs:
         run: uv sync --all-extras --group dev
 
       - name: Run Windows-critical smoke suite
-        run: uv run --group dev pytest -q -m "not browser and not performance and not real_model and not architecture" tests/smriti/ tests/security/ tests/configuration/ tests/statutory/
+        run: uv run --group dev pytest -q -m "not browser and not performance and not real_model and not architecture and not slow" tests/smriti/ tests/security/ tests/configuration/ tests/statutory/
 
   browser:
-    name: Browser Tests
+    name: Browser Tests (E2E)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[e2e]')
     needs: [lint, frontend]
     runs-on: ubuntu-24.04
     steps:
@@ -169,6 +175,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --group dev
 
+      - name: Cache OCR Models
+        uses: actions/cache@v4
+        with:
+          path: data/ocr/models
+          key: ocr-models-${{ hashFiles('data/ocr/manifest.json') }}
+
       - name: Provision verified OCR models
         shell: pwsh
         run: ./tools/scripts/Setup-OCRModels.ps1
@@ -178,3 +190,37 @@ jobs:
 
       - name: Run browser test suite
         run: uv run --group dev --all-extras pytest -q -m browser
+
+  heavy-validation:
+    name: Heavy Neural Model Validation
+    if: github.event_name == 'workflow_dispatch'
+    needs: [test]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-extras --group dev
+
+      - name: Cache OCR Models
+        uses: actions/cache@v4
+        with:
+          path: data/ocr/models
+          key: ocr-models-${{ hashFiles('data/ocr/manifest.json') }}
+
+      - name: Provision verified OCR models
+        shell: pwsh
+        run: ./tools/scripts/Setup-OCRModels.ps1
+
+      - name: Run real model validation suite
+        run: uv run --group dev --all-extras pytest -q -m "real_model"

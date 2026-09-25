@@ -69,24 +69,44 @@ def test_convert_doc_fails_closed_when_word_unavailable(tmp_path: Path) -> None:
         assert "Microsoft Word is required" in str(exc_info.value)
 
 
-@pytest.mark.skipif(not is_word_converter_available(), reason="Microsoft Word not installed on host")
-def test_e2e_word_doc_conversion_and_native_extraction(tmp_path: Path) -> None:
-    """End-to-end verification: create a .doc using Word COM, convert to .docx, and run native extraction."""
+@pytest.fixture(scope="module")
+def legacy_doc_samples(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    """Generate legacy Word .doc test files in a single Word COM session to avoid duplicate process bottlenecks."""
+    if not is_word_converter_available():
+        pytest.skip("Microsoft Word not installed on host")
+
     import subprocess
 
-    doc_file = tmp_path / "hello_sarathi.doc"
+    base_dir = tmp_path_factory.mktemp("legacy_docs")
+    doc1 = base_dir / "hello_sarathi.doc"
+    doc2 = base_dir / "krutidev_test.doc"
+    doc3 = base_dir / "hindi_sample.doc"
 
-    # Create a real .doc file using Word COM
     create_script = f"""
     $word = New-Object -ComObject Word.Application
     $word.Visible = $false
     $word.DisplayAlerts = 0
     try {{
-        $d = $word.Documents.Add()
-        $d.Content.Text = "Sarathi Automated Legacy Word Test."
-        # 0 = wdFormatDocument (.doc)
-        $d.SaveAs2('{str(doc_file.resolve()).replace("'", "''")}', 0)
-        $d.Close($false)
+        # Doc 1: English plain text
+        $d1 = $word.Documents.Add()
+        $d1.Content.Text = "Sarathi Automated Legacy Word Test."
+        $d1.SaveAs2('{str(doc1.resolve()).replace("'", "''")}', 0)
+        $d1.Close($false)
+
+        # Doc 2: Kruti Dev font
+        $d2 = $word.Documents.Add()
+        $p2 = $d2.Paragraphs.Add()
+        $p2.Range.Text = "Hkkjr ljdkj"
+        $p2.Range.Font.Name = "Kruti Dev 010"
+        $d2.SaveAs2('{str(doc2.resolve()).replace("'", "''")}', 0)
+        $d2.Close($false)
+
+        # Doc 3: Hindi Unicode text
+        $d3 = $word.Documents.Add()
+        $p3 = $d3.Paragraphs.Add()
+        $p3.Range.Text = "भारतीय रिजर्व बैंक ने नई मौद्रिक नीति की घोषणा की।"
+        $d3.SaveAs2('{str(doc3.resolve()).replace("'", "''")}', 0)
+        $d3.Close($false)
     }} finally {{
         $word.Quit()
         [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
@@ -96,11 +116,25 @@ def test_e2e_word_doc_conversion_and_native_extraction(tmp_path: Path) -> None:
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", create_script],
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=30,
         check=False,
     )
-    assert res.returncode == 0, f"Failed to create test .doc file: {res.stderr}"
-    assert doc_file.is_file()
+    assert res.returncode == 0, f"Failed to create test .doc files: {res.stderr}"
+    assert doc1.is_file() and doc2.is_file() and doc3.is_file()
+
+    return {
+        "hello": doc1,
+        "krutidev": doc2,
+        "hindi": doc3,
+    }
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+@pytest.mark.skipif(not is_word_converter_available(), reason="Microsoft Word not installed on host")
+def test_e2e_word_doc_conversion_and_native_extraction(legacy_doc_samples: dict[str, Path], tmp_path: Path) -> None:
+    """End-to-end verification: create a .doc using Word COM, convert to .docx, and run native extraction."""
+    doc_file = legacy_doc_samples["hello"]
 
     # 1. Test direct convert_doc_to_docx
     converted_docx = convert_doc_to_docx(doc_file, output_dir=tmp_path)
@@ -143,41 +177,15 @@ def test_e2e_word_doc_conversion_and_native_extraction(tmp_path: Path) -> None:
     assert len(docx_artifacts) >= 1
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 @pytest.mark.skipif(not is_word_converter_available(), reason="Microsoft Word not installed on host")
-def test_e2e_word_doc_font_conversion_full_pipeline(tmp_path: Path) -> None:
+def test_e2e_word_doc_font_conversion_full_pipeline(legacy_doc_samples: dict[str, Path], tmp_path: Path) -> None:
     """End-to-end verification: legacy .doc through Agni (read_native -> font_conversion)."""
-    import subprocess
-
     from sarathi.agni import Agni
     from sarathi.darpana import Darpana
 
-    doc_file = tmp_path / "krutidev_test.doc"
-
-    # Create a .doc file with KrutiDev text ('Hkkjr ljdkj' is 'भारत सरकार')
-    create_script = f"""
-    $word = New-Object -ComObject Word.Application
-    $word.Visible = $false
-    $word.DisplayAlerts = 0
-    try {{
-        $d = $word.Documents.Add()
-        $p = $d.Paragraphs.Add()
-        $p.Range.Text = "Hkkjr ljdkj"
-        $p.Range.Font.Name = "Kruti Dev 010"
-        $d.SaveAs2('{str(doc_file.resolve()).replace("'", "''")}', 0)
-        $d.Close($false)
-    }} finally {{
-        $word.Quit()
-        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
-    }}
-    """
-    res = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", create_script],
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
-    assert res.returncode == 0, f"Failed to create test .doc file: {res.stderr}"
+    doc_file = legacy_doc_samples["krutidev"]
 
     agni = Agni(
         runtime_root=tmp_path / "Runtime",
@@ -216,42 +224,17 @@ def test_e2e_word_doc_font_conversion_full_pipeline(tmp_path: Path) -> None:
     assert len(docx_artifacts) >= 1
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 @pytest.mark.skipif(not is_word_converter_available(), reason="Microsoft Word not installed on host")
-def test_e2e_word_doc_translation_full_pipeline(tmp_path: Path) -> None:
+def test_e2e_word_doc_translation_full_pipeline(legacy_doc_samples: dict[str, Path], tmp_path: Path) -> None:
     """End-to-end verification: legacy .doc through Agni (read_native -> translation)."""
-    import subprocess
-
     from sarathi.agni import Agni
     from sarathi.darpana import Darpana
     from sarathi.shakti.translation.capability import TranslationCapability
     from tests.translation.conftest import DeterministicTestBackend
 
-    doc_file = tmp_path / "hindi_sample.doc"
-
-    # Create a .doc file with Hindi text
-    create_script = f"""
-    $word = New-Object -ComObject Word.Application
-    $word.Visible = $false
-    $word.DisplayAlerts = 0
-    try {{
-        $d = $word.Documents.Add()
-        $p = $d.Paragraphs.Add()
-        $p.Range.Text = "भारतीय रिजर्व बैंक ने नई मौद्रिक नीति की घोषणा की।"
-        $d.SaveAs2('{str(doc_file.resolve()).replace("'", "''")}', 0)
-        $d.Close($false)
-    }} finally {{
-        $word.Quit()
-        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
-    }}
-    """
-    res = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", create_script],
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
-    assert res.returncode == 0, f"Failed to create test .doc file: {res.stderr}"
+    doc_file = legacy_doc_samples["hindi"]
 
     darpana = Darpana(capacity=50)
     test_cap = TranslationCapability(darpana=darpana, backend=DeterministicTestBackend())

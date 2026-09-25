@@ -69,7 +69,7 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
-addopts = "-ra -q --tb=short --show-capture=no -p no:warnings -m \"not browser and not performance and not real_model and not layout\""
+addopts = "-ra -q --tb=short --show-capture=no -p no:warnings -m \"not browser and not performance and not real_model and not layout and not slow\""
 markers = [
     "unit: marks isolated deterministic unit tests",
     "contract: marks public data or API contract tests",
