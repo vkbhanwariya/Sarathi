@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -343,6 +345,175 @@ def _extract_vector_stroke_tables(
     ]
 
 
+def _determine_pdf_workers(total_pages: int) -> int:
+    """Determine number of parallel worker processes for PDF extraction."""
+    if total_pages <= 4:
+        return 1
+    cpu_fn = getattr(os, "process_cpu_count", None)
+    cpu_count = cpu_fn() if callable(cpu_fn) else (os.cpu_count() or 4)
+    target = max(1, min(8, cpu_count // 2))
+    max_useful = max(1, total_pages // 4)
+    return min(target, max_useful)
+
+
+def _extract_pdf_slice_worker(
+    args: tuple[str | None, bytes | None, int, int, str | None, bool, dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Worker process task: extract text spans, blocks, tables, and stats for a page slice."""
+    source_path_str, data, start_page, end_page, password, convert_legacy_fonts, doc_font_map = args
+    if source_path_str is not None and Path(source_path_str).is_file():
+        doc = pymupdf.open(source_path_str)
+    elif data is not None:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+    else:
+        return []
+
+    if password and doc.is_encrypted:
+        doc.authenticate(password)
+
+    fc_tools: dict[str, Any] | None = None
+    if convert_legacy_fonts:
+        try:
+            fc_tools = _get_font_conversion_tools()
+        except Exception:
+            fc_tools = None
+
+    results: list[dict[str, Any]] = []
+    try:
+        total = len(doc)
+        for page_idx in range(start_page, min(end_page, total)):
+            page = doc[page_idx]
+            page_num = page_idx + 1
+            page_rect = page.rect
+            p_height = float(page_rect.height)
+            p_width = float(page_rect.width)
+
+            text_page = page.get_textpage(flags=_PDF_TEXT_FLAGS)
+            p_spans, p_blocks, p_lines, p_conv_profs = _process_page_stream_spans(
+                text_page=text_page,
+                doc_font_map=doc_font_map,
+                convert_legacy_fonts=convert_legacy_fonts,
+                fc_tools=fc_tools,
+                warnings=[],
+                page_num=page_num,
+            )
+
+            if not p_blocks:
+                try:
+                    raw_blocks = text_page.extractBLOCKS()
+                    for b in raw_blocks:
+                        if len(b) >= 5:
+                            x0, y0, x1, y1, b_text = b[0], b[1], b[2], b[3], b[4]
+                            if isinstance(b_text, str) and b_text.strip():
+                                b_clean = b_text.strip()
+                                p_blocks.append((b_clean, (float(x0), float(y0), float(x1), float(y1))))
+                                if not p_spans:
+                                    p_spans.append(
+                                        TextSpan(
+                                            text=b_clean,
+                                            bounding_box=(float(x0), float(y0), float(x1), float(y1)),
+                                        )
+                                    )
+                except Exception:
+                    pass
+
+            del text_page
+
+            page_area = max(1.0, float(page_rect.width * page_rect.height))
+            image_area = 0.0
+            try:
+                for img_info in page.get_image_info():
+                    bbox = img_info.get("bbox")
+                    if bbox:
+                        image_area += max(0.0, float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])))
+            except Exception:
+                pass
+
+            image_coverage = min(1.0, image_area / page_area)
+            is_scanned = image_coverage >= 0.80 and (len(" ".join(p_lines).strip()) < 30)
+
+            raw_tables: list[tuple[str, tuple[str, ...], tuple[tuple[Any, ...], ...], dict[str, Any]]] = []
+            if not is_scanned:
+                tabs = None
+                try:
+                    tabs = page.find_tables(
+                        vertical_strategy="lines",
+                        horizontal_strategy="lines",
+                        snap_tolerance=3.0,
+                        join_tolerance=3.0,
+                        min_words_vertical=1,
+                        refine=False,
+                    )
+                except Exception:
+                    try:
+                        tabs = page.find_tables(refine=False)
+                    except Exception:
+                        tabs = None
+
+                if tabs and len(tabs.tables) > 0:
+                    for t_idx, tab in enumerate(tabs.tables, 1):
+                        extracted_rows = tab.extract()
+                        if extracted_rows and len(extracted_rows) > 0:
+                            header_obj = getattr(tab, "header", None)
+                            header_names = getattr(header_obj, "names", None) if header_obj is not None else None
+                            is_external = (
+                                bool(getattr(header_obj, "external", False)) if header_obj is not None else False
+                            )
+
+                            if is_external and header_names:
+                                headers = tuple(cell_text(h) for h in header_names)
+                                data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows)
+                            else:
+                                candidate_headers = header_names if header_names else extracted_rows[0]
+                                headers = tuple(cell_text(h) for h in candidate_headers)
+                                data_rows = tuple(tuple(cell_text(val) for val in row) for row in extracted_rows[1:])
+
+                            if p_conv_profs and fc_tools:
+                                converter = fc_tools["converter"]
+                                is_leg = fc_tools["is_legacy_text"]
+                                norm_m = fc_tools["normalize_macroman"]
+                                first_prof = next(iter(p_conv_profs))
+
+                                def _conv_cell(cell_val: Any) -> Any:
+                                    if not isinstance(cell_val, str) or not cell_val.strip():
+                                        return cell_val
+                                    c_norm = norm_m(cell_val)
+                                    if is_leg(c_norm):
+                                        return converter.convert(c_norm, profile_id=first_prof)
+                                    return cell_val
+
+                                headers = tuple(cell_text(_conv_cell(h)) for h in headers)
+                                data_rows = tuple(tuple(cell_text(_conv_cell(val)) for val in row) for row in data_rows)
+
+                            t_meta = {}
+                            if getattr(tab, "bbox", None) is not None:
+                                t_meta["bounding_box"] = tuple(float(v) for v in tab.bbox)
+                            raw_tables.append((f"Page_{page_num}_Table_{t_idx}", headers, data_rows, t_meta))
+
+                if not raw_tables:
+                    vector_tables = _extract_vector_stroke_tables(page, p_spans, page_num)
+                    for vt in vector_tables:
+                        raw_tables.append((vt.name, vt.headers, vt.rows, dict(vt.metadata)))
+
+            raw_spans = [(s.text, s.bounding_box) for s in p_spans]
+            results.append({
+                "page_idx": page_idx,
+                "page_num": page_num,
+                "page_height": p_height,
+                "page_width": p_width,
+                "spans": raw_spans,
+                "blocks": p_blocks,
+                "lines": p_lines,
+                "conv_profs": list(p_conv_profs),
+                "image_coverage": image_coverage,
+                "is_scanned": is_scanned,
+                "tables": raw_tables,
+            })
+    finally:
+        doc.close()
+    return results
+
+
 def read_pdf(
     data: bytes,
     input_id: str,
@@ -397,6 +568,7 @@ def read_pdf(
         except Exception:
             fc_tools = None
 
+    lock_held = True
     GLOBAL_PYMUPDF_LOCK.acquire()
     try:
         if source_path is not None and Path(source_path).is_file():
@@ -436,8 +608,147 @@ def read_pdf(
                     tuple(warnings),
                 )
         total_pages = len(doc)
-        page_heights: list[float] = []
         doc_font_map = _resolve_pdf_font_names(doc)
+        num_workers = _determine_pdf_workers(total_pages)
+
+        # Attempt chunked multi-process extraction for multi-page documents
+        parallel_results: list[dict[str, Any]] | None = None
+        if num_workers > 1:
+            doc.close()
+            GLOBAL_PYMUPDF_LOCK.release()
+            lock_held = False
+            try:
+                chunk_size = (total_pages + num_workers - 1) // num_workers
+                chunks = []
+                for i in range(num_workers):
+                    s = i * chunk_size
+                    e = min(total_pages, (i + 1) * chunk_size)
+                    if s < e:
+                        chunks.append((
+                            str(source_path) if source_path and Path(source_path).is_file() else None,
+                            data if not (source_path and Path(source_path).is_file()) else None,
+                            s,
+                            e,
+                            password,
+                            convert_legacy_fonts,
+                            doc_font_map,
+                        ))
+                with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                    chunk_lists = list(executor.map(_extract_pdf_slice_worker, chunks))
+                flat = [item for sub in chunk_lists for item in sub]
+                if len(flat) == total_pages:
+                    parallel_results = sorted(flat, key=lambda x: x["page_idx"])
+            except Exception:
+                parallel_results = None
+            finally:
+                if parallel_results is None:
+                    GLOBAL_PYMUPDF_LOCK.acquire()
+                    lock_held = True
+                    if source_path is not None and Path(source_path).is_file():
+                        doc = pymupdf.open(str(source_path))
+                    else:
+                        doc = pymupdf.open(stream=data, filetype="pdf")
+                    if password and doc.is_encrypted:
+                        doc.authenticate(password)
+
+        if parallel_results is not None:
+            page_heights = [p["page_height"] for p in parallel_results]
+            all_page_blocks = [p["blocks"] for p in parallel_results]
+            for p in parallel_results:
+                all_converted_profiles.update(p["conv_profs"])
+
+            header_templates, footer_templates = (
+                detect_running_headers_footers(all_page_blocks, page_heights) if total_pages >= 2 else (set(), set())
+            )
+
+            for p in parallel_results:
+                page_num = p["page_num"]
+                body_lines, header_lines, footer_lines = classify_page_lines(
+                    p["blocks"], p["page_height"], header_templates, footer_templates
+                )
+
+                body_text = normalize_text_spacing("\n\n".join(body_lines))
+                if skip_header_footer and (header_lines or footer_lines):
+                    page_text = body_text
+                elif p["lines"]:
+                    page_text = normalize_text_spacing("\n\n".join(p["lines"]))
+                else:
+                    page_text = body_text
+
+                if page_text:
+                    full_text_parts.append(page_text)
+
+                page_meta: dict[str, Any] = {
+                    "body_char_count": len(body_text.strip()),
+                    "page_height": float(p["page_height"]),
+                    "page_width": float(p["page_width"]),
+                    "image_coverage": round(p["image_coverage"], 3),
+                }
+                if header_lines:
+                    page_meta["header"] = "\n\n".join(header_lines)
+                if footer_lines:
+                    page_meta["footer"] = "\n\n".join(footer_lines)
+                if p["is_scanned"]:
+                    page_meta["is_scanned_image"] = True
+
+                spans = tuple(TextSpan(text=s[0], bounding_box=s[1]) for s in p["spans"])
+                page_tables: list[TableData] = []
+                for t in p["tables"]:
+                    t_obj = TableData(name=t[0], headers=t[1], rows=t[2], metadata=t[3])
+                    page_tables.append(t_obj)
+                    all_doc_tables.append(t_obj)
+
+                pages.append(
+                    PageData(
+                        page_number=page_num,
+                        text=page_text,
+                        spans=spans,
+                        tables=tuple(page_tables),
+                        metadata=page_meta,
+                    )
+                )
+
+                provenances.append(
+                    ProvenanceRecord(
+                        source_input_id=input_id,
+                        stage=STAGE_NAME,
+                        plugin_id=PLUGIN_ID,
+                        capability_id=CAPABILITY_ID,
+                        page_number=page_num,
+                        evidence={
+                            "reader": "pymupdf_parallel",
+                            "page_count": total_pages,
+                            "has_native_text": bool(page_text),
+                            "table_count": len(page_tables),
+                        },
+                    )
+                )
+
+            if all_converted_profiles:
+                provenances.append(
+                    ProvenanceRecord(
+                        source_input_id=input_id,
+                        stage="convert_legacy_fonts",
+                        capability_id="font_conversion",
+                        evidence={"converted_profiles": sorted(all_converted_profiles)},
+                    )
+                )
+
+            return (
+                CanonicalDocument(
+                    document_id=f"doc-{input_id}",
+                    source_input_id=input_id,
+                    pages=tuple(pages),
+                    tables=tuple(all_doc_tables),
+                    text="\n\n".join(full_text_parts),
+                    detected_type="pdf",
+                    metadata={"total_pages": total_pages},
+                ),
+                tuple(provenances),
+                tuple(warnings),
+            )
+
+        page_heights: list[float] = []
 
         # Pre-extract stream-order page data to avoid spatial jumbling
         cached_pages: list[
@@ -666,7 +977,8 @@ def read_pdf(
             doc.close()
         except Exception:
             pass
-        GLOBAL_PYMUPDF_LOCK.release()
+        if lock_held:
+            GLOBAL_PYMUPDF_LOCK.release()
 
     canonical_doc = CanonicalDocument(
         document_id=f"doc-{input_id}",
