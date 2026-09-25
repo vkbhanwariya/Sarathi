@@ -238,5 +238,6 @@ Add an in-memory parameterized test in `tests/bank_statements/test_mapping.py`, 
 | Blank Repeated Dates | Statement omits transaction dates on same-day rows (`"`, `do`, `ditto`, `-`). | Engine automatically forwards date from the previous valid row. |
 | Signed Balances (`Dr`/`Cr`) | Running balance has trailing or leading `Cr`/`Dr` or trailing minus (`-`). | Engine uses `parse_balance_amount` to parse signed Decimal balance values. |
 | Cheque vs Ref Collision | Cheque number erroneously mapped into reference number column. | Ensure `cheque_number` is isolated strictly to cheque tokens and `reference_number` to ref/UTR tokens. |
-| Multi-Currency Statement | Account denominated in non-INR currency (USD, EUR, GBP, AED, SGD, CAD). | Engine auto-sniffs currency; totals are partitioned in `totals_by_currency`. |
+| Foreign Currency in Narration | Transaction narration contains forex amounts (e.g. `USD 14.99 @ 84.50` or `EUR 25.00`) on international purchases. | Debit and credit columns on Indian bank accounts are strictly denominated in INR. Engine isolates narration text so foreign currency symbols do not hijack statement currency. Statement defaults to `INR`. |
+| Multi-Currency Statement | Rare non-INR account explicitly specified in bank profile or document metadata. | Currency is set via explicit profile config or labeled statement header; totals are partitioned in `totals_by_currency`. |
 | Devanagari defect warning | Legacy font converter triggered on ASCII symbols in PDF. | Ensure `convert_legacy_fonts` is disabled for English bank statements. |

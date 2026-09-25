@@ -29,3 +29,22 @@ The Home screen user-facing processing choices are structured into **Four Primar
 ## UI Invariants
 1. **Zero Raw Primitives**: Low-level engine names (e.g. `Calamine`, `PyMuPDF`, `RapidOCR`, `CTranslate2`) are encapsulated inside the approved task hierarchy and not presented as disconnected top-level tasks.
 2. **Deterministic Fallbacks**: Selecting a capability initiates deterministic, fail-closed execution. No silent downgrade to unrequested cloud services.
+
+---
+
+## Architectural Decisions (ADRs)
+
+### ADR-001: Indian Bank Statement Currency & Forex Narration Isolation
+- **Context**: Sarathi is purpose-built for Indian document processing. All bank statements processed originate from Indian financial institutions (SBI, HDFC, ICICI, Axis, PNB, etc.). Indian bank accounts record all ledger entries (debit, credit, running balance) in Indian Rupee (`INR`). International card/POS or e-commerce purchases frequently include foreign currency amounts and exchange rates in the transaction narration (e.g. `POS 401284XXXXXX0001 STEAM GAMES SEATTLE WA USD 14.99 @ 84.50`).
+- **Decision**: Statement currency strictly defaults to `INR`. Loose currency symbols (`$`, `€`, `£`, etc.) or currency codes found within unstructured document text or transaction descriptions are treated strictly as descriptive narrative text and MUST NEVER override the statement currency or alter column values. Statement currency may only be overridden by explicit profile configuration or labeled statement headers (e.g., `Currency: USD`).
+- **Consequences**: Eliminates false currency switching, avoids overengineering multi-currency table mappers, and preserves exact double-entry arithmetic across statements.
+
+### ADR-002: IFSC 4-Letter Prefix Binding for Cross-Bank Account Identity
+- **Context**: When bank profile detection falls back to generic profiles or when statements across different banks share identical trailing masked digits (e.g. `...1234`), cross-document deduplication risks conflating different customer accounts from different banks into a single entity.
+- **Decision**: The 4-letter RBI IFSC prefix (`clean_ifsc[:4]`, representing the institution, e.g. `SBIN`, `HDFC`, `ICIC`, `PUNB`) is incorporated into `AccountIdentity` and factored into `account_fingerprint`. Furthermore, cross-statement deduplication strictly isolates statements under generic detection unless verified institution identity (matching IFSC prefix) exists.
+- **Consequences**: Guarantees statements from different institutions are never cross-deduplicated or conflated, even under generic profile fallbacks.
+
+### ADR-003: Pure Content-Streaming File Fingerprints
+- **Context**: Intake file fingerprinting previously incorporated `path.name` and sampled 32 KB blocks, which caused renamed identical files to produce different IDs and created a 32–64 KB sampling blind spot.
+- **Decision**: `mukha.intake._compute_file_fingerprint` streams the entire file in 64 KB chunks without incorporating `path.name`. Document fingerprints in `shakti.bank_statements` similarly hash all page text, full document text, table headers, and all table rows.
+- **Consequences**: Pure content-addressable document IDs invariant to renaming, eliminating false duplicate or false mutation errors.
