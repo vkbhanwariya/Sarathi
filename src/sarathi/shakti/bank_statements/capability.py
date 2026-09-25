@@ -23,13 +23,14 @@ from sarathi.sankalpa import (
 )
 from sarathi.sankalpa.document import normalize_canonical_documents
 from sarathi.shakti.bank_statements.converter import (
+    parse_balance_amount,
     parse_date,
     parse_decimal_amount,
     parse_time,
 )
 from sarathi.shakti.bank_statements.deduplicator import deduplicate_transactions
 from sarathi.shakti.bank_statements.detector import detect_bank_statement, load_bank_profiles
-from sarathi.shakti.bank_statements.mapper import HeaderMapper, extract_sample_data_rows
+from sarathi.shakti.bank_statements.mapper import HeaderMapper, extract_sample_data_rows, load_bank_profile_yaml
 from sarathi.shakti.bank_statements.models import (
     AccountIdentity,
     BankStatement,
@@ -66,6 +67,8 @@ class BankStatementCapability:
         self._banks_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
         self._mapper = HeaderMapper(banks_dir=self._banks_dir)
         self._profiles = {p.get("profile_id"): p for p in load_bank_profiles(self._banks_dir)}
+        common_path = self._banks_dir / "common.yaml"
+        self._common_config = load_bank_profile_yaml(common_path) if common_path.exists() else {}
 
     def execute(
         self,
@@ -287,10 +290,14 @@ class BankStatementCapability:
             mappings = {m.canonical_field: m.column_index for m in best_mappings}
             d_col, desc_col = mappings.get("date"), mappings.get("description")
             val_date_col, time_col = mappings.get("value_date"), mappings.get("time")
+            posting_date_col = mappings.get("posting_date")
             dr_col, cr_col = mappings.get("debit"), mappings.get("credit")
             amt_col, dir_col = mappings.get("amount"), mappings.get("direction")
             b_col = mappings.get("balance")
             ref_col, chq_col = mappings.get("reference_number"), mappings.get("cheque_number")
+
+            if d_col is None and posting_date_col is not None:
+                d_col = posting_date_col
 
             if d_col is None or not (any(c is not None for c in (dr_col, cr_col, b_col)) or amt_col is not None):
                 continue
@@ -302,18 +309,18 @@ class BankStatementCapability:
                 row_cells = [str(c) if c is not None else "" for c in row]
                 match classify_row(row_cells, date_col_idx=d_col, amount_col_indices=amt_indices):
                     case RowType.OPENING_BALANCE:
-                        parsed_open = parse_decimal_amount(_get_raw_cell(row, b_col))
+                        parsed_open = parse_balance_amount(_get_raw_cell(row, b_col))
                         if parsed_open is not None and open_bal is None:
                             open_bal = parsed_open
                     case RowType.CLOSING_BALANCE:
-                        parsed_close = parse_decimal_amount(_get_raw_cell(row, b_col))
+                        parsed_close = parse_balance_amount(_get_raw_cell(row, b_col))
                         if parsed_close is not None:
                             close_bal = parsed_close
                     case RowType.EOD_BALANCE:
                         eod_date = parse_date(_get_raw_cell(row, d_col))
-                        eod_bal = parse_decimal_amount(_get_raw_cell(row, b_col))
+                        eod_bal = parse_balance_amount(_get_raw_cell(row, b_col))
                         if eod_bal is None:
-                            eod_bal = parse_decimal_amount(_get_raw_cell(row, amt_col))
+                            eod_bal = parse_balance_amount(_get_raw_cell(row, amt_col))
                         eod_entry = {
                             "date": eod_date.isoformat() if eod_date else None,
                             "balance": str(eod_bal) if eod_bal is not None else None,
@@ -380,6 +387,7 @@ class BankStatementCapability:
 
                         tx_time = parse_time(_get_raw_cell(row, time_col)) if time_col is not None else None
                         tx_val_date = parse_date(_get_raw_cell(row, val_date_col)) if val_date_col is not None else None
+                        tx_posting_date = parse_date(_get_raw_cell(row, posting_date_col)) if posting_date_col is not None else None
 
                         tx_debit = parse_decimal_amount(_get_raw_cell(row, dr_col))
                         if tx_debit is not None:
@@ -387,7 +395,7 @@ class BankStatementCapability:
                         tx_credit = parse_decimal_amount(_get_raw_cell(row, cr_col))
                         if tx_credit is not None:
                             tx_credit = abs(tx_credit)
-                        tx_bal = parse_decimal_amount(_get_raw_cell(row, b_col))
+                        tx_bal = parse_balance_amount(_get_raw_cell(row, b_col))
 
                         # Handle single amount column with strict explicit direction or signed semantics
                         if tx_debit is None and tx_credit is None and amt_col is not None:
@@ -444,6 +452,7 @@ class BankStatementCapability:
                             transaction_date=tx_date,
                             transaction_time=tx_time,
                             value_date=tx_val_date,
+                            posting_date=tx_posting_date,
                             description=_get_cell(row_cells, desc_col) or "",
                             bank_name=bank_name,
                             reference_number=ref_val,
@@ -466,20 +475,20 @@ class BankStatementCapability:
             if summary_rows:
                 metadata["summary_rows"] = tuple(summary_rows)
 
-        patterns = active_profile.get("metadata_patterns", {})
+        patterns = active_profile.get("metadata_patterns", {}) or self._common_config.get("metadata_patterns", {})
         if patterns:
             search_target = doc.text + " " + " ".join(p.text for p in doc.pages if p.text)
             if open_bal is None and "opening_balance" in patterns:
                 m_open = re.search(patterns["opening_balance"], search_target, re.IGNORECASE)
                 if m_open:
-                    parsed_open = parse_decimal_amount(m_open.group(1))
+                    parsed_open = parse_balance_amount(m_open.group(1))
                     if parsed_open is not None:
                         open_bal = parsed_open
 
             if close_bal is None and "closing_balance" in patterns:
                 m_close = re.search(patterns["closing_balance"], search_target, re.IGNORECASE)
                 if m_close:
-                    parsed_close = parse_decimal_amount(m_close.group(1))
+                    parsed_close = parse_balance_amount(m_close.group(1))
                     if parsed_close is not None:
                         close_bal = parsed_close
 

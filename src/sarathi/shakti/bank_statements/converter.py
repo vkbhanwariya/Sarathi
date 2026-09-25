@@ -25,7 +25,40 @@ _DATE_FORMATS = (
 _TIME_FORMATS = ("%H:%M:%S", "%I:%M:%S %p", "%H:%M", "%I:%M %p")
 _NULL_WORDS = frozenset(("", "-", "--", "na", "n/a", "nil", "null", "'", '"'))
 _CURRENCY_PREFIX_RE = re.compile(r"^(?:[₹$€£]|rs\.?|inr|usd|eur|gbp)\s*", re.IGNORECASE)
-_SUFFIX_RE = re.compile(r"(?:\s*(?:dr\.?|cr\.?)|/\-+)$", re.IGNORECASE)
+_SUFFIX_RE = re.compile(r"(?:\s*(?:\(?\s*(?:dr\.?|cr\.?|od)\s*\)?)|/\-+)$", re.IGNORECASE)
+_DR_BALANCE_RE = re.compile(r"(?:\b|\s|\()(?:dr\.?|od)(?:\b|\s|\)|\.|$)", re.IGNORECASE)
+_CR_BALANCE_RE = re.compile(r"(?:\b|\s|\()cr\.?(?:\b|\s|\)|\.|$)", re.IGNORECASE)
+
+
+def parse_balance_amount(raw_val: Any) -> Decimal | None:
+    """Parse a running, opening, or closing balance preserving Dr (negative/overdraft) and Cr (positive) signs."""
+    match raw_val:
+        case None:
+            return None
+        case bool():
+            return None
+        case Decimal():
+            return raw_val
+        case int():
+            return Decimal(str(raw_val))
+        case str():
+            val_str = raw_val.strip()
+            if not val_str or val_str.lower() in _NULL_WORDS:
+                return None
+            has_dr = bool(_DR_BALANCE_RE.search(val_str))
+            has_cr = bool(_CR_BALANCE_RE.search(val_str))
+
+            parsed = parse_decimal_amount(val_str)
+            if parsed is None:
+                return None
+
+            if has_dr and not has_cr:
+                return -abs(parsed)
+            elif has_cr and not has_dr:
+                return abs(parsed)
+            return parsed
+        case _:
+            return parse_balance_amount(str(raw_val))
 
 
 def parse_decimal_amount(raw_val: Any) -> Decimal | None:

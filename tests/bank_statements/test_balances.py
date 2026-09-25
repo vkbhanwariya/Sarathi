@@ -265,3 +265,16 @@ def test_empty_transactions_fails_closed_with_invalid_status() -> None:
     validated = validate_statement_balances(statement)
     assert validated.status == ValidationStatus.INVALID
     assert any(i.code == "ZERO_TRANSACTIONS_EXTRACTED" for i in validated.issues)
+
+
+def test_parse_balance_amount_dr_cr_od() -> None:
+    from sarathi.shakti.bank_statements.converter import parse_balance_amount
+
+    assert parse_balance_amount("1,234.50 Dr") == Decimal("-1234.50")
+    assert parse_balance_amount("1,234.50(Dr)") == Decimal("-1234.50")
+    assert parse_balance_amount("500.00 OD") == Decimal("-500.00")
+    assert parse_balance_amount("1,234.50 Cr") == Decimal("1234.50")
+    assert parse_balance_amount("1,234.50") == Decimal("1234.50")
+    assert parse_balance_amount("-1234.50") == Decimal("-1234.50")
+    assert parse_balance_amount(None) is None
+    assert parse_balance_amount("") is None

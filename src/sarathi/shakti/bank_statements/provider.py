@@ -53,6 +53,15 @@ class BankStatementsProvider(PluginProvider):
                         reason=f"Ready ({', '.join(prof_ids)} profiles)",
                     )
                 }
+            common_file = base_data / "common.yaml"
+            if common_file.is_file():
+                return {
+                    "bank_statements": CapabilityReadiness(
+                        ready=True,
+                        status=ReadinessStatus.READY,
+                        reason="Ready (Generic common profile loaded)",
+                    )
+                }
             return {
                 "bank_statements": CapabilityReadiness(
                     ready=False,

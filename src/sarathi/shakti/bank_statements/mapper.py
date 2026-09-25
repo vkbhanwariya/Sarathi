@@ -42,6 +42,7 @@ _CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 CANONICAL_FIELDS = (
     "date",
     "value_date",
+    "posting_date",
     "time",
     "description",
     "reference_number",
