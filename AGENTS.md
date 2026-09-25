@@ -74,6 +74,7 @@ Sarathi's authoritative reference hardware deployment profile is pinned below.
 7. **Fail safe, stay honest.** Validate inputs fail-closed. Never leak document content, paths, or secrets. Never invent fake defaults, confidence, or availability.
 8. **Tests follow architecture, not the reverse.** Fix tests contradicting architecture, never weaken production invariants.
 9. **No fake success.** "Done" requires actual execution and verification.
+10. **Communication & Language Invariant.** Always communicate with the user in Simple English or Hinglish (Latin alphabet). Strictly avoid pure Hindi scripts (Devanagari) to maintain concise, sharp, token-efficient technical clarity.
 
 
 ## Fast Validation & Tool Efficiency
