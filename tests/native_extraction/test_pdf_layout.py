@@ -166,7 +166,7 @@ def test_spatial_word_reconstruction_and_paragraph_breaks() -> None:
     assert "\n\nSecond paragraph starts here." in cdoc.text
 
 
-def test_running_header_footer_detection_and_clean_separation() -> None:
+def test_read_pdf_running_header_footer_clean_separation() -> None:
     """Verify that recurring running headers and footers are separated into metadata and omitted from clean text."""
     doc = pymupdf.open()
     for p_num in (1, 2):
