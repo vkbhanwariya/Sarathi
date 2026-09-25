@@ -348,6 +348,10 @@ class HeaderMapper:
                 and (prof_data.get("parent_bank") == candidate_profile or prof_id.startswith(f"{candidate_profile}_"))
             )
             prof_mappings = self.map_headers(headers, profile_id=prof_id)
+            has_bank_match = any(m.match_type in ("bank_exact", "bank_fuzzy") for m in prof_mappings)
+            if not is_cand and not has_bank_match:
+                continue
+
             prof_score = self._score_mappings(
                 prof_mappings,
                 is_candidate=is_cand,

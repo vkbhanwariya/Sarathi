@@ -157,11 +157,20 @@ def parse_time(raw_val: Any) -> time | None:
             time_str = raw_val.strip()
             if not time_str:
                 return None
-            for fmt in _TIME_FORMATS:
-                try:
-                    return datetime.strptime(time_str, fmt).time()
-                except ValueError:
-                    pass
+            try:
+                if " " in time_str or "T" in time_str:
+                    return datetime.fromisoformat(time_str).time()
+            except ValueError:
+                pass
+            candidates = [time_str]
+            if " " in time_str:
+                candidates.append(time_str.split()[-1])
+            for candidate in candidates:
+                for fmt in _TIME_FORMATS:
+                    try:
+                        return datetime.strptime(candidate, fmt).time()
+                    except ValueError:
+                        pass
             return None
         case _:
             return None

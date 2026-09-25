@@ -182,6 +182,8 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                     source_input_id=existing.source_input_id or tx.source_input_id,
                     page_number=existing.page_number if existing.page_number is not None else tx.page_number,
                     row_index=existing.row_index if existing.row_index is not None else tx.row_index,
+                    input_location=existing.input_location or tx.input_location,
+                    transaction_mode=existing.transaction_mode or tx.transaction_mode,
                 )
                 unique[existing_idx] = surviving
                 duplicates.append(
@@ -233,6 +235,8 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                         source_input_id=tx.source_input_id,
                         page_number=tx.page_number,
                         row_index=tx.row_index,
+                        input_location=tx.input_location,
+                        transaction_mode=tx.transaction_mode,
                     )
                     duplicates.append(
                         (

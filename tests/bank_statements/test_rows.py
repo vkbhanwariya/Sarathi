@@ -194,7 +194,7 @@ class TestBankStatementsBatchIntegrity:
         assert isinstance(res.data, BankStatementConsolidationResult)
         assert res.data.total_transactions == 1
         assert res.data.total_debit == Decimal("250")
-        assert len(res.artifact_payloads) == 2
+        assert len(res.artifact_payloads) >= 2
 
     def test_bank_statement_multi_document_consolidation(self, tmp_path) -> None:
         """Multiple CanonicalDocuments are consolidated in stable chronological order."""

@@ -9,12 +9,13 @@ Wrapped into canonical ArtifactPayloads for atomic commitment via Nabhi.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 from collections.abc import Sequence
 from dataclasses import replace
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 
 import openpyxl
 import polars as pl
@@ -31,6 +32,8 @@ from sarathi.shakti.bank_statements.models import (
     ValidationIssue,
     ValidationStatus,
 )
+
+INDIAN_CURRENCY_FORMAT: Final[str] = r"[>=10000000]##\,##\,##\,##0.00;[>=100000]##\,##\,##0.00;##,##0.00;\"-\""
 
 
 def _account_group_key(stmt: BankStatement) -> tuple:
@@ -249,6 +252,9 @@ def _auto_fit_columns(sheet: openpyxl.worksheet.worksheet.Worksheet) -> None:
 def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> ArtifactPayload:
     """Generate Consolidated_Bank_Statement.parquet payload preserving exact Decimal precision and full provenance."""
     tx_ids: list[str | None] = []
+    tx_hashes: list[str] = []
+    input_locs: list[str | None] = []
+    tx_modes: list[str | None] = []
     stmt_ids: list[str | None] = []
     seq_ids: list[int] = []
     dates: list[str] = []
@@ -263,6 +269,9 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
     debits: list[Decimal | None] = []
     credits: list[Decimal | None] = []
     balances: list[Decimal | None] = []
+    eod_bals: list[Decimal | None] = []
+    bal_as_ons: list[Decimal | None] = []
+    stmt_gen_ats: list[str | None] = []
     bank_names: list[str] = []
     masked_accs: list[str | None] = []
     fingerprints: list[str | None] = []
@@ -275,11 +284,39 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
     issues_col: list[str | None] = []
     metadata_col: list[str | None] = []
 
+    stmt_map = {s.statement_id: s for s in consolidation.statements if s.statement_id}
+    stmt_fp_map = {
+        s.account_identity.account_fingerprint: s
+        for s in consolidation.statements
+        if s.account_identity and s.account_identity.account_fingerprint
+    }
+
     for tx in consolidation.transactions:
         ident = tx.account_identity
+        stmt = stmt_map.get(tx.statement_id) or (
+            stmt_fp_map.get(ident.account_fingerprint) if ident else None
+        )
         masked_acc = ident.masked_account_number if ident else None
         fingerprint = ident.account_fingerprint if ident else None
         holder = ident.account_holder if ident else None
+
+        raw_hash_data = f"{fingerprint or ''}:{tx.transaction_date.isoformat()}:{tx.debit or tx.credit}:{tx.reference_number or ''}:{getattr(tx, 'sequence_id', 0)}"
+        tx_hash = hashlib.sha256(raw_hash_data.encode()).hexdigest()[:16]
+        tx_hashes.append(tx_hash)
+
+        input_locs.append(getattr(tx, "input_location", None))
+        tx_modes.append(getattr(tx, "transaction_mode", None) or "OTHER")
+
+        bal_as_ons.append(stmt.balance_as_on if stmt else None)
+        stmt_gen_at = stmt.metadata.get("statement_generated_at") if (stmt and stmt.metadata) else None
+        stmt_gen_ats.append(str(stmt_gen_at) if stmt_gen_at else None)
+
+        eod_bal = None
+        if stmt and stmt.closing_balance is not None and tx.transaction_date == stmt.statement_period_end:
+            eod_bal = stmt.closing_balance
+        elif tx.running_balance is not None:
+            eod_bal = tx.running_balance
+        eod_bals.append(eod_bal)
 
         tx_ids.append(tx.transaction_id)
         stmt_ids.append(tx.statement_id)
@@ -324,7 +361,7 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         )
         metadata_col.append(json.dumps(dict(tx.metadata)) if tx.metadata else None)
 
-    all_decimals = [d for d in (debits + credits + balances) if d is not None]
+    all_decimals = [d for d in (debits + credits + balances + eod_bals + bal_as_ons) if d is not None]
     max_scale = 2
     for d in all_decimals:
         exp = d.as_tuple().exponent
@@ -335,6 +372,8 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
     df = pl.DataFrame(
         {
             "transaction_id": pl.Series("transaction_id", tx_ids, dtype=pl.String),
+            "transaction_hash": pl.Series("transaction_hash", tx_hashes, dtype=pl.String),
+            "input_location": pl.Series("input_location", input_locs, dtype=pl.String),
             "statement_id": pl.Series("statement_id", stmt_ids, dtype=pl.String),
             "sequence_id": pl.Series("sequence_id", seq_ids, dtype=pl.Int64),
             "date": pl.Series("date", dates, dtype=pl.String),
@@ -349,6 +388,10 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
             "debit": pl.Series("debit", debits, dtype=pl.Decimal(38, max_scale)),
             "credit": pl.Series("credit", credits, dtype=pl.Decimal(38, max_scale)),
             "running_balance": pl.Series("running_balance", balances, dtype=pl.Decimal(38, max_scale)),
+            "eod_balance": pl.Series("eod_balance", eod_bals, dtype=pl.Decimal(38, max_scale)),
+            "balance_as_on": pl.Series("balance_as_on", bal_as_ons, dtype=pl.Decimal(38, max_scale)),
+            "statement_generated_at": pl.Series("statement_generated_at", stmt_gen_ats, dtype=pl.String),
+            "transaction_mode": pl.Series("transaction_mode", tx_modes, dtype=pl.String),
             "bank_name": pl.Series("bank_name", bank_names, dtype=pl.String),
             "masked_account_number": pl.Series("masked_account_number", masked_accs, dtype=pl.String),
             "account_fingerprint": pl.Series("account_fingerprint", fingerprints, dtype=pl.String),
@@ -371,6 +414,200 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         name="Consolidated_Bank_Statement.parquet",
         role="consolidated_data",
         media_type="application/vnd.apache.parquet",
+    )
+    return ArtifactPayload(intent=intent, content=content_bytes)
+
+
+def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> ArtifactPayload:
+    """Generate List_of_Accounts.xlsx master directory payload."""
+    wb = openpyxl.Workbook()
+    try:
+        ws = wb.active
+        ws.title = "Accounts"
+
+        headers = [
+            "S.No.",
+            "Name of the Account Holder",
+            "Account No.",
+            "Bank Name",
+            "Input Location Range",
+            "Transaction ID Range",
+        ]
+        ws.append(headers)
+
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        ws.row_dimensions[1].height = 24
+
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx not in (2, 4) else "left")
+
+        for s_idx, stmt in enumerate(consolidation.statements, start=1):
+            row_idx = s_idx + 1
+            ident = stmt.account_identity
+            holder = stmt.account_holder or (ident.account_holder if ident else "") or "-"
+            acc_no = ident.masked_account_number if ident else (stmt.account_number or "-")
+            bank = stmt.bank_name
+
+            stmt_txns = [t for t in consolidation.transactions if (ident and t.account_identity == ident)]
+            if not stmt_txns:
+                stmt_txns = list(stmt.transactions)
+
+            locs = [t.input_location for t in stmt_txns if getattr(t, "input_location", None)]
+            loc_range = f"{sorted(locs)[0]} to {sorted(locs)[-1]}" if locs else "-"
+
+            ids = [t.transaction_id for t in stmt_txns if t.transaction_id]
+            id_range = f"{sorted(ids)[0]} to {sorted(ids)[-1]}" if ids else "-"
+
+            c1 = ws.cell(row=row_idx, column=1, value=s_idx)
+            c1.alignment = Alignment(horizontal="center")
+            c2 = ws.cell(row=row_idx, column=2, value=holder)
+            c2.data_type = "s"
+            c3 = ws.cell(row=row_idx, column=3, value=acc_no)
+            c3.data_type = "s"
+            c4 = ws.cell(row=row_idx, column=4, value=bank)
+            c4.data_type = "s"
+            c5 = ws.cell(row=row_idx, column=5, value=loc_range)
+            c5.data_type = "s"
+            c5.alignment = Alignment(horizontal="center")
+            c6 = ws.cell(row=row_idx, column=6, value=id_range)
+            c6.data_type = "s"
+            c6.alignment = Alignment(horizontal="center")
+
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        _auto_fit_columns(ws)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        content_bytes = buf.getvalue()
+    finally:
+        wb.close()
+
+    intent = ArtifactIntent(
+        name="List_of_Accounts.xlsx",
+        role="accounts_directory",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    return ArtifactPayload(intent=intent, content=content_bytes)
+
+
+def build_transactions_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> ArtifactPayload:
+    """Generate Consolidated_Transactions.xlsx (clean 9-column passbook ledger with Indian number formatting)."""
+    wb = openpyxl.Workbook()
+    try:
+        ws = wb.active
+        ws.title = "Transactions"
+
+        headers = [
+            "Transaction ID",
+            "Input Location",
+            "Date",
+            "Description",
+            "Ref / UTR No.",
+            "Cheque No.",
+            "Debit",
+            "Credit",
+            "Balance",
+        ]
+        ws.append(headers)
+
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        ws.row_dimensions[1].height = 24
+
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx not in (4, 5) else "left")
+
+        for row_idx, tx in enumerate(consolidation.transactions, start=2):
+            tx_id = tx.transaction_id or f"TXN-{row_idx-1:04d}"
+            input_loc = getattr(tx, "input_location", None) or ""
+
+            # 1. Transaction ID
+            c1 = ws.cell(row=row_idx, column=1, value=tx_id)
+            c1.data_type = "s"
+            c1.alignment = Alignment(horizontal="center")
+
+            # 2. Input Location
+            c2 = ws.cell(row=row_idx, column=2, value=input_loc)
+            c2.data_type = "s"
+            c2.alignment = Alignment(horizontal="center")
+
+            # 3. Date (native Excel date object)
+            c3 = ws.cell(row=row_idx, column=3, value=tx.transaction_date)
+            c3.number_format = "DD-MM-YYYY"
+            c3.alignment = Alignment(horizontal="center")
+
+            # 4. Description
+            c4 = ws.cell(row=row_idx, column=4, value=tx.description)
+            c4.data_type = "s"
+
+            # 5. Ref / UTR No.
+            c5 = ws.cell(row=row_idx, column=5, value=tx.reference_number or "")
+            c5.data_type = "s"
+
+            # 6. Cheque No.
+            c6 = ws.cell(row=row_idx, column=6, value=tx.cheque_number or "")
+            c6.data_type = "s"
+
+            # 7. Debit
+            c7 = ws.cell(row=row_idx, column=7)
+            if tx.debit is not None:
+                c7.value = float(tx.debit)
+                c7.number_format = INDIAN_CURRENCY_FORMAT
+            else:
+                c7.value = None
+
+            # 8. Credit
+            c8 = ws.cell(row=row_idx, column=8)
+            if tx.credit is not None:
+                c8.value = float(tx.credit)
+                c8.number_format = INDIAN_CURRENCY_FORMAT
+            else:
+                c8.value = None
+
+            # 9. Balance
+            c9 = ws.cell(row=row_idx, column=9)
+            if tx.running_balance is not None:
+                c9.value = float(tx.running_balance)
+                c9.number_format = INDIAN_CURRENCY_FORMAT
+            else:
+                c9.value = None
+
+        total_row = len(consolidation.transactions) + 2
+        if len(consolidation.transactions) > 0:
+            c_tot_label = ws.cell(row=total_row, column=4, value="Total")
+            c_tot_label.font = Font(bold=True)
+            c_tot_label.alignment = Alignment(horizontal="right")
+
+            c_tot_deb = ws.cell(row=total_row, column=7, value=f"=SUBTOTAL(9, G2:G{total_row-1})")
+            c_tot_deb.number_format = INDIAN_CURRENCY_FORMAT
+            c_tot_deb.font = Font(bold=True)
+
+            c_tot_crd = ws.cell(row=total_row, column=8, value=f"=SUBTOTAL(9, H2:H{total_row-1})")
+            c_tot_crd.number_format = INDIAN_CURRENCY_FORMAT
+            c_tot_crd.font = Font(bold=True)
+
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:I{total_row-1 if len(consolidation.transactions) > 0 else 1}"
+        _auto_fit_columns(ws)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        content_bytes = buf.getvalue()
+    finally:
+        wb.close()
+
+    intent = ArtifactIntent(
+        name="Consolidated_Transactions.xlsx",
+        role="consolidated_transactions",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     return ArtifactPayload(intent=intent, content=content_bytes)
 

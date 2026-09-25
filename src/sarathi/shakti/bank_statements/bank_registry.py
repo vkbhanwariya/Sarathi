@@ -147,6 +147,8 @@ _CANONICAL_ALIASES: Final[dict[str, str]] = {
     "bandhan bank": "Bandhan Bank Limited",
     "idbi": "IDBI Bank Limited",
     "idbi bank": "IDBI Bank Limited",
+    "au": "Au Small Finance Bank Limited",
+    "aubl": "Au Small Finance Bank Limited",
     "au bank": "Au Small Finance Bank Limited",
     "au small finance bank": "Au Small Finance Bank Limited",
     "airtel payments bank": "Airtel Payments Bank Limited",
@@ -255,14 +257,6 @@ class BankRegistry:
             if prefix in _IFSC_PREFIX_MAP:
                 return _IFSC_PREFIX_MAP[prefix]
 
-        # Check for embedded IFSC in text if not explicitly provided
-        if text and not ifsc:
-            m_ifsc = re.search(r"\b([A-Z]{4})0[A-Z0-9]{6}\b", text.upper())
-            if m_ifsc:
-                prefix = m_ifsc.group(1)
-                if prefix in _IFSC_PREFIX_MAP:
-                    return _IFSC_PREFIX_MAP[prefix]
-
         # 2. Exact canonical match on candidate name
         if candidate_name:
             cand_clean = candidate_name.strip()
@@ -274,9 +268,35 @@ class BankRegistry:
             if cand_lower in _CANONICAL_ALIASES:
                 return _CANONICAL_ALIASES[cand_lower]
 
+            cand_base = cand_lower.split("_")[0]
+            if cand_base in _CANONICAL_ALIASES:
+                return _CANONICAL_ALIASES[cand_base]
+
             cand_norm = _normalize_name(cand_clean)
             if cand_norm in self._normalized_map:
                 return self._normalized_map[cand_norm]
+
+        # 3. Check for explicitly labeled IFSC in header text (e.g. IFSC: AUBL...)
+        if text and not ifsc:
+            m_labeled_ifsc = re.search(
+                r"(?:ifsc|rtgs|neft)\s*(?:code)?\s*[:\-]?\s*([A-Z]{4})0[A-Z0-9]{6}\b",
+                text,
+                re.IGNORECASE,
+            )
+            if m_labeled_ifsc:
+                prefix = m_labeled_ifsc.group(1).upper()
+                if prefix in _IFSC_PREFIX_MAP:
+                    return _IFSC_PREFIX_MAP[prefix]
+
+            m_aubl = re.search(r"\bAUBL[A-Z0-9]{10,}\b|@aubl\d+", text, re.IGNORECASE)
+            if m_aubl:
+                return _IFSC_PREFIX_MAP.get("AUBL")
+
+            m_ifsc = re.search(r"\b([A-Z]{4})0[A-Z0-9]{6}\b", text.upper())
+            if m_ifsc:
+                prefix = m_ifsc.group(1)
+                if prefix in _IFSC_PREFIX_MAP:
+                    return _IFSC_PREFIX_MAP[prefix]
 
         # 3. Document text search
         if text:

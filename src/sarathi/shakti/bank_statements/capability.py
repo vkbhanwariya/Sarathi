@@ -47,6 +47,7 @@ from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
 from sarathi.shakti.bank_statements.table_locator import (
     TableType,
     classify_table,
+    find_header_row_index,
     get_table_header_and_data_rows,
     reconstruct_table_from_spans,
     reconstruct_table_from_text,
@@ -121,6 +122,27 @@ def detect_statement_currency(doc: CanonicalDocument, profile_cfg: Mapping[str, 
 
     return "INR"
 
+
+def _detect_transaction_mode(description: str) -> str:
+    """Classify transaction mode from narration using canonical patterns."""
+    desc_upper = description.upper()
+    if "UPI" in desc_upper:
+        return "UPI"
+    if "NEFT" in desc_upper:
+        return "NEFT"
+    if "RTGS" in desc_upper:
+        return "RTGS"
+    if "IMPS" in desc_upper:
+        return "IMPS"
+    if any(k in desc_upper for k in ("ATM", "CASH", "CWDR")):
+        return "CASH"
+    if any(k in desc_upper for k in ("CHQ", "CHEQUE", "CLG", "CLEARING", "CTS")):
+        return "CHEQUE"
+    if any(k in desc_upper for k in ("CHARGE", "CHRG", "FEE", "TAX", "GST", "INT.COLL")):
+        return "CHARGES"
+    if re.search(r"\b(?:INT|INTEREST)\b", desc_upper):
+        return "INTEREST"
+    return "TRANSFER"
 
 
 class BankStatementCapability:
@@ -289,29 +311,68 @@ class BankStatementCapability:
 
             stmt_currency = detect_statement_currency(doc, self._profiles.get(final_profile))
 
-            statement = validate_statement_balances(
-                BankStatement(
-                    statement_id=doc_stmt_id,
-                    bank_name=final_bank_name,
-                    bank_profile=final_profile,
-                    account_identity=final_account_identity,
-                    currency=stmt_currency,
-                    ifsc=ifsc_val,
-                    account_holder=final_account_identity.account_holder if final_account_identity else None,
-                    account_type=final_account_identity.account_type if final_account_identity else None,
-                    opening_balance=open_bal,
-                    closing_balance=close_bal,
-                    transactions=dedup_res.unique_transactions,
-                    issues=tuple(doc_issues),
-                    provenance=doc_prov,
-                    metadata=doc_metadata,
+            distinct_accounts = []
+            seen_accs = set()
+            for tx in dedup_res.unique_transactions:
+                acc_key = tx.account_identity.account_fingerprint if tx.account_identity else None
+                if acc_key and acc_key not in seen_accs:
+                    seen_accs.add(acc_key)
+                    distinct_accounts.append(tx.account_identity)
+
+            if len(distinct_accounts) > 1:
+                for acc_ident in distinct_accounts:
+                    acc_txns = tuple(tx for tx in dedup_res.unique_transactions if tx.account_identity == acc_ident)
+                    acc_stmt_id = generate_statement_id(
+                        bank_name=final_bank_name,
+                        account_identity=acc_ident,
+                        doc_id=doc.source_input_id or getattr(doc, "document_id", None),
+                        document_fingerprint=doc_fp,
+                    )
+                    statements.append(
+                        validate_statement_balances(
+                            BankStatement(
+                                statement_id=acc_stmt_id,
+                                bank_name=final_bank_name,
+                                bank_profile=final_profile,
+                                account_identity=acc_ident,
+                                currency=stmt_currency,
+                                ifsc=ifsc_val,
+                                account_holder=acc_ident.account_holder if acc_ident else None,
+                                account_type=acc_ident.account_type if acc_ident else None,
+                                opening_balance=open_bal,
+                                closing_balance=close_bal,
+                                transactions=acc_txns,
+                                issues=tuple(doc_issues),
+                                provenance=doc_prov,
+                                metadata=doc_metadata,
+                            )
+                        )
+                    )
+            else:
+                statement = validate_statement_balances(
+                    BankStatement(
+                        statement_id=doc_stmt_id,
+                        bank_name=final_bank_name,
+                        bank_profile=final_profile,
+                        account_identity=final_account_identity,
+                        currency=stmt_currency,
+                        ifsc=ifsc_val,
+                        account_holder=final_account_identity.account_holder if final_account_identity else None,
+                        account_type=final_account_identity.account_type if final_account_identity else None,
+                        opening_balance=open_bal,
+                        closing_balance=close_bal,
+                        transactions=dedup_res.unique_transactions,
+                        issues=tuple(doc_issues),
+                        provenance=doc_prov,
+                        metadata=doc_metadata,
+                    )
                 )
-            )
-            statements.append(statement)
+                statements.append(statement)
 
         from sarathi.shakti.bank_statements.consolidator import (
+            build_accounts_xlsx_artifact,
             build_parquet_artifact,
-            build_xlsx_artifact,
+            build_transactions_xlsx_artifact,
             consolidate_statements,
         )
 
@@ -340,7 +401,11 @@ class BankStatementCapability:
 
         return Result(
             data=consolidation,
-            artifact_payloads=(build_parquet_artifact(consolidation), build_xlsx_artifact(consolidation)),
+            artifact_payloads=(
+                build_parquet_artifact(consolidation),
+                build_accounts_xlsx_artifact(consolidation),
+                build_transactions_xlsx_artifact(consolidation),
+            ),
             provenance=tuple(all_provs),
             warnings=tuple(all_warnings),
             metadata=res_metadata,
@@ -358,7 +423,9 @@ class BankStatementCapability:
         all_tables: list[tuple[int, TableData]] = [
             (p_idx + 1, t) for p_idx, p in enumerate(doc.pages) for t in p.tables
         ]
-        all_tables.extend((1, t) for t in doc.tables if not any(t == e[1] for e in all_tables))
+        all_tables.extend(
+            (t_idx + 1, t) for t_idx, t in enumerate(doc.tables) if not any(t == e[1] for e in all_tables)
+        )
 
         if not all_tables:
             # 1. Attempt geometric table reconstruction from bounding box spans (scanned OCR)
@@ -396,6 +463,29 @@ class BankStatementCapability:
         has_signed_semantics = bool(active_profile.get("signed_amounts", False))
         stmt_currency = detect_statement_currency(doc, active_profile)
 
+        is_spreadsheet = bool(doc.tables and not doc.pages)
+
+        # Resolve real human-friendly input filename from request inputs
+        file_stem = None
+        for inp in req.inputs:
+            if inp.input_id == doc.source_input_id:
+                if inp.display_name:
+                    file_stem = Path(inp.display_name).stem
+                elif inp.source_path:
+                    file_stem = inp.source_path.stem
+                break
+
+        if not file_stem and req.inputs:
+            first_inp = req.inputs[0]
+            if first_inp.display_name:
+                file_stem = Path(first_inp.display_name).stem
+            elif first_inp.source_path:
+                file_stem = first_inp.source_path.stem
+
+        if not file_stem:
+            raw_source_id = doc.source_input_id or getattr(doc, "document_id", None) or ""
+            file_stem = Path(raw_source_id).stem if raw_source_id else "Statement"
+
         for page_num, table in all_tables:
             if not table.rows and not table.headers:
                 continue
@@ -403,12 +493,49 @@ class BankStatementCapability:
             if classify_table(table) != TableType.TRANSACTION_TABLE:
                 continue
 
+            hdr_idx = find_header_row_index(table)
             extracted_table = get_table_header_and_data_rows(table)
             if extracted_table is None:
                 continue
 
             hdr_cells, data_rows = extracted_table
             sample_rows = extract_sample_data_rows(data_rows)
+            hdr_offset = (hdr_idx + 2) if (hdr_idx is not None and hdr_idx >= 0) else 1
+
+            tbl_account_number = None
+            if table.name and re.match(r"^[A-Za-z0-9]{8,24}$", table.name.strip()):
+                tbl_account_number = table.name.strip()
+
+            if not tbl_account_number and table.headers:
+                h_text = " ".join(str(c) for c in table.headers)
+                m_acc = re.search(
+                    r'["\']?(?:account\s*(?:no|number|num)?|ac\s*no)["\']?\s*(?:as|:|is|-)?\s*["\']?([A-Za-z0-9]{8,24})["\']?',
+                    h_text,
+                    re.IGNORECASE,
+                )
+                if m_acc:
+                    tbl_account_number = m_acc.group(1).strip()
+
+            if not tbl_account_number and data_rows:
+                for c_i, h in enumerate(hdr_cells):
+                    if re.search(r"\b(?:account|ac)\s*(?:no|num|number)?\b", str(h), re.IGNORECASE):
+                        cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
+                        if re.match(r"^[A-Za-z0-9]{8,24}$", cell_val):
+                            tbl_account_number = cell_val
+                            break
+
+            tbl_identity = (
+                create_account_identity(
+                    bank_name=bank_name,
+                    raw_account_number=tbl_account_number,
+                    account_holder=account_identity.account_holder if account_identity else None,
+                    bank_profile=profile_id,
+                    account_type=account_identity.account_type if account_identity else None,
+                    ifsc=account_identity.ifsc if account_identity else None,
+                )
+                if tbl_account_number
+                else account_identity
+            )
 
             resolved_prof, best_mappings, _ = self._mapper.resolve_best_profile(
                 hdr_cells, candidate_profile=profile_id, sample_rows=sample_rows
@@ -527,7 +654,11 @@ class BankStatementCapability:
                             issues.append(iss)
                             continue
 
-                        tx_time = parse_time(_get_raw_cell(row, time_col)) if time_col is not None else None
+                        if time_col is not None:
+                            tx_time = parse_time(_get_raw_cell(row, time_col))
+                        else:
+                            tx_time = parse_time(raw_date_val)
+
                         tx_val_date = (
                             parse_date(_get_raw_cell(row, val_date_col))
                             if val_date_col is not None
@@ -627,8 +758,15 @@ class BankStatementCapability:
                         if date_supplied != "transaction_date":
                             tx_meta["date_supplied"] = date_supplied
 
+                        sheet_prefix = "S" if is_spreadsheet else "P"
+                        excel_row_num = (hdr_offset + row_idx) if is_spreadsheet else row_idx
+                        input_loc = f"{file_stem}_{sheet_prefix}{page_num}_R{excel_row_num:02d}"
+                        tx_mode = _detect_transaction_mode(desc_raw)
+
                         new_tx = Transaction(
                             statement_id=statement_id,
+                            transaction_id=f"TXN-{current_sequence_id:04d}",
+                            input_location=input_loc,
                             transaction_date=tx_date,
                             transaction_time=tx_time,
                             value_date=tx_val_date,
@@ -640,7 +778,7 @@ class BankStatementCapability:
                             debit=tx_debit,
                             credit=tx_credit,
                             running_balance=tx_bal,
-                            account_identity=account_identity,
+                            account_identity=tbl_identity,
                             currency=stmt_currency,
                             status=tx_status,
                             issues=tuple(tx_issues),
@@ -652,6 +790,7 @@ class BankStatementCapability:
                             source_input_id=doc.source_input_id,
                             page_number=page_num,
                             row_index=row_idx,
+                            transaction_mode=tx_mode,
                         )
                         raw_txns.append(new_tx)
                         table_txns.append(new_tx)

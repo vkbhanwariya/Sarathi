@@ -212,6 +212,8 @@ class Transaction:
     source_input_id: str | None = None
     page_number: int | None = None
     row_index: int | None = None
+    input_location: str | None = None
+    transaction_mode: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.transaction_date, date):
@@ -252,9 +254,18 @@ class Transaction:
             raise TypeError(f"page_number must be an integer or None, got {type(self.page_number)}.")
         if self.row_index is not None and (isinstance(self.row_index, bool) or not isinstance(self.row_index, int)):
             raise TypeError(f"row_index must be an integer or None, got {type(self.row_index)}.")
+        if self.input_location is not None and not isinstance(self.input_location, str):
+            raise TypeError(f"input_location must be a string or None, got {type(self.input_location)}.")
+        if self.transaction_mode is not None and not isinstance(self.transaction_mode, str):
+            raise TypeError(f"transaction_mode must be a string or None, got {type(self.transaction_mode)}.")
 
-        if self.statement_id and not self.transaction_id:
-            object.__setattr__(self, "transaction_id", f"tx_{self.statement_id}_{self.sequence_id:05d}")
+        if not self.transaction_id:
+            seq = self.sequence_id if self.sequence_id > 0 else 1
+            if self.statement_id:
+                clean_stmt = re.sub(r"[^a-zA-Z0-9_]+", "_", self.statement_id).strip("_")
+                object.__setattr__(self, "transaction_id", f"tx_{clean_stmt}_{seq:05d}")
+            else:
+                object.__setattr__(self, "transaction_id", f"TXN-{seq:04d}")
 
         _validate_decimal(self.debit, "debit", non_negative=True)
         _validate_decimal(self.credit, "credit", non_negative=True)

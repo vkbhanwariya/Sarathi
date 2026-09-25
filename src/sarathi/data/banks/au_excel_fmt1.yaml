@@ -1,0 +1,56 @@
+profile_id: "au_excel_fmt1"
+parent_bank: "au"
+bank_name: "Au Small Finance Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet (True PKZip/OpenXML package, not HTML/XML disguised as .xls)."
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  magic_bytes: "504B0304 (PK\\x03\\x04)"
+
+aliases:
+  - "au small finance bank"
+  - "au small finance bank limited"
+  - "au bank"
+  - "aubl"
+
+identification_keywords:
+  - "aubl"
+  - "au small finance bank"
+  - "details for sum of \"transaction amount\""
+  - "transaction mnemonic"
+  - "transaction literal"
+  - "flag debit credit"
+
+headers:
+  date:
+    - "transaction date"
+  posting_date:
+    - "transaction posting date"
+  value_date:
+    - "transaction value date"
+  description:
+    - "transaction description"
+  reference_number:
+    - "transaction ref no"
+    - "user referance no"
+    - "user reference no"
+  cheque_number:
+    - "referance cheque no"
+    - "reference cheque no"
+  amount:
+    - "transaction amount"
+  direction:
+    - "flag debit credit"
+
+date_formats:
+  - "%Y-%m-%d %H:%M:%S"
+  - "%d-%m-%Y"
+  - "%Y-%m-%d"
+
+signed_amounts: true
+
+metadata_patterns:
+  account_number: '(?:Account\s*(?:No\.?|Number)?|A\/c\s*No\.?)\s*[:\-]?\s*([0-9A-Za-z]{9,18})'

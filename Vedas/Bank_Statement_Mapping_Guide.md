@@ -104,6 +104,12 @@ bank_name: "State Bank of India"      # Required: Institutional display name
 container_format: "excel"             # Container: "excel" (xls, xlsx, html_table) or "pdf"
 layout_variant: "fmt1"                # Layout sequence: fmt1, fmt2, etc.
 
+file_format:                          # Technical container specification
+  declared_extension: ".xlsx"         # Declared extension by the bank
+  actual_hidden_format: "openxml_spreadsheet (True PKZip/OpenXML package, not HTML/XML disguised as .xls)."
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  magic_bytes: "504B0304 (PK\\x03\\x04)"
+
 aliases:                              # Variations of bank name found in text
   - "state bank of india"
   - "sbi"
@@ -234,12 +240,24 @@ Verify that the YAML passes validation and no regressions are introduced:
 uv run --group dev pytest tests/bank_statements/ -q
 ```
 
-### Step 4: Run Consolidation & Verify Double-Entry Balances
-Run the bank consolidation pipeline and verify:
-$$\text{Opening Balance} + \sum \text{Credits} - \sum \text{Debits} == \text{Closing Balance} \pm 0.01$$
+### Step 4: Run Consolidation & Output Directory Rule
+Sarathi enforces the **Universal Output Path Rule**:
+Deliverables are organized under the requirement and input folder:
+```
+Output/bank_statements/<input_folder>/
+```
+Example:
+- Input: `Input/AU/` -> Output: `Output/bank_statements/AU/`
+- Input: `Input/SBI/` -> Output: `Output/bank_statements/SBI/`
+
 Check that deliverable artifacts are produced:
-- `Output/<run_id>/Consolidated_Bank_Statement.xlsx` (Multi-sheet: `Transactions`, `Statements`, `Exceptions`)
-- `Output/<run_id>/Consolidated_Bank_Statement.parquet` (27-column typed Decimal dataset)
+- `List_of_Accounts.xlsx` (6-column Master Account Directory)
+- `Consolidated_Transactions.xlsx` (9-column Passbook with Indian number formatting `0,00,000.00` and dynamic `=SUBTOTAL(9, ...)`)
+- `Consolidated_Bank_Statement.parquet` (32-column forensic dataset with `transaction_hash`, `transaction_mode`, `eod_balance`, `balance_as_on`)
+- `Consolidated_Bank_Statement.xlsx` (Multi-sheet engineering audit spreadsheet: `Transactions`, `Statements`, `Exceptions`)
+
+Verify double-entry balance:
+$$\text{Opening Balance} + \sum \text{Credits} - \sum \text{Debits} == \text{Closing Balance} \pm 0.01$$
 
 ### Step 5: Add Anonymized In-Memory Test for Permanent Regression Protection
 Add an in-memory parameterized test in `tests/bank_statements/test_mapping.py`, `test_identity.py`, or `test_rows.py` to guarantee this new layout is permanently locked and protected against regressions without creating file fixture clutter.

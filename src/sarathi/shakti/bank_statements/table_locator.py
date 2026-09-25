@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from enum import StrEnum
+from typing import Any
 
 from sarathi.sankalpa import TableData, TextSpan
 
@@ -48,13 +49,21 @@ def _is_transaction_header_text(text: str) -> bool:
     return any(d in text for d in _DATE_TOKENS) and any(a in text for a in _AMOUNT_TOKENS)
 
 
+def _has_minimum_header_cells(cells: Sequence[Any], min_cells: int = 3) -> bool:
+    """Check if row has at least min_cells distinct non-empty column header strings."""
+    total = len(cells)
+    threshold = min(min_cells, total) if total > 0 else 1
+    non_empty = sum(1 for c in cells if str(c).strip())
+    return non_empty >= threshold
+
+
 def find_header_row_index(table: TableData) -> int | None:
     """Find the index of the transaction header row in an extracted table, or None.
 
     If table.headers is populated with transaction headers, returns -1 (headers outside rows).
     Otherwise searches table.rows for embedded header row.
     """
-    if table.headers:
+    if table.headers and _has_minimum_header_cells(table.headers):
         h_str = " ".join(str(c).lower().strip() for c in table.headers)
         if _is_transaction_header_text(h_str):
             return -1
@@ -63,6 +72,8 @@ def find_header_row_index(table: TableData) -> int | None:
         return None
 
     for r_i, r in enumerate(table.rows):
+        if not _has_minimum_header_cells(r):
+            continue
         r_str = " ".join(str(c).lower().strip() for c in r)
         if _is_transaction_header_text(r_str):
             return r_i
