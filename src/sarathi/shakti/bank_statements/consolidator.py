@@ -481,6 +481,144 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
         ws.auto_filter.ref = ws.dimensions
         _auto_fit_columns(ws)
 
+        # Sheet 2: Processing Summary
+        ws_sum = wb.create_sheet(title="Processing_Summary")
+        sum_headers = [
+            "S.No.",
+            "Source File",
+            "Account No.",
+            "Bank Name",
+            "Profile Used",
+            "Header Match Score",
+            "Total Rows Scanned",
+            "Successful Transactions",
+            "Duplicates Removed",
+            "Failed / Skipped Rows",
+            "Status",
+            "Warnings Count",
+            "Warning / Audit Details",
+        ]
+        ws_sum.append(sum_headers)
+        ws_sum.row_dimensions[1].height = 24
+
+        for col_idx in range(1, len(sum_headers) + 1):
+            cell = ws_sum.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(
+                vertical="center",
+                horizontal="center" if col_idx not in (2, 4, 13) else "left",
+            )
+
+        for s_idx, stmt in enumerate(consolidation.statements, start=1):
+            row_idx = s_idx + 1
+            ident = stmt.account_identity
+            acc_no = ident.masked_account_number if ident else (stmt.account_number or "-")
+            bank = stmt.bank_name
+            profile = stmt.bank_profile or "-"
+
+            stmt_txns = [t for t in consolidation.transactions if (ident and t.account_identity == ident)]
+            if not stmt_txns:
+                stmt_txns = list(stmt.transactions)
+
+            succ_txns = len(stmt_txns)
+            dup_txns = stmt.metadata.get("duplicate_transactions", 0)
+            total_scanned = stmt.metadata.get("total_scanned_rows")
+            if total_scanned is None:
+                total_scanned = succ_txns + dup_txns
+            failed_skipped = max(0, total_scanned - succ_txns - dup_txns)
+
+            match_score = stmt.metadata.get("header_match_score", 0.0)
+            src_file = stmt.metadata.get("source_file_stem") or (
+                stmt.provenance[0].source_input_id if stmt.provenance else "Statement"
+            )
+
+            warn_count = len(stmt.issues)
+            if stmt.issues:
+                warn_details = "; ".join(f"{iss.code}: {iss.message}" for iss in stmt.issues)
+            else:
+                warn_details = "ALL_CLEAR"
+
+            # 1. S.No.
+            c1 = ws_sum.cell(row=row_idx, column=1, value=s_idx)
+            c1.alignment = Alignment(horizontal="center")
+
+            # 2. Source File
+            c2 = ws_sum.cell(row=row_idx, column=2, value=str(src_file))
+            c2.data_type = "s"
+
+            # 3. Account No.
+            c3 = ws_sum.cell(row=row_idx, column=3, value=acc_no)
+            c3.data_type = "s"
+            c3.alignment = Alignment(horizontal="center")
+
+            # 4. Bank Name
+            c4 = ws_sum.cell(row=row_idx, column=4, value=bank)
+            c4.data_type = "s"
+
+            # 5. Profile Used
+            c5 = ws_sum.cell(row=row_idx, column=5, value=profile)
+            c5.data_type = "s"
+            c5.alignment = Alignment(horizontal="center")
+
+            # 6. Header Match Score
+            c6 = ws_sum.cell(row=row_idx, column=6, value=float(match_score))
+            c6.number_format = "0.00"
+            c6.alignment = Alignment(horizontal="center")
+
+            # 7. Total Rows Scanned
+            c7 = ws_sum.cell(row=row_idx, column=7, value=int(total_scanned))
+            c7.number_format = "#,##0"
+            c7.alignment = Alignment(horizontal="center")
+
+            # 8. Successful Transactions
+            c8 = ws_sum.cell(row=row_idx, column=8, value=int(succ_txns))
+            c8.number_format = "#,##0"
+            c8.alignment = Alignment(horizontal="center")
+
+            # 9. Duplicates Removed
+            c9 = ws_sum.cell(row=row_idx, column=9, value=int(dup_txns))
+            c9.number_format = "#,##0"
+            c9.alignment = Alignment(horizontal="center")
+
+            # 10. Failed / Skipped Rows
+            c10 = ws_sum.cell(row=row_idx, column=10, value=int(failed_skipped))
+            c10.number_format = "#,##0"
+            c10.alignment = Alignment(horizontal="center")
+
+            # 11. Status
+            c11 = ws_sum.cell(row=row_idx, column=11, value=stmt.status.value.upper())
+            c11.data_type = "s"
+            c11.alignment = Alignment(horizontal="center")
+
+            # 12. Warnings Count
+            c12 = ws_sum.cell(row=row_idx, column=12, value=int(warn_count))
+            c12.number_format = "0"
+            c12.alignment = Alignment(horizontal="center")
+
+            # 13. Warning / Audit Details
+            c13 = ws_sum.cell(row=row_idx, column=13, value=warn_details)
+            c13.data_type = "s"
+
+        if len(consolidation.statements) > 0:
+            tot_row = len(consolidation.statements) + 2
+            lbl = ws_sum.cell(row=tot_row, column=4, value="Total")
+            lbl.font = Font(bold=True)
+            lbl.alignment = Alignment(horizontal="right")
+
+            for c_idx, col_letter in [(7, "G"), (8, "H"), (9, "I"), (10, "J"), (12, "L")]:
+                c_tot = ws_sum.cell(row=tot_row, column=c_idx, value=f"=SUM({col_letter}2:{col_letter}{tot_row-1})")
+                c_tot.font = Font(bold=True)
+                c_tot.number_format = "#,##0"
+                c_tot.alignment = Alignment(horizontal="center")
+
+        ws_sum.freeze_panes = "A2"
+        ws_sum.auto_filter.ref = ws_sum.dimensions
+        _auto_fit_columns(ws_sum)
+
+        # Set active sheet back to Accounts
+        wb.active = ws
+
         buf = io.BytesIO()
         wb.save(buf)
         content_bytes = buf.getvalue()

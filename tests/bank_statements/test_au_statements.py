@@ -144,7 +144,10 @@ def test_au_deliverables_and_formatting() -> None:
     # 1. List_of_Accounts.xlsx
     acc_payload = next(a for a in res.artifact_payloads if a.intent.name == "List_of_Accounts.xlsx")
     wb_acc = openpyxl.load_workbook(io.BytesIO(acc_payload.content))
-    ws_acc = wb_acc.active
+    assert wb_acc.sheetnames == ["Accounts", "Processing_Summary"]
+    assert wb_acc.active.title == "Accounts"
+
+    ws_acc = wb_acc["Accounts"]
     acc_rows = list(ws_acc.iter_rows(values_only=True))
     assert acc_rows[0] == (
         "S.No.",
@@ -157,6 +160,34 @@ def test_au_deliverables_and_formatting() -> None:
     assert len(acc_rows) == 3  # Header + 2 accounts
     assert "Statements_S1_R" in acc_rows[1][4]
     assert "Statements_S2_R" in acc_rows[2][4]
+
+    ws_sum = wb_acc["Processing_Summary"]
+    sum_rows = list(ws_sum.iter_rows(values_only=True))
+    assert sum_rows[0] == (
+        "S.No.",
+        "Source File",
+        "Account No.",
+        "Bank Name",
+        "Profile Used",
+        "Header Match Score",
+        "Total Rows Scanned",
+        "Successful Transactions",
+        "Duplicates Removed",
+        "Failed / Skipped Rows",
+        "Status",
+        "Warnings Count",
+        "Warning / Audit Details",
+    )
+    assert sum_rows[1][0] == 1
+    assert sum_rows[1][1] == "Statements"
+    assert "0332" in sum_rows[1][2]
+    assert sum_rows[1][3] == "Au Small Finance Bank Limited"
+    assert sum_rows[1][4] == "au_excel_fmt1"
+    assert sum_rows[1][5] > 0.0
+    assert sum_rows[1][7] == 80  # Successful transactions for sheet 1
+    assert sum_rows[2][0] == 2
+    assert "7740" in sum_rows[2][2]
+    assert sum_rows[2][7] == 19  # Successful transactions for sheet 2
 
     # 2. Consolidated_Transactions.xlsx
     txn_payload = next(a for a in res.artifact_payloads if a.intent.name == "Consolidated_Transactions.xlsx")

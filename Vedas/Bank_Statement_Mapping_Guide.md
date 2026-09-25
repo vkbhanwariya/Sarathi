@@ -251,10 +251,11 @@ Example:
 - Input: `Input/SBI/` -> Output: `Output/bank_statements/SBI/`
 
 Check that deliverable artifacts are produced:
-- `List_of_Accounts.xlsx` (6-column Master Account Directory)
-- `Consolidated_Transactions.xlsx` (9-column Passbook with Indian number formatting `0,00,000.00` and dynamic `=SUBTOTAL(9, ...)`)
-- `Consolidated_Bank_Statement.parquet` (32-column forensic dataset with `transaction_hash`, `transaction_mode`, `eod_balance`, `balance_as_on`)
-- `Consolidated_Bank_Statement.xlsx` (Multi-sheet engineering audit spreadsheet: `Transactions`, `Statements`, `Exceptions`)
+- `List_of_Accounts.xlsx`:
+  - **Sheet 1 (`Accounts`)**: 6-column Master Account Directory (`S.No.`, `Name of the Account Holder`, `Account No.`, `Bank Name`, `Input Location Range`, `Transaction ID Range`).
+  - **Sheet 2 (`Processing_Summary`)**: 13-column Extraction & Schema Audit Ledger (`S.No.`, `Source File`, `Account No.`, `Bank Name`, `Profile Used`, `Header Match Score`, `Total Rows Scanned`, `Successful Transactions`, `Duplicates Removed`, `Failed / Skipped Rows`, `Status`, `Warnings Count`, `Warning / Audit Details`) with bottom `=SUM(...)` totals.
+- `Consolidated_Transactions.xlsx`: 9-column Passbook with Indian number formatting `0,00,000.00` and dynamic `=SUBTOTAL(9, ...)`.
+- `Consolidated_Bank_Statement.parquet`: 32-column forensic dataset with `transaction_hash`, `transaction_mode`, `eod_balance`, `balance_as_on`.
 
 Verify double-entry balance:
 $$\text{Opening Balance} + \sum \text{Credits} - \sum \text{Debits} == \text{Closing Balance} \pm 0.01$$

@@ -319,9 +319,25 @@ class BankStatementCapability:
                     seen_accs.add(acc_key)
                     distinct_accounts.append(tx.account_identity)
 
+            doc_metadata["successful_transactions"] = len(dedup_res.unique_transactions)
+            doc_metadata["duplicate_transactions"] = len(dedup_res.duplicates)
+            doc_metadata["raw_transactions"] = len(raw_txns)
+
             if len(distinct_accounts) > 1:
+                scanned_by_acc = doc_metadata.get("scanned_rows_by_acc", {})
                 for acc_ident in distinct_accounts:
                     acc_txns = tuple(tx for tx in dedup_res.unique_transactions if tx.account_identity == acc_ident)
+                    acc_meta = dict(doc_metadata)
+                    acc_meta["successful_transactions"] = len(acc_txns)
+                    acc_dups = sum(
+                        1 for d in dedup_res.duplicates if d[0].account_identity == acc_ident
+                    )
+                    acc_meta["duplicate_transactions"] = acc_dups
+                    acc_fp = acc_ident.account_fingerprint if acc_ident else None
+                    if acc_fp and acc_fp in scanned_by_acc:
+                        acc_meta["total_scanned_rows"] = scanned_by_acc[acc_fp]
+                    else:
+                        acc_meta["total_scanned_rows"] = len(acc_txns) + acc_dups
                     acc_stmt_id = generate_statement_id(
                         bank_name=final_bank_name,
                         account_identity=acc_ident,
@@ -344,7 +360,7 @@ class BankStatementCapability:
                                 transactions=acc_txns,
                                 issues=tuple(doc_issues),
                                 provenance=doc_prov,
-                                metadata=doc_metadata,
+                                metadata=acc_meta,
                             )
                         )
                     )
@@ -486,6 +502,10 @@ class BankStatementCapability:
             raw_source_id = doc.source_input_id or getattr(doc, "document_id", None) or ""
             file_stem = Path(raw_source_id).stem if raw_source_id else "Statement"
 
+        total_scanned_rows = 0
+        best_header_score = 0.0
+        scanned_rows_by_acc: dict[str, int] = {}
+
         for page_num, table in all_tables:
             if not table.rows and not table.headers:
                 continue
@@ -501,6 +521,7 @@ class BankStatementCapability:
             hdr_cells, data_rows = extracted_table
             sample_rows = extract_sample_data_rows(data_rows)
             hdr_offset = (hdr_idx + 2) if (hdr_idx is not None and hdr_idx >= 0) else 1
+            total_scanned_rows += len(data_rows)
 
             tbl_account_number = None
             if table.name and re.match(r"^[A-Za-z0-9]{8,24}$", table.name.strip()):
@@ -536,10 +557,16 @@ class BankStatementCapability:
                 if tbl_account_number
                 else account_identity
             )
+            if tbl_identity and tbl_identity.account_fingerprint:
+                scanned_rows_by_acc[tbl_identity.account_fingerprint] = (
+                    scanned_rows_by_acc.get(tbl_identity.account_fingerprint, 0) + len(data_rows)
+                )
 
-            resolved_prof, best_mappings, _ = self._mapper.resolve_best_profile(
+            resolved_prof, best_mappings, map_score = self._mapper.resolve_best_profile(
                 hdr_cells, candidate_profile=profile_id, sample_rows=sample_rows
             )
+            if map_score > best_header_score:
+                best_header_score = map_score
             if resolved_prof and resolved_prof != profile_id:
                 active_profile = self._profiles.get(resolved_prof, {})
                 has_signed_semantics = bool(active_profile.get("signed_amounts", False))
@@ -796,6 +823,10 @@ class BankStatementCapability:
                         table_txns.append(new_tx)
 
         if metadata is not None:
+            metadata["total_scanned_rows"] = total_scanned_rows
+            metadata["header_match_score"] = best_header_score
+            metadata["source_file_stem"] = file_stem
+            metadata["scanned_rows_by_acc"] = scanned_rows_by_acc
             if eod_balances:
                 metadata["eod_balances"] = tuple(eod_balances)
             if summary_rows:
