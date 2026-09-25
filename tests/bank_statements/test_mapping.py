@@ -3,28 +3,23 @@ from pathlib import Path
 import pytest
 
 from sarathi.dosh import DoshError, FailureCode
-from sarathi.shakti.bank_statements.mapper import HeaderMapper as _orig_mapper
-
-_FIXTURE_BANKS_DIR = Path(__file__).parent / "fixtures" / "banks"
+from sarathi.shakti.bank_statements.mapper import HeaderMapper
 
 
-def HeaderMapper(banks_dir: Path | None = None) -> _orig_mapper:
-    target = banks_dir if banks_dir is not None else _FIXTURE_BANKS_DIR
-    return _orig_mapper(banks_dir=target)
-
-
-def test_map_sbi_headers_exact() -> None:
+def test_map_standard_headers() -> None:
     mapper = HeaderMapper()
-    headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
-    mappings = mapper.map_headers(headers, profile_id="sbi")
+    headers = ["Txn Date", "Value Date", "Description", "Ref No", "Cheque No", "Debit", "Credit", "Balance"]
+    mappings = mapper.map_headers(headers)
 
     mapping_dict = {m.canonical_field: m.source_header for m in mappings}
-    assert "date" in mapping_dict
-    assert "description" in mapping_dict
-    assert "reference_number" in mapping_dict
-    assert "debit" in mapping_dict
-    assert "credit" in mapping_dict
-    assert "balance" in mapping_dict
+    assert mapping_dict["date"] == "Txn Date"
+    assert mapping_dict["value_date"] == "Value Date"
+    assert mapping_dict["description"] == "Description"
+    assert mapping_dict["reference_number"] == "Ref No"
+    assert mapping_dict["cheque_number"] == "Cheque No"
+    assert mapping_dict["debit"] == "Debit"
+    assert mapping_dict["credit"] == "Credit"
+    assert mapping_dict["balance"] == "Balance"
 
 
 def test_map_generic_headers() -> None:
@@ -61,6 +56,13 @@ def test_chq_and_chq_no_map_strictly_to_cheque_number() -> None:
     mappings3 = {m.canonical_field: m.source_header for m in mapper.map_headers(headers3)}
     assert mappings3.get("cheque_number") == "CHQ"
     assert "reference_number" not in mappings3
+
+    # 4. Combined Ref No./Cheque No. headers map strictly to cheque_number
+    for combined in ("Ref No./Cheque No.", "Ref No/Cheque No", "Ref/Chq No", "Ref/Chq No.", "Chq / Ref No."):
+        headers_comb = ["Date", "Description", combined, "Debit", "Credit", "Balance"]
+        mappings_comb = {m.canonical_field: m.source_header for m in mapper.map_headers(headers_comb)}
+        assert mappings_comb.get("cheque_number") == combined, f"Failed for {combined}"
+        assert "reference_number" not in mappings_comb, f"Unexpected reference_number mapped for {combined}"
 
 
 def test_bank_mapper_malformed_yaml_fails_deterministically(tmp_path: Path) -> None:
@@ -183,17 +185,35 @@ def test_header_fuzzy_scoring_runner_up_margin() -> None:
     assert mapped_dict.get("Withdrawl") == "debit"
 
 
-def test_resolve_best_profile_matches_sbi_schema() -> None:
-    """HeaderMapper.resolve_best_profile must dynamically identify SBI from its unique column headers."""
-    mapper = HeaderMapper()
+def test_resolve_best_profile_matches_schema(tmp_path: Path) -> None:
+    """HeaderMapper.resolve_best_profile dynamically identifies format-isolated bank profile."""
+    prof_yaml = tmp_path / "sbi_pdf_fmt1.yaml"
+    prof_yaml.write_text(
+        """
+profile_id: "sbi_pdf_fmt1"
+parent_bank: "sbi"
+bank_name: "State Bank of India"
+container_format: "pdf"
+headers:
+  date: ["txn date"]
+  value_date: ["value date"]
+  description: ["description"]
+  cheque_number: ["ref no./cheque no."]
+  debit: ["debit"]
+  credit: ["credit"]
+  balance: ["balance"]
+""",
+        encoding="utf-8",
+    )
+    mapper = HeaderMapper(banks_dir=tmp_path)
     # Typical SBI headers with specific 'Ref No./Cheque No.' column
     headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
     best_profile, mappings, score = mapper.resolve_best_profile(headers, candidate_profile="generic")
-    assert best_profile == "sbi"
+    assert best_profile == "sbi_pdf_fmt1"
     assert score > 10.0
     mapped_fields = {m.canonical_field for m in mappings}
     assert "date" in mapped_fields
-    assert "reference_number" in mapped_fields
+    assert "cheque_number" in mapped_fields
     assert "balance" in mapped_fields
 
 
@@ -216,9 +236,26 @@ def test_extract_sample_data_rows() -> None:
     assert 2 < sampled_indices[3] < sampled_indices[4] < 17
 
 
-def test_resolve_best_profile_with_sample_rows_boosts_confidence() -> None:
+def test_resolve_best_profile_with_sample_rows_boosts_confidence(tmp_path: Path) -> None:
     """Providing factual sample rows validates data types and boosts mapping confidence score."""
-    mapper = HeaderMapper()
+    prof_yaml = tmp_path / "sbi_pdf_fmt1.yaml"
+    prof_yaml.write_text(
+        """
+profile_id: "sbi_pdf_fmt1"
+parent_bank: "sbi"
+bank_name: "State Bank of India"
+headers:
+  date: ["txn date"]
+  value_date: ["value date"]
+  description: ["description"]
+  cheque_number: ["ref no./cheque no."]
+  debit: ["debit"]
+  credit: ["credit"]
+  balance: ["balance"]
+""",
+        encoding="utf-8",
+    )
+    mapper = HeaderMapper(banks_dir=tmp_path)
     headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
     sample_rows = [
         ("01/01/2026", "01/01/2026", "SALARY CREDIT", "REF100", "", "50,000.00", "50,000.00"),
@@ -227,12 +264,12 @@ def test_resolve_best_profile_with_sample_rows_boosts_confidence() -> None:
     ]
 
     # Without sample rows
-    _, _, score_no_samples = mapper.resolve_best_profile(headers, candidate_profile="sbi")
+    _, _, score_no_samples = mapper.resolve_best_profile(headers, candidate_profile="sbi_pdf_fmt1")
 
     # With sample rows verifying dates, decimals, and descriptions
     prof_with_samples, _, score_with_samples = mapper.resolve_best_profile(
-        headers, candidate_profile="sbi", sample_rows=sample_rows
+        headers, candidate_profile="sbi_pdf_fmt1", sample_rows=sample_rows
     )
 
-    assert prof_with_samples == "sbi"
+    assert prof_with_samples == "sbi_pdf_fmt1"
     assert score_with_samples > score_no_samples

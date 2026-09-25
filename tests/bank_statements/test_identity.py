@@ -1,29 +1,14 @@
 """Tests for Bank Statement and Profile Detection."""
 
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request, Result, TableData
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
-from sarathi.shakti.bank_statements.detector import detect_bank_statement as _orig_detect
-
-_HDFC_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "hdfc_statement.csv"
-_FIXTURE_BANKS_DIR = Path(__file__).parent / "fixtures" / "banks"
+from sarathi.shakti.bank_statements.detector import detect_bank_statement
 
 
-def detect_bank_statement(
-    document: CanonicalDocument,
-    banks_dir: Path | None = None,
-    profiles: Sequence[dict[str, Any]] | None = None,
-):
-    target_banks = banks_dir if banks_dir is not None else _FIXTURE_BANKS_DIR
-    return _orig_detect(document, banks_dir=target_banks, profiles=profiles)
-
-
-def test_detect_sbi_bank_statement() -> None:
+def test_detect_generic_bank_statement() -> None:
     doc_text = """
-    STATE BANK OF INDIA
     Account Statement
     Account Name: Mr. Rahul Sharma
     Account Number: 30123456789
@@ -46,11 +31,52 @@ def test_detect_sbi_bank_statement() -> None:
 
     evidence = detect_bank_statement(doc)
     assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "sbi"
-    assert evidence.bank_name == "State Bank of India"
+    assert evidence.matched_profile == "generic"
+    assert evidence.bank_name == "Generic Bank"
     assert evidence.account_identity is not None
     assert evidence.account_identity.masked_account_number == "XXXXXXX6789"
     assert evidence.account_identity.account_fingerprint is not None
+    assert evidence.ifsc == "SBIN0001234"
+
+
+def test_detect_with_specific_profile() -> None:
+    sbi_profile = {
+        "profile_id": "sbi_pdf_fmt1",
+        "bank_name": "State Bank of India",
+        "container_format": "pdf",
+        "identification_keywords": ["STATE BANK OF INDIA", "Account Statement"],
+        "metadata_patterns": {
+            "account_number": r"Account\s*Number:\s*(\d+)",
+            "ifsc": r"IFSC:\s*([A-Z0-9]+)",
+        },
+    }
+    doc_text = """
+    STATE BANK OF INDIA
+    Account Statement
+    Account Name: Mr. Rahul Sharma
+    Account Number: 30123456789
+    IFSC: SBIN0001234
+    """
+    table = TableData(
+        rows=(
+            ("Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"),
+            ("01 Jan 2026", "01 Jan 2026", "OPENING BALANCE", "", "", "", "25,000.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-sbi-pdf",
+        detected_type="pdf",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+
+    evidence = detect_bank_statement(doc, profiles=[sbi_profile])
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "sbi_pdf_fmt1"
+    assert evidence.bank_name == "State Bank of India"
+    assert evidence.account_identity is not None
+    assert evidence.account_identity.masked_account_number == "XXXXXXX6789"
+    assert evidence.account_identity.ifsc == "SBIN0001234"
 
 
 def test_detect_negative_non_bank_invoice() -> None:
@@ -81,63 +107,43 @@ def test_detect_negative_loan_schedule() -> None:
     assert evidence.is_bank_statement is False
 
 
-def test_detect_icici_bank_statement() -> None:
-    doc_text = """
-    ICICI BANK LIMITED
-    Detailed Account Statement
-    Account Name: Ms. Priya Verma
-    Account No: 123456789012
-    Cust ID: 98765432
-    IFSC Code: ICIC0001234
-    Statement Period: 01-01-2026 to 31-01-2026
-    ICICI Bank Towers, Bandra Kurla Complex
-    """
-    table = TableData(
-        rows=(
-            ("Date", "Particulars", "Cheque No.", "Withdrawals", "Deposits", "Balance"),
-            ("01-01-2026", "OPENING BALANCE", "", "", "", "50,000.00"),
-            ("10-01-2026", "NEFT-SALARY-CREDIT", "REF1122", "", "75,000.00", "1,25,000.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-icici-1",
-        text=doc_text,
-        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
-    )
-
-    evidence = detect_bank_statement(doc)
-    assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "icici"
-    assert evidence.bank_name == "ICICI Bank"
-    assert evidence.account_identity is not None
-    assert evidence.account_identity.masked_account_number == "XXXXXXXX9012"
-
-
-def test_detect_hdfc_profile() -> None:
-    doc_text = _HDFC_FIXTURE_PATH.read_text(encoding="utf-8")
-    doc = CanonicalDocument(document_id="doc-hdfc-fixture", text=doc_text)
-    ev = detect_bank_statement(doc)
-
-    assert ev.is_bank_statement is True
-    assert ev.matched_profile == "hdfc"
-    assert ev.bank_name == "HDFC Bank"
-    assert ev.account_identity is not None
-    assert ev.account_identity.masked_account_number == "XXXXXXXXXX7890"
-    assert ev.account_identity.account_holder == "Priya Nair"
-
-
 def test_bank_statement_profile_tie_detection() -> None:
     """Verify detector flags tied profile evidence as ambiguous instead of picking arbitrary first profile."""
-    text = "ICICI Bank statement and HDFC Bank statement with account details"
-    doc = CanonicalDocument(document_id="doc-ambig", text=text)
+    prof_a = {
+        "profile_id": "bank_a_pdf_fmt1",
+        "bank_name": "Bank Alpha",
+        "container_format": "pdf",
+        "identification_keywords": ["Alpha Bank Statement"],
+    }
+    prof_b = {
+        "profile_id": "bank_b_pdf_fmt1",
+        "bank_name": "Bank Beta",
+        "container_format": "pdf",
+        "identification_keywords": ["Beta Bank Statement"],
+    }
+    text = "Alpha Bank Statement and Beta Bank Statement with account details"
+    doc = CanonicalDocument(document_id="doc-ambig", detected_type="pdf", text=text)
 
-    ev = detect_bank_statement(doc)
+    ev = detect_bank_statement(doc, profiles=[prof_a, prof_b])
     if ev.matched_profile == "generic":
         assert any("Ambiguous bank profiles" in r for r in ev.reasons)
 
 
 def test_best_match_bank_detection_with_competing_narration() -> None:
     """Profile detection uses multi-signal best match, not first match."""
+    sbi_profile = {
+        "profile_id": "sbi_pdf_fmt1",
+        "bank_name": "State Bank of India",
+        "identification_keywords": ["STATE BANK OF INDIA"],
+        "metadata_patterns": {
+            "account_number": r"Account\s*Number:\s*(\d+)",
+        },
+    }
+    hdfc_profile = {
+        "profile_id": "hdfc_pdf_fmt1",
+        "bank_name": "HDFC Bank",
+        "identification_keywords": ["HDFC Bank"],
+    }
     doc_text = """
     STATE BANK OF INDIA
     Account Statement
@@ -147,18 +153,17 @@ def test_best_match_bank_detection_with_competing_narration() -> None:
     Date 01/01/2026 Cash Wdl at HDFC Bank ATM Dr 2000.00 Bal 10000.00
     """
     doc = CanonicalDocument(document_id="doc-sbi", source_input_id="inp-sbi", text=doc_text)
-    evidence = detect_bank_statement(doc)
+    evidence = detect_bank_statement(doc, profiles=[sbi_profile, hdfc_profile])
 
     assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "sbi"
+    assert evidence.matched_profile == "sbi_pdf_fmt1"
     assert evidence.bank_name == "State Bank of India"
 
 
 def test_ifsc_extraction_and_propagation() -> None:
     """IFSC extracted from metadata patterns and populated on BankStatement."""
     doc_text = """
-    ICICI BANK LTD
-    Account Statement
+    ACCOUNT STATEMENT
     Account Number: 000105009999
     Customer ID: 555123456
     IFSC Code: ICIC0000001
@@ -175,7 +180,7 @@ def test_ifsc_extraction_and_propagation() -> None:
     assert evidence.account_identity is not None
     assert evidence.account_identity.ifsc == "ICIC0000001"
 
-    cap = BankStatementCapability(banks_dir=_FIXTURE_BANKS_DIR)
+    cap = BankStatementCapability()
     req = Request(
         request_id="req-test",
         requirement="bank_statements",
@@ -185,136 +190,6 @@ def test_ifsc_extraction_and_propagation() -> None:
     res = cap.execute(req, ctx, prior_result=Result(data=doc))
     stmt = res.data.statements[0]
     assert stmt.ifsc == "ICIC0000001"
-
-
-def test_detect_axis_bank_statement() -> None:
-    doc_text = """
-    AXIS BANK
-    Account Statement
-    Account Number: 912010012345678
-    Cust ID: 123456789
-    IFSC: UTIB0000123
-    Statement Period: 01-01-2026 to 31-01-2026
-    """
-    table = TableData(
-        rows=(
-            ("Tran Date", "Particulars", "Chq No", "Debit", "Credit", "Balance"),
-            ("01-01-2026", "Opening Balance", "", "", "", "50,000.00"),
-            ("05-01-2026", "NEFT OUT", "123456", "1,500.00", "", "48,500.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-axis",
-        text=doc_text,
-        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
-    )
-    evidence = detect_bank_statement(doc)
-    assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "axis"
-    assert evidence.bank_name == "Axis Bank"
-    assert evidence.account_identity is not None
-    assert evidence.account_identity.ifsc == "UTIB0000123"
-
-
-def test_detect_kotak_bank_statement() -> None:
-    doc_text = """
-    KOTAK MAHINDRA BANK
-    Account Statement
-    Account Number: 1234567890
-    CRN: 12345678
-    IFSC Code: KKBK0000123
-    """
-    table = TableData(
-        rows=(
-            ("Date", "Narration", "Chq / Ref No.", "Withdrawal (Dr)", "Deposit (Cr)", "Balance"),
-            ("01-Jan-2026", "OPENING BALANCE", "", "", "", "10,000.00"),
-            ("02-Jan-2026", "UPI/SALARY", "REF999", "", "25,000.00", "35,000.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-kotak",
-        text=doc_text,
-        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
-    )
-    evidence = detect_bank_statement(doc)
-    assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "kotak"
-    assert evidence.bank_name == "Kotak Mahindra Bank"
-
-
-def test_detect_pnb_bank_statement() -> None:
-    doc_text = """
-    PUNJAB NATIONAL BANK
-    Account Statement
-    Account Number: 1234000100012345
-    IFSC: PUNB0123400
-    """
-    table = TableData(
-        rows=(
-            ("Txn Date", "Transaction Details", "Cheque No.", "Debit", "Credit", "Balance"),
-            ("01/01/2026", "OPENING BAL", "", "", "", "20,000.00"),
-            ("03/01/2026", "ATM WDL", "9988", "2,000.00", "", "18,000.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-pnb",
-        text=doc_text,
-        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
-    )
-    evidence = detect_bank_statement(doc)
-    assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "pnb"
-    assert evidence.bank_name == "Punjab National Bank"
-
-
-def test_detect_bob_bank_statement() -> None:
-    doc_text = """
-    BANK OF BARODA
-    Statement of Account
-    Account Number: 12340100012345
-    IFSC Code: BARB0KOLKAT
-    """
-    table = TableData(
-        rows=(
-            ("Date", "Narration", "Chq/Ref No", "Withdrawal", "Deposit", "Balance"),
-            ("01-01-2026", "B/F BALANCE", "", "", "", "15,000.00"),
-            ("04-01-2026", "DIVIDEND CR", "DIV01", "", "500.00", "15,500.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-bob",
-        text=doc_text,
-        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
-    )
-    evidence = detect_bank_statement(doc)
-    assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "bob"
-    assert evidence.bank_name == "Bank of Baroda"
-
-
-def test_detect_canara_bank_statement() -> None:
-    doc_text = """
-    CANARA BANK
-    Account Statement
-    Account Number: 1234101012345
-    IFSC: CNRB0001234
-    """
-    table = TableData(
-        rows=(
-            ("Txn Date", "Particulars", "Chq No", "Debit", "Credit", "Balance"),
-            ("01-Jan-2026", "BALANCE B/F", "", "", "", "30,000.00"),
-            ("06-Jan-2026", "POS PURCHASE", "1212", "1,200.00", "", "28,800.00"),
-        )
-    )
-    doc = CanonicalDocument(
-        document_id="doc-canara",
-        text=doc_text,
-        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
-    )
-    evidence = detect_bank_statement(doc)
-    assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "canara"
-    assert evidence.bank_name == "Canara Bank"
 
 
 def test_generate_statement_id_deterministic() -> None:

@@ -460,10 +460,19 @@ class BankStatementCapability:
                         current_sequence_id += 1
                         ref_raw = _get_cell(row_cells, ref_col)
                         ref_val = ref_raw
+                        chq_raw = _get_cell(row_cells, chq_col)
+                        chq_val = chq_raw
                         if ref_val:
                             repaired_utr, det_type, was_repaired = repair_utr(ref_val)
                             if was_repaired or det_type:
                                 ref_val = repaired_utr
+
+                        # If no separate reference column, check if cheque column value is actually a UTR
+                        if ref_val is None and chq_val:
+                            repaired_utr, det_type, was_repaired = repair_utr(chq_val)
+                            if was_repaired or det_type:
+                                ref_val = repaired_utr
+                                chq_val = None
 
                         desc_raw = _get_cell(row_cells, desc_col) or ""
 
@@ -476,7 +485,7 @@ class BankStatementCapability:
                             description=desc_raw,
                             bank_name=bank_name,
                             reference_number=ref_val,
-                            cheque_number=_get_cell(row_cells, chq_col),
+                            cheque_number=chq_val,
                             debit=tx_debit,
                             credit=tx_credit,
                             running_balance=tx_bal,

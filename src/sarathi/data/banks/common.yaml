@@ -55,10 +55,6 @@ aliases:
   - trans id
   - journal no
   - journal number
-  - ref no./cheque no.
-  - ref no/cheque no
-  - ref/chq no
-  - ref/chq no.
   cheque_number:
   - chq
   - chq.
@@ -73,6 +69,16 @@ aliases:
   - instrument id
   - instrument no
   - instrument number
+  - ref no./cheque no.
+  - ref no/cheque no
+  - ref/chq no
+  - ref/chq no.
+  - chq/ref no
+  - chq / ref no
+  - chq / ref no.
+  - chq./ref.no.
+  - chq/ref.no.
+  - cheque/ref no
   debit:
   - debit
   - debit amount
