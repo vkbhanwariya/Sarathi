@@ -51,10 +51,8 @@ def _is_transaction_header_text(text: str) -> bool:
 
 def _has_minimum_header_cells(cells: Sequence[Any], min_cells: int = 3) -> bool:
     """Check if row has at least min_cells distinct non-empty column header strings."""
-    total = len(cells)
-    threshold = min(min_cells, total) if total > 0 else 1
     non_empty = sum(1 for c in cells if str(c).strip())
-    return non_empty >= threshold
+    return non_empty >= min_cells
 
 
 def find_header_row_index(table: TableData) -> int | None:

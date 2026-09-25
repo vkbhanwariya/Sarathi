@@ -241,21 +241,21 @@ uv run --group dev pytest tests/bank_statements/ -q
 ```
 
 ### Step 4: Run Consolidation & Output Directory Rule
-Sarathi enforces the **Universal Output Path Rule**:
-Deliverables are organized under the requirement and input folder:
+Sarathi enforces the **Universal Output Path Rule** via canonical `ArtifactBoundary`:
+Deliverables and execution audit telemetry are organized under the requirement and immutable timestamped run directory:
 ```
-Output/bank_statements/<input_folder>/
+Output/bank_statements/Run-<timestamp>-<short_id>/
 ```
 Example:
-- Input: `Input/AU/` -> Output: `Output/bank_statements/AU/`
-- Input: `Input/SBI/` -> Output: `Output/bank_statements/SBI/`
+- `Output/bank_statements/Run-20260925-204052-0F9ED886/`
 
-Check that deliverable artifacts are produced:
+Check that deliverable artifacts and manifest are produced in the run directory:
 - `List_of_Accounts.xlsx`:
   - **Sheet 1 (`Accounts`)**: 6-column Master Account Directory (`S.No.`, `Name of the Account Holder`, `Account No.`, `Bank Name`, `Input Location Range`, `Transaction ID Range`).
   - **Sheet 2 (`Processing_Summary`)**: 13-column Extraction & Schema Audit Ledger (`S.No.`, `Source File`, `Account No.`, `Bank Name`, `Profile Used`, `Header Match Score`, `Total Rows Scanned`, `Successful Transactions`, `Duplicates Removed`, `Failed / Skipped Rows`, `Status`, `Warnings Count`, `Warning / Audit Details`) with bottom `=SUM(...)` totals.
 - `Consolidated_Transactions.xlsx`: 9-column Passbook with Indian number formatting `0,00,000.00` and dynamic `=SUBTOTAL(9, ...)`.
 - `Consolidated_Bank_Statement.parquet`: 32-column forensic dataset with `transaction_hash`, `transaction_mode`, `eod_balance`, `balance_as_on`.
+- `run-manifest.json`: Run execution ledger with cryptographic SHA-256 hashes, input outcomes, provenance lineage, and runtime telemetry for UI monitoring.
 
 Verify double-entry balance:
 $$\text{Opening Balance} + \sum \text{Credits} - \sum \text{Debits} == \text{Closing Balance} \pm 0.01$$

@@ -1,0 +1,55 @@
+profile_id: "axis_csv_fmt1"
+parent_bank: "axis"
+bank_name: "Axis Bank Limited"
+container_format: "csv"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".csv"
+  actual_hidden_format: "csv (Plain text comma-separated values with ISO-8859/UTF-8 encoding)."
+  mime_type: "text/csv"
+  magic_bytes: "none (Plain text stream)"
+
+aliases:
+  - "axis"
+  - "axis bank"
+  - "axis bank limited"
+  - "axisbank"
+  - "utib"
+
+identification_keywords:
+  - "axis"
+  - "axis bank"
+  - "axisbank"
+  - "utib"
+  - "statement of account no"
+
+headers:
+  date:
+    - "tran_date"
+    - "trans_date"
+  cheque_number:
+    - "chqno"
+    - "chq_no"
+  description:
+    - "particulars"
+  debit:
+    - "dr"
+  credit:
+    - "cr"
+  balance:
+    - "bal"
+  branch:
+    - "sol"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Statement\s+of\s+Account\s+No|Account\s+No)\s*[:\-]?\s*([0-9]{10,20})'
+  account_holder: 'Name\s*[:\-]+\s*([A-Za-z\s\.]+?)(?:\r?\n|Joint|\s{2,})'
+  period_start: 'From\s*:\s*(\d{2}-\d{2}-\d{4})'
+  period_end: 'To\s*:\s*(\d{2}-\d{2}-\d{4})'
