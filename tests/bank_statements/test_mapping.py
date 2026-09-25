@@ -279,3 +279,130 @@ headers:
 
     assert prof_with_samples == "sbi_pdf_fmt1"
     assert score_with_samples > score_no_samples
+
+
+def test_currency_detection_narration_isolation_defaults_to_inr() -> None:
+    """Narration mentioning foreign currencies with exchange rates must not override statement INR currency."""
+    from sarathi.sankalpa import CanonicalDocument, PageData, TableData
+    from sarathi.shakti.bank_statements.capability import detect_statement_currency
+
+    # 1. Narration mentioning foreign currency (USD) and forex rate must remain INR
+    t_inr = TableData(
+        name="t1",
+        headers=("Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(("01/01/2026", "POS 401284XXXXXX0001 STEAM GAMES SEATTLE WA USD 14.99 @ 84.50", "1,266.65", "", "45,000.00"),),
+    )
+    doc_inr = CanonicalDocument(
+        document_id="d_inr",
+        text="State Bank of India Statement. Transaction: USD 14.99 @ 84.50 + Markup fee $1.20.",
+        pages=(PageData(page_number=1, text="USD 14.99 @ 84.50", tables=(t_inr,)),),
+        tables=(t_inr,),
+    )
+    assert detect_statement_currency(doc_inr) == "INR", "Narration mentioning USD/rates must not alter INR denomination"
+
+    # 2. Narration mentioning EUR or other foreign currencies remains INR
+    t_eur = TableData(
+        name="t2",
+        headers=("Date", "Narration", "Withdrawal", "Deposit", "Balance"),
+        rows=(("02/01/2026", "HOTEL BERLIN EUR 120.00 RATE 91.50", "10,980.00", "", "34,020.00"),),
+    )
+    doc_eur = CanonicalDocument(
+        document_id="d_eur",
+        text="HDFC Bank Statement. EUR hotel booking.",
+        pages=(PageData(page_number=1, text="EUR 120.00", tables=(t_eur,)),),
+        tables=(t_eur,),
+    )
+    assert detect_statement_currency(doc_eur) == "INR", "Narration mentioning EUR must remain INR"
+
+    # 3. Explicit labeled currency or document metadata is respected
+    doc_explicit = CanonicalDocument(
+        document_id="d_exp",
+        text="Account Statement\nCurrency: USD\nAccount No: 123456789",
+        tables=(t_inr,),
+    )
+    assert detect_statement_currency(doc_explicit) == "USD", "Explicit labeled Currency: USD must be respected"
+
+
+def test_explicit_ref_col_not_converted_to_cheque(tmp_path: Path) -> None:
+    """Explicit 'Ref No' column with 6-digit number and 'Cash deposit' must remain reference_number."""
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    table = TableData(
+        name="t_ref",
+        headers=("Date", "Narration", "Ref No", "Debit", "Credit", "Balance"),
+        rows=(("01/01/2026", "Cash deposit at branch", "123456", "", "10,000.00", "50,000.00"),),
+    )
+    doc = CanonicalDocument(
+        document_id="d_ref",
+        text="Account Statement HDFC Bank",
+        pages=(PageData(page_number=1, text="HDFC Bank", tables=(table,)),),
+        tables=(table,),
+    )
+
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req1",
+        requirement="bank_statements",
+        inputs=(InputRef("i1", tmp_path / "stmt.csv", "stmt.csv", 100),),
+    )
+    ctx = ExecutionContext("run1", "req1", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    tx = res.data.statements[0].transactions[0]
+    assert tx.reference_number == "123456", f"Expected reference_number='123456', got {tx.reference_number}"
+    assert tx.cheque_number is None, f"Expected cheque_number=None on explicit Ref No column, got {tx.cheque_number}"
+
+
+def test_mixed_currency_totals_none(tmp_path: Path) -> None:
+    """Mixed-currency consolidation must yield total_debit=None, total_credit=None, and populate totals_by_currency."""
+    from decimal import Decimal
+
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    t_usd = TableData(
+        name="t_usd",
+        headers=("Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(("01/01/2026", "US Consulting", "100.00", "", "1,000.00"),),
+    )
+    doc_usd = CanonicalDocument(
+        document_id="d_usd",
+        text="Account Statement\nCurrency: USD",
+        metadata={"currency": "USD"},
+        pages=(PageData(page_number=1, text="Account Statement\nCurrency: USD", tables=(t_usd,)),),
+        tables=(t_usd,),
+    )
+
+    t_inr = TableData(
+        name="t_inr",
+        headers=("Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(("01/01/2026", "India Vendor", "200.00", "", "2,000.00"),),
+    )
+    doc_inr = CanonicalDocument(
+        document_id="d_inr",
+        text="Account Statement\nCurrency: INR",
+        metadata={"currency": "INR"},
+        pages=(PageData(page_number=1, text="Account Statement\nCurrency: INR", tables=(t_inr,)),),
+        tables=(t_inr,),
+    )
+
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req_mix",
+        requirement="bank_statements",
+        inputs=(
+            InputRef("i_usd", tmp_path / "usd.csv", "usd.csv", 100),
+            InputRef("i_inr", tmp_path / "inr.csv", "inr.csv", 100),
+        ),
+    )
+    ctx = ExecutionContext("run_mix", "req_mix", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=(doc_usd, doc_inr)))
+
+    consolidation = res.data
+    assert consolidation.total_debit is None, f"Expected total_debit=None for mixed currencies, got {consolidation.total_debit}"
+    assert consolidation.total_credit is None, f"Expected total_credit=None for mixed currencies, got {consolidation.total_credit}"
+    assert "USD" in consolidation.totals_by_currency
+    assert "INR" in consolidation.totals_by_currency
+    assert consolidation.totals_by_currency["USD"][0] == Decimal("100.00")
+    assert consolidation.totals_by_currency["INR"][0] == Decimal("200.00")
+    assert any(i.code == "MIXED_CURRENCIES" for i in consolidation.issues)

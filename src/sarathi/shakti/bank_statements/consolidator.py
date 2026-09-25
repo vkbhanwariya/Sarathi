@@ -38,20 +38,37 @@ def _account_group_key(stmt: BankStatement) -> tuple:
     if not ident:
         return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
 
+    # Determine bank identity key:
+    # If IFSC is available, its 4-letter prefix provides definitive institutional identity.
+    ifsc_val = (ident.ifsc or stmt.ifsc or "").strip().upper()
+    ifsc_prefix = ifsc_val[:4] if len(ifsc_val) >= 4 and ifsc_val[:4].isalnum() else None
+
+    is_generic_bank = (
+        stmt.bank_name.strip().lower() in ("generic bank", "generic", "bank")
+        or (stmt.bank_profile and stmt.bank_profile.strip().lower() in ("generic", "common"))
+    )
+
+    # When bank name is generic and no authoritative IFSC prefix exists, bank identity is unverified.
+    # We must NEVER group distinct statements together across files for deduplication.
+    if is_generic_bank and not ifsc_prefix:
+        return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
+
+    bank_key = ifsc_prefix if ifsc_prefix else stmt.bank_name.lower().strip()
+
     # If account_fingerprint exists, it is either:
-    # 1. Derived from a full unmasked account number (strong identity), OR
-    # 2. Derived from a masked account number + account holder (strong combined identity).
+    # 1. Derived from a full unmasked account number (+ IFSC bank prefix if available), OR
+    # 2. Derived from a masked account number + account holder (+ IFSC bank prefix).
     # In both cases, statements sharing this fingerprint safely belong to the same account.
     if ident.account_fingerprint:
-        return ("fingerprint", stmt.bank_name.lower().strip(), ident.account_fingerprint)
+        return ("fingerprint", bank_key, ident.account_fingerprint)
 
     # If account_fingerprint is None, the statement has an already-masked number without account holder.
     # We must not conflate distinct people having accounts with the same trailing 4 digits.
     holder = ident.account_holder.lower().strip() if ident.account_holder else None
     if holder:
-        return ("holder", stmt.bank_name.lower().strip(), holder)
+        return ("holder", bank_key, holder)
 
-    return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
+    return ("statement", bank_key, stmt.statement_id or str(id(stmt)))
 
 
 def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatementConsolidationResult:
@@ -170,9 +187,6 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
 
     # Calculate summary metrics strictly from canonical valid deduplicated transactions
     total_txns = len(sorted_valid_txns)
-    total_debits = sum((tx.debit for tx in sorted_valid_txns if tx.debit is not None), Decimal("0"))
-    total_credits = sum((tx.credit for tx in sorted_valid_txns if tx.credit is not None), Decimal("0"))
-
     totals_by_curr: dict[str, tuple[Decimal, Decimal]] = {}
     for tx in sorted_valid_txns:
         curr = tx.currency or "INR"
@@ -185,6 +199,28 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
         curr = stmt.currency or "INR"
         if curr not in totals_by_curr:
             totals_by_curr[curr] = (Decimal("0"), Decimal("0"))
+
+    # When mixed currencies are present, summing them directly produces misleading combined numbers.
+    # Expose scalar total_debit and total_credit as None and provide per-currency totals.
+    if len(totals_by_curr) > 1:
+        total_debits: Decimal | None = None
+        total_credits: Decimal | None = None
+        all_issues.append(
+            ValidationIssue(
+                code="MIXED_CURRENCIES",
+                message=(
+                    f"Consolidated statements contain mixed currencies ({', '.join(sorted(totals_by_curr.keys()))}). "
+                    "Scalar total_debit and total_credit are omitted; consult totals_by_currency."
+                ),
+                severity="info",
+                context={"currencies": sorted(totals_by_curr.keys())},
+            )
+        )
+    elif len(totals_by_curr) == 1:
+        _, (total_debits, total_credits) = next(iter(totals_by_curr.items()))
+    else:
+        total_debits = Decimal("0")
+        total_credits = Decimal("0")
 
     return BankStatementConsolidationResult(
         statements=tuple(reordered_statements),

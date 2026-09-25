@@ -73,17 +73,24 @@ def create_account_identity(
         else:
             masked = "X" * len(clean_acc)
 
+        clean_ifsc = ifsc.strip().upper() if ifsc and ifsc.strip() else None
+        ifsc_bank = clean_ifsc[:4] if clean_ifsc and len(clean_ifsc) >= 4 and clean_ifsc[:4].isalnum() else None
+
         # A masked account number (e.g. XXXXXX1234) is weak evidence that cannot uniquely identify
         # an account across different people. It requires account_holder to form a safe identity fingerprint.
         if is_already_masked:
             if account_holder and account_holder.strip():
                 raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}:{account_holder.strip().lower()}"
+                if ifsc_bank:
+                    raw_key += f":{ifsc_bank}"
                 fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
             else:
                 fingerprint = None
         else:
             # Deterministic SHA-256 fingerprint for full unmasked account
             raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}"
+            if ifsc_bank:
+                raw_key += f":{ifsc_bank}"
             fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
 
     return AccountIdentity(
@@ -333,8 +340,8 @@ class BankStatementConsolidationResult:
 
     statements: tuple[BankStatement, ...]
     total_transactions: int
-    total_debit: Decimal
-    total_credit: Decimal
+    total_debit: Decimal | None = None
+    total_credit: Decimal | None = None
     status: ValidationStatus = ValidationStatus.VALID
     issues: tuple[ValidationIssue, ...] = ()
     transactions: tuple[Transaction, ...] = ()
@@ -342,9 +349,9 @@ class BankStatementConsolidationResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "statements", _validate_seq(self.statements, BankStatement, "statements"))
-        if not isinstance(self.total_debit, Decimal):
-            raise TypeError(f"total_debit must be a Decimal, got {type(self.total_debit)}.")
-        if not isinstance(self.total_credit, Decimal):
-            raise TypeError(f"total_credit must be a Decimal, got {type(self.total_credit)}.")
+        if self.total_debit is not None and not isinstance(self.total_debit, Decimal):
+            raise TypeError(f"total_debit must be a Decimal or None, got {type(self.total_debit)}.")
+        if self.total_credit is not None and not isinstance(self.total_credit, Decimal):
+            raise TypeError(f"total_credit must be a Decimal or None, got {type(self.total_credit)}.")
         object.__setattr__(self, "transactions", _validate_seq(self.transactions, Transaction, "transactions"))
         object.__setattr__(self, "totals_by_currency", dict(self.totals_by_currency))

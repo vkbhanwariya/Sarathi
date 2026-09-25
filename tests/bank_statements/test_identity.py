@@ -234,3 +234,124 @@ def test_transaction_id_auto_generation_and_provenance() -> None:
     assert tx.source_input_id == "input_doc_1"
     assert tx.page_number == 2
     assert tx.row_index == 5
+
+
+def test_cross_bank_different_ifsc_not_deduplicated() -> None:
+    """Two statements with Generic Bank and same account number but different IFSC must NOT be deduplicated."""
+    from datetime import date
+    from decimal import Decimal
+
+    from sarathi.shakti.bank_statements.consolidator import consolidate_statements
+    from sarathi.shakti.bank_statements.models import (
+        BankStatement,
+        Transaction,
+        create_account_identity,
+    )
+
+    ident_sbi = create_account_identity("Generic Bank", "123456789", ifsc="SBIN0001234")
+    ident_hdfc = create_account_identity("Generic Bank", "123456789", ifsc="HDFC0001234")
+
+    assert ident_sbi.account_fingerprint != ident_hdfc.account_fingerprint, "Fingerprints must differ across distinct bank IFSCs"
+
+    tx_sbi = Transaction(
+        transaction_date=date(2026, 1, 5),
+        description="Transfer to Vendor",
+        bank_name="Generic Bank",
+        debit=Decimal("500.00"),
+        account_identity=ident_sbi,
+        statement_id="stmt_sbi",
+    )
+    tx_hdfc = Transaction(
+        transaction_date=date(2026, 1, 5),
+        description="Transfer to Vendor",
+        bank_name="Generic Bank",
+        debit=Decimal("500.00"),
+        account_identity=ident_hdfc,
+        statement_id="stmt_hdfc",
+    )
+
+    stmt_sbi = BankStatement(
+        bank_name="Generic Bank",
+        bank_profile="generic",
+        account_identity=ident_sbi,
+        statement_id="stmt_sbi",
+        ifsc="SBIN0001234",
+        opening_balance=Decimal("1000.00"),
+        closing_balance=Decimal("500.00"),
+        transactions=(tx_sbi,),
+    )
+    stmt_hdfc = BankStatement(
+        bank_name="Generic Bank",
+        bank_profile="generic",
+        account_identity=ident_hdfc,
+        statement_id="stmt_hdfc",
+        ifsc="HDFC0001234",
+        opening_balance=Decimal("1000.00"),
+        closing_balance=Decimal("500.00"),
+        transactions=(tx_hdfc,),
+    )
+
+    result = consolidate_statements([stmt_sbi, stmt_hdfc])
+    assert result.total_transactions == 2, f"Expected 2 transactions, got {result.total_transactions} (erroneously deduplicated across banks!)"
+    assert len(result.transactions) == 2
+
+
+def test_file_fingerprint_full_content_and_rename(tmp_path) -> None:
+    """File fingerprinting must be content-based (rename-invariant) and detect 32-64KB differences."""
+    from sarathi.mukha.intake import _compute_file_fingerprint
+
+    # 1. Rename invariance
+    content = b"Exact identical statement content across renames." * 50
+    f1 = tmp_path / "original_statement.pdf"
+    f2 = tmp_path / "renamed_copy.pdf"
+    f1.write_bytes(content)
+    f2.write_bytes(content)
+
+    fp1 = _compute_file_fingerprint(f1, len(content))
+    fp2 = _compute_file_fingerprint(f2, len(content))
+    assert fp1 == fp2, "Fingerprint must not change when file is renamed"
+
+    # 2. 48 KB file difference in the tail/middle (bytes 32K..48K)
+    base_48k = bytearray(b"A" * 48000)
+    diff_48k = bytearray(b"A" * 48000)
+    diff_48k[35000:36000] = b"B" * 1000  # Differ strictly beyond 32KB
+
+    f_48k_1 = tmp_path / "statement_a.pdf"
+    f_48k_2 = tmp_path / "statement_b.pdf"
+    f_48k_1.write_bytes(base_48k)
+    f_48k_2.write_bytes(diff_48k)
+
+    fp_48k_1 = _compute_file_fingerprint(f_48k_1, len(base_48k))
+    fp_48k_2 = _compute_file_fingerprint(f_48k_2, len(diff_48k))
+    assert fp_48k_1 != fp_48k_2, "Fingerprint must detect differences in 32K-64K files"
+
+
+def test_document_fingerprint_sixth_row_difference() -> None:
+    """Document fingerprinting must detect differences in the 6th row of a table."""
+    from sarathi.shakti.bank_statements.capability import compute_document_fingerprint
+
+    rows_base = [
+        ("01/01/2026", "Txn 1", "100.00"),
+        ("02/01/2026", "Txn 2", "200.00"),
+        ("03/01/2026", "Txn 3", "300.00"),
+        ("04/01/2026", "Txn 4", "400.00"),
+        ("05/01/2026", "Txn 5", "500.00"),
+        ("06/01/2026", "Txn 6", "600.00"),
+    ]
+    rows_modified = list(rows_base)
+    rows_modified[5] = ("06/01/2026", "Txn 6 CHANGED", "999.00")
+
+    doc1 = CanonicalDocument(
+        document_id="d1",
+        text="Statement with rows",
+        tables=(TableData(name="t1", headers=("Date", "Desc", "Amt"), rows=tuple(rows_base)),),
+    )
+    doc2 = CanonicalDocument(
+        document_id="d2",
+        text="Statement with rows",
+        tables=(TableData(name="t1", headers=("Date", "Desc", "Amt"), rows=tuple(rows_modified)),),
+    )
+
+    fp1 = compute_document_fingerprint(doc1)
+    fp2 = compute_document_fingerprint(doc2)
+    assert fp1 != fp2, "Document fingerprint must change when 6th transaction row changes"

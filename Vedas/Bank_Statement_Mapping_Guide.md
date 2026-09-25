@@ -16,9 +16,10 @@ flowchart TD
     D --> E["Header Schema Matcher (HeaderMapper.resolve_best_profile)"]
     E --> F["Bank Profile Selected (src/sarathi/data/banks/<bank_id>.yaml)"]
     F --> G["Row Classifier & Decimal Parser (parse_decimal_amount, parse_date)"]
-    G --> H["Deduplicator (multi-month overlap detection)"]
-    H --> I["Financial Balance Validator (Opening + Credits - Debits == Closing)"]
-    I --> J["Output Deliverables (Consolidated_Bank_Statement.parquet & .xlsx)"]
+    G --> H["Account Identity & Fingerprinting (AccountIdentity)"]
+    H --> I["Deduplicator (multi-month overlap detection)"]
+    I --> J["Financial Balance Validator (Opening + Credits - Debits == Closing)"]
+    J --> K["Output Deliverables (Consolidated_Bank_Statement.parquet & 3-Sheet .xlsx)"]
 ```
 
 ---
@@ -54,13 +55,16 @@ Sarathi does not rely solely on bank logo text or isolated header strings. It us
    - **Last 3 rows** (`data_rows[-3:]`) — Closing transactions / bottom records.
 3. **Multi-Signal Composite Scoring**:
    `HeaderMapper.resolve_best_profile(hdr_cells, candidate_profile, sample_rows)` evaluates columns against registered profiles in `src/sarathi/data/banks/*.yaml`:
-   - **Anchor Header Fields**: `date` (+3.0), `description` (+2.0), `balance` (+2.5), `debit` (+2.0), `credit` (+2.0), `amount` (+2.0), `reference_number`/`cheque_number` (+1.0).
+   - **Anchor Header Fields**: `date` (+3.0), `description` (+2.0), `balance` (+2.5), `debit` (+2.0), `credit` (+2.0), `amount` (+2.0), `reference_number` (+1.0), `cheque_number` (+1.0).
    - **Precision Header Bonuses**: `bank_exact` match (+2.0), `bank_fuzzy` match (+1.0), `generic_exact` (+0.5).
    - **Candidate Prior**: +1.0 tie-breaker bonus if bank keyword detection also identified the bank or parent bank.
    - **Data Pattern Validation**:
      - Columns mapped to `date`/`value_date`: valid parsed dates earn +1.5 boost; matching the profile's specific `date_formats` earns an additional +1.0 bonus. Mapped date columns with no valid dates receive a -2.0 penalty.
      - Columns mapped to `debit`/`credit`/`amount`/`balance`: valid parsed decimals earn +1.5 boost. Pure non-numeric text triggers a -2.0 penalty.
      - Columns mapped to `description`: valid text content earns +0.5 boost.
+   - **Cheque vs Reference Isolation**:
+     - `cheque_number` maps strictly to cheque and instrument identities (`cheque no`, `chq no`, `cheque number`, `chq`).
+     - `reference_number` maps transaction identifiers (`ref no`, `utr`, `ref no./cheque no.`, `txn id`).
 4. **Two-Stage Resolution Hierarchy (Registered Profiles First)**:
    - **Stage 1 (Registered Profiles)**: The engine evaluates all registered institutional profiles (`profile_id != "common"`). If the highest scoring registered profile achieves `score >= min_threshold` (5.0), it is selected immediately.
    - **Stage 2 (Universal Fallback)**: Only if no registered profile reaches `min_threshold` does the engine evaluate `common.yaml`. If `common.yaml` achieves `min_threshold`, it is assigned.
@@ -112,13 +116,17 @@ identification_keywords:              # Unique text tokens confirming this bank
 headers:                              # CRITICAL: Maps ONLY this format's column headers
   date:
     - "txn date"
+  value_date:                           # Optional: Separate value / clearance date
+    - "value date"
   description:
     - "narration"
     - "description"
-  reference_number:
+  reference_number:                     # Transaction / UTR / ref IDs
+    - "ref no."
     - "ref no./cheque no."
-  cheque_number:
+  cheque_number:                        # Strictly cheque / instrument numbers
     - "cheque no."
+    - "chq no"
   debit:
     - "debit"
   credit:
@@ -139,12 +147,13 @@ metadata_patterns:                    # Regex to extract account metadata from s
   closing_balance: '(?:Closing\s*(?:Balance|Bal)?|Bal\s*c\/f)\s*[:\-]?\s*([0-9,]+\.\d{2})'
 
 # Optional flags:
+# currency: "INR"                     # Explicit currency override (default: auto-detected or INR)
 # signed_amounts: true                # Set true for single amount column with +/- signs, or Cr/Dr/C/D direction flag
 ```
 
 ---
 
-## 5. Universal Fallback (`src/sarathi/data/banks/common.yaml`) & Test Fixtures
+## 5. Universal Fallback (`src/sarathi/data/banks/common.yaml`) & Test Architecture
 
 `src/sarathi/data/banks/common.yaml` serves as Sarathi's universal banking dictionary and final fallback of last resort:
 
@@ -154,9 +163,9 @@ metadata_patterns:                    # Regex to extract account metadata from s
    - **Physical File**: Stored on disk as `src/sarathi/data/banks/common.yaml`.
    - **Logical Profile ID**: When `resolve_best_profile` falls back to `common.yaml`, it assigns the logical profile string `"generic"` with display name `"Generic Bank"`.
    - **Strict Fallback Invariant**: `common.yaml` is never evaluated first or mixed with candidate scoring. Registered format profiles (`<bank>_<container>_<fmt>.yaml`) always take precedence; `common.yaml` is evaluated strictly when no registered profile achieves `score >= min_threshold` (5.0).
-3. **Clean Production vs. Test Fixture Isolation**:
-   - **Production Root (`src/sarathi/data/banks/`)**: Starts with `common.yaml` and is incrementally populated with pristine, format-isolated `<bank>_<container>_<variant>.yaml` profiles as real statements are ingested.
-   - **Test Fixture Root (`tests/bank_statements/fixtures/banks/`)**: Contains isolated mock profiles (`sbi.yaml`, `hdfc.yaml`, `icici.yaml`, etc.) to guarantee that developer test suites run completely deterministically without coupling to or polluting the production profile directory.
+3. **Clean Architecture & Deterministic Test Fixtures**:
+   - **Production Directory (`src/sarathi/data/banks/`)**: Contains `common.yaml` and is populated with pristine, format-isolated `<bank>_<container>_<variant>.yaml` profiles.
+   - **Programmatic & In-Memory Test Fixtures**: Tests in `tests/bank_statements/` run deterministically against `common.yaml` or lightweight parameterized in-memory data structures, completely avoiding stale or duplicative YAML test fixture copies.
 
 ---
 
@@ -206,11 +215,11 @@ uv run --group dev pytest tests/bank_statements/ -q
 Run the bank consolidation pipeline and verify:
 $$\text{Opening Balance} + \sum \text{Credits} - \sum \text{Debits} == \text{Closing Balance} \pm 0.01$$
 Check that deliverable artifacts are produced:
-- `Output/<run_id>/Consolidated_Bank_Statement.xlsx`
-- `Output/<run_id>/Consolidated_Bank_Statement.parquet`
+- `Output/<run_id>/Consolidated_Bank_Statement.xlsx` (Multi-sheet: `Transactions`, `Statements`, `Exceptions`)
+- `Output/<run_id>/Consolidated_Bank_Statement.parquet` (27-column typed Decimal dataset)
 
-### Step 5: Add Anonymized Mock Fixture for Permanent Regression Protection
-Create a 3-row PII-free mock test fixture in `tests/bank_statements/fixtures/` and add a test in `test_identity.py` or `test_end_to_end.py` to guarantee this new layout is permanently locked and protected against regressions.
+### Step 5: Add Anonymized In-Memory Test for Permanent Regression Protection
+Add an in-memory parameterized test in `tests/bank_statements/test_mapping.py`, `test_identity.py`, or `test_rows.py` to guarantee this new layout is permanently locked and protected against regressions without creating file fixture clutter.
 
 ---
 
@@ -226,4 +235,8 @@ Create a 3-row PII-free mock test fixture in `tests/bank_statements/fixtures/` a
 | Boundary Balances Outside Table | Opening/closing balance printed in header text rather than table rows. | Add `opening_balance` and `closing_balance` regex to `metadata_patterns:`. |
 | Multi-Page B/F & C/F Rows | Page break carry-forward rows parsed as transactions. | `row_classifier.py` automatically flags `b/f`, `c/f`, `b/d`, `c/d` as boundary balances or continuation rows. |
 | Date parsing error | Non-standard format (e.g. `23/09/26` 2-digit year). | Add `"%d/%m/%y"` to `date_formats:`. |
+| Blank Repeated Dates | Statement omits transaction dates on same-day rows (`"`, `do`, `ditto`, `-`). | Engine automatically forwards date from the previous valid row. |
+| Signed Balances (`Dr`/`Cr`) | Running balance has trailing or leading `Cr`/`Dr` or trailing minus (`-`). | Engine uses `parse_balance_amount` to parse signed Decimal balance values. |
+| Cheque vs Ref Collision | Cheque number erroneously mapped into reference number column. | Ensure `cheque_number` is isolated strictly to cheque tokens and `reference_number` to ref/UTR tokens. |
+| Multi-Currency Statement | Account denominated in non-INR currency (USD, EUR, GBP, AED, SGD, CAD). | Engine auto-sniffs currency; totals are partitioned in `totals_by_currency`. |
 | Devanagari defect warning | Legacy font converter triggered on ASCII symbols in PDF. | Ensure `convert_legacy_fonts` is disabled for English bank statements. |

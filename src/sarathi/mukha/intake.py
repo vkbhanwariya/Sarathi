@@ -24,20 +24,14 @@ _IGNORE_FILE_SUFFIXES = frozenset({".tmp", ".crdownload", ".part", ".swp", ".bak
 
 
 def _compute_file_fingerprint(path: Path, size_bytes: int) -> str:
-    """Compute a fast deterministic 12-char fingerprint for an input file."""
+    """Compute a fast deterministic 12-char content fingerprint for an input file."""
     hasher = hashlib.sha256()
-    hasher.update(path.name.encode("utf-8", errors="replace"))
-    hasher.update(str(size_bytes).encode("utf-8"))
     try:
         with path.open("rb") as f:
-            head = f.read(32768)
-            hasher.update(head)
-            if size_bytes > 65536:
-                f.seek(-32768, 2)
-                tail = f.read(32768)
-                hasher.update(tail)
+            while chunk := f.read(65536):
+                hasher.update(chunk)
     except OSError:
-        pass
+        hasher.update(str(size_bytes).encode("utf-8"))
     return hasher.hexdigest()[:12]
 
 

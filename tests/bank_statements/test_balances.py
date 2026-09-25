@@ -278,3 +278,36 @@ def test_parse_balance_amount_dr_cr_od() -> None:
     assert parse_balance_amount("-1234.50") == Decimal("-1234.50")
     assert parse_balance_amount(None) is None
     assert parse_balance_amount("") is None
+
+
+def test_metadata_pattern_extracts_negative_balance_with_minus_sign() -> None:
+    """Opening Balance -100.00 and Closing Balance -200.00 must preserve minus signs."""
+    import re
+
+    import yaml
+
+    from sarathi.shakti.bank_statements.converter import parse_balance_amount
+    from sarathi.sutra import get_canonical_data_root
+
+    common_yaml_path = get_canonical_data_root() / "banks" / "common.yaml"
+    cfg = yaml.safe_load(common_yaml_path.read_text(encoding="utf-8"))
+    patterns = cfg["metadata_patterns"]
+
+    open_regex = re.compile(patterns["opening_balance"], re.IGNORECASE)
+    close_regex = re.compile(patterns["closing_balance"], re.IGNORECASE)
+
+    sample_text = """
+    Opening Balance -100.00
+    Closing Balance -200.00
+    """
+    m_open = open_regex.search(sample_text)
+    assert m_open is not None, "Opening balance regex should match 'Opening Balance -100.00'"
+    raw_open = m_open.group(1).strip()
+    assert raw_open == "-100.00"
+    assert parse_balance_amount(raw_open) == Decimal("-100.00")
+
+    m_close = close_regex.search(sample_text)
+    assert m_close is not None, "Closing balance regex should match 'Closing Balance -200.00'"
+    raw_close = m_close.group(1).strip()
+    assert raw_close == "-200.00"
+    assert parse_balance_amount(raw_close) == Decimal("-200.00")

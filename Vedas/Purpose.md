@@ -63,12 +63,14 @@ graph TD
 
 | Workflow | Inputs | Output | Core Behavior & Verification Invariants |
 | :--- | :--- | :--- | :--- |
-| **1. 🏦 Statement Consolidation & Reconciler** | Multi-bank statements (PDF, XLSX, CSV) | Master Consolidated `.xlsx` + Parquet source | Normalizes multi-month statements into canonical columns: `Date`, `Description`, `Ref/UTR`, `Withdrawal (Dr)`, `Deposit (Cr)`, `Balance`. Deduplicates overlapping dates across consecutive files. |
+| **1. 🏦 Statement Consolidation & Reconciler** | Multi-bank statements (PDF, XLSX, CSV) | 3-Sheet Master Consolidated `.xlsx` + 27-col Parquet | Normalizes multi-month statements into canonical columns, resolving dates, signed balances, multi-currency totals (`totals_by_currency`), and isolated cheque vs reference numbers. Produces 3 sheets (`Transactions`, `Statements` reconciliation ledger, and `Exceptions` audit ledger), plus an enriched 27-column Decimal-preserving Parquet dataset. |
 | **2. 📑 1-Page Executive Audit Memo** | Consolidated Statements | Executive Memo (`.docx` / PDF) | Authoritative summary for advocates and auditors: Turnover volumes, Top 5 senders/beneficiaries, high-value cash scrutiny alerts (Section 269ST), and mathematical reconciliation badge. |
 | **3. 🔍 Forensic & PMLA Checks** *(Roadmap)* | Consolidated Ledger | Risk Report & Anomaly Ledger | Flags circular/round-trip funds, structuring/smurfing just below statutory cash thresholds (₹50,000 / ₹10,00,000), and sudden velocity spikes. |
 
 ### Banking Verification Invariants
-- **Double-Entry Arithmetic**: Mathematically verifies: $\text{Opening Balance} + \text{Deposits} - \text{Withdrawals} == \text{Closing Balance}$ per page/statement. Discrepancies generate warning records.
+- **Double-Entry Arithmetic**: Mathematically verifies: $\text{Opening Balance} + \text{Deposits} - \text{Withdrawals} == \text{Closing Balance}$ per page and per statement. Discrepancies generate warning records and are itemized in calculated reconciliation diffs.
+- **Deterministic Identity & Provenance**: Derives safe `AccountIdentity` (masks leading digits, computes SHA-256 `account_fingerprint`), deterministic statement IDs (`stmt_<bank>_acc_<fp>_<docfp>`), and transaction IDs (`tx_<statement_id>_<seq>`), tracking source input files, page numbers, and row indices.
+- **Multi-Currency Aggregation**: Auto-detects statement currency (INR, USD, EUR, GBP, AED, SGD, CAD) and maintains discrete credit and debit aggregates per currency.
 - **UTR & IFSC Auto-Repair**: Heuristically repairs OCR glyph confusions (`0` vs `O`, `1` vs `I`, `8` vs `B`) in 16/22-character UTR numbers and validates 11-character RBI IFSC syntax.
 
 ---

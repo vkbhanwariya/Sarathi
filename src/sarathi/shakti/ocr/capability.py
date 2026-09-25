@@ -853,6 +853,7 @@ class OCRCapability:
                 tables=all_tables,
                 text=full_text,
                 detected_type="ocr_document",
+                metadata=dict(inp.metadata) if inp.metadata else {},
             )
             final_docs.append(ocr_doc)
 

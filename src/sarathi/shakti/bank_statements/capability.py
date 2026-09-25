@@ -69,48 +69,53 @@ def compute_document_fingerprint(doc: CanonicalDocument) -> str:
             return str(doc.metadata["source_hash"])[:12]
 
     hasher = hashlib.sha256()
-    hasher.update(doc.text[:2000].encode("utf-8", errors="replace"))
-    hasher.update(str(len(doc.text)).encode("utf-8"))
-    hasher.update(str(len(doc.pages)).encode("utf-8"))
-    for t in doc.tables[:5]:
+    for p in doc.pages:
+        if p.text:
+            hasher.update(p.text.encode("utf-8", errors="replace"))
+    if doc.text:
+        hasher.update(doc.text.encode("utf-8", errors="replace"))
+    for t in doc.tables:
         if t.headers:
             hasher.update(" ".join(str(h) for h in t.headers).encode("utf-8", errors="replace"))
-        for r in t.rows[:5]:
+        for r in t.rows:
             hasher.update(" ".join(str(c) for c in r).encode("utf-8", errors="replace"))
     return hasher.hexdigest()[:12]
 
 
 def detect_statement_currency(doc: CanonicalDocument, profile_cfg: Mapping[str, Any] | None = None) -> str:
-    """Detect currency from document metadata, header patterns, currency symbols, or fall back to INR."""
+    """Detect currency from profile config, document metadata, or explicit header labels.
+
+    All Indian bank statements operate in INR. Narration or description mentioning foreign
+    currencies (e.g. international transactions with exchange rates) does not alter the
+    underlying INR denomination of debit, credit, or balance columns.
+    """
     if profile_cfg and profile_cfg.get("currency"):
         return str(profile_cfg["currency"]).strip().upper()
 
-    search_text = (doc.text or "") + " " + " ".join(p.text for p in doc.pages if p.text)
-    for t in doc.tables:
-        if t.headers:
-            search_text += " " + " ".join(str(h) for h in t.headers)
+    # 1. Authoritative metadata fields on CanonicalDocument
+    if doc.metadata and doc.metadata.get("currency"):
+        return str(doc.metadata["currency"]).strip().upper()
 
-    # 1. Explicit metadata label: Currency: USD / Currency : EUR / INR
-    m_curr = re.search(r"\b(?:currency|curr|denominated in)\s*[:\-]?\s*([A-Z]{3})\b", search_text, re.IGNORECASE)
+    # 2. Explicit labeled currency field in statement header block
+    header_block = ""
+    if doc.text:
+        header_block += doc.text[:1000]
+    if doc.pages and doc.pages[0].text:
+        header_block += " " + doc.pages[0].text[:1000]
+
+    m_curr = re.search(r"\b(?:currency|curr|denominated\s+in)\s*[:\-]?\s*([A-Z]{3})\b", header_block, re.IGNORECASE)
     if m_curr:
         return m_curr.group(1).upper()
 
-    # 2. Distinctive international currency symbols / codes in table headers or cells
-    header_lower = search_text.lower()
-    if any(k in header_lower for k in ("(usd)", "usd ", "usd", "$", "dollar")):
-        return "USD"
-    if any(k in header_lower for k in ("(eur)", "eur ", "eur", "€", "euro")):
-        return "EUR"
-    if any(k in header_lower for k in ("(gbp)", "gbp ", "gbp", "£", "pound")):
-        return "GBP"
-    if any(k in header_lower for k in ("(aed)", "aed ", "aed", "dirham")):
-        return "AED"
-    if any(k in header_lower for k in ("(sgd)", "sgd ", "sgd", "s$")):
-        return "SGD"
-    if any(k in header_lower for k in ("(cad)", "cad ", "cad", "c$")):
-        return "CAD"
-    if any(k in header_lower for k in ("(inr)", "inr ", "inr", "₹", "rs.", "rs ", "rupee", "rupees")):
-        return "INR"
+    # 3. Explicit table column header currency indicators
+    table_headers_text = " ".join(
+        " ".join(str(h) for h in t.headers) for t in doc.tables if t.headers
+    ).lower()
+
+    if table_headers_text:
+        m_tbl = re.search(r"\b(inr|usd|eur|gbp|sgd|cad|aed)\b", table_headers_text)
+        if m_tbl:
+            return m_tbl.group(1).upper()
 
     return "INR"
 
@@ -376,6 +381,10 @@ class BankStatementCapability:
             amt_col, dir_col = mappings.get("amount"), mappings.get("direction")
             b_col = mappings.get("balance")
             ref_col, chq_col = mappings.get("reference_number"), mappings.get("cheque_number")
+            ref_source_header = next(
+                (m.source_header for m in best_mappings if m.canonical_field == "reference_number"), ""
+            )
+            is_combined_ref_col = bool(re.search(r"\b(?:chq|cheque)\b", ref_source_header, re.IGNORECASE))
 
             date_supplied = "transaction_date"
             if d_col is None:
@@ -561,7 +570,10 @@ class BankStatementCapability:
                                     re.IGNORECASE,
                                 )
                             )
-                            if is_chq_desc or (is_chq_num and not has_elec_kw):
+                            if is_chq_desc:
+                                chq_val = clean_ref
+                                ref_val = None
+                            elif is_combined_ref_col and is_chq_num and not has_elec_kw:
                                 chq_val = clean_ref
                                 ref_val = None
 

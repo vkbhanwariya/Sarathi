@@ -12,7 +12,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 | **Local OCR** | `ocr` | RapidOCR on OpenVINO (Intel Arc iGPU) | Scanned PDF, PNG, JPEG, TIFF, BMP | `CanonicalDocument`, bounding boxes, DOCX preview |
 | **Neural Translation** | `translation` | CTranslate2 Krutrim-Translate (14-Core CPU, 4096 Context) | `CanonicalDocument`, Hindi / English text | Translated `CanonicalDocument`, bilingual DOCX |
 | **Font Conversion** | `font_conversion` | Declarative 7-pass Akshara Transducer (CPU) | Word (`.docx`), Excel (`.xlsx`), legacy font text | Clean Unicode Devanagari `.docx`, `.xlsx` |
-| **Bank Statements** | `bank_statements` | Financial Reconciler & Polars Vectorizer (CPU) | Tabular bank statements (PDF, XLSX, CSV) | Consolidated `.xlsx`, `.parquet`, audit summary |
+| **Bank Statements** | `bank_statements` | Financial Reconciler & Polars Vectorizer (CPU) | Tabular bank statements (PDF, XLSX, CSV) | 3-Sheet `.xlsx` (Transactions, Statements, Exceptions), 27-col `.parquet`, audit ledger |
 | **Statutory Extraction** | `statutory` | Algorithmic Checksum Engine (CPU) | `CanonicalDocument`, legal/tax documents | Validated GSTIN, PAN, TAN, CIN, CNR, DIN metadata |
 | **DOCX Exporter** | `docx_exporter` | OpenXML WordprocessingML Packager (CPU) | `CanonicalDocument`, raw DOCX packages | Formatted Word `.docx` with bilingual typography |
 | **Cloud Adapters** | `mistral` | REST APIs (Authorized Egress Only) | Images, PDFs | Remote OCR fallback (Mistral OCR) |
@@ -26,6 +26,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
   - *Delimited Text*: CSV, TSV, semicolon, pipe (dialect auto-sniffed via `csv.Sniffer`, memory-efficient columnar parsing via `polars`).
   - *Encodings*: Auto-sniffed via `charset-normalizer` (UTF-8/16, CP1252, Latin-1, with graceful replacement fallback).
 - **Stroke Table Recovery**: Clusters vector drawing paths (`_extract_vector_stroke_tables`) to reconstruct borderless and ruled tables sub-millisecond without neural model overhead.
+- **Chunked Multi-Process Extraction**: For vector PDFs > 4 pages, PyMuPDF extraction executes across partitioned page chunks via `ProcessPoolExecutor` with isolated address spaces, eliminating Python GIL and Fitz context lock contention on multi-core CPUs (tuned for Intel Core Ultra 5 125H). Retains synchronous in-process path for $\le 4$ pages with automatic serial fallback on subprocess exceptions.
 - **Archive & XML Defenses**: Safe zip decompression caps (1 GiB uncompressed, 200.0 ratio bound, 10,000 members) and `defusedxml` protection against Billion Laughs and XXE.
 - **Fallback**: Sets `needs_ocr=True` on scanned or empty-text PDFs to trigger automated OCR escalation via Manthan.
 
@@ -71,12 +72,25 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 
 ## 5. Bank Statements (`bank_statements`)
 - **Engine**: Dynamic institutional schema matcher (`<bank>_<container>_<variant>.yaml`) with registered-profile prioritization and universal fallback heuristic (`common.yaml`).
-- **Integrity Verification**:
-  - **Double-Entry Arithmetic**: Verifies $\text{Opening Balance} + \text{Credits} - \text{Debits} == \text{Closing Balance} \pm 0.01$ per page.
-  - **Continuous Running Balance**: Validates row-by-row balance progression and detects debit/credit column inversion.
+- **Deterministic Identity & Provenance**:
+  - **Account Identity & Fingerprinting**: Derives typed `AccountIdentity`. Raw account numbers are safely masked (retaining last 4 digits). SHA-256 `account_fingerprint` is computed deterministically from unmasked account numbers, or from masked numbers paired with verified `account_holder` names. Masked account numbers alone are treated as weak evidence and never conflated across distinct accounts.
+  - **Deterministic Statement & Transaction IDs**: Every statement receives a unique `statement_id` (`stmt_<bank>_acc_<fingerprint>_<doc_fingerprint>`). Each transaction generates an immutable `transaction_id` (`tx_<statement_id>_<sequence_id>`), preserving `source_input_id`, `page_number`, and `row_index`.
+- **Integrity & Financial Reconciliation**:
+  - **Double-Entry Arithmetic**: Verifies $\text{Opening Balance} + \text{Credits} - \text{Debits} == \text{Closing Balance} \pm 0.01$ per statement and page, capturing discrepancies in a calculated reconciliation diff.
+  - **Continuous Running Balance & Signed Amounts**: Validates row-by-row balance progression, handles signed balance amounts (`Dr`/`Cr`, trailing `-`), and detects debit/credit column inversion.
+  - **Multi-Currency Handling**: Auto-detects statement currency (INR, USD, EUR, GBP, AED, SGD, CAD) from metadata, headers, or ISO symbols, maintaining discrete debit and credit totals by currency (`totals_by_currency`).
+  - **Date Disambiguation & Repeated Dates**: Resolves dates strictly in profile priority order, parses separate `value_date` and `posting_date`, and forwards blank/repetition markers (`"`, `ditto`, `do`, `-`).
+  - **Cheque vs Reference Isolation**: Enforces strict separation between cheque numbers (`cheque_number`) and transaction/UTR reference numbers (`reference_number`).
   - **UTR & IFSC Syntax Repair**: Validates 16/22-character UTR numbers and 11-character IFSC codes, repairing OCR confusion (`0` $\leftrightarrow$ `O`, `1` $\leftrightarrow$ `I`, `8` $\leftrightarrow$ `B`) reusing canonical `IFSC_PATTERN` from statutory.
-  - **Strong Identity Separation**: Masked account numbers (e.g. `XXXXXX1234`) are treated as weak evidence, requiring transaction and account-holder verification to prevent erroneous cross-statement row deduplication across different people.
-  - **Multi-Month Deduplication**: Eliminates overlapping transactions across consecutive statement files.
+  - **Multi-Month Deduplication**: Eliminates overlapping transactions across consecutive statement files within verified account groups.
+- **Dual Output Deliverables**:
+  - **3-Sheet Excel Workbook (`Consolidated_Bank_Statement.xlsx`)**:
+    1. `Transactions`: 21 formatted columns (`Date`, `Time`, `Description`, `Reference No.`, `Cheque No.`, `Debit`, `Credit`, `Running Balance`, `Currency`, `Bank`, `Masked Account`, `Account Fingerprint`, `Account Holder`, `Status`, `Transaction ID`, `Statement ID`, `Value Date`, `Posting Date`, `Source File`, `Page`, `Row`) with native Excel dates (`YYYY-MM-DD`), numeric decimal cells formatted as `#,##0.00;[Red]-#,##0.00`, formula injection defense, and frozen header filters.
+    2. `Statements`: 15-column reconciliation ledger displaying Statement ID, Bank, Masked Account, Account Holder, Currency, Period Start/End, Opening/Closing Balances, Total Debits/Credits, Calculated Balances, Reconciliation Diffs, transaction counts, and validation status.
+    3. `Exceptions`: 7-column audit ledger tracking Scope, Entity ID, Bank, Severity, Code, Message, and Context JSON.
+  - **27-Column Enriched Parquet (`Consolidated_Bank_Statement.parquet`)**: High-performance columnar dataset preserving exact `pl.Decimal(38, scale)` precision, full metadata, and source provenance for downstream analytical queries.
+- **Provider Readiness**:
+  - `BankStatementsProvider.readiness()` evaluates registered profiles in `src/sarathi/data/banks/` and falls back cleanly to `common.yaml`, reporting readiness status and active profile counts without throwing exceptions.
 - **Schema Mapping & Profiling**: See [`Bank_Statement_Mapping_Guide.md`](Bank_Statement_Mapping_Guide.md) for dynamic schema matching and onboarding new bank YAML profiles.
 
 ---

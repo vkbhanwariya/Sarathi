@@ -16,6 +16,9 @@ Quick diagnostic checklist and actionable recovery commands for common runtime i
 | **Encoding / Garbled Text** | Output contains replacement characters (``) | Non-UTF8 legacy encoding | Convert source file to UTF-8: `Get-Content input.csv \| Out-File -Encoding utf8 clean.csv` |
 | **Port Conflict** | Server fails to bind to loopback port | Port 8000 in use | Let Sarathi auto-assign an ephemeral port (pass `port = 0`) or change port via CLI: `sarathi --port 8080` |
 | **Frontend UI** | `404 Not Found` accessing `127.0.0.1:8000` | Compiled web assets missing in `src/sarathi/mukha/web/ui/` | Rebuild frontend SPA: `cd ui; npm ci; npm run build; cd ..` |
+| **Bank Statements** | Non-zero `Reconciliation Diff` in `Statements` sheet | Opening + Credits - Debits $\neq$ Closing balance | Open the `Exceptions` sheet in `Consolidated_Bank_Statement.xlsx` to review flagged rows, missing boundary balances, or unmapped reversal entries. |
+| **Cheque vs Reference**| Cheque number populated into Reference No. | Alias collision in bank profile | Isolate cheque headers strictly to `cheque_number:` and transaction/UTR tokens to `reference_number:` in the profile YAML. |
+| **PDF Subprocesses** | Subprocess error on huge vector PDF | Process pool worker error or system memory ceiling | The engine automatically catches subprocess exceptions and falls back transparently to serial in-process extraction. |
 | **Cloud Egress** | `403 Forbidden` / Security Denied on cloud OCR | `[security]` policy blocks outbound network | In `config/settings.toml`, set `allow_network_access = true` and configure `allowed_secrets = ["MISTRAL_API_KEY"]`. |
 
 ---
