@@ -38,30 +38,41 @@ aliases:
   - ref no
   - ref no.
   - reference no
+  - reference no.
   - reference number
+  - reference
   - utr
   - utr no
+  - utr no.
+  - utr number
   - txn id
+  - txn no
+  - txn ref no
   - transaction id
-  - ref/chq no
-  - chq./ref.no.
-  - chq/ref no
+  - transaction no
+  - transaction ref
   - ref/utr
-  - chq/ref.no.
-  - chq / ref no.
+  - trans id
+  - journal no
+  - journal number
   - ref no./cheque no.
   - ref no/cheque no
+  - ref/chq no
+  - ref/chq no.
   cheque_number:
+  - chq
+  - chq.
   - chq no
   - chq no.
-  - cheque no
-  - cheque number
-  - cheque/ref no
-  - chq/ref no
-  - chqno
   - chq.no.
-  - instrument id
+  - chqno
+  - cheque
+  - cheque no
   - cheque no.
+  - cheque number
+  - instrument id
+  - instrument no
+  - instrument number
   debit:
   - debit
   - debit amount

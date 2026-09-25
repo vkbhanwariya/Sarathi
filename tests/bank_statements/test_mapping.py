@@ -41,6 +41,28 @@ def test_map_generic_headers() -> None:
     assert mapping_dict["balance"] == "Closing Balance"
 
 
+def test_chq_and_chq_no_map_strictly_to_cheque_number() -> None:
+    """chq or chq no. must strictly map to cheque_number and never to reference_number."""
+    mapper = HeaderMapper()
+    # 1. Single chq no header
+    headers1 = ["Date", "Description", "Chq No.", "Debit", "Credit", "Balance"]
+    mappings1 = {m.canonical_field: m.source_header for m in mapper.map_headers(headers1)}
+    assert mappings1.get("cheque_number") == "Chq No."
+    assert "reference_number" not in mappings1
+
+    # 2. Both Ref No and Chq No present
+    headers2 = ["Date", "Description", "Ref No", "Chq No", "Debit", "Credit", "Balance"]
+    mappings2 = {m.canonical_field: m.source_header for m in mapper.map_headers(headers2)}
+    assert mappings2.get("reference_number") == "Ref No"
+    assert mappings2.get("cheque_number") == "Chq No"
+
+    # 3. Chq without 'no'
+    headers3 = ["Date", "Description", "CHQ", "Withdrawal", "Deposit", "Balance"]
+    mappings3 = {m.canonical_field: m.source_header for m in mapper.map_headers(headers3)}
+    assert mappings3.get("cheque_number") == "CHQ"
+    assert "reference_number" not in mappings3
+
+
 def test_bank_mapper_malformed_yaml_fails_deterministically(tmp_path: Path) -> None:
     """Malformed bank profile YAML must raise DoshError(INVALID_CONFIGURATION)."""
     bad_yaml = tmp_path / "sbi.yaml"

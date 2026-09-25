@@ -28,8 +28,12 @@ headers:
     - "ref no/cheque no"
     - "ref no"
     - "ref no."
+  cheque_number:
     - "cheque no"
+    - "cheque no."
     - "chq no"
+    - "chq no."
+    - "chqno"
   debit:
     - "debit"
     - "withdrawal amount"
