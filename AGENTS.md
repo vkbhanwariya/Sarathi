@@ -57,7 +57,10 @@ Sarathi's authoritative reference hardware deployment profile is pinned below.
 
 ## Core Rules
 
-1. **Plan before editing.** Identify canonical owner, contracts, callers, wiring, caches, and tests. Get explicit approval before editing.
+1. **Plan before editing (STRICT ZERO-TOUCH GATE).**
+   - **Absolute Invariant**: NEVER call file modification tools (`replace_file_content`, `multi_replace_file_content`, `write_to_file`) on code, data, or configuration files without first presenting the structured **Planning Checklist** and receiving explicit affirmative user approval (e.g., "Proceed", "Approved").
+   - **Clarifications & Feedback Are Not Approval**: User clarifications, constraints, domain notes, or review comments are planning inputs, NOT execution passes. When a user clarifies requirements or provides feedback, update or present the plan and await explicit approval.
+   - **No Implicit or Proactive Editing**: No matter how obvious a fix or clarification seems, editing code before explicit plan approval is a critical process failure.
 2. **Pragmatic ROI & Dependency Discipline.** Prefer direct implementations over framework bloat, but do not reinvent the wheel where specialized libraries provide decisive value:
    - **Allowed / Encouraged**: Battle-tested, high-performance, mature libraries (e.g. C/Rust-backed accelerators like `rapidfuzz`, `openvino`, `ctranslate2`, or complex domain parsers) where hand-rolling in pure Python would be slow, brittle, or bug-prone.
    - **Disallowed**: Redundant wrappers, speculative frameworks (e.g. LangChain, heavy ORMs), or micro-libraries for tasks the Python standard library (`re`, `unicodedata`, `xml.etree`, `pathlib`) accomplishes cleanly in ~10–20 lines.
@@ -102,11 +105,19 @@ Run scoped tests during development; full suite only at milestones:
 - Never poll task status in a loop; resume reactively from notifications.
 - New files/folders require explicit approval first.
 
-## Planning Checklist
-Before modifying code:
-- Objective and canonical owner
-- Mandatory Overengineering & ROI Assessment
-- Files to change / delete / add (new files need approval)
-- Affected contracts, callers, and call paths
-- Scoped test plan
-- Explicitly excluded scope
+## Planning Checklist & Approval Gate
+
+### Mandatory Checklist
+Every implementation plan presented to the user MUST contain:
+1. **Objective & Canonical Owner**: Exactly what is being solved and which subsystem canonically owns it.
+2. **Mandatory Overengineering & ROI Assessment**: Direct vs. speculative logic check; justification for every touched path.
+3. **Files to Change / Delete / Add**: Explicit list of files (new files require explicit approval).
+4. **Affected Contracts, Callers, and Call Paths**: Upstream/downstream impact analysis.
+5. **Scoped Test Plan**: Commands to be run following the Test Execution Ladder.
+6. **Explicitly Excluded Scope**: Boundaries to prevent scope creep.
+
+### Strict Approval Rule
+After presenting the checklist, the agent MUST STOP and yield the turn:
+- **DO NOT** edit files in the same turn as presenting the plan.
+- **DO NOT** assume approval from clarifications, questions, or review comments.
+- **WAIT** for the user's explicit affirmative approval (e.g., "Proceed", "Approved") before calling any editing tool.
