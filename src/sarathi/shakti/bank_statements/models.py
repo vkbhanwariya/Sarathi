@@ -97,6 +97,28 @@ def create_account_identity(
     )
 
 
+def generate_statement_id(
+    bank_name: str,
+    account_identity: AccountIdentity | None = None,
+    doc_id: str | None = None,
+) -> str:
+    """Generate a deterministic, safe, unique statement identifier."""
+    clean_bank = re.sub(r"[^a-zA-Z0-9]+", "_", bank_name.strip().lower()).strip("_") or "bank"
+    acc_part = "unidentified"
+    if account_identity:
+        if account_identity.account_fingerprint:
+            acc_part = f"acc_{account_identity.account_fingerprint[:12]}"
+        elif account_identity.masked_account_number:
+            clean_acc = re.sub(r"[^a-zA-Z0-9]+", "", account_identity.masked_account_number)
+            acc_part = f"acc_{clean_acc}"
+    doc_part = ""
+    if doc_id and doc_id.strip():
+        clean_doc = re.sub(r"[^a-zA-Z0-9]+", "_", doc_id.strip()).strip("_")
+        if clean_doc:
+            doc_part = f"_{clean_doc[-12:]}"
+    return f"stmt_{clean_bank}_{acc_part}{doc_part}"
+
+
 def _validate_decimal(val: Any, name: str, non_negative: bool = False) -> Decimal | None:
     """Validate that val is a Decimal or None, finite, and optionally non-negative."""
     if val is None:
@@ -167,6 +189,13 @@ class Transaction:
     value_date: date | None = None
     transaction_datetime: datetime | None = None
     sequence_id: int = 0
+    statement_id: str | None = None
+    transaction_id: str | None = None
+    raw_description: str | None = None
+    raw_reference: str | None = None
+    source_input_id: str | None = None
+    page_number: int | None = None
+    row_index: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.transaction_date, date):
@@ -191,6 +220,25 @@ class Transaction:
             )
         if isinstance(self.sequence_id, bool) or not isinstance(self.sequence_id, int):
             raise TypeError(f"sequence_id must be an integer, got {type(self.sequence_id)}.")
+        if self.statement_id is not None and not isinstance(self.statement_id, str):
+            raise TypeError(f"statement_id must be a string or None, got {type(self.statement_id)}.")
+        if self.transaction_id is not None and not isinstance(self.transaction_id, str):
+            raise TypeError(f"transaction_id must be a string or None, got {type(self.transaction_id)}.")
+        if self.raw_description is not None and not isinstance(self.raw_description, str):
+            raise TypeError(f"raw_description must be a string or None, got {type(self.raw_description)}.")
+        if self.raw_reference is not None and not isinstance(self.raw_reference, str):
+            raise TypeError(f"raw_reference must be a string or None, got {type(self.raw_reference)}.")
+        if self.source_input_id is not None and not isinstance(self.source_input_id, str):
+            raise TypeError(f"source_input_id must be a string or None, got {type(self.source_input_id)}.")
+        if self.page_number is not None and (
+            isinstance(self.page_number, bool) or not isinstance(self.page_number, int)
+        ):
+            raise TypeError(f"page_number must be an integer or None, got {type(self.page_number)}.")
+        if self.row_index is not None and (isinstance(self.row_index, bool) or not isinstance(self.row_index, int)):
+            raise TypeError(f"row_index must be an integer or None, got {type(self.row_index)}.")
+
+        if self.statement_id and not self.transaction_id:
+            object.__setattr__(self, "transaction_id", f"tx_{self.statement_id}_{self.sequence_id:05d}")
 
         _validate_decimal(self.debit, "debit", non_negative=True)
         _validate_decimal(self.credit, "credit", non_negative=True)
@@ -241,6 +289,13 @@ class BankStatement:
         if self.account_identity is not None and not isinstance(self.account_identity, AccountIdentity):
             raise TypeError(
                 f"account_identity must be an AccountIdentity instance or None, got {type(self.account_identity)}."
+            )
+
+        if not self.statement_id:
+            object.__setattr__(
+                self,
+                "statement_id",
+                generate_statement_id(self.bank_name, self.account_identity, None),
             )
 
         _validate_decimal(self.opening_balance, "opening_balance")

@@ -383,3 +383,98 @@ def test_zero_transactions_fails_closed_in_e2e(tmp_path: Path) -> None:
     stmt = consolidation.statements[0]
     assert stmt.status == ValidationStatus.INVALID
     assert any(w.code == "ZERO_TRANSACTIONS_EXTRACTED" for w in res.warnings)
+
+
+def test_multisheet_excel_and_enriched_parquet() -> None:
+    """Validate Phase 2 & 3 multi-sheet Excel and enriched Parquet output."""
+    from sarathi.shakti.bank_statements.consolidator import (
+        build_parquet_artifact,
+        build_xlsx_artifact,
+    )
+
+    ident = create_account_identity("State Bank of India", "30123456789")
+    tx1 = Transaction(
+        statement_id="stmt_sbi_1",
+        sequence_id=1,
+        transaction_date=date(2026, 1, 1),
+        description="Opening Balance",
+        bank_name="State Bank of India",
+        running_balance=Decimal("10000.00"),
+        account_identity=ident,
+        source_input_id="inp_sbi",
+        page_number=1,
+        row_index=1,
+    )
+    tx2 = Transaction(
+        statement_id="stmt_sbi_1",
+        sequence_id=2,
+        transaction_date=date(2026, 1, 2),
+        description="Salary Credit",
+        raw_description="Salary Credit Line 1",
+        raw_reference="UTR/RAW/999",
+        reference_number="UTRRAW999",
+        bank_name="State Bank of India",
+        credit=Decimal("50000.00"),
+        running_balance=Decimal("60000.00"),
+        account_identity=ident,
+        source_input_id="inp_sbi",
+        page_number=1,
+        row_index=2,
+    )
+    stmt = BankStatement(
+        statement_id="stmt_sbi_1",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        opening_balance=Decimal("10000.00"),
+        closing_balance=Decimal("60000.00"),
+        transactions=(tx1, tx2),
+    )
+    cons = BankStatementConsolidationResult(
+        statements=(stmt,),
+        transactions=(tx1, tx2),
+        total_debit=Decimal("0.00"),
+        total_credit=Decimal("50000.00"),
+        total_transactions=2,
+    )
+
+    # 1. Test Excel
+    xlsx_payload = build_xlsx_artifact(cons)
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_payload.content))
+    assert "Transactions" in wb.sheetnames
+    assert "Statements" in wb.sheetnames
+    assert "Exceptions" in wb.sheetnames
+
+    ws_tx = wb["Transactions"]
+    assert ws_tx.freeze_panes == "A2"
+    # Column 7 is Credit
+    credit_cell = ws_tx.cell(row=3, column=7)
+    assert credit_cell.value == 50000.0
+    assert isinstance(credit_cell.value, (int, float))
+    assert credit_cell.number_format == "#,##0.00;[Red]-#,##0.00"
+
+    # Transaction ID column (col 14)
+    tx_id_cell = ws_tx.cell(row=3, column=14)
+    assert tx_id_cell.value == "tx_stmt_sbi_1_00002"
+
+    ws_stmt = wb["Statements"]
+    # Total credits col 9, closing bal col 10, calculated bal col 11, diff col 12
+    assert ws_stmt.cell(row=2, column=7).value == 10000.0
+    assert ws_stmt.cell(row=2, column=9).value == 50000.0
+    assert ws_stmt.cell(row=2, column=10).value == 60000.0
+    assert ws_stmt.cell(row=2, column=11).value == 60000.0
+    assert ws_stmt.cell(row=2, column=12).value == 0.0
+
+    # 2. Test Parquet
+    parquet_payload = build_parquet_artifact(cons)
+    df = pl.read_parquet(io.BytesIO(parquet_payload.content))
+    assert "transaction_id" in df.columns
+    assert "statement_id" in df.columns
+    assert "source_input_id" in df.columns
+    assert "page_number" in df.columns
+    assert "row_index" in df.columns
+    assert "raw_description" in df.columns
+    assert "raw_reference" in df.columns
+    assert df["transaction_id"].to_list() == ["tx_stmt_sbi_1_00001", "tx_stmt_sbi_1_00002"]
+    assert df["raw_description"].to_list()[1] == "Salary Credit Line 1"
+    assert df["raw_reference"].to_list()[1] == "UTR/RAW/999"

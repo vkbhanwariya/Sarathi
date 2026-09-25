@@ -104,8 +104,8 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 if tx.provenance and tx.provenance[0].source_input_id
                 else None
             )
-            ex_stmt_id = existing.metadata.get("statement_id") if existing.metadata else None
-            tx_stmt_id = tx.metadata.get("statement_id") if tx.metadata else None
+            ex_stmt_id = existing.statement_id or (existing.metadata.get("statement_id") if existing.metadata else None)
+            tx_stmt_id = tx.statement_id or (tx.metadata.get("statement_id") if tx.metadata else None)
 
             is_explicit_cross_statement = bool(
                 (ex_doc_id and tx_doc_id and ex_doc_id != tx_doc_id)

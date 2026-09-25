@@ -315,3 +315,47 @@ def test_detect_canara_bank_statement() -> None:
     assert evidence.is_bank_statement is True
     assert evidence.matched_profile == "canara"
     assert evidence.bank_name == "Canara Bank"
+
+
+def test_generate_statement_id_deterministic() -> None:
+    from sarathi.shakti.bank_statements.models import create_account_identity, generate_statement_id
+
+    ident = create_account_identity("State Bank of India", "30123456789")
+    id1 = generate_statement_id("State Bank of India", ident, "doc_sbi_123.pdf")
+    id2 = generate_statement_id("State Bank of India", ident, "doc_sbi_123.pdf")
+    assert id1 == id2
+    assert id1.startswith("stmt_state_bank_of_india_acc_")
+    assert "123_pdf" in id1
+
+    # Without doc_id
+    id_nodoc = generate_statement_id("HDFC Bank", ident)
+    assert id_nodoc.startswith("stmt_hdfc_bank_acc_")
+
+
+def test_transaction_id_auto_generation_and_provenance() -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    from sarathi.shakti.bank_statements.models import Transaction
+
+    tx = Transaction(
+        statement_id="stmt_sbi_acc_1234",
+        sequence_id=42,
+        transaction_date=date(2026, 1, 1),
+        description="Merged description line 1 line 2",
+        raw_description="Merged description line 1",
+        raw_reference="UPI/123/original",
+        reference_number="UPI123original",
+        bank_name="State Bank of India",
+        debit=Decimal("150.00"),
+        source_input_id="input_doc_1",
+        page_number=2,
+        row_index=5,
+    )
+    assert tx.statement_id == "stmt_sbi_acc_1234"
+    assert tx.transaction_id == "tx_stmt_sbi_acc_1234_00042"
+    assert tx.raw_description == "Merged description line 1"
+    assert tx.raw_reference == "UPI/123/original"
+    assert tx.source_input_id == "input_doc_1"
+    assert tx.page_number == 2
+    assert tx.row_index == 5

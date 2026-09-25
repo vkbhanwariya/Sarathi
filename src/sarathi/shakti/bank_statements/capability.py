@@ -37,6 +37,7 @@ from sarathi.shakti.bank_statements.models import (
     Transaction,
     ValidationIssue,
     ValidationStatus,
+    generate_statement_id,
 )
 from sarathi.shakti.bank_statements.plugin import CAPABILITY_DECLARATION
 from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
@@ -170,8 +171,15 @@ class BankStatementCapability:
                 else (detection.bank_name or "Unknown Bank")
             )
 
+            doc_stmt_id = doc_metadata.get("statement_id") or generate_statement_id(
+                final_bank_name,
+                detection.account_identity,
+                doc.source_input_id or getattr(doc, "document_id", None),
+            )
+
             statement = validate_statement_balances(
                 BankStatement(
+                    statement_id=doc_stmt_id,
                     bank_name=final_bank_name,
                     bank_profile=final_profile,
                     account_identity=detection.account_identity,
@@ -260,6 +268,14 @@ class BankStatementCapability:
         current_sequence_id = 0
         eod_balances: list[dict[str, Any]] = []
         summary_rows: list[dict[str, Any]] = []
+
+        statement_id = generate_statement_id(
+            bank_name,
+            account_identity,
+            doc.source_input_id or getattr(doc, "document_id", None),
+        )
+        if metadata is not None:
+            metadata["statement_id"] = statement_id
 
         active_profile = self._profiles.get(profile_id or "", {})
         has_signed_semantics = bool(active_profile.get("signed_amounts", False))
@@ -442,18 +458,22 @@ class BankStatementCapability:
                             evidence={"row_index": row_idx},
                         )
                         current_sequence_id += 1
-                        ref_val = _get_cell(row_cells, ref_col)
+                        ref_raw = _get_cell(row_cells, ref_col)
+                        ref_val = ref_raw
                         if ref_val:
                             repaired_utr, det_type, was_repaired = repair_utr(ref_val)
                             if was_repaired or det_type:
                                 ref_val = repaired_utr
 
+                        desc_raw = _get_cell(row_cells, desc_col) or ""
+
                         new_tx = Transaction(
+                            statement_id=statement_id,
                             transaction_date=tx_date,
                             transaction_time=tx_time,
                             value_date=tx_val_date,
                             posting_date=tx_posting_date,
-                            description=_get_cell(row_cells, desc_col) or "",
+                            description=desc_raw,
                             bank_name=bank_name,
                             reference_number=ref_val,
                             cheque_number=_get_cell(row_cells, chq_col),
@@ -465,6 +485,11 @@ class BankStatementCapability:
                             issues=tuple(tx_issues),
                             provenance=(prov,),
                             sequence_id=current_sequence_id,
+                            raw_description=desc_raw,
+                            raw_reference=ref_raw,
+                            source_input_id=doc.source_input_id,
+                            page_number=page_num,
+                            row_index=row_idx,
                         )
                         raw_txns.append(new_tx)
                         table_txns.append(new_tx)
