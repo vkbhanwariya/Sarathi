@@ -72,6 +72,7 @@ This document specifies the document intelligence capabilities in `src/sarathi/s
 
 ## 5. Bank Statements (`bank_statements`)
 - **Engine**: Dynamic institutional schema matcher (`<bank>_<container>_<variant>.yaml`) with registered-profile prioritization and universal fallback heuristic (`common.yaml`).
+- **Canonical Indian Bank Master Registry**: Enforces strict institutional naming across 158 RBI-recognized Indian banks (`src/sarathi/data/banks/banks_catalog.json`). Authoritative 4-letter IFSC prefix matching and normalized alias resolution prevent random table or Excel headers from leaking as bank names. Unidentified institutions are strictly assigned `"Unknown Bank"` and emit a non-fatal `ValidationIssue(code="UNKNOWN_BANK", ...)` warning, flagging the statement in the Exceptions ledger.
 - **Deterministic Identity & Provenance**:
   - **Account Identity & Fingerprinting**: Derives typed `AccountIdentity`. Raw account numbers are safely masked (retaining last 4 digits). SHA-256 `account_fingerprint` is computed deterministically from unmasked account numbers, or from masked numbers paired with verified `account_holder` names. Masked account numbers alone are treated as weak evidence and never conflated across distinct accounts.
   - **Deterministic Statement & Transaction IDs**: Every statement receives a unique `statement_id` (`stmt_<bank>_acc_<fingerprint>_<doc_fingerprint>`). Each transaction generates an immutable `transaction_id` (`tx_<statement_id>_<sequence_id>`), preserving `source_input_id`, `page_number`, and `row_index`.

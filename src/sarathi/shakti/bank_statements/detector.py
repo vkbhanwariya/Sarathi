@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from sarathi.sankalpa import CanonicalDocument
+from sarathi.shakti.bank_statements.bank_registry import get_bank_registry
 from sarathi.shakti.bank_statements.mapper import load_bank_profile_yaml
 from sarathi.shakti.bank_statements.models import AccountIdentity, create_account_identity
 from sarathi.sutra import get_canonical_data_root
@@ -278,10 +279,10 @@ def detect_bank_statement(
 
     if score >= 0.5 and matched_profile_id is None:
         matched_profile_id = "generic"
-        matched_bank_name = "Generic Bank"
+        matched_bank_name = None
 
+    target_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
     if matched_profile_id == "generic" and raw_acc_num is None:
-        target_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
         common_cfg = load_bank_profile_yaml(target_dir / "common.yaml")
         gen_patterns = common_cfg.get("metadata_patterns", {})
         search_target = composite_raw if composite_raw.strip() else document.text
@@ -298,13 +299,34 @@ def detect_bank_statement(
             if m_ifsc:
                 raw_ifsc = m_ifsc.group(1).strip()
 
+    # Resolve bank name strictly against the official Indian bank registry
+    catalog_path = target_dir / "banks_catalog.json"
+    registry = get_bank_registry(catalog_path if catalog_path.exists() else None)
+    search_target = composite_raw if composite_raw.strip() else document.text
+    canonical_bank = registry.identify_bank(
+        text=search_target,
+        ifsc=raw_ifsc,
+        candidate_name=matched_bank_name,
+    )
+
+    if canonical_bank:
+        matched_bank_name = canonical_bank
+        reasons.append(f"Identified bank '{matched_bank_name}' from official Indian bank registry.")
+    elif score >= 0.4:
+        matched_bank_name = "Unknown Bank"
+        reasons.append(
+            "Bank could not be identified against the compiled list of Indian banks. Marked as 'Unknown Bank'."
+        )
+    else:
+        matched_bank_name = None
+
     account_identity: AccountIdentity | None = None
     if matched_bank_name:
         account_identity = create_account_identity(
             bank_name=matched_bank_name,
             raw_account_number=raw_acc_num,
             account_holder=raw_acc_holder,
-            bank_profile=matched_profile_id,
+            bank_profile=matched_profile_id or "generic",
             ifsc=raw_ifsc,
         )
 

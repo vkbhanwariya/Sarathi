@@ -153,19 +153,42 @@ metadata_patterns:                    # Regex to extract account metadata from s
 
 ---
 
-## 5. Universal Fallback (`src/sarathi/data/banks/common.yaml`) & Test Architecture
+## 5. Universal Fallback (`common.yaml`) & Canonical Indian Bank Registry (`banks_catalog.json`)
 
+### 5.1 Canonical Indian Bank Master Registry (`src/sarathi/data/banks/banks_catalog.json`)
+Sarathi maintains the official registry of all 158 RBI-recognized banking institutions in India (Public Sector, Domestic Private, Small Finance, Payments, Regional Rural, Foreign, State Co-operative, and Local Area banks):
+
+1. **Strict Canonical Bank Naming Invariant**:
+   - Sarathi **strictly mentions the identified bank name as per the official compiled list only**.
+   - Arbitrary Excel text, sheet names, or random table headers must **never** be used as bank names.
+2. **Deterministic Identification Hierarchy**:
+   - **Stage 1 (Authoritative IFSC Prefix)**: The 4-letter prefix of any detected IFSC code (e.g. `SBIN` $\rightarrow$ `State Bank of India`, `HDFC` $\rightarrow$ `HDFC Bank Limited`, `UTIB` $\rightarrow$ `Axis Bank Limited`, `CNRB` $\rightarrow$ `Canara Bank`) provides definitive institutional resolution.
+   - **Stage 2 (Exact & Normalized Matching)**: Exact matching against the 158 canonical bank names and standard aliases (e.g. `SBI`, `PNB`, `BOB`, `Kotak`, `IDFC First`).
+   - **Stage 3 (Header / Text Scan)**: Search statement metadata rows and document text for verified bank identities.
+3. **Unknown Bank Fallback with Non-Fatal Warning**:
+   - If a statement's bank cannot be verified against the official 158-bank catalog, its `bank_name` is strictly set to `"Unknown Bank"`.
+   - The engine automatically records a `ValidationIssue`:
+     ```python
+     ValidationIssue(
+         code="UNKNOWN_BANK",
+         message="Bank could not be identified against the compiled list of Indian banks. Statement marked as 'Unknown Bank'.",
+         severity="warning",
+     )
+     ```
+   - This sets statement validation status to `ValidationStatus.WARNING` and flags the statement under the `Exceptions` sheet in exported deliverables.
+
+### 5.2 Universal Fallback (`src/sarathi/data/banks/common.yaml`)
 `src/sarathi/data/banks/common.yaml` serves as Sarathi's universal banking dictionary and final fallback of last resort:
 
 1. **Universal Column & Regex Dictionary**:
    `common.yaml` aggregates all widely recognized column header synonyms (`date`, `narration`, `withdrawals`, `deposits`, `cheque_number`, etc.), common Indian date formats (`%d/%m/%Y`, `%d-%m-%Y`, `%d %b %Y`, etc.), and generic account metadata patterns (IFSC, Account Number, Opening/Closing balance regex).
 2. **Physical File vs. Logical Profile ID**:
    - **Physical File**: Stored on disk as `src/sarathi/data/banks/common.yaml`.
-   - **Logical Profile ID**: When `resolve_best_profile` falls back to `common.yaml`, it assigns the logical profile string `"generic"` with display name `"Generic Bank"`.
+   - **Logical Profile ID**: When `resolve_best_profile` falls back to `common.yaml`, it assigns the logical profile string `"generic"`. The bank display name is resolved strictly via the Bank Registry (or `"Unknown Bank"` if unverified).
    - **Strict Fallback Invariant**: `common.yaml` is never evaluated first or mixed with candidate scoring. Registered format profiles (`<bank>_<container>_<fmt>.yaml`) always take precedence; `common.yaml` is evaluated strictly when no registered profile achieves `score >= min_threshold` (5.0).
 3. **Clean Architecture & Deterministic Test Fixtures**:
-   - **Production Directory (`src/sarathi/data/banks/`)**: Contains `common.yaml` and is populated with pristine, format-isolated `<bank>_<container>_<variant>.yaml` profiles.
-   - **Programmatic & In-Memory Test Fixtures**: Tests in `tests/bank_statements/` run deterministically against `common.yaml` or lightweight parameterized in-memory data structures, completely avoiding stale or duplicative YAML test fixture copies.
+   - **Production Directory (`src/sarathi/data/banks/`)**: Contains `common.yaml`, `banks_catalog.json`, and format-isolated `<bank>_<container>_<variant>.yaml` profiles.
+   - **Programmatic & In-Memory Test Fixtures**: Tests in `tests/bank_statements/` run deterministically against `common.yaml`, `banks_catalog.json`, or lightweight parameterized in-memory data structures, completely avoiding stale or duplicative YAML test fixture copies.
 
 ---
 

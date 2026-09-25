@@ -44,7 +44,7 @@ def _account_group_key(stmt: BankStatement) -> tuple:
     ifsc_prefix = ifsc_val[:4] if len(ifsc_val) >= 4 and ifsc_val[:4].isalnum() else None
 
     is_generic_bank = (
-        stmt.bank_name.strip().lower() in ("generic bank", "generic", "bank")
+        stmt.bank_name.strip().lower() in ("generic bank", "generic", "bank", "unknown bank", "unknown")
         or (stmt.bank_profile and stmt.bank_profile.strip().lower() in ("generic", "common"))
     )
 

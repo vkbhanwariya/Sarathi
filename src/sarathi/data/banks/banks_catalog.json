@@ -1,0 +1,634 @@
+[
+  {
+    "bank_name": "State Bank of India",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Bank of Baroda",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Bank of India",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Bank of Maharashtra",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Canara Bank",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Central Bank of India",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Indian Bank",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Indian Overseas Bank",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Punjab & Sind Bank",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Punjab National Bank",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "UCO Bank",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Union Bank of India",
+    "category": "Public Sector Bank"
+  },
+  {
+    "bank_name": "Axis Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Bandhan Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "CSB Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "City Union Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "DCB Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Dhanlaxmi Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Federal Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "HDFC Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "ICICI Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "IndusInd Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "IDFC FIRST Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Jammu & Kashmir Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Karnataka Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Karur Vysya Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Kotak Mahindra Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Nainital Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "RBL Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "South Indian Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Tamilnad Mercantile Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "YES Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "IDBI Bank Limited",
+    "category": "Domestic Private Sector Bank"
+  },
+  {
+    "bank_name": "Coastal Local Area Bank Ltd.",
+    "category": "Local Area Bank"
+  },
+  {
+    "bank_name": "Krishna Bhima Samruddhi Local Area Bank Limited",
+    "category": "Local Area Bank"
+  },
+  {
+    "bank_name": "Au Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Capital Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Equitas Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "ESAF Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Suryoday Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Ujjivan Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Utkarsh Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "slice Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Jana Small finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Shivalik Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Unity Small Finance Bank Limited",
+    "category": "Small Finance Bank"
+  },
+  {
+    "bank_name": "Airtel Payments Bank Limited",
+    "category": "Payments Bank"
+  },
+  {
+    "bank_name": "India Post Payments Bank Limited",
+    "category": "Payments Bank"
+  },
+  {
+    "bank_name": "Fino Payments Bank Limited",
+    "category": "Payments Bank"
+  },
+  {
+    "bank_name": "Jio Payments Bank Limited",
+    "category": "Payments Bank"
+  },
+  {
+    "bank_name": "NSDL Payments Bank Limited",
+    "category": "Payments Bank"
+  },
+  {
+    "bank_name": "Paytm Payments Bank Limited",
+    "category": "Payments Bank"
+  },
+  {
+    "bank_name": "Andhra Pradesh Grameena Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Assam Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Arunachal Pradesh Rural Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Bihar Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Chhattisgarh Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Gujarat Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Haryana Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Himachal Pradesh Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Jharkhand Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Jammu and Kashmir Grameen Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Karnataka Grameena Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Kerala Grameena Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Maharashtra Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Madhya Pradesh Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Manipur Rural Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Meghalaya Rural Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Mizoram Rural Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Nagaland Rural Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Odisha Grameen Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Punjab Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Puducherry Grama Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Rajasthan Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Tamil Nadu Grama Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Telangana Grameena Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Tripura Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Uttar Pradesh Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "Uttarakhand Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "West Bengal Gramin Bank",
+    "category": "Regional Rural Bank"
+  },
+  {
+    "bank_name": "AB Bank PLC",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "American Express Banking Corporation",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Australia and New Zealand Banking Group Ltd.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Barclays Bank Plc.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Bank of America National Association",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Bank of Bahrain and Kuwait B.S.C.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Bank of Ceylon",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Bank of China Limited",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Bank of Nova Scotia",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "BNP Paribas",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Citibank N.A.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Cooperatieve Rabobank U.A./ Coöperatieve Centrale Raiffeisen-Boerenleenbank B.A.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Credit Agricole Corporate and Investment Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "CTBC Bank Co., Ltd.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "DBS Bank India Limited (Subsidiary of DBS Bank Ltd.)",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Deutsche Bank A.G.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Doha Bank Q.P.S.C",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Emirates NBD Bank P.J.S.C",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "First Abu Dhabi Bank PJSC",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "FirstRand Bank Limited",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Hong Kong and Shanghai Banking Corporation Limited",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Industrial and Commercial Bank of China",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Industrial Bank of Korea",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "J.P. Morgan Chase Bank N.A.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "JSC VTB Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "KEB Hana Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Kookmin Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Mashreqbank P.S.C",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Mizuho Bank Ltd.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "MUFG Bank, Ltd.",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "NatWest Markets Plc",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "NongHyup Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "PT Bank Maybank Indonesia TBK",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Qatar National Bank (Q.P.S.C.)",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Sberbank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "SBM Bank (India) Limited (Subsidiary of SBM Group)",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Shinhan Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Societe Generale",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Sonali Bank PLC",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Standard Chartered Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Sumitomo Mitsui Banking Corporation",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "United Overseas Bank Limited",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "UBS AG",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "Woori Bank",
+    "category": "Foreign Bank in India"
+  },
+  {
+    "bank_name": "The Andaman and Nicobar State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Andhra Pradesh State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Arunachal Pradesh State co-operative Apex Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Assam Co-operative Apex Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Bihar State Co-operative Bank Ltd., Patna",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Chandigarh State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Chhattisgarh Rajya Sahakari Bank Maryadit",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Delhi State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Goa State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "Gujarat State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Haryana State Co-operative Apex Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Himachal Pradesh State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Jammu and Kashmir State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "Jharkhand State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Karnataka State Co-operative Apex Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Kerala State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Madhya Pradesh Rajya Sahakari Bank Maryadit",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Maharashtra State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Manipur State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Meghalaya Co-operative Apex Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "Mizoram Co-operative Apex Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Nagaland State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Odisha State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Puducherry State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Punjab State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Rajasthan State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Sikkim State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Tamil Nadu State Apex Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Telangana State Cooperative Apex Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "Tripura State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "Uttar Pradesh State Co-operative Bank Limited, Lucknow",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Uttarakhand State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The West Bengal State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  },
+  {
+    "bank_name": "The Daman and Diu State Co-operative Bank Ltd.",
+    "category": "State Co-operative Bank"
+  }
+]

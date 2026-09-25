@@ -23,6 +23,7 @@ from sarathi.sankalpa import (
     WarningRecord,
 )
 from sarathi.sankalpa.document import normalize_canonical_documents
+from sarathi.shakti.bank_statements.bank_registry import get_bank_registry
 from sarathi.shakti.bank_statements.converter import (
     parse_balance_amount,
     parse_date,
@@ -38,6 +39,7 @@ from sarathi.shakti.bank_statements.models import (
     Transaction,
     ValidationIssue,
     ValidationStatus,
+    create_account_identity,
     generate_statement_id,
 )
 from sarathi.shakti.bank_statements.plugin import CAPABILITY_DECLARATION
@@ -132,6 +134,8 @@ class BankStatementCapability:
         self._profiles = {p.get("profile_id"): p for p in load_bank_profiles(self._banks_dir)}
         common_path = self._banks_dir / "common.yaml"
         self._common_config = load_bank_profile_yaml(common_path) if common_path.exists() else {}
+        catalog_path = self._banks_dir / "banks_catalog.json"
+        self._registry = get_bank_registry(catalog_path if catalog_path.exists() else None)
 
     def execute(
         self,
@@ -209,12 +213,21 @@ class BankStatementCapability:
                     message="Document is not identified as a supported bank statement.",
                 )
 
+            init_bank_name = (
+                self._registry.identify_bank(
+                    text=doc.text,
+                    ifsc=detection.ifsc or (detection.account_identity.ifsc if detection.account_identity else None),
+                    candidate_name=detection.bank_name,
+                )
+                or "Unknown Bank"
+            )
+
             doc_metadata: dict[str, Any] = {}
             raw_txns, open_bal, close_bal, doc_issues = self._extract_table_data(
                 doc,
                 request,
                 detection.matched_profile,
-                detection.bank_name or "Unknown Bank",
+                init_bank_name,
                 detection.account_identity,
                 metadata=doc_metadata,
             )
@@ -227,16 +240,49 @@ class BankStatementCapability:
 
             resolved_prof = doc_metadata.get("resolved_profile")
             final_profile = resolved_prof or detection.matched_profile or "generic"
-            final_bank_name = (
+            raw_bank_name = (
                 self._profiles.get(final_profile, {}).get("bank_name")
                 if (final_profile and final_profile in self._profiles)
-                else (detection.bank_name or "Unknown Bank")
+                else init_bank_name
             )
+
+            ifsc_val = detection.ifsc or (detection.account_identity.ifsc if detection.account_identity else None)
+            identified = self._registry.identify_bank(
+                text=doc.text,
+                ifsc=ifsc_val,
+                candidate_name=raw_bank_name,
+            )
+            final_bank_name = identified or "Unknown Bank"
+
+            if final_bank_name == "Unknown Bank":
+                doc_issues.append(
+                    ValidationIssue(
+                        code="UNKNOWN_BANK",
+                        message="Bank could not be identified against the compiled list of Indian banks. Statement marked as 'Unknown Bank'.",
+                        severity="warning",
+                    )
+                )
+
+            # Ensure transactions and account identity carry the verified canonical bank name
+            if raw_txns and any(tx.bank_name != final_bank_name for tx in raw_txns):
+                raw_txns = [replace(tx, bank_name=final_bank_name) for tx in raw_txns]
+                dedup_res = deduplicate_transactions(raw_txns)
+
+            final_account_identity = detection.account_identity
+            if final_account_identity is not None and final_account_identity.bank_name != final_bank_name:
+                final_account_identity = create_account_identity(
+                    bank_name=final_bank_name,
+                    raw_account_number=final_account_identity.masked_account_number,
+                    account_holder=final_account_identity.account_holder,
+                    account_type=final_account_identity.account_type,
+                    bank_profile=final_profile,
+                    ifsc=final_account_identity.ifsc or ifsc_val,
+                )
 
             doc_fp = compute_document_fingerprint(doc)
             doc_stmt_id = doc_metadata.get("statement_id") or generate_statement_id(
                 bank_name=final_bank_name,
-                account_identity=detection.account_identity,
+                account_identity=final_account_identity,
                 doc_id=doc.source_input_id or getattr(doc, "document_id", None),
                 document_fingerprint=doc_fp,
             )
@@ -248,11 +294,11 @@ class BankStatementCapability:
                     statement_id=doc_stmt_id,
                     bank_name=final_bank_name,
                     bank_profile=final_profile,
-                    account_identity=detection.account_identity,
+                    account_identity=final_account_identity,
                     currency=stmt_currency,
-                    ifsc=detection.ifsc or (detection.account_identity.ifsc if detection.account_identity else None),
-                    account_holder=detection.account_identity.account_holder if detection.account_identity else None,
-                    account_type=detection.account_identity.account_type if detection.account_identity else None,
+                    ifsc=ifsc_val,
+                    account_holder=final_account_identity.account_holder if final_account_identity else None,
+                    account_type=final_account_identity.account_type if final_account_identity else None,
                     opening_balance=open_bal,
                     closing_balance=close_bal,
                     transactions=dedup_res.unique_transactions,

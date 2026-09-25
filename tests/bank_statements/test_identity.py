@@ -32,11 +32,38 @@ def test_detect_generic_bank_statement() -> None:
     evidence = detect_bank_statement(doc)
     assert evidence.is_bank_statement is True
     assert evidence.matched_profile == "generic"
-    assert evidence.bank_name == "Generic Bank"
+    assert evidence.bank_name == "State Bank of India"
     assert evidence.account_identity is not None
     assert evidence.account_identity.masked_account_number == "XXXXXXX6789"
     assert evidence.account_identity.account_fingerprint is not None
     assert evidence.ifsc == "SBIN0001234"
+
+
+def test_detect_unknown_bank_statement_without_bank_signals() -> None:
+    doc_text = """
+    Account Statement
+    Account Name: Mr. Unknown Person
+    Account Number: 998877665544
+    Statement Period: 01/01/2026 to 31/01/2026
+    """
+    table = TableData(
+        rows=(
+            ("Date", "Particulars", "Debit", "Credit", "Balance"),
+            ("01 Jan 2026", "OPENING BALANCE", "", "", "10,000.00"),
+            ("05 Jan 2026", "TRANSFER", "500.00", "", "9,500.00"),
+        )
+    )
+    doc = CanonicalDocument(
+        document_id="doc-unknown-1",
+        text=doc_text,
+        pages=(PageData(page_number=1, text=doc_text, tables=(table,)),),
+    )
+
+    evidence = detect_bank_statement(doc)
+    assert evidence.is_bank_statement is True
+    assert evidence.matched_profile == "generic"
+    assert evidence.bank_name == "Unknown Bank"
+    assert any("Unknown Bank" in r for r in evidence.reasons)
 
 
 def test_detect_with_specific_profile() -> None:
