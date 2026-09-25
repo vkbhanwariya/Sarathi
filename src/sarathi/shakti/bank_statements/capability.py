@@ -403,7 +403,9 @@ class BankStatementCapability:
 
                         tx_time = parse_time(_get_raw_cell(row, time_col)) if time_col is not None else None
                         tx_val_date = parse_date(_get_raw_cell(row, val_date_col)) if val_date_col is not None else None
-                        tx_posting_date = parse_date(_get_raw_cell(row, posting_date_col)) if posting_date_col is not None else None
+                        tx_posting_date = (
+                            parse_date(_get_raw_cell(row, posting_date_col)) if posting_date_col is not None else None
+                        )
 
                         tx_debit = parse_decimal_amount(_get_raw_cell(row, dr_col))
                         if tx_debit is not None:
@@ -467,14 +469,24 @@ class BankStatementCapability:
                             if was_repaired or det_type:
                                 ref_val = repaired_utr
 
-                        # If no separate reference column, check if cheque column value is actually a UTR
-                        if ref_val is None and chq_val:
-                            repaired_utr, det_type, was_repaired = repair_utr(chq_val)
-                            if was_repaired or det_type:
-                                ref_val = repaired_utr
-                                chq_val = None
-
+                        # If there is no dedicated cheque column, check if combined ref column holds a cheque identity
                         desc_raw = _get_cell(row_cells, desc_col) or ""
+                        if chq_col is None and ref_val and not chq_val:
+                            clean_ref = ref_val.strip()
+                            is_chq_desc = bool(
+                                re.search(r"\b(?:chq|cheque|clg|clearing|cts)\b", desc_raw, re.IGNORECASE)
+                            )
+                            is_chq_num = bool(re.match(r"^\d{6}$", clean_ref))
+                            has_elec_kw = bool(
+                                re.search(
+                                    r"\b(?:upi|neft|rtgs|imps|atm|pos|card|salary|transfer|ach|ecs)\b",
+                                    desc_raw,
+                                    re.IGNORECASE,
+                                )
+                            )
+                            if is_chq_desc or (is_chq_num and not has_elec_kw):
+                                chq_val = clean_ref
+                                ref_val = None
 
                         new_tx = Transaction(
                             statement_id=statement_id,

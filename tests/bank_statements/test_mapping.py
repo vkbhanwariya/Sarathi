@@ -57,12 +57,12 @@ def test_chq_and_chq_no_map_strictly_to_cheque_number() -> None:
     assert mappings3.get("cheque_number") == "CHQ"
     assert "reference_number" not in mappings3
 
-    # 4. Combined Ref No./Cheque No. headers map strictly to cheque_number
-    for combined in ("Ref No./Cheque No.", "Ref No/Cheque No", "Ref/Chq No", "Ref/Chq No.", "Chq / Ref No."):
-        headers_comb = ["Date", "Description", combined, "Debit", "Credit", "Balance"]
-        mappings_comb = {m.canonical_field: m.source_header for m in mapper.map_headers(headers_comb)}
-        assert mappings_comb.get("cheque_number") == combined, f"Failed for {combined}"
-        assert "reference_number" not in mappings_comb, f"Unexpected reference_number mapped for {combined}"
+    # 4. Pure reference headers map strictly to reference_number and never cheque_number
+    for ref_header in ("Ref No", "Ref No.", "Reference No", "UTR", "Txn ID", "Journal No"):
+        headers_ref = ["Date", "Description", ref_header, "Debit", "Credit", "Balance"]
+        mappings_ref = {m.canonical_field: m.source_header for m in mapper.map_headers(headers_ref)}
+        assert mappings_ref.get("reference_number") == ref_header, f"Failed for {ref_header}"
+        assert "cheque_number" not in mappings_ref, f"Unexpected cheque_number mapped for {ref_header}"
 
 
 def test_bank_mapper_malformed_yaml_fails_deterministically(tmp_path: Path) -> None:
@@ -198,7 +198,7 @@ headers:
   date: ["txn date"]
   value_date: ["value date"]
   description: ["description"]
-  cheque_number: ["ref no./cheque no."]
+  reference_number: ["ref no", "reference no"]
   debit: ["debit"]
   credit: ["credit"]
   balance: ["balance"]
@@ -206,14 +206,13 @@ headers:
         encoding="utf-8",
     )
     mapper = HeaderMapper(banks_dir=tmp_path)
-    # Typical SBI headers with specific 'Ref No./Cheque No.' column
-    headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
+    headers = ["Txn Date", "Value Date", "Description", "Ref No", "Debit", "Credit", "Balance"]
     best_profile, mappings, score = mapper.resolve_best_profile(headers, candidate_profile="generic")
     assert best_profile == "sbi_pdf_fmt1"
     assert score > 10.0
     mapped_fields = {m.canonical_field for m in mappings}
     assert "date" in mapped_fields
-    assert "cheque_number" in mapped_fields
+    assert "reference_number" in mapped_fields
     assert "balance" in mapped_fields
 
 
@@ -248,7 +247,7 @@ headers:
   date: ["txn date"]
   value_date: ["value date"]
   description: ["description"]
-  cheque_number: ["ref no./cheque no."]
+  reference_number: ["ref no", "reference no"]
   debit: ["debit"]
   credit: ["credit"]
   balance: ["balance"]
@@ -256,7 +255,7 @@ headers:
         encoding="utf-8",
     )
     mapper = HeaderMapper(banks_dir=tmp_path)
-    headers = ["Txn Date", "Value Date", "Description", "Ref No./Cheque No.", "Debit", "Credit", "Balance"]
+    headers = ["Txn Date", "Value Date", "Description", "Ref No", "Debit", "Credit", "Balance"]
     sample_rows = [
         ("01/01/2026", "01/01/2026", "SALARY CREDIT", "REF100", "", "50,000.00", "50,000.00"),
         ("05/01/2026", "05/01/2026", "ELECTRICITY BILL", "REF101", "1,500.00", "", "48,500.00"),

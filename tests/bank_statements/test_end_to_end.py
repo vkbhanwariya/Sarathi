@@ -33,8 +33,6 @@ from sarathi.shakti.bank_statements.models import (
     create_account_identity,
 )
 
-_SBI_FIXTURE = Path(__file__).parent / "fixtures" / "sbi_statement.csv"
-
 
 def test_bank_capability_does_not_instantiate_native_extraction() -> None:
     """Verify BankStatementCapability does not own or instantiate NativeExtractionCapability."""
@@ -42,13 +40,15 @@ def test_bank_capability_does_not_instantiate_native_extraction() -> None:
     assert not hasattr(cap, "_native_extractor")
 
 
-def test_missing_prior_canonical_document_fails_safely() -> None:
+def test_missing_prior_canonical_document_fails_safely(tmp_path: Path) -> None:
     """Verify executing BankStatementCapability without prior CanonicalDocument fails safely with DoshError."""
+    dummy_file = tmp_path / "test.csv"
+    dummy_file.write_text("dummy", encoding="utf-8")
     cap = BankStatementCapability()
     req = Request(
         request_id="req-fail-1",
         requirement="bank_statements",
-        inputs=(InputRef("i1", _SBI_FIXTURE, "sbi.csv", 100),),
+        inputs=(InputRef("i1", dummy_file, "sbi.csv", 100),),
     )
     ctx = ExecutionContext("run-1", "req-fail-1", "t1", "s1")
 
@@ -125,11 +125,27 @@ def test_e2e_sbi_bank_statement_consolidation(tmp_path: Path) -> None:
         darpana=darpana,
     )
 
+    sbi_csv = tmp_path / "sbi_statement.csv"
+    sbi_csv.write_text(
+        "STATE BANK OF INDIA\n"
+        "Account Statement for Account: 30123456789\n"
+        "Account Name: Rahul Sharma\n"
+        '"CIF No: 85647382910, IFSC: SBIN0001234"\n'
+        '""\n'
+        "Txn Date,Value Date,Description,Ref No,Debit,Credit,Balance\n"
+        '01 Jan 2026,01 Jan 2026,OPENING BALANCE,,,,"10,000.00"\n'
+        '05 Jan 2026,05 Jan 2026,UPI/12345/Tea Stall,UPI12345,50.00,,"9,950.00"\n'
+        '10 Jan 2026,10 Jan 2026,SALARY CREDIT,SAL98765,,"50,000.00","59,950.00"\n'
+        '15 Jan 2026,15 Jan 2026,ATM CASH WDL,ATM5544,"2,000.00",,"57,950.00"\n'
+        '31 Jan 2026,31 Jan 2026,CLOSING BALANCE,,,,"57,950.00"\n',
+        encoding="utf-8",
+    )
+
     inp = InputRef(
         input_id="inp-sbi-1",
-        source_path=_SBI_FIXTURE,
+        source_path=sbi_csv,
         display_name="sbi_statement.csv",
-        size_bytes=_SBI_FIXTURE.stat().st_size,
+        size_bytes=sbi_csv.stat().st_size,
     )
 
     req = Request(
@@ -313,7 +329,23 @@ def test_xlsx_formula_injection_prevention() -> None:
 
 
 def test_e2e_hdfc_multiline_narration_consolidation(tmp_path: Path) -> None:
-    hdfc_fixture = Path(__file__).parent / "fixtures" / "hdfc_statement.csv"
+    hdfc_csv = tmp_path / "hdfc_statement.csv"
+    hdfc_csv.write_text(
+        "HDFC BANK LIMITED\n"
+        "Account Statement\n"
+        "Account No : 50100234567890\n"
+        "Name : Priya Nair\n"
+        "Cust ID : 98765432\n"
+        "IFSC : HDFC0000123\n"
+        '""\n'
+        "Date,Narration,Ref No,Value Dt,Withdrawal Amt.,Deposit Amt.,Closing Balance\n"
+        '01/01/26,OPENING BALANCE,,01/01/26,,,"50,000.00"\n'
+        '05/01/26,POS 401234123412 AMAZON INDIA,REF-99881,05/01/26,"1,500.00",,"48,500.00"\n'
+        ",E-COMMERCE BANGALORE IN,,,,,\n"
+        '12/01/26,NEFT CR-HDFC0000001-TECH CORP SALARY,N1234567,12/01/26,,"100,000.00","148,500.00"\n'
+        '31/01/26,CLOSING BALANCE,,31/01/26,,,"148,500.00"\n',
+        encoding="utf-8",
+    )
     agni = Agni(
         runtime_root=tmp_path / "Runtime",
         output_root=tmp_path / "Output",
@@ -322,7 +354,7 @@ def test_e2e_hdfc_multiline_narration_consolidation(tmp_path: Path) -> None:
     req = Request(
         request_id="req-hdfc-1",
         requirement="bank_statements",
-        inputs=(InputRef("i-hdfc", hdfc_fixture, "hdfc_statement.csv", hdfc_fixture.stat().st_size),),
+        inputs=(InputRef("i-hdfc", hdfc_csv, "hdfc_statement.csv", hdfc_csv.stat().st_size),),
         profile=ExecutionProfile.ACCURATE,
     )
     ctx = ExecutionContext("run-hdfc-1", "req-hdfc-1", "t1", "s1")
