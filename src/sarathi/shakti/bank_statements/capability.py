@@ -301,6 +301,28 @@ class BankStatementCapability:
                     ifsc=final_account_identity.ifsc or ifsc_val,
                 )
 
+            distinct_accounts = []
+            seen_accs = set()
+            for tx in dedup_res.unique_transactions:
+                acc_key = tx.account_identity.account_fingerprint if tx.account_identity else None
+                if acc_key and acc_key not in seen_accs:
+                    seen_accs.add(acc_key)
+                    distinct_accounts.append(tx.account_identity)
+
+            if distinct_accounts:
+                table_acc = distinct_accounts[0]
+                if final_account_identity is None or not final_account_identity.account_fingerprint:
+                    final_account_identity = table_acc
+                else:
+                    final_account_identity = create_account_identity(
+                        bank_name=final_bank_name,
+                        raw_account_number=table_acc.masked_account_number or final_account_identity.masked_account_number,
+                        account_holder=table_acc.account_holder or final_account_identity.account_holder,
+                        account_type=table_acc.account_type or final_account_identity.account_type,
+                        bank_profile=final_profile,
+                        ifsc=table_acc.ifsc or final_account_identity.ifsc or ifsc_val,
+                    )
+
             doc_fp = compute_document_fingerprint(doc)
             doc_stmt_id = doc_metadata.get("statement_id") or generate_statement_id(
                 bank_name=final_bank_name,
@@ -310,14 +332,6 @@ class BankStatementCapability:
             )
 
             stmt_currency = detect_statement_currency(doc, self._profiles.get(final_profile))
-
-            distinct_accounts = []
-            seen_accs = set()
-            for tx in dedup_res.unique_transactions:
-                acc_key = tx.account_identity.account_fingerprint if tx.account_identity else None
-                if acc_key and acc_key not in seen_accs:
-                    seen_accs.add(acc_key)
-                    distinct_accounts.append(tx.account_identity)
 
             doc_metadata["successful_transactions"] = len(dedup_res.unique_transactions)
             doc_metadata["duplicate_transactions"] = len(dedup_res.duplicates)
@@ -537,21 +551,32 @@ class BankStatementCapability:
                 if m_acc:
                     tbl_account_number = m_acc.group(1).strip()
 
-            if not tbl_account_number and data_rows:
+            tbl_account_holder = account_identity.account_holder if account_identity else None
+            tbl_account_type = account_identity.account_type if account_identity else None
+
+            if data_rows:
                 for c_i, h in enumerate(hdr_cells):
-                    if re.search(r"\b(?:account|ac)\s*(?:no|num|number)?\b", str(h), re.IGNORECASE):
+                    h_clean = str(h).strip().lower()
+                    if not tbl_account_number and re.search(r"\b(?:account|ac|acc)[_\s]*(?:no|num|number)?\b", h_clean):
                         cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
                         if re.match(r"^[A-Za-z0-9]{8,24}$", cell_val):
                             tbl_account_number = cell_val
-                            break
+                    elif not tbl_account_holder and re.search(r"\b(?:acct_name|account_name|holder_name|customer_name)\b", h_clean):
+                        cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
+                        if cell_val and len(cell_val) >= 3 and not cell_val.isdigit():
+                            tbl_account_holder = cell_val
+                    elif not tbl_account_type and re.search(r"\b(?:acct_type|account_type|scheme_type)\b", h_clean):
+                        cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
+                        if cell_val:
+                            tbl_account_type = cell_val
 
             tbl_identity = (
                 create_account_identity(
                     bank_name=bank_name,
                     raw_account_number=tbl_account_number,
-                    account_holder=account_identity.account_holder if account_identity else None,
+                    account_holder=tbl_account_holder,
                     bank_profile=profile_id,
-                    account_type=account_identity.account_type if account_identity else None,
+                    account_type=tbl_account_type,
                     ifsc=account_identity.ifsc if account_identity else None,
                 )
                 if tbl_account_number
@@ -698,11 +723,17 @@ class BankStatementCapability:
                         )
 
                         tx_debit = parse_decimal_amount(_get_raw_cell(row, dr_col))
-                        if tx_debit is not None:
+                        if tx_debit is not None and tx_debit == Decimal("0"):
+                            tx_debit = None
+                        elif tx_debit is not None:
                             tx_debit = abs(tx_debit)
+
                         tx_credit = parse_decimal_amount(_get_raw_cell(row, cr_col))
-                        if tx_credit is not None:
+                        if tx_credit is not None and tx_credit == Decimal("0"):
+                            tx_credit = None
+                        elif tx_credit is not None:
                             tx_credit = abs(tx_credit)
+
                         tx_bal = parse_balance_amount(_get_raw_cell(row, b_col))
 
                         # Handle single amount column with strict explicit direction or signed semantics
@@ -733,9 +764,16 @@ class BankStatementCapability:
                         tx_issues: list[ValidationIssue] = []
                         if tx_debit is None and tx_credit is None:
                             tx_status = ValidationStatus.INVALID
+                            is_both_blank = dr_col is not None or cr_col is not None
+                            err_code = "BOTH_AMOUNTS_BLANK" if is_both_blank else "MISSING_AMOUNT"
+                            err_msg = (
+                                f"Row {row_idx}: Both debit and credit amounts are blank or zero."
+                                if is_both_blank
+                                else f"Row {row_idx}: Transaction amount direction could not be determined."
+                            )
                             tx_iss = ValidationIssue(
-                                code="MISSING_AMOUNT",
-                                message=f"Row {row_idx}: Transaction amount direction could not be determined.",
+                                code=err_code,
+                                message=err_msg,
                                 severity="error",
                                 context={"row_index": row_idx},
                             )

@@ -205,9 +205,24 @@ def detect_bank_statement(
         doc_type = (document.detected_type or "").lower()
         if doc_type in ("xlsx", "xls"):
             doc_type = "excel"
+        if prof_container and doc_type and prof_container != doc_type:
+            continue
 
         all_kw = prof.get("identification_keywords", []) + prof.get("aliases", [])
-        matches = [kw for kw in all_kw if kw.lower() in full_text]
+        matches = []
+        for kw in all_kw:
+            kw_clean = str(kw).strip().lower()
+            if not kw_clean:
+                continue
+            if kw_clean == "bank of india":
+                if re.search(r"\b(?<!state\s)(?<!union\s)(?<!central\s)(?<!reserve\s)bank\s+of\s+india\b", full_text):
+                    matches.append(kw)
+            elif len(kw_clean) <= 4:
+                if re.search(rf"\b{re.escape(kw_clean)}\b", full_text):
+                    matches.append(kw)
+            else:
+                if kw_clean in full_text:
+                    matches.append(kw)
         if not matches:
             continue
 

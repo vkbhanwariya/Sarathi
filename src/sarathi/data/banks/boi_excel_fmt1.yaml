@@ -1,0 +1,42 @@
+profile_id: "boi_excel_fmt1"
+parent_bank: "boi"
+bank_name: "Bank of India"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet (True PKZip/OpenXML package)."
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  magic_bytes: "504B0304 (PK\\x03\\x04)"
+
+aliases:
+  - "bank of india"
+  - "bank of india statement"
+
+identification_keywords:
+  - "bank of india"
+  - "tran_particular"
+  - "instrmnt_num"
+  - "tran_date"
+  - "tran_id"
+
+headers:
+  date:
+    - "tran_date"
+  reference_number:
+    - "tran_id"
+  cheque_number:
+    - "instrmnt_num"
+  description:
+    - "tran_particular"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Account\s*(?:No\.?|Number)?|ACC_NO)\s*[:\-]?\s*([0-9]{10,20})'
+  account_holder: '(?:ACCT_NAME|Account\s*Holder)\s*[:\-]?\s*([A-Za-z\s\.]+)'
