@@ -1,0 +1,34 @@
+profile_id: "bob_excel_fmt1"
+parent_bank: "bob"
+bank_name: "Bank of Baroda"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet (True PKZip/OpenXML package)."
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  magic_bytes: "504B0304 (PK\\x03\\x04)"
+
+aliases:
+  - "bank of baroda"
+  - "baroda"
+
+identification_keywords:
+  - "line balance"
+  - "inst no"
+
+headers:
+  cheque_number:
+    - "inst no"
+  balance:
+    - "line balance"
+
+date_formats:
+  - "%Y-%m-%d"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Account\s*(?:No\.?|Number)?)\s*[:\-]?\s*([0-9]{10,20})'
+  account_holder: '(?:Account\s*Name|Customer\s*Name)\s*[:\-]?\s*([A-Za-z\s\.]+)'

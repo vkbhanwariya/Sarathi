@@ -251,10 +251,17 @@ class NativeExtractionCapability:
             else True
         )
 
+        req_name = (request.requirement or "").lower()
+        orig_req = (request.metadata.get("original_requirement") or "").lower() if request.metadata else ""
+        is_bank_statement_req = req_name in ("bank_statements", "bank_statement") or orig_req in (
+            "bank_statements",
+            "bank_statement",
+        )
+
         convert_legacy = (
             bool(request.custom_options["convert_legacy_fonts"])
             if (request.custom_options is not None and "convert_legacy_fonts" in request.custom_options)
-            else True
+            else (False if is_bank_statement_req else True)
         )
 
         # Continuation support: if resumed with prior OCR result, continue from recognized document(s)

@@ -13,6 +13,13 @@ from sarathi.shakti.bank_statements.models import (
     ValidationIssue,
 )
 
+_PLACEHOLDER_REFS = frozenset({"", "-", "--", "---", "na", "n/a", "n.a.", "none", "nil", "null"})
+
+
+def _clean_ref(val: str | None) -> str:
+    s = (val or "").strip()
+    return "" if s.lower() in _PLACEHOLDER_REFS else s
+
 
 @dataclass(frozen=True, slots=True)
 class DeduplicationResult:
@@ -57,13 +64,13 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
         candidate_indices = candidates_by_core.get(core_key, [])
 
         tx_desc = tx.description.strip()
-        tx_ref = (tx.reference_number or tx.cheque_number or "").strip()
+        tx_ref = _clean_ref(tx.reference_number) or _clean_ref(tx.cheque_number)
 
         matched = False
 
         def _check_candidate(existing: Transaction) -> tuple[bool, bool, bool]:
             ex_desc = existing.description.strip()
-            ex_ref = (existing.reference_number or existing.cheque_number or "").strip()
+            ex_ref = _clean_ref(existing.reference_number) or _clean_ref(existing.cheque_number)
             desc_matches = ex_desc == tx_desc
             contradiction = False
 

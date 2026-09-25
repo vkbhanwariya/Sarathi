@@ -82,11 +82,11 @@ Every bank profile follows the standard naming scheme:
 src/sarathi/data/banks/<bank_code>_<container>_<variant>.yaml
 ```
 Examples:
+- `au_excel_fmt1.yaml` (Au Small Finance Bank Excel Layout 1)
+- `axis_csv_fmt1.yaml` (Axis Bank CSV Layout 1)
+- `boi_excel_fmt1.yaml` (Bank of India Finacle Excel Layout 1)
+- `bob_excel_fmt1.yaml` (Bank of Baroda Finacle Excel Layout 1)
 - `sbi_excel_fmt1.yaml` (SBI Excel / HTML-as-XLS Layout 1)
-- `sbi_excel_fmt2.yaml` (SBI Excel / XLSX Layout 2 with single amount column)
-- `sbi_pdf_fmt1.yaml` (SBI Vector PDF Layout 1)
-- `sbi_pdf_fmt2.yaml` (SBI Scanned / Alt PDF Layout 2)
-- `hdfc_excel_fmt1.yaml`, `hdfc_pdf_fmt1.yaml`
 
 ### Core Invariants:
 1. **Container Isolation (Excel vs PDF)**: Never mix PDF and Excel/HTML statement schemas in the same profile. Excel tables are extracted from cell grids, whereas PDF tables come from vector text glyphs or OCR bounding boxes.

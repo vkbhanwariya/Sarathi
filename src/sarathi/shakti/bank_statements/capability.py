@@ -61,6 +61,16 @@ _CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 _EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "w/d", "out", "paid out", "d"})
 _EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "dep", "in", "paid in", "c"})
 _BLANK_DATE_MARKERS = frozenset({"", "-", "--", "''", '"', "do", "ditto", "same"})
+_PLACEHOLDER_MARKERS = frozenset({"", "-", "--", "---", "na", "n/a", "n.a.", "none", "nil", "null"})
+
+
+def _clean_placeholder_text(val: Any) -> str | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if s.lower() in _PLACEHOLDER_MARKERS:
+        return None
+    return s
 
 
 def compute_document_fingerprint(doc: CanonicalDocument) -> str:
@@ -561,11 +571,11 @@ class BankStatementCapability:
                         cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
                         if re.match(r"^[A-Za-z0-9]{8,24}$", cell_val):
                             tbl_account_number = cell_val
-                    elif not tbl_account_holder and re.search(r"\b(?:acct_name|account_name|holder_name|customer_name)\b", h_clean):
+                    elif not tbl_account_holder and re.search(r"\b(?:acct[_\s]*name|account[_\s]*name|holder[_\s]*name|customer[_\s]*name)\b", h_clean):
                         cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
                         if cell_val and len(cell_val) >= 3 and not cell_val.isdigit():
                             tbl_account_holder = cell_val
-                    elif not tbl_account_type and re.search(r"\b(?:acct_type|account_type|scheme_type)\b", h_clean):
+                    elif not tbl_account_type and re.search(r"\b(?:acct[_\s]*type|account[_\s]*type|scheme[_\s]*type)\b", h_clean):
                         cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
                         if cell_val:
                             tbl_account_type = cell_val
@@ -789,9 +799,9 @@ class BankStatementCapability:
                         )
                         current_sequence_id += 1
                         ref_raw = _get_cell(row_cells, ref_col)
-                        ref_val = ref_raw
+                        ref_val = _clean_placeholder_text(ref_raw)
                         chq_raw = _get_cell(row_cells, chq_col)
-                        chq_val = chq_raw
+                        chq_val = _clean_placeholder_text(chq_raw)
                         if ref_val:
                             repaired_utr, det_type, was_repaired = repair_utr(ref_val)
                             if was_repaired or det_type:
