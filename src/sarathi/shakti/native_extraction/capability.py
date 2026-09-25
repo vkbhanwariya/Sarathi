@@ -424,6 +424,14 @@ class NativeExtractionCapability:
                         },
                     )
 
+                if inp.metadata:
+                    from dataclasses import replace
+
+                    doc = replace(
+                        doc,
+                        metadata={**(doc.metadata or {}), **inp.metadata},
+                    )
+
                 dur = max(0, time.perf_counter_ns() - t0)
                 extracted_docs.append(doc)
                 all_provenance.extend(provs)

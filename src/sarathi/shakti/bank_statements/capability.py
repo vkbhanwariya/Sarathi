@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import replace
 from decimal import Decimal
@@ -57,6 +58,62 @@ _CANONICAL_BANKS_DIR = get_canonical_data_root() / "banks"
 _EXPLICIT_DR_INDICATORS = frozenset({"dr", "dr.", "debit", "withdrawal", "w/d", "out", "paid out", "d"})
 _EXPLICIT_CR_INDICATORS = frozenset({"cr", "cr.", "credit", "deposit", "dep", "in", "paid in", "c"})
 _BLANK_DATE_MARKERS = frozenset({"", "-", "--", "''", '"', "do", "ditto", "same"})
+
+
+def compute_document_fingerprint(doc: CanonicalDocument) -> str:
+    """Derive a stable 12-char fingerprint for a CanonicalDocument based on factual content and metadata."""
+    if doc.metadata:
+        if "file_fingerprint" in doc.metadata:
+            return str(doc.metadata["file_fingerprint"])[:12]
+        if "source_hash" in doc.metadata:
+            return str(doc.metadata["source_hash"])[:12]
+
+    hasher = hashlib.sha256()
+    hasher.update(doc.text[:2000].encode("utf-8", errors="replace"))
+    hasher.update(str(len(doc.text)).encode("utf-8"))
+    hasher.update(str(len(doc.pages)).encode("utf-8"))
+    for t in doc.tables[:5]:
+        if t.headers:
+            hasher.update(" ".join(str(h) for h in t.headers).encode("utf-8", errors="replace"))
+        for r in t.rows[:5]:
+            hasher.update(" ".join(str(c) for c in r).encode("utf-8", errors="replace"))
+    return hasher.hexdigest()[:12]
+
+
+def detect_statement_currency(doc: CanonicalDocument, profile_cfg: Mapping[str, Any] | None = None) -> str:
+    """Detect currency from document metadata, header patterns, currency symbols, or fall back to INR."""
+    if profile_cfg and profile_cfg.get("currency"):
+        return str(profile_cfg["currency"]).strip().upper()
+
+    search_text = (doc.text or "") + " " + " ".join(p.text for p in doc.pages if p.text)
+    for t in doc.tables:
+        if t.headers:
+            search_text += " " + " ".join(str(h) for h in t.headers)
+
+    # 1. Explicit metadata label: Currency: USD / Currency : EUR / INR
+    m_curr = re.search(r"\b(?:currency|curr|denominated in)\s*[:\-]?\s*([A-Z]{3})\b", search_text, re.IGNORECASE)
+    if m_curr:
+        return m_curr.group(1).upper()
+
+    # 2. Distinctive international currency symbols / codes in table headers or cells
+    header_lower = search_text.lower()
+    if any(k in header_lower for k in ("(usd)", "usd ", "usd", "$", "dollar")):
+        return "USD"
+    if any(k in header_lower for k in ("(eur)", "eur ", "eur", "€", "euro")):
+        return "EUR"
+    if any(k in header_lower for k in ("(gbp)", "gbp ", "gbp", "£", "pound")):
+        return "GBP"
+    if any(k in header_lower for k in ("(aed)", "aed ", "aed", "dirham")):
+        return "AED"
+    if any(k in header_lower for k in ("(sgd)", "sgd ", "sgd", "s$")):
+        return "SGD"
+    if any(k in header_lower for k in ("(cad)", "cad ", "cad", "c$")):
+        return "CAD"
+    if any(k in header_lower for k in ("(inr)", "inr ", "inr", "₹", "rs.", "rs ", "rupee", "rupees")):
+        return "INR"
+
+    return "INR"
+
 
 
 class BankStatementCapability:
@@ -171,11 +228,15 @@ class BankStatementCapability:
                 else (detection.bank_name or "Unknown Bank")
             )
 
+            doc_fp = compute_document_fingerprint(doc)
             doc_stmt_id = doc_metadata.get("statement_id") or generate_statement_id(
-                final_bank_name,
-                detection.account_identity,
-                doc.source_input_id or getattr(doc, "document_id", None),
+                bank_name=final_bank_name,
+                account_identity=detection.account_identity,
+                doc_id=doc.source_input_id or getattr(doc, "document_id", None),
+                document_fingerprint=doc_fp,
             )
+
+            stmt_currency = detect_statement_currency(doc, self._profiles.get(final_profile))
 
             statement = validate_statement_balances(
                 BankStatement(
@@ -183,6 +244,7 @@ class BankStatementCapability:
                     bank_name=final_bank_name,
                     bank_profile=final_profile,
                     account_identity=detection.account_identity,
+                    currency=stmt_currency,
                     ifsc=detection.ifsc or (detection.account_identity.ifsc if detection.account_identity else None),
                     account_holder=detection.account_identity.account_holder if detection.account_identity else None,
                     account_type=detection.account_identity.account_type if detection.account_identity else None,
@@ -269,16 +331,19 @@ class BankStatementCapability:
         eod_balances: list[dict[str, Any]] = []
         summary_rows: list[dict[str, Any]] = []
 
+        doc_fp = compute_document_fingerprint(doc)
         statement_id = generate_statement_id(
-            bank_name,
-            account_identity,
-            doc.source_input_id or getattr(doc, "document_id", None),
+            bank_name=bank_name,
+            account_identity=account_identity,
+            doc_id=doc.source_input_id or getattr(doc, "document_id", None),
+            document_fingerprint=doc_fp,
         )
         if metadata is not None:
             metadata["statement_id"] = statement_id
 
         active_profile = self._profiles.get(profile_id or "", {})
         has_signed_semantics = bool(active_profile.get("signed_amounts", False))
+        stmt_currency = detect_statement_currency(doc, active_profile)
 
         for page_num, table in all_tables:
             if not table.rows and not table.headers:
@@ -312,8 +377,14 @@ class BankStatementCapability:
             b_col = mappings.get("balance")
             ref_col, chq_col = mappings.get("reference_number"), mappings.get("cheque_number")
 
-            if d_col is None and posting_date_col is not None:
-                d_col = posting_date_col
+            date_supplied = "transaction_date"
+            if d_col is None:
+                if posting_date_col is not None:
+                    d_col = posting_date_col
+                    date_supplied = "posting_date"
+                elif val_date_col is not None:
+                    d_col = val_date_col
+                    date_supplied = "value_date"
 
             if d_col is None or not (any(c is not None for c in (dr_col, cr_col, b_col)) or amt_col is not None):
                 continue
@@ -402,9 +473,15 @@ class BankStatementCapability:
                             continue
 
                         tx_time = parse_time(_get_raw_cell(row, time_col)) if time_col is not None else None
-                        tx_val_date = parse_date(_get_raw_cell(row, val_date_col)) if val_date_col is not None else None
+                        tx_val_date = (
+                            parse_date(_get_raw_cell(row, val_date_col))
+                            if val_date_col is not None
+                            else (tx_date if date_supplied == "value_date" else None)
+                        )
                         tx_posting_date = (
-                            parse_date(_get_raw_cell(row, posting_date_col)) if posting_date_col is not None else None
+                            parse_date(_get_raw_cell(row, posting_date_col))
+                            if posting_date_col is not None
+                            else (tx_date if date_supplied == "posting_date" else None)
                         )
 
                         tx_debit = parse_decimal_amount(_get_raw_cell(row, dr_col))
@@ -488,6 +565,10 @@ class BankStatementCapability:
                                 chq_val = clean_ref
                                 ref_val = None
 
+                        tx_meta: dict[str, Any] = {}
+                        if date_supplied != "transaction_date":
+                            tx_meta["date_supplied"] = date_supplied
+
                         new_tx = Transaction(
                             statement_id=statement_id,
                             transaction_date=tx_date,
@@ -502,9 +583,11 @@ class BankStatementCapability:
                             credit=tx_credit,
                             running_balance=tx_bal,
                             account_identity=account_identity,
+                            currency=stmt_currency,
                             status=tx_status,
                             issues=tuple(tx_issues),
                             provenance=(prov,),
+                            metadata=tx_meta,
                             sequence_id=current_sequence_id,
                             raw_description=desc_raw,
                             raw_reference=ref_raw,

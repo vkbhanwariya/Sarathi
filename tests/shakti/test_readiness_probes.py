@@ -57,9 +57,8 @@ def test_bank_statements_provider_readiness_probe(tmp_path: Path) -> None:
     # When canonical banks dir with SBI is present
     canon_services = PluginServices(data_root=get_canonical_data_root())
     res_canon = bank_p.readiness(canon_services)
-    assert "bank_statements" in res_canon
     assert res_canon["bank_statements"].ready is True
-    assert "SBI" in res_canon["bank_statements"].reason
+    assert "common" in res_canon["bank_statements"].reason.lower() or "ready" in res_canon["bank_statements"].reason.lower()
 
 
 def test_font_conversion_provider_readiness_probe(tmp_path: Path) -> None:

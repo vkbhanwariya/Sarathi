@@ -7,6 +7,7 @@ Does not perform presentation projection or runtime execution.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -20,6 +21,24 @@ from sarathi.mukha.state import (
 from sarathi.sankalpa import InputRef
 
 _IGNORE_FILE_SUFFIXES = frozenset({".tmp", ".crdownload", ".part", ".swp", ".bak", ".lock"})
+
+
+def _compute_file_fingerprint(path: Path, size_bytes: int) -> str:
+    """Compute a fast deterministic 12-char fingerprint for an input file."""
+    hasher = hashlib.sha256()
+    hasher.update(path.name.encode("utf-8", errors="replace"))
+    hasher.update(str(size_bytes).encode("utf-8"))
+    try:
+        with path.open("rb") as f:
+            head = f.read(32768)
+            hasher.update(head)
+            if size_bytes > 65536:
+                f.seek(-32768, 2)
+                tail = f.read(32768)
+                hasher.update(tail)
+    except OSError:
+        pass
+    return hasher.hexdigest()[:12]
 
 
 def _is_hidden_or_temporary(path: Path) -> bool:
@@ -208,11 +227,13 @@ def intake_from_paths(
 
                 seen_paths.add(df_resolved)
                 input_id = f"inp-{len(valid_refs) + 1:03d}"
+                file_fp = _compute_file_fingerprint(df, size)
                 ref = InputRef(
                     input_id=input_id,
                     source_path=df,
                     display_name=df.name,
                     size_bytes=size,
+                    metadata={"file_fingerprint": file_fp},
                 )
                 valid_refs.append(ref)
                 total_size += size
@@ -302,11 +323,13 @@ def intake_from_paths(
 
         seen_paths.add(resolved)
         input_id = f"inp-{len(valid_refs) + 1:03d}"
+        file_fp = _compute_file_fingerprint(cand, size)
         ref = InputRef(
             input_id=input_id,
             source_path=cand,
             display_name=display_name,
             size_bytes=size,
+            metadata={"file_fingerprint": file_fp},
         )
         valid_refs.append(ref)
         total_size += size

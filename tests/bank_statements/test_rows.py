@@ -613,3 +613,170 @@ metadata_patterns:
     stmt = res.data.statements[0]
     assert stmt.opening_balance == Decimal("10000.00")
     assert stmt.closing_balance == Decimal("13000.00")
+
+
+def test_value_date_only_statement_extracts_transactions(tmp_path: Path) -> None:
+    """Statements containing only 'Value Date' (no Txn Date) must extract rows and record date_supplied."""
+    from decimal import Decimal
+
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    table = TableData(
+        headers=("Value Date", "Description", "Ref No", "Debit", "Credit", "Balance"),
+        rows=(("15/01/2026", "CLEARING PAYMENT", "CLR12345", "500.00", "", "9500.00"),),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-val-date-only",
+        text="BANK STATEMENT\nAccount: 12345678901\n",
+        tables=(table,),
+    )
+    dummy = tmp_path / "dummy.pdf"
+    dummy.write_bytes(b"dummy")
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-val-date",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-val-date", dummy, "dummy.pdf", dummy.stat().st_size),),
+    )
+    ctx = ExecutionContext("run-vd", "req-val-date", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+    assert len(stmt.transactions) == 1
+    tx = stmt.transactions[0]
+    assert tx.transaction_date == date(2026, 1, 15)
+    assert tx.value_date == date(2026, 1, 15)
+    assert tx.debit == Decimal("500.00")
+    assert tx.metadata.get("date_supplied") == "value_date"
+
+
+def test_currency_detection_and_grouping(tmp_path: Path) -> None:
+    """Non-INR statements (e.g. USD) preserve currency in Statement, Transaction, and totals_by_currency."""
+    from decimal import Decimal
+
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    doc_text = """
+    GLOBAL COMMERCIAL BANK
+    Account No: 987654321012
+    Currency: USD
+    Opening Balance: 1,000.00
+    Closing Balance: 1,200.00
+    """
+    table = TableData(
+        headers=("Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(("10/01/2026", "WIRE TRANSFER USD", "", "200.00", "1200.00"),),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-usd",
+        text=doc_text,
+        tables=(table,),
+    )
+    dummy = tmp_path / "dummy.pdf"
+    dummy.write_bytes(b"dummy")
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-usd",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-usd", dummy, "dummy.pdf", dummy.stat().st_size),),
+    )
+    ctx = ExecutionContext("run-usd", "req-usd", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    cons = res.data
+    stmt = cons.statements[0]
+    assert stmt.currency == "USD"
+    assert len(stmt.transactions) == 1
+    tx = stmt.transactions[0]
+    assert tx.currency == "USD"
+    assert "USD" in cons.totals_by_currency
+    assert cons.totals_by_currency["USD"] == (Decimal("0.00"), Decimal("200.00"))
+
+
+def test_parenthesized_and_dr_overdraft_header_balances(tmp_path: Path) -> None:
+    """Opening/closing balances with parenthesized or (Dr) overdraft expressions parse to negative Decimals."""
+    from decimal import Decimal
+
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    doc_text = """
+    STATE BANK OF INDIA
+    Account No: 12345678901
+    Opening Balance: 100.00 (Dr)
+    Closing Balance: (250.00)
+    """
+    table = TableData(
+        headers=("Txn Date", "Narration", "Debit", "Credit", "Balance"),
+        rows=(("01/01/2026", "CHARGE", "150.00", "", "-250.00"),),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-od-headers",
+        text=doc_text,
+        tables=(table,),
+    )
+    dummy = tmp_path / "dummy.pdf"
+    dummy.write_bytes(b"dummy")
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-od",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-od", dummy, "dummy.pdf", dummy.stat().st_size),),
+    )
+    ctx = ExecutionContext("run-od", "req-od", "t1", "s1")
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+    assert stmt.opening_balance == Decimal("-100.00")
+    assert stmt.closing_balance == Decimal("-250.00")
+
+
+def test_stable_statement_id_across_different_input_labels(tmp_path: Path) -> None:
+    """Statement IDs must remain identical even if imported with different transient input labels."""
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    doc_text = """
+    BANK OF INDIA
+    Account No: 112233445566
+    Opening Balance: 5,000.00
+    Closing Balance: 5,000.00
+    """
+    table = TableData(
+        headers=("Date", "Description", "Debit", "Credit", "Balance"),
+        rows=(),
+    )
+    dummy = tmp_path / "statement.pdf"
+    dummy.write_bytes(b"content-fingerprint-payload")
+
+    doc1 = CanonicalDocument(
+        document_id="doc-import-1",
+        text=doc_text,
+        tables=(table,),
+        metadata={"file_fingerprint": "abc123sha256"},
+    )
+    cap = BankStatementCapability()
+    req1 = Request(
+        request_id="req-1",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-001", dummy, "statement.pdf", dummy.stat().st_size),),
+    )
+    res1 = cap.execute(req1, ExecutionContext("r1", "req-1", "t1", "s1"), prior_result=Result(data=doc1))
+    stmt_id_1 = res1.data.statements[0].statement_id
+
+    doc2 = CanonicalDocument(
+        document_id="doc-import-2",
+        text=doc_text,
+        tables=(table,),
+        metadata={"file_fingerprint": "abc123sha256"},
+    )
+    req2 = Request(
+        request_id="req-2",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-999", dummy, "statement.pdf", dummy.stat().st_size),),
+    )
+    res2 = cap.execute(req2, ExecutionContext("r2", "req-2", "t1", "s1"), prior_result=Result(data=doc2))
+    stmt_id_2 = res2.data.statements[0].statement_id
+
+    assert stmt_id_1 == stmt_id_2
+    assert "inp-001" not in stmt_id_1
+    assert "inp-999" not in stmt_id_2

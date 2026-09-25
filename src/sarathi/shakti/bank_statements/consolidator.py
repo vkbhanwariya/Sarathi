@@ -173,6 +173,19 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
     total_debits = sum((tx.debit for tx in sorted_valid_txns if tx.debit is not None), Decimal("0"))
     total_credits = sum((tx.credit for tx in sorted_valid_txns if tx.credit is not None), Decimal("0"))
 
+    totals_by_curr: dict[str, tuple[Decimal, Decimal]] = {}
+    for tx in sorted_valid_txns:
+        curr = tx.currency or "INR"
+        d, c = totals_by_curr.get(curr, (Decimal("0"), Decimal("0")))
+        tx_d = tx.debit or Decimal("0")
+        tx_c = tx.credit or Decimal("0")
+        totals_by_curr[curr] = (d + tx_d, c + tx_c)
+
+    for stmt in reordered_statements:
+        curr = stmt.currency or "INR"
+        if curr not in totals_by_curr:
+            totals_by_curr[curr] = (Decimal("0"), Decimal("0"))
+
     return BankStatementConsolidationResult(
         statements=tuple(reordered_statements),
         total_transactions=total_txns,
@@ -181,6 +194,7 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
         status=overall_status,
         issues=tuple(all_issues),
         transactions=sorted_valid_txns,
+        totals_by_currency=totals_by_curr,
     )
 
 
@@ -342,6 +356,7 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
             "Debit",
             "Credit",
             "Running Balance",
+            "Currency",
             "Bank",
             "Masked Account",
             "Account Fingerprint",
@@ -390,8 +405,8 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
                 )
             )
 
-            # 1. Date
-            c1 = ws.cell(row=row_idx, column=1, value=tx.transaction_date.strftime("%Y-%m-%d"))
+            # 1. Date (native Excel date object)
+            c1 = ws.cell(row=row_idx, column=1, value=tx.transaction_date)
             c1.number_format = "YYYY-MM-DD"
             c1.alignment = Alignment(horizontal="center")
 
@@ -439,57 +454,62 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
             else:
                 c8.value = None
 
-            # 9. Bank
-            ws.cell(row=row_idx, column=9, value=tx.bank_name).data_type = "s"
+            # 9. Currency
+            ws.cell(row=row_idx, column=9, value=tx.currency or "INR").data_type = "s"
 
-            # 10. Masked Account
-            ws.cell(row=row_idx, column=10, value=masked_acc).data_type = "s"
+            # 10. Bank
+            ws.cell(row=row_idx, column=10, value=tx.bank_name).data_type = "s"
 
-            # 11. Account Fingerprint
-            ws.cell(row=row_idx, column=11, value=fingerprint).data_type = "s"
+            # 11. Masked Account
+            ws.cell(row=row_idx, column=11, value=masked_acc).data_type = "s"
 
-            # 12. Account Holder
-            ws.cell(row=row_idx, column=12, value=holder).data_type = "s"
+            # 12. Account Fingerprint
+            ws.cell(row=row_idx, column=12, value=fingerprint).data_type = "s"
 
-            # 13. Status
-            c13 = ws.cell(row=row_idx, column=13, value=tx.status.value.upper())
-            c13.data_type = "s"
-            c13.alignment = Alignment(horizontal="center")
+            # 13. Account Holder
+            ws.cell(row=row_idx, column=13, value=holder).data_type = "s"
 
-            # 14. Transaction ID
-            ws.cell(row=row_idx, column=14, value=tx.transaction_id or "").data_type = "s"
+            # 14. Status
+            c14 = ws.cell(row=row_idx, column=14, value=tx.status.value.upper())
+            c14.data_type = "s"
+            c14.alignment = Alignment(horizontal="center")
 
-            # 15. Statement ID
-            ws.cell(row=row_idx, column=15, value=tx.statement_id or "").data_type = "s"
+            # 15. Transaction ID
+            ws.cell(row=row_idx, column=15, value=tx.transaction_id or "").data_type = "s"
 
-            # 16. Value Date
-            c16 = ws.cell(
-                row=row_idx,
-                column=16,
-                value=tx.value_date.strftime("%Y-%m-%d") if tx.value_date else "",
-            )
-            c16.data_type = "s"
+            # 16. Statement ID
+            ws.cell(row=row_idx, column=16, value=tx.statement_id or "").data_type = "s"
 
-            # 17. Posting Date
-            c17 = ws.cell(
-                row=row_idx,
-                column=17,
-                value=tx.posting_date.strftime("%Y-%m-%d") if tx.posting_date else "",
-            )
-            c17.data_type = "s"
+            # 17. Value Date (native Excel date object)
+            c17 = ws.cell(row=row_idx, column=17)
+            if tx.value_date is not None:
+                c17.value = tx.value_date
+                c17.number_format = "YYYY-MM-DD"
+                c17.alignment = Alignment(horizontal="center")
+            else:
+                c17.value = None
 
-            # 18. Source File
-            ws.cell(row=row_idx, column=18, value=str(source_file)).data_type = "s"
+            # 18. Posting Date (native Excel date object)
+            c18 = ws.cell(row=row_idx, column=18)
+            if tx.posting_date is not None:
+                c18.value = tx.posting_date
+                c18.number_format = "YYYY-MM-DD"
+                c18.alignment = Alignment(horizontal="center")
+            else:
+                c18.value = None
 
-            # 19. Page
-            c19 = ws.cell(row=row_idx, column=19, value=page_num if page_num != "" else None)
+            # 19. Source File
+            ws.cell(row=row_idx, column=19, value=str(source_file)).data_type = "s"
+
+            # 20. Page
+            c20 = ws.cell(row=row_idx, column=20, value=page_num if page_num != "" else None)
             if page_num != "":
-                c19.number_format = "0"
-
-            # 20. Row
-            c20 = ws.cell(row=row_idx, column=20, value=row_num if row_num != "" else None)
-            if row_num != "":
                 c20.number_format = "0"
+
+            # 21. Row
+            c21 = ws.cell(row=row_idx, column=21, value=row_num if row_num != "" else None)
+            if row_num != "":
+                c21.number_format = "0"
 
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
@@ -502,6 +522,7 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
             "Bank",
             "Masked Account",
             "Account Holder",
+            "Currency",
             "Period Start",
             "Period End",
             "Opening Balance",
@@ -550,64 +571,65 @@ def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> Arti
                 value=stmt.account_holder
                 or (stmt.account_identity.account_holder if stmt.account_identity else ""),
             ).data_type = "s"
+            ws_stmt.cell(row=s_idx, column=5, value=stmt.currency or "INR").data_type = "s"
 
-            p_start = (
-                stmt.statement_period_start.strftime("%Y-%m-%d")
-                if stmt.statement_period_start
-                else ""
-            )
-            c_pstart = ws_stmt.cell(row=s_idx, column=5, value=p_start)
-            c_pstart.data_type = "s"
-            c_pstart.alignment = Alignment(horizontal="center")
+            # Period Start (native Excel date)
+            c_pstart = ws_stmt.cell(row=s_idx, column=6)
+            if stmt.statement_period_start:
+                c_pstart.value = stmt.statement_period_start
+                c_pstart.number_format = "YYYY-MM-DD"
+                c_pstart.alignment = Alignment(horizontal="center")
+            else:
+                c_pstart.value = None
 
-            p_end = (
-                stmt.statement_period_end.strftime("%Y-%m-%d")
-                if stmt.statement_period_end
-                else ""
-            )
-            c_pend = ws_stmt.cell(row=s_idx, column=6, value=p_end)
-            c_pend.data_type = "s"
-            c_pend.alignment = Alignment(horizontal="center")
+            # Period End (native Excel date)
+            c_pend = ws_stmt.cell(row=s_idx, column=7)
+            if stmt.statement_period_end:
+                c_pend.value = stmt.statement_period_end
+                c_pend.number_format = "YYYY-MM-DD"
+                c_pend.alignment = Alignment(horizontal="center")
+            else:
+                c_pend.value = None
 
             # Opening Balance
-            c_open = ws_stmt.cell(row=s_idx, column=7)
+            c_open = ws_stmt.cell(row=s_idx, column=8)
             if stmt.opening_balance is not None:
                 c_open.value = float(stmt.opening_balance)
                 c_open.number_format = currency_format
 
             # Total Debits
-            c_sdeb = ws_stmt.cell(row=s_idx, column=8, value=float(s_debit))
+            c_sdeb = ws_stmt.cell(row=s_idx, column=9, value=float(s_debit))
             c_sdeb.number_format = currency_format
 
             # Total Credits
-            c_scrd = ws_stmt.cell(row=s_idx, column=9, value=float(s_credit))
+            c_scrd = ws_stmt.cell(row=s_idx, column=10, value=float(s_credit))
             c_scrd.number_format = currency_format
 
             # Closing Balance
-            c_close = ws_stmt.cell(row=s_idx, column=10)
+            c_close = ws_stmt.cell(row=s_idx, column=11)
             if stmt.closing_balance is not None:
                 c_close.value = float(stmt.closing_balance)
                 c_close.number_format = currency_format
 
             # Calculated Balance
-            c_calc = ws_stmt.cell(row=s_idx, column=11)
+            c_calc = ws_stmt.cell(row=s_idx, column=12)
             if calc_bal is not None:
                 c_calc.value = float(calc_bal)
                 c_calc.number_format = currency_format
 
             # Reconciliation Diff
-            c_diff = ws_stmt.cell(row=s_idx, column=12)
+            c_diff = ws_stmt.cell(row=s_idx, column=13)
             if recon_diff is not None:
                 c_diff.value = float(recon_diff)
                 c_diff.number_format = currency_format
 
             # Transactions count
-            c_cnt = ws_stmt.cell(row=s_idx, column=13, value=len(stmt.transactions))
+            c_cnt = ws_stmt.cell(row=s_idx, column=14, value=len(stmt.transactions))
             c_cnt.number_format = "0"
             c_cnt.alignment = Alignment(horizontal="center")
 
             # Status
-            c_stat = ws_stmt.cell(row=s_idx, column=14, value=stmt.status.value.upper())
+            c_stat = ws_stmt.cell(row=s_idx, column=15, value=stmt.status.value.upper())
             c_stat.data_type = "s"
             c_stat.alignment = Alignment(horizontal="center")
 

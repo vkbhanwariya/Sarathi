@@ -2,7 +2,7 @@
 
 import io
 import json
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -458,6 +458,8 @@ def test_multisheet_excel_and_enriched_parquet() -> None:
         bank_name="State Bank of India",
         bank_profile="sbi",
         account_identity=ident,
+        statement_period_start=date(2026, 1, 1),
+        statement_period_end=date(2026, 1, 31),
         opening_balance=Decimal("10000.00"),
         closing_balance=Decimal("60000.00"),
         transactions=(tx1, tx2),
@@ -479,23 +481,35 @@ def test_multisheet_excel_and_enriched_parquet() -> None:
 
     ws_tx = wb["Transactions"]
     assert ws_tx.freeze_panes == "A2"
+    # Column 1 is Date (must be native date, not string)
+    date_cell = ws_tx.cell(row=3, column=1)
+    assert isinstance(date_cell.value, (date, datetime))
+    assert date_cell.data_type != "s"
+    assert date_cell.number_format == "YYYY-MM-DD"
+
     # Column 7 is Credit
     credit_cell = ws_tx.cell(row=3, column=7)
     assert credit_cell.value == 50000.0
     assert isinstance(credit_cell.value, (int, float))
     assert credit_cell.number_format == "#,##0.00;[Red]-#,##0.00"
 
-    # Transaction ID column (col 14)
-    tx_id_cell = ws_tx.cell(row=3, column=14)
+    # Currency column (col 9) and Transaction ID column (col 15)
+    assert ws_tx.cell(row=3, column=9).value == "INR"
+    tx_id_cell = ws_tx.cell(row=3, column=15)
     assert tx_id_cell.value == "tx_stmt_sbi_1_00002"
 
     ws_stmt = wb["Statements"]
-    # Total credits col 9, closing bal col 10, calculated bal col 11, diff col 12
-    assert ws_stmt.cell(row=2, column=7).value == 10000.0
-    assert ws_stmt.cell(row=2, column=9).value == 50000.0
-    assert ws_stmt.cell(row=2, column=10).value == 60000.0
+    # Currency col 5, Period Start col 6 (native date), Opening bal col 8, total credits col 10, closing bal col 11, calc bal col 12, diff col 13
+    assert ws_stmt.cell(row=2, column=5).value == "INR"
+    stmt_pstart_cell = ws_stmt.cell(row=2, column=6)
+    assert isinstance(stmt_pstart_cell.value, (date, datetime))
+    assert stmt_pstart_cell.data_type != "s"
+    assert stmt_pstart_cell.number_format == "YYYY-MM-DD"
+    assert ws_stmt.cell(row=2, column=8).value == 10000.0
+    assert ws_stmt.cell(row=2, column=10).value == 50000.0
     assert ws_stmt.cell(row=2, column=11).value == 60000.0
-    assert ws_stmt.cell(row=2, column=12).value == 0.0
+    assert ws_stmt.cell(row=2, column=12).value == 60000.0
+    assert ws_stmt.cell(row=2, column=13).value == 0.0
 
     # 2. Test Parquet
     parquet_payload = build_parquet_artifact(cons)

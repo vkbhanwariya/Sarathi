@@ -64,6 +64,13 @@ def test_chq_and_chq_no_map_strictly_to_cheque_number() -> None:
         assert mappings_ref.get("reference_number") == ref_header, f"Failed for {ref_header}"
         assert "cheque_number" not in mappings_ref, f"Unexpected cheque_number mapped for {ref_header}"
 
+    # 5. Combined cheque/ref headers map consistently to reference_number
+    for comb_header in ("Chq/Ref No", "Chq./Ref.No.", "Cheque/Ref No", "Ref No/Cheque No", "Ref/Chq No"):
+        headers_comb = ["Date", "Description", comb_header, "Debit", "Credit", "Balance"]
+        mappings_comb = {m.canonical_field: m.source_header for m in mapper.map_headers(headers_comb)}
+        assert mappings_comb.get("reference_number") == comb_header, f"Failed for {comb_header}"
+        assert "cheque_number" not in mappings_comb, f"Unexpected cheque_number mapped for combined {comb_header}"
+
 
 def test_bank_mapper_malformed_yaml_fails_deterministically(tmp_path: Path) -> None:
     """Malformed bank profile YAML must raise DoshError(INVALID_CONFIGURATION)."""

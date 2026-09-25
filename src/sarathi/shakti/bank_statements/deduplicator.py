@@ -175,6 +175,13 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                     value_date=existing.value_date or tx.value_date,
                     transaction_datetime=existing.transaction_datetime or tx.transaction_datetime,
                     sequence_id=existing.sequence_id,
+                    statement_id=existing.statement_id or tx.statement_id,
+                    transaction_id=existing.transaction_id or tx.transaction_id,
+                    raw_description=existing.raw_description or tx.raw_description,
+                    raw_reference=existing.raw_reference or tx.raw_reference,
+                    source_input_id=existing.source_input_id or tx.source_input_id,
+                    page_number=existing.page_number if existing.page_number is not None else tx.page_number,
+                    row_index=existing.row_index if existing.row_index is not None else tx.row_index,
                 )
                 unique[existing_idx] = surviving
                 duplicates.append(
@@ -219,6 +226,13 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                         value_date=tx.value_date,
                         transaction_datetime=tx.transaction_datetime,
                         sequence_id=tx.sequence_id,
+                        statement_id=tx.statement_id,
+                        transaction_id=tx.transaction_id,
+                        raw_description=tx.raw_description,
+                        raw_reference=tx.raw_reference,
+                        source_input_id=tx.source_input_id,
+                        page_number=tx.page_number,
+                        row_index=tx.row_index,
                     )
                     duplicates.append(
                         (

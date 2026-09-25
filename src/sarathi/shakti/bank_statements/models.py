@@ -101,6 +101,7 @@ def generate_statement_id(
     bank_name: str,
     account_identity: AccountIdentity | None = None,
     doc_id: str | None = None,
+    document_fingerprint: str | None = None,
 ) -> str:
     """Generate a deterministic, safe, unique statement identifier."""
     clean_bank = re.sub(r"[^a-zA-Z0-9]+", "_", bank_name.strip().lower()).strip("_") or "bank"
@@ -112,7 +113,15 @@ def generate_statement_id(
             clean_acc = re.sub(r"[^a-zA-Z0-9]+", "", account_identity.masked_account_number)
             acc_part = f"acc_{clean_acc}"
     doc_part = ""
-    if doc_id and doc_id.strip():
+    # Prioritize document fingerprint over transient/sequential doc_id labels
+    effective_fp = document_fingerprint or (
+        doc_id if (doc_id and not re.match(r"^inp[-_]?\d+$", doc_id.strip(), re.IGNORECASE)) else None
+    )
+    if effective_fp and effective_fp.strip():
+        clean_fp = re.sub(r"[^a-zA-Z0-9]+", "_", effective_fp.strip()).strip("_")
+        if clean_fp:
+            doc_part = f"_{clean_fp[-12:]}"
+    elif doc_id and doc_id.strip():
         clean_doc = re.sub(r"[^a-zA-Z0-9]+", "_", doc_id.strip()).strip("_")
         if clean_doc:
             doc_part = f"_{clean_doc[-12:]}"
@@ -329,6 +338,7 @@ class BankStatementConsolidationResult:
     status: ValidationStatus = ValidationStatus.VALID
     issues: tuple[ValidationIssue, ...] = ()
     transactions: tuple[Transaction, ...] = ()
+    totals_by_currency: Mapping[str, tuple[Decimal, Decimal]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "statements", _validate_seq(self.statements, BankStatement, "statements"))
@@ -337,3 +347,4 @@ class BankStatementConsolidationResult:
         if not isinstance(self.total_credit, Decimal):
             raise TypeError(f"total_credit must be a Decimal, got {type(self.total_credit)}.")
         object.__setattr__(self, "transactions", _validate_seq(self.transactions, Transaction, "transactions"))
+        object.__setattr__(self, "totals_by_currency", dict(self.totals_by_currency))

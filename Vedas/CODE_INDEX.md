@@ -56,7 +56,7 @@ This dense index maps every source module in `src/sarathi/` to its primary respo
 | Component / Module | Responsibility | Compute / Optimization Profile | Key Symbols |
 | :--- | :--- | :--- | :--- |
 | `shakti/artifact_naming.py` | Canonical Artifact Naming utilities for Shakti Capabilities | **Standard Logic** | `sanitize_filename_component()`, `format_artifact_filename()`, `infer_cloud_media_type()`, `resolve_source_input()` |
-| `shakti/bank_statements/capability.py` | Bank Statement Consolidation Executable Capability for Sarathi | **In-Memory / Polars Columnar** | `BankStatementCapability` |
+| `shakti/bank_statements/capability.py` | Bank Statement Consolidation Executable Capability for Sarathi | **In-Memory / Polars Columnar** | `BankStatementCapability`, `compute_document_fingerprint()`, `detect_statement_currency()` |
 | `shakti/bank_statements/consolidator.py` | Consolidator and Canonical Output Exporter for Bank Statements | **In-Memory / Polars Columnar** | `consolidate_statements()`, `build_parquet_artifact()`, `build_xlsx_artifact()` |
 | `shakti/bank_statements/converter.py` | Financial Value Converter for Bank Statements in Sarathi | **In-Memory / Polars Columnar** | `parse_balance_amount()`, `parse_decimal_amount()`, `parse_date()`, `parse_time()` |
 | `shakti/bank_statements/deduplicator.py` | Deterministic Deduplicator for Bank Statement Transactions | **In-Memory / Polars Columnar** | `DeduplicationResult`, `deduplicate_transactions()` |

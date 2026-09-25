@@ -702,3 +702,54 @@ def test_masked_account_numbers_distinct_holders_never_deduplicate() -> None:
     # Both transactions must be preserved; neither must be deleted as a duplicate
     assert len(res.transactions) == 2
     assert res.total_debit == Decimal("1000.00")
+
+
+def test_deduplication_preserves_ids_and_provenance_fields() -> None:
+    """Proven duplicate merging must preserve statement_id, transaction_id, raw values, and source metadata."""
+    ident = create_account_identity("State Bank of India", "30123456789")
+    tx1 = Transaction(
+        statement_id="stmt_sbi_month1",
+        transaction_id="tx_stmt_sbi_month1_00001",
+        sequence_id=1,
+        transaction_date=date(2026, 1, 15),
+        description="Electricity Bill Payment",
+        raw_description="Electricity Bill Payment Line 1",
+        raw_reference="UPI/123456/orig",
+        reference_number="UPI123456orig",
+        bank_name="State Bank of India",
+        account_identity=ident,
+        debit=Decimal("1500.00"),
+        running_balance=Decimal("25000.00"),
+        source_input_id="inp_month1",
+        page_number=2,
+        row_index=5,
+    )
+    tx2 = Transaction(
+        statement_id="stmt_sbi_month2",
+        transaction_id="tx_stmt_sbi_month2_00001",
+        sequence_id=1,
+        transaction_date=date(2026, 1, 15),
+        description="Electricity Bill Payment",
+        raw_description="Electricity Bill Payment Line 1",
+        raw_reference="UPI/123456/orig",
+        reference_number="UPI123456orig",
+        bank_name="State Bank of India",
+        account_identity=ident,
+        debit=Decimal("1500.00"),
+        running_balance=Decimal("25000.00"),
+        source_input_id="inp_month2",
+        page_number=1,
+        row_index=3,
+    )
+
+    res = deduplicate_transactions([tx1, tx2])
+    assert len(res.unique_transactions) == 1
+    assert len(res.duplicates) == 1
+    surviving = res.unique_transactions[0]
+    assert surviving.statement_id == "stmt_sbi_month1"
+    assert surviving.transaction_id == "tx_stmt_sbi_month1_00001"
+    assert surviving.raw_description == "Electricity Bill Payment Line 1"
+    assert surviving.raw_reference == "UPI/123456/orig"
+    assert surviving.source_input_id == "inp_month1"
+    assert surviving.page_number == 2
+    assert surviving.row_index == 5
