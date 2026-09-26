@@ -14,11 +14,13 @@ from sarathi.agni import Agni
 from sarathi.darpana import Darpana
 from sarathi.dosh import DoshError, FailureCode
 from sarathi.sankalpa import (
+    CanonicalDocument,
     ExecutionContext,
     ExecutionProfile,
     InputRef,
     Request,
     Result,
+    TableData,
 )
 from sarathi.shakti.bank_statements.capability import _CANONICAL_BANKS_DIR, BankStatementCapability
 from sarathi.shakti.bank_statements.consolidator import (
@@ -304,7 +306,7 @@ def test_parquet_preserves_three_decimal_currency() -> None:
 
 def test_xlsx_formula_injection_prevention() -> None:
     """Untrusted text starting with '=' must be exported as string cell, not as Excel formula."""
-    from sarathi.shakti.bank_statements.consolidator import build_xlsx_artifact
+    from sarathi.shakti.bank_statements.consolidator import build_transactions_xlsx_artifact
 
     ident = create_account_identity("Test Bank", "11223344")
     tx = Transaction(
@@ -327,13 +329,14 @@ def test_xlsx_formula_injection_prevention() -> None:
         total_credit=Decimal("0.00"),
         total_transactions=1,
     )
-    payload = build_xlsx_artifact(cons)
+    payload = build_transactions_xlsx_artifact(cons)
     wb = openpyxl.load_workbook(io.BytesIO(payload.content))
     ws = wb.active
-    # Description is in column C (3)
-    desc_cell = ws.cell(row=2, column=3)
+    # Description is in column D (4) in Consolidated_Transactions.xlsx
+    desc_cell = ws.cell(row=2, column=4)
     assert desc_cell.value == "=1+1"
     assert desc_cell.data_type == "s"
+    wb.close()
 
 
 def test_e2e_hdfc_multiline_narration_consolidation(tmp_path: Path) -> None:
@@ -428,8 +431,9 @@ def test_zero_transactions_fails_closed_in_e2e(tmp_path: Path) -> None:
 def test_multisheet_excel_and_enriched_parquet() -> None:
     """Validate Phase 2 & 3 multi-sheet Excel and enriched Parquet output."""
     from sarathi.shakti.bank_statements.consolidator import (
+        build_accounts_xlsx_artifact,
         build_parquet_artifact,
-        build_xlsx_artifact,
+        build_transactions_xlsx_artifact,
     )
 
     ident = create_account_identity("State Bank of India", "30123456789")
@@ -481,43 +485,30 @@ def test_multisheet_excel_and_enriched_parquet() -> None:
     )
 
     # 1. Test Excel
-    xlsx_payload = build_xlsx_artifact(cons)
-    wb = openpyxl.load_workbook(io.BytesIO(xlsx_payload.content))
-    assert "Transactions" in wb.sheetnames
-    assert "Statements" in wb.sheetnames
-    assert "Exceptions" in wb.sheetnames
-
-    ws_tx = wb["Transactions"]
+    tx_payload = build_transactions_xlsx_artifact(cons)
+    wb_tx = openpyxl.load_workbook(io.BytesIO(tx_payload.content))
+    assert "Transactions" in wb_tx.sheetnames
+    ws_tx = wb_tx["Transactions"]
     assert ws_tx.freeze_panes == "A2"
-    # Column 1 is Date (must be native date, not string)
-    date_cell = ws_tx.cell(row=3, column=1)
+    # Column 3 is Date (must be native date, not string)
+    date_cell = ws_tx.cell(row=3, column=3)
     assert isinstance(date_cell.value, (date, datetime))
     assert date_cell.data_type != "s"
-    assert date_cell.number_format == "YYYY-MM-DD"
+    assert date_cell.number_format == "DD-MM-YYYY"
 
-    # Column 7 is Credit
-    credit_cell = ws_tx.cell(row=3, column=7)
+    # Column 8 is Credit
+    credit_cell = ws_tx.cell(row=3, column=8)
     assert credit_cell.value == 50000.0
     assert isinstance(credit_cell.value, (int, float))
-    assert credit_cell.number_format == "#,##0.00;[Red]-#,##0.00"
+    assert "##,##0.00" in credit_cell.number_format
+    wb_tx.close()
 
-    # Currency column (col 9) and Transaction ID column (col 15)
-    assert ws_tx.cell(row=3, column=9).value == "INR"
-    tx_id_cell = ws_tx.cell(row=3, column=15)
-    assert tx_id_cell.value == "tx_stmt_sbi_1_00002"
-
-    ws_stmt = wb["Statements"]
-    # Currency col 5, Period Start col 6 (native date), Opening bal col 8, total credits col 10, closing bal col 11, calc bal col 12, diff col 13
-    assert ws_stmt.cell(row=2, column=5).value == "INR"
-    stmt_pstart_cell = ws_stmt.cell(row=2, column=6)
-    assert isinstance(stmt_pstart_cell.value, (date, datetime))
-    assert stmt_pstart_cell.data_type != "s"
-    assert stmt_pstart_cell.number_format == "YYYY-MM-DD"
-    assert ws_stmt.cell(row=2, column=8).value == 10000.0
-    assert ws_stmt.cell(row=2, column=10).value == 50000.0
-    assert ws_stmt.cell(row=2, column=11).value == 60000.0
-    assert ws_stmt.cell(row=2, column=12).value == 60000.0
-    assert ws_stmt.cell(row=2, column=13).value == 0.0
+    acc_payload = build_accounts_xlsx_artifact(cons)
+    wb_acc = openpyxl.load_workbook(io.BytesIO(acc_payload.content))
+    assert "Accounts" in wb_acc.sheetnames
+    ws_acc = wb_acc["Accounts"]
+    assert ws_acc.cell(row=2, column=4).value == "State Bank of India"
+    wb_acc.close()
 
     # 2. Test Parquet
     parquet_payload = build_parquet_artifact(cons)
@@ -532,3 +523,50 @@ def test_multisheet_excel_and_enriched_parquet() -> None:
     assert df["transaction_id"].to_list() == ["tx_stmt_sbi_1_00001", "tx_stmt_sbi_1_00002"]
     assert df["raw_description"].to_list()[1] == "Salary Credit Line 1"
     assert df["raw_reference"].to_list()[1] == "UTR/RAW/999"
+
+
+def test_outcome_aggregation_by_source_input_id() -> None:
+    """Verify Capability-level result metadata aggregates per-source-file outcome accurately."""
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-outcomes",
+        requirement="bank_statements",
+        inputs=(
+            InputRef("inp_valid", Path("valid.xlsx"), "valid.xlsx", 100),
+            InputRef("inp_invalid", Path("invalid.xlsx"), "invalid.xlsx", 100),
+        ),
+    )
+    ctx = ExecutionContext("run-outcomes", "req-outcomes", "t1", "s1")
+
+    doc_valid = CanonicalDocument(
+        document_id="doc_valid",
+        source_input_id="inp_valid",
+        text="",
+        tables=(
+            TableData(
+                headers=("Date", "Description", "Debit", "Credit", "Balance"),
+                rows=(
+                    ("01/01/2025", "Valid Tx", "100", "", "900"),
+                ),
+            ),
+        ),
+    )
+
+    doc_invalid = CanonicalDocument(
+        document_id="doc_invalid",
+        source_input_id="inp_invalid",
+        text="",
+        tables=(
+            TableData(
+                headers=("Date", "Description", "Debit", "Credit", "Balance"),
+                rows=(
+                    ("INVALID_DATE_TEXT", "Bad Tx", "100", "", "900"),
+                ),
+            ),
+        ),
+    )
+
+    res = cap.execute(req, ctx, prior_result=Result(data=(doc_valid, doc_invalid)))
+    input_outcomes = res.metadata.get("input_outcomes", {})
+    assert input_outcomes.get("inp_valid") == "SUCCESS"
+    assert input_outcomes.get("inp_invalid") == "FAILED"

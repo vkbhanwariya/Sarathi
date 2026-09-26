@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import io
+import time as time_mod
 from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
 
+import openpyxl
 import polars as pl
+import pytest
 
 from sarathi.sankalpa import (
     CanonicalDocument,
@@ -19,6 +22,7 @@ from sarathi.sankalpa import (
 )
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
 from sarathi.shakti.bank_statements.consolidator import (
+    build_accounts_xlsx_artifact,
     build_parquet_artifact,
     consolidate_statements,
 )
@@ -1073,3 +1077,248 @@ def test_probable_duplicate_escalates_status_and_consolidate_deduplicates_issues
     # 3. Issue deduplication: duplicate issue codes and messages are not repeated
     issue_keys = [(i.code, i.message) for i in res_cons.issues]
     assert len(issue_keys) == len(set(issue_keys))
+
+
+def test_near_duplicate_narration_emits_warning():
+    """Verify near-duplicate descriptions without references trigger PROBABLE_DUPLICATE_TRANSACTION."""
+    ident = create_account_identity("Test Bank", "12345678")
+    tx1 = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="UPI-SWIGGY-REST-1234",
+        bank_name="Test Bank",
+        account_identity=ident,
+        debit=Decimal("350.00"),
+    )
+    tx2 = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="UPI/SWIGGY/REST/1234",
+        bank_name="Test Bank",
+        account_identity=ident,
+        debit=Decimal("350.00"),
+    )
+
+    res = deduplicate_transactions((tx1, tx2))
+    assert len(res.unique_transactions) == 2
+    # Second transaction should have a warning issue for probable duplicate
+    assert any(
+        iss.code == "PROBABLE_DUPLICATE_TRANSACTION"
+        for t in res.unique_transactions
+        for iss in t.issues
+    )
+
+
+def test_multiple_cross_statement_duplicates_preserve_individual_audit_records():
+    """Verify that distinct cross-statement duplicates preserve their individual audit issues in consolidation."""
+    txs_s1 = [
+        Transaction(
+            transaction_date=date(2025, 1, i),
+            description=f"Payment {i}",
+            bank_name="SBI",
+            debit=Decimal(str(100 * i)),
+            reference_number=f"REF_{i}",
+            statement_id="s1",
+        )
+        for i in range(1, 4)
+    ]
+    txs_s2 = [
+        Transaction(
+            transaction_date=date(2025, 1, i),
+            description=f"Payment {i}",
+            bank_name="SBI",
+            debit=Decimal(str(100 * i)),
+            reference_number=f"REF_{i}",
+            statement_id="s2",
+        )
+        for i in range(1, 4)
+    ]
+
+    ident = create_account_identity("SBI", "123456789012")
+    s1 = BankStatement(statement_id="s1", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=tuple(txs_s1))
+    s2 = BankStatement(statement_id="s2", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=tuple(txs_s2))
+
+    res = consolidate_statements((s1, s2))
+    # All 3 duplicates must be recorded in issues, not collapsed to 1
+    dup_issues = [iss for iss in res.issues if iss.code == "CROSS_STATEMENT_DUPLICATE"]
+    assert len(dup_issues) == 3
+
+
+def test_complete_deduplication_reports_zero_successes_in_summary():
+    """Verify that when all transactions of statement 2 are removed, Processing Summary reports 0 successes."""
+    ident = create_account_identity("SBI", "123456789012")
+    tx1 = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="Duplicate Row",
+        bank_name="SBI",
+        debit=Decimal("100.00"),
+        reference_number="REF999",
+        statement_id="s1",
+    )
+    tx2 = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="Duplicate Row",
+        bank_name="SBI",
+        debit=Decimal("100.00"),
+        reference_number="REF999",
+        statement_id="s2",
+    )
+
+    s1 = BankStatement(statement_id="s1", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=(tx1,))
+    s2 = BankStatement(statement_id="s2", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=(tx2,))
+
+    consolidation = consolidate_statements((s1, s2))
+    assert len(consolidation.transactions) == 1
+
+    payload = build_accounts_xlsx_artifact(consolidation)
+    wb = openpyxl.load_workbook(io.BytesIO(payload.content))
+    ws_sum = wb["Processing_Summary"]
+
+    # Row 2 is Statement 1 (1 success, 0 dupes)
+    # Row 3 is Statement 2 (0 successes, 1 dupe)
+    s2_succ = ws_sum.cell(row=3, column=8).value
+    s2_dups = ws_sum.cell(row=3, column=9).value
+    assert s2_succ == 0
+    assert s2_dups == 1
+    wb.close()
+
+
+def test_fuzzy_narration_does_not_authorize_proven_duplicate_removal() -> None:
+    """Fuzzy narration similarity alone must produce a warning and NEVER remove a transaction as PROVEN_DUPLICATE."""
+    ident = create_account_identity("SBI", "123456789012")
+    tx1 = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="PAYMENT TO ALPHA STORE",
+        bank_name="SBI",
+        statement_id="s1",
+        debit=Decimal("500.00"),
+        running_balance=Decimal("4500.00"),
+        account_identity=ident,
+    )
+    tx2 = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="PAYMENT TO BETA STORE",
+        bank_name="SBI",
+        statement_id="s2",
+        debit=Decimal("500.00"),
+        running_balance=Decimal("4500.00"),
+        account_identity=ident,
+    )
+
+    s1 = BankStatement(statement_id="s1", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=(tx1,))
+    s2 = BankStatement(statement_id="s2", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=(tx2,))
+
+    res = consolidate_statements((s1, s2))
+    # Both transactions must be retained; fuzzy similarity cannot delete a transaction
+    assert len(res.transactions) == 2
+    # Second transaction receives PROBABLE_DUPLICATE warning
+    assert any(
+        iss.code == "PROBABLE_DUPLICATE_TRANSACTION"
+        for t in res.transactions
+        for iss in t.issues
+    )
+
+
+def test_deduplication_indices_synchronized_on_enrichment() -> None:
+    """Verify that secondary candidate indices are updated when a surviving transaction is enriched with a reference."""
+    ident = create_account_identity("SBI", "123456789012")
+    # Populate 22 distinct dummy transactions to activate candidate pruning (> 20 candidates)
+    dummy_txs = [
+        Transaction(
+            transaction_date=date(2025, 1, 10),
+            description=f"Payment {i}",
+            bank_name="SBI",
+            statement_id="s1",
+            debit=Decimal("10.00"),
+            reference_number=f"REF{i:04d}",
+            account_identity=ident,
+        )
+        for i in range(22)
+    ]
+    # Target transaction without reference
+    tx_target = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="Enrichment Test",
+        bank_name="SBI",
+        statement_id="s1",
+        debit=Decimal("100.00"),
+        running_balance=Decimal("5000.00"),
+        account_identity=ident,
+    )
+    # Matching transaction WITH reference number
+    tx_enricher = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="Enrichment Test",
+        bank_name="SBI",
+        statement_id="s2",
+        debit=Decimal("100.00"),
+        reference_number="REF_NEW_123",
+        running_balance=Decimal("5000.00"),
+        account_identity=ident,
+    )
+    # 3rd transaction sharing the enriched reference number
+    tx_follower = Transaction(
+        transaction_date=date(2025, 1, 10),
+        description="Enrichment Test",
+        bank_name="SBI",
+        statement_id="s3",
+        debit=Decimal("100.00"),
+        reference_number="REF_NEW_123",
+        running_balance=Decimal("5000.00"),
+        account_identity=ident,
+    )
+
+    all_txs = dummy_txs + [tx_target, tx_enricher, tx_follower]
+    res = deduplicate_transactions(all_txs)
+    # The 3 matching transactions should all merge into 1 surviving transaction
+    # Total unique: 22 dummy + 1 surviving = 23 unique transactions
+    assert len(res.unique_transactions) == 23
+
+
+@pytest.mark.performance
+def test_deduplication_candidate_indexing_performance_benchmark():
+    """Benchmark: 2,000 candidate transactions sharing account/date/amount with distinct references run in < 0.5s."""
+    ident = create_account_identity("SBI", "123456789012")
+    n_rows = 2000
+    txns = [
+        Transaction(
+            transaction_date=date(2025, 1, 15),
+            description=f"UPI Payment {i}",
+            bank_name="SBI",
+            debit=Decimal("100.00"),
+            reference_number=f"REF{i:06d}",
+            account_identity=ident,
+        )
+        for i in range(n_rows)
+    ]
+
+    t_start = time_mod.perf_counter()
+    res = deduplicate_transactions(txns)
+    elapsed = time_mod.perf_counter() - t_start
+
+    assert len(res.unique_transactions) == n_rows
+    # Must complete in well under 0.5 seconds on reference hardware
+    assert elapsed < 0.5, f"Deduplication took {elapsed:.3f}s, expected < 0.5s"
+
+
+@pytest.mark.performance
+def test_deduplication_identical_descriptions_distinct_references_benchmark() -> None:
+    """Benchmark: 2,000 transactions with identical descriptions and distinct references run in < 0.5s."""
+    ident = create_account_identity("SBI", "123456789012")
+    n_rows = 2000
+    txns = [
+        Transaction(
+            transaction_date=date(2025, 1, 15),
+            description="UPI Payment",  # All identical descriptions!
+            bank_name="SBI",
+            debit=Decimal("100.00"),
+            reference_number=f"REF{i:06d}",
+            account_identity=ident,
+        )
+        for i in range(n_rows)
+    ]
+
+    t_start = time_mod.perf_counter()
+    res = deduplicate_transactions(txns)
+    elapsed = time_mod.perf_counter() - t_start
+
+    assert len(res.unique_transactions) == n_rows
+    assert elapsed < 0.5, f"Deduplication took {elapsed:.3f}s, expected < 0.5s"

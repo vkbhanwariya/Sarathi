@@ -1,8 +1,16 @@
 """Tests for Bank Statement Balances, Invariants, and Reconciliation."""
 
+import datetime
+import io
 from datetime import date
 from decimal import Decimal
 
+import polars as pl
+
+from sarathi.shakti.bank_statements.consolidator import (
+    build_parquet_artifact,
+    consolidate_statements,
+)
 from sarathi.shakti.bank_statements.models import (
     BankStatement,
     Transaction,
@@ -374,3 +382,406 @@ def test_multi_account_boundaries_not_shared() -> None:
 
     assert stmt_b.opening_balance == Decimal("50000.00"), f"Expected 50000.00, got {stmt_b.opening_balance}"
     assert stmt_b.closing_balance == Decimal("47500.00"), f"Expected 47500.00, got {stmt_b.closing_balance}"
+
+
+def test_cross_statement_balance_discontinuity_and_period_gap_detection():
+    """Verify cross-statement balance discontinuities and missing statement periods emit warnings."""
+    ident = create_account_identity("SBI", "123456789012")
+    # Statement 1: Jan 1 to Jan 31, closing 5000
+    s1 = BankStatement(
+        statement_id="s1",
+        bank_name="SBI",
+        bank_profile="sbi",
+        account_identity=ident,
+        statement_period_start=datetime.date(2025, 1, 1),
+        statement_period_end=datetime.date(2025, 1, 31),
+        opening_balance=Decimal("1000.00"),
+        closing_balance=Decimal("5000.00"),
+        transactions=(),
+    )
+    # Statement 2: Mar 15 to Mar 31, opening 6000 (gap in February, and balance jump 5000 -> 6000)
+    s2 = BankStatement(
+        statement_id="s2",
+        bank_name="SBI",
+        bank_profile="sbi",
+        account_identity=ident,
+        statement_period_start=datetime.date(2025, 3, 15),
+        statement_period_end=datetime.date(2025, 3, 31),
+        opening_balance=Decimal("6000.00"),
+        closing_balance=Decimal("9000.00"),
+        transactions=(),
+    )
+
+    res = consolidate_statements((s1, s2))
+    issue_codes = {i.code for i in res.issues}
+    assert "CROSS_STATEMENT_BALANCE_DISCONTINUITY" in issue_codes
+    assert "MISSING_STATEMENT_PERIOD" in issue_codes
+
+
+def test_reverse_order_same_day_transactions_no_false_discontinuity():
+    """Verify that reverse-order transactions on the same date with multiple transactions do not produce false warnings."""
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        transaction_time=datetime.time(16, 0),
+        description="Evening Tx",
+        bank_name="SBI",
+        debit=Decimal("100.00"),
+        running_balance=Decimal("900.00"),
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        transaction_time=datetime.time(10, 0),
+        description="Morning Tx",
+        bank_name="SBI",
+        credit=Decimal("500.00"),
+        running_balance=Decimal("1000.00"),
+    )
+
+    # In reverse-order statement: tx1 (evening) appears before tx2 (morning)
+    stmt = BankStatement(
+        bank_name="SBI",
+        bank_profile="sbi",
+        opening_balance=Decimal("500.00"),
+        closing_balance=Decimal("900.00"),
+        transactions=(tx1, tx2),
+    )
+
+    validated = validate_statement_balances(stmt)
+    assert validated.status == ValidationStatus.VALID
+    assert not any(i.code == "RUNNING_BALANCE_DISCONTINUITY" for i in validated.issues)
+
+
+def test_parquet_eod_balance_is_end_of_day_not_intraday():
+    """Verify Parquet export populates eod_balance with true end-of-day balance across all rows of that date."""
+    ident = create_account_identity("SBI", "123456789012")
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        transaction_time=datetime.time(9, 0),
+        description="Morning Tx",
+        bank_name="SBI",
+        credit=Decimal("500.00"),
+        running_balance=Decimal("1500.00"),
+        statement_id="s1",
+        account_identity=ident,
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        transaction_time=datetime.time(17, 0),
+        description="Evening Tx",
+        bank_name="SBI",
+        debit=Decimal("200.00"),
+        running_balance=Decimal("1300.00"),
+        statement_id="s1",
+        account_identity=ident,
+    )
+
+    stmt = BankStatement(
+        statement_id="s1",
+        bank_name="SBI",
+        bank_profile="sbi",
+        account_identity=ident,
+        opening_balance=Decimal("1000.00"),
+        closing_balance=Decimal("1300.00"),
+        transactions=(tx1, tx2),
+    )
+
+    consolidation = consolidate_statements((stmt,))
+    payload = build_parquet_artifact(consolidation)
+    df = pl.read_parquet(io.BytesIO(payload.content))
+
+    assert "eod_balance" in df.columns
+    # Both transactions on Jan 10 must have eod_balance = 1300.00 (the end-of-day balance, not 1500.00)
+    assert df["eod_balance"][0] == Decimal("1300.00")
+    assert df["eod_balance"][1] == Decimal("1300.00")
+
+
+def test_eod_balance_weak_identities_and_reverse_order() -> None:
+    """Verify EOD balances isolate weak/unverified identities and handle reverse-order statements."""
+    # Case 1: Two different banks with weak/no account keys
+    tx_b1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Bank A Tx",
+        bank_name="Bank Alpha",
+        statement_id="stmt_alpha",
+        running_balance=Decimal("100.00"),
+    )
+    tx_b2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Bank B Tx",
+        bank_name="Bank Beta",
+        statement_id="stmt_beta",
+        running_balance=Decimal("200.00"),
+    )
+    s1 = BankStatement(statement_id="stmt_alpha", bank_name="Bank Alpha", bank_profile="generic", transactions=(tx_b1,))
+    s2 = BankStatement(statement_id="stmt_beta", bank_name="Bank Beta", bank_profile="generic", transactions=(tx_b2,))
+    c_res = consolidate_statements((s1, s2))
+
+    payload = build_parquet_artifact(c_res)
+    df = pl.read_parquet(io.BytesIO(payload.content))
+    b1_eod = df.filter(pl.col("bank_name") == "Bank Alpha")["eod_balance"][0]
+    b2_eod = df.filter(pl.col("bank_name") == "Bank Beta")["eod_balance"][0]
+    assert b1_eod == Decimal("100.00")
+    assert b2_eod == Decimal("200.00")
+
+    # Case 2: Reverse-order statement ending at 70 (row 1 is evening 70, row 2 is morning 90)
+    tx_ev = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        transaction_time=datetime.time(18, 0),
+        description="Evening Tx",
+        bank_name="HDFC Bank",
+        statement_id="stmt_rev",
+        running_balance=Decimal("70.00"),
+    )
+    tx_mo = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        transaction_time=datetime.time(9, 0),
+        description="Morning Tx",
+        bank_name="HDFC Bank",
+        statement_id="stmt_rev",
+        running_balance=Decimal("90.00"),
+    )
+    # Statement presented in reverse order (evening first)
+    s_rev = BankStatement(
+        statement_id="stmt_rev",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        transactions=(tx_ev, tx_mo),
+        metadata={"is_reverse": True},
+    )
+    c_rev = consolidate_statements((s_rev,))
+    payload_rev = build_parquet_artifact(c_rev)
+    df_rev = pl.read_parquet(io.BytesIO(payload_rev.content))
+    # EOD balance must be the chronologically last transaction: 70.00!
+    assert df_rev["eod_balance"][0] == Decimal("70.00")
+    assert df_rev["eod_balance"][1] == Decimal("70.00")
+
+
+def test_overlapping_statements_do_not_generate_false_continuity_warning() -> None:
+    """Overlapping or duplicate statements must not trigger CROSS_STATEMENT_BALANCE_DISCONTINUITY."""
+    ident = create_account_identity("HDFC Bank", "50100987654321")
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        description="Salary",
+        bank_name="HDFC Bank",
+        credit=Decimal("500.00"),
+        running_balance=Decimal("1000.00"),
+        statement_id="s1",
+        account_identity=ident,
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        description="Salary",
+        bank_name="HDFC Bank",
+        credit=Decimal("500.00"),
+        running_balance=Decimal("1000.00"),
+        statement_id="s2",
+        account_identity=ident,
+    )
+
+    s1 = BankStatement(
+        statement_id="s1",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        statement_period_start=datetime.date(2025, 1, 1),
+        statement_period_end=datetime.date(2025, 1, 31),
+        opening_balance=Decimal("500.00"),
+        closing_balance=Decimal("1000.00"),
+        transactions=(tx1,),
+    )
+    s2 = BankStatement(
+        statement_id="s2",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        statement_period_start=datetime.date(2025, 1, 1),
+        statement_period_end=datetime.date(2025, 1, 31),
+        opening_balance=Decimal("500.00"),
+        closing_balance=Decimal("1000.00"),
+        transactions=(tx2,),
+    )
+
+    res = consolidate_statements((s1, s2))
+    assert not any(iss.code == "CROSS_STATEMENT_BALANCE_DISCONTINUITY" for iss in res.issues)
+
+
+def test_missing_period_dates_balance_gap_warning() -> None:
+    """Two statements with missing period start dates and a closing/opening gap must emit CROSS_STATEMENT_BALANCE_DISCONTINUITY."""
+    ident = create_account_identity("State Bank of India", "123456789012")
+    # Both statements lack statement_period_start and statement_period_end
+    s1 = BankStatement(
+        statement_id="stmt_part1",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        opening_balance=Decimal("50.00"),
+        closing_balance=Decimal("100.00"),
+        transactions=(
+            Transaction(
+                transaction_date=datetime.date(2025, 1, 5),
+                description="Jan 5 Tx",
+                bank_name="State Bank of India",
+                credit=Decimal("50.00"),
+                running_balance=Decimal("100.00"),
+                statement_id="stmt_part1",
+                account_identity=ident,
+            ),
+        ),
+    )
+    s2 = BankStatement(
+        statement_id="stmt_part2",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        opening_balance=Decimal("200.00"),  # Jump from 100 to 200!
+        closing_balance=Decimal("250.00"),
+        transactions=(
+            Transaction(
+                transaction_date=datetime.date(2025, 1, 20),
+                description="Jan 20 Tx",
+                bank_name="State Bank of India",
+                credit=Decimal("50.00"),
+                running_balance=Decimal("250.00"),
+                statement_id="stmt_part2",
+                account_identity=ident,
+            ),
+        ),
+    )
+
+    res = consolidate_statements((s1, s2))
+    assert any(
+        iss.code == "CROSS_STATEMENT_BALANCE_DISCONTINUITY"
+        for iss in res.issues
+    ), "Missing period dates must not suppress CROSS_STATEMENT_BALANCE_DISCONTINUITY warning"
+
+
+def test_eod_balance_noon_transaction_in_later_file_does_not_overwrite_evening() -> None:
+    """A noon transaction in a later file must not overwrite an 18:00 transaction from an earlier file."""
+    ident = create_account_identity("HDFC Bank", "50100112233445")
+    # File 0: evening transaction at 18:00 (closing balance 500)
+    tx_file0 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        transaction_time=datetime.time(18, 0),
+        description="Evening Tx File 0",
+        bank_name="HDFC Bank",
+        source_input_id="file_0.csv",
+        statement_id="stmt_f0",
+        running_balance=Decimal("500.00"),
+        account_identity=ident,
+    )
+    # File 1: noon transaction at 12:00 (running balance 400)
+    tx_file1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        transaction_time=datetime.time(12, 0),
+        description="Noon Tx File 1",
+        bank_name="HDFC Bank",
+        source_input_id="file_1.csv",
+        statement_id="stmt_f1",
+        running_balance=Decimal("400.00"),
+        account_identity=ident,
+    )
+
+    s0 = BankStatement(
+        statement_id="stmt_f0",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        transactions=(tx_file0,),
+        metadata={"source_input_id": "file_0.csv"},
+    )
+    s1 = BankStatement(
+        statement_id="stmt_f1",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        transactions=(tx_file1,),
+        metadata={"source_input_id": "file_1.csv"},
+    )
+
+    res = consolidate_statements((s0, s1))
+    payload = build_parquet_artifact(res)
+    df = pl.read_parquet(io.BytesIO(payload.content))
+
+    # True EOD balance on Jan 15 must be 500.00 (from 18:00), not overwritten by 400.00 (12:00)
+    for eod in df["eod_balance"]:
+        assert eod == Decimal("500.00")
+
+
+def test_eod_balance_reverse_statement_spanning_two_pages() -> None:
+    """A reverse-order statement spanning two pages must export the chronologically latest balance (page 1) not page 2."""
+    ident = create_account_identity("ICICI Bank", "123401500999")
+    # Page 1: evening transaction at top of document (closing balance 70)
+    tx_p1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        description="Evening Tx Page 1",
+        bank_name="ICICI Bank",
+        statement_id="stmt_icici",
+        page_number=1,
+        row_index=1,
+        running_balance=Decimal("70.00"),
+        account_identity=ident,
+    )
+    # Page 2: morning transaction on later page (running balance 90)
+    tx_p2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        description="Morning Tx Page 2",
+        bank_name="ICICI Bank",
+        statement_id="stmt_icici",
+        page_number=2,
+        row_index=1,
+        running_balance=Decimal("90.00"),
+        account_identity=ident,
+    )
+
+    stmt = BankStatement(
+        statement_id="stmt_icici",
+        bank_name="ICICI Bank",
+        bank_profile="icici",
+        account_identity=ident,
+        transactions=(tx_p1, tx_p2),
+        metadata={"is_reverse": True},
+    )
+
+    res = consolidate_statements((stmt,))
+    payload = build_parquet_artifact(res)
+    df = pl.read_parquet(io.BytesIO(payload.content))
+
+    # EOD balance must be 70.00, not 90.00
+    assert df["eod_balance"][0] == Decimal("70.00")
+    assert df["eod_balance"][1] == Decimal("70.00")
+
+
+def test_unknown_bank_separate_statements_eod_isolation() -> None:
+    """Two separate statements from an unknown bank must maintain isolated EOD balances in Parquet."""
+    ident1 = create_account_identity("Unknown Bank", "998877665544")
+    ident2 = create_account_identity("Unknown Bank", "998877665544")
+
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Stmt 1 Tx",
+        bank_name="Unknown Bank",
+        statement_id="stmt_unk_1",
+        running_balance=Decimal("100.00"),
+        account_identity=ident1,
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Stmt 2 Tx",
+        bank_name="Unknown Bank",
+        statement_id="stmt_unk_2",
+        running_balance=Decimal("200.00"),
+        account_identity=ident2,
+    )
+
+    s1 = BankStatement(statement_id="stmt_unk_1", bank_name="Unknown Bank", bank_profile="generic", account_identity=ident1, transactions=(tx1,))
+    s2 = BankStatement(statement_id="stmt_unk_2", bank_name="Unknown Bank", bank_profile="generic", account_identity=ident2, transactions=(tx2,))
+
+    res = consolidate_statements((s1, s2))
+    payload = build_parquet_artifact(res)
+    df = pl.read_parquet(io.BytesIO(payload.content))
+
+    row_s1 = df.filter(pl.col("statement_id") == "stmt_unk_1")
+    row_s2 = df.filter(pl.col("statement_id") == "stmt_unk_2")
+
+    assert row_s1["eod_balance"][0] == Decimal("100.00")
+    assert row_s2["eod_balance"][0] == Decimal("200.00")

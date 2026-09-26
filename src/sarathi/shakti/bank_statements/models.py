@@ -390,18 +390,3 @@ class BankStatementConsolidationResult:
             raise TypeError(f"total_credit must be a Decimal or None, got {type(self.total_credit)}.")
         object.__setattr__(self, "transactions", _validate_seq(self.transactions, Transaction, "transactions"))
         object.__setattr__(self, "totals_by_currency", dict(self.totals_by_currency))
-
-
-@dataclass(frozen=True, slots=True)
-class ConsolidatedAccount:
-    """Canonical aggregated account summary across multiple statement periods."""
-
-    bank_name: str
-    account_key: str
-    account_holder: str = "-"
-    masked_account_number: str = "-"
-    statements_count: int = 1
-    input_location_range: str = "-"
-    transaction_id_range: str = "-"
-    transactions_count: int = 0
-    account_identity: AccountIdentity | None = None

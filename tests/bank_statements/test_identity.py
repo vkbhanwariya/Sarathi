@@ -1,10 +1,26 @@
 """Tests for Bank Statement and Profile Detection."""
 
+import datetime
+import io
+from decimal import Decimal
 from pathlib import Path
+
+import openpyxl
 
 from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request, Result, TableData
 from sarathi.shakti.bank_statements.capability import BankStatementCapability
+from sarathi.shakti.bank_statements.consolidator import (
+    _account_group_key,
+    build_accounts_xlsx_artifact,
+    consolidate_statements,
+)
 from sarathi.shakti.bank_statements.detector import detect_bank_statement
+from sarathi.shakti.bank_statements.models import (
+    AccountIdentity,
+    BankStatement,
+    Transaction,
+    create_account_identity,
+)
 
 
 def test_detect_generic_bank_statement() -> None:
@@ -470,3 +486,185 @@ def test_same_holder_two_accounts_same_bank_never_merged() -> None:
 
     result = consolidate_statements([stmt1, stmt2])
     assert len(result.transactions) == 2
+
+
+def test_worksheet_name_does_not_become_fake_account():
+    """Verify that sheet names like 'Transactions' or 'Statement' are rejected as account numbers."""
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-1",
+        requirement="bank_statements",
+        inputs=(InputRef("inp1", Path("test.xlsx"), "test.xlsx", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-1", "t1", "s1")
+
+    # Document with a table named "Transactions"
+    doc = CanonicalDocument(
+        document_id="doc1",
+        source_input_id="inp1",
+        text="",
+        tables=(
+            TableData(
+                headers=("Date", "Description", "Debit", "Credit", "Balance"),
+                rows=(
+                    ("01/01/2025", "Salary", "", "50000", "50000"),
+                ),
+                name="Transactions",
+            ),
+        ),
+    )
+
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    consolidation = res.data
+    assert len(consolidation.transactions) == 1
+    stmt = consolidation.statements[0]
+    ident = stmt.account_identity
+    # Account identity must NOT have account_number "Transactions"
+    if ident and ident.masked_account_number:
+        assert "Transactions" not in ident.masked_account_number
+
+
+def test_distinct_banks_with_identical_masked_tails_not_merged():
+    """Verify accounts from different banks with identical masked tails are not merged."""
+    stmt1 = BankStatement(
+        statement_id="stmt_sbi",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=AccountIdentity(
+            bank_name="State Bank of India",
+            masked_account_number="XXXX1234",
+            identity_strength="WEAK",
+        ),
+        transactions=(
+            Transaction(
+                transaction_date=datetime.date(2025, 1, 1),
+                description="Tx 1",
+                bank_name="State Bank of India",
+                debit=Decimal("100"),
+                statement_id="stmt_sbi",
+            ),
+        ),
+    )
+
+    stmt2 = BankStatement(
+        statement_id="stmt_hdfc",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=AccountIdentity(
+            bank_name="HDFC Bank",
+            masked_account_number="XXXX1234",
+            identity_strength="WEAK",
+        ),
+        transactions=(
+            Transaction(
+                transaction_date=datetime.date(2025, 1, 2),
+                description="Tx 2",
+                bank_name="HDFC Bank",
+                debit=Decimal("200"),
+                statement_id="stmt_hdfc",
+            ),
+        ),
+    )
+
+    # Grouping keys must differ
+    k1 = _account_group_key(stmt1)
+    k2 = _account_group_key(stmt2)
+    assert k1 != k2
+
+    consolidation = consolidate_statements((stmt1, stmt2))
+    xlsx_payload = build_accounts_xlsx_artifact(consolidation)
+
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_payload.content))
+    ws_acc = wb["Accounts"]
+    # Master Account Directory must have 2 distinct rows (row 2 and row 3)
+    assert ws_acc.max_row == 3
+    wb.close()
+
+
+def test_same_account_with_and_without_ifsc_groups_and_deduplicates():
+    """Verify that statements for the same verified account group together even if IFSC is missing in one."""
+    ident_with_ifsc = create_account_identity(
+        bank_name="HDFC Bank",
+        raw_account_number="50100123456789",
+        account_holder="Alice",
+        ifsc="HDFC0001234",
+    )
+    ident_without_ifsc = create_account_identity(
+        bank_name="HDFC Bank",
+        raw_account_number="50100123456789",
+        account_holder="Alice",
+        ifsc=None,
+    )
+
+    stmt1 = BankStatement(
+        statement_id="stmt_month1",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident_with_ifsc,
+        ifsc="HDFC0001234",
+        transactions=(
+            Transaction(
+                transaction_date=datetime.date(2025, 1, 15),
+                description="Shared Tx",
+                bank_name="HDFC Bank",
+                debit=Decimal("500"),
+                reference_number="REF12345",
+                statement_id="stmt_month1",
+            ),
+        ),
+    )
+    stmt2 = BankStatement(
+        statement_id="stmt_month2",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident_without_ifsc,
+        transactions=(
+            Transaction(
+                transaction_date=datetime.date(2025, 1, 15),
+                description="Shared Tx",
+                bank_name="HDFC Bank",
+                debit=Decimal("500"),
+                reference_number="REF12345",
+                statement_id="stmt_month2",
+            ),
+        ),
+    )
+
+    k1 = _account_group_key(stmt1)
+    k2 = _account_group_key(stmt2)
+    # Both must resolve to the identical verified account key
+    assert k1 == k2 == ("account_key", ident_with_ifsc.account_key)
+
+    consolidation = consolidate_statements((stmt1, stmt2))
+    # Deduplication must merge the shared transaction
+    assert len(consolidation.transactions) == 1
+
+
+def test_unknown_bank_statements_not_merged_by_account_number() -> None:
+    """Unverified/Unknown Bank statements must not be merged by matching numeric account numbers."""
+    ident1 = create_account_identity("Unknown Bank", "123456789012")
+    ident2 = create_account_identity("Unknown Bank", "123456789012")
+
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 1),
+        description="Institution A Tx",
+        bank_name="Unknown Bank",
+        statement_id="stmt_unrec_a",
+        debit=Decimal("100.00"),
+        account_identity=ident1,
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 1),
+        description="Institution B Tx",
+        bank_name="Unknown Bank",
+        statement_id="stmt_unrec_b",
+        debit=Decimal("100.00"),
+        account_identity=ident2,
+    )
+
+    s1 = BankStatement(statement_id="stmt_unrec_a", bank_name="Unknown Bank", bank_profile="generic", account_identity=ident1, transactions=(tx1,))
+    s2 = BankStatement(statement_id="stmt_unrec_b", bank_name="Unknown Bank", bank_profile="generic", account_identity=ident2, transactions=(tx2,))
+
+    res = consolidate_statements((s1, s2))
+    # Must NOT merge: both transactions must survive
+    assert len(res.transactions) == 2

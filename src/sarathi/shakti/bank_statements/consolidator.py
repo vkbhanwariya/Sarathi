@@ -16,7 +16,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import replace
 from decimal import Decimal
-from typing import Any, Final
+from typing import Final
 
 import openpyxl
 import polars as pl
@@ -141,6 +141,10 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                 s_curr = chrono_stmts[i]
                 s_next = chrono_stmts[i + 1]
 
+                curr_start = s_curr.statement_period_start or min(
+                    [t.transaction_date for t in s_curr.transactions if t.transaction_date],
+                    default=None,
+                )
                 p_end = s_curr.statement_period_end or max(
                     [t.transaction_date for t in s_curr.transactions if t.transaction_date],
                     default=None,
@@ -152,10 +156,19 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
 
                 # Overlapping statements occur when s_next starts before s_curr ends.
                 # In overlapping or duplicate statements, s_curr closing does not correlate with s_next opening.
+                has_explicit_starts = (
+                    s_curr.statement_period_start is not None
+                    and s_next.statement_period_start is not None
+                )
+                same_start = (
+                    (s_curr.statement_period_start == s_next.statement_period_start)
+                    if has_explicit_starts
+                    else (curr_start is not None and curr_start == p_start)
+                )
                 is_overlapping = (
                     p_end is not None
                     and p_start is not None
-                    and (p_start < p_end or s_curr.statement_period_start == s_next.statement_period_start)
+                    and (p_start < p_end or same_start)
                 )
 
                 # Inter-statement balance continuity check: only check for sequential non-overlapping statements
@@ -471,25 +484,70 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         if s.account_identity and s.account_identity.account_fingerprint
     }
 
-    def _tx_account_isolation_key(tx: Transaction) -> tuple:
+    def _tx_group_key(tx: Transaction) -> tuple:
         ident = tx.account_identity
-        b_name = (tx.bank_name or (ident.bank_name if ident else "") or "").lower().strip()
-        if ident and ident.account_key and getattr(ident, "identity_strength", "STRONG") in ("STRONG", "MEDIUM"):
-            return ("acc_key", b_name, ident.account_key)
-        if ident and ident.account_fingerprint and getattr(ident, "identity_strength", "STRONG") in ("STRONG", "MEDIUM"):
-            return ("fingerprint", b_name, ident.account_fingerprint)
-        stmt_id = tx.statement_id or (tx.provenance[0].source_input_id if tx.provenance else "") or str(id(tx))
-        return ("statement", b_name, stmt_id)
+        stmt = stmt_map.get(tx.statement_id) or (
+            stmt_fp_map.get(ident.account_fingerprint) if ident else None
+        )
+        if stmt:
+            return _account_group_key(stmt)
+        fallback_stmt = BankStatement(
+            statement_id=tx.statement_id or "",
+            bank_name=tx.bank_name or (ident.bank_name if ident else "") or "Unknown Bank",
+            account_identity=ident,
+        )
+        return _account_group_key(fallback_stmt)
 
-    # Pre-calculate true End-Of-Day balance per (account_isolation_key, transaction_date)
+    def _stmt_start(s: BankStatement) -> datetime.date:
+        if s.statement_period_start:
+            return s.statement_period_start
+        dates = [t.transaction_date for t in s.transactions if t.transaction_date]
+        return min(dates) if dates else datetime.date.min
+
+    sorted_stmts = sorted(consolidation.statements, key=_stmt_start)
+    stmt_chrono_order = {s.statement_id: idx for idx, s in enumerate(sorted_stmts) if s.statement_id}
+
+    def _tx_chrono_sort_key(tx: Transaction) -> tuple:
+        stmt = stmt_map.get(tx.statement_id) or (
+            stmt_fp_map.get(tx.account_identity.account_fingerprint)
+            if tx.account_identity
+            else None
+        )
+        is_rev = bool(stmt.metadata.get("is_reverse", False)) if (stmt and stmt.metadata) else bool(
+            tx.metadata and tx.metadata.get("is_reverse", False)
+        )
+        s_order = stmt_chrono_order.get(stmt.statement_id, 0) if stmt else 0
+        p_num = tx.page_number if (tx.page_number is not None and tx.page_number > 0) else 1
+        r_num = getattr(tx, "row_index", None) or getattr(tx, "sequence_id", 0) or 0
+
+        p_rank = -p_num if is_rev else p_num
+        r_rank = -r_num if is_rev else r_num
+
+        t_time = tx.transaction_time or datetime.time.min
+        has_time = 1 if tx.transaction_time is not None else 0
+
+        return (
+            has_time,
+            t_time,
+            s_order,
+            p_rank,
+            r_rank,
+        )
+
+    # Pre-calculate true End-Of-Day balance per (account_group_key, transaction_date)
     # The EOD balance is the running balance of the chronologically last transaction of that date.
-    # consolidation.transactions is already in established chronological order (oldest to newest),
-    # so the last transaction visited for each (a_key, date) sets the true EOD balance.
-    eod_by_account_date: dict[tuple[tuple, datetime.date], Decimal] = {}
+    # Group all transactions having running_balance by (a_key, tx.transaction_date)
+    # and pick the transaction that is chronologically latest via _tx_chrono_sort_key.
+    txns_by_acc_date: dict[tuple[tuple, datetime.date], list[Transaction]] = {}
     for tx in consolidation.transactions:
         if tx.running_balance is not None:
-            a_key = _tx_account_isolation_key(tx)
-            eod_by_account_date[(a_key, tx.transaction_date)] = tx.running_balance
+            a_key = _tx_group_key(tx)
+            txns_by_acc_date.setdefault((a_key, tx.transaction_date), []).append(tx)
+
+    eod_by_account_date: dict[tuple[tuple, datetime.date], Decimal] = {}
+    for acc_date, tx_list in txns_by_acc_date.items():
+        latest_tx = max(tx_list, key=_tx_chrono_sort_key)
+        eod_by_account_date[acc_date] = latest_tx.running_balance
 
     for tx in consolidation.transactions:
         ident = tx.account_identity
@@ -511,7 +569,7 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         stmt_gen_at = stmt.metadata.get("statement_generated_at") if (stmt and stmt.metadata) else None
         stmt_gen_ats.append(str(stmt_gen_at) if stmt_gen_at else None)
 
-        acc_iso_k = _tx_account_isolation_key(tx)
+        acc_iso_k = _tx_group_key(tx)
         eod_bal = None
         if stmt and stmt.closing_balance is not None and tx.transaction_date == stmt.statement_period_end:
             eod_bal = stmt.closing_balance
@@ -1003,388 +1061,6 @@ def build_transactions_xlsx_artifact(consolidation: BankStatementConsolidationRe
     intent = ArtifactIntent(
         name="Consolidated_Transactions.xlsx",
         role="consolidated_transactions",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    return ArtifactPayload(intent=intent, content=content_bytes)
-
-
-def build_xlsx_artifact(consolidation: BankStatementConsolidationResult) -> ArtifactPayload:
-    """Generate multi-sheet Consolidated_Bank_Statement.xlsx payload with native numbers and audit ledger."""
-    wb = openpyxl.Workbook()
-    try:
-        # Sheet 1: Transactions
-        ws = wb.active
-        ws.title = "Transactions"
-
-        headers = [
-            "Date",
-            "Time",
-            "Description",
-            "Reference No.",
-            "Cheque No.",
-            "Debit",
-            "Credit",
-            "Running Balance",
-            "Currency",
-            "Bank",
-            "Masked Account",
-            "Account Fingerprint",
-            "Account Holder",
-            "Status",
-            "Transaction ID",
-            "Statement ID",
-            "Value Date",
-            "Posting Date",
-            "Source File",
-            "Page",
-            "Row",
-        ]
-        ws.append(headers)
-
-        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        ws.row_dimensions[1].height = 24
-
-        for col_idx in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx not in (3, 4) else "left")
-
-        currency_format = "#,##0.00;[Red]-#,##0.00"
-
-        for row_idx, tx in enumerate(consolidation.transactions, start=2):
-            ident = tx.account_identity
-            masked_acc = ident.masked_account_number if ident else ""
-            fingerprint = ident.account_fingerprint if ident else ""
-            holder = ident.account_holder if ident else ""
-            source_file = tx.source_input_id or (tx.provenance[0].source_input_id if tx.provenance else "")
-            page_num = (
-                tx.page_number
-                if tx.page_number is not None
-                else (tx.provenance[0].page_number if tx.provenance else "")
-            )
-            row_num = (
-                tx.row_index
-                if tx.row_index is not None
-                else (
-                    tx.provenance[0].evidence.get("row_index")
-                    if (tx.provenance and tx.provenance[0].evidence)
-                    else ""
-                )
-            )
-
-            # 1. Date (native Excel date object)
-            c1 = ws.cell(row=row_idx, column=1, value=tx.transaction_date)
-            c1.number_format = "YYYY-MM-DD"
-            c1.alignment = Alignment(horizontal="center")
-
-            # 2. Time
-            c2 = ws.cell(
-                row=row_idx,
-                column=2,
-                value=tx.transaction_time.strftime("%H:%M:%S") if tx.transaction_time else "",
-            )
-            c2.alignment = Alignment(horizontal="center")
-
-            # 3. Description (protected against formula injection)
-            c3 = ws.cell(row=row_idx, column=3, value=tx.description)
-            c3.data_type = "s"
-
-            # 4. Reference No.
-            c4 = ws.cell(row=row_idx, column=4, value=tx.reference_number or "")
-            c4.data_type = "s"
-
-            # 5. Cheque No.
-            c5 = ws.cell(row=row_idx, column=5, value=tx.cheque_number or "")
-            c5.data_type = "s"
-
-            # 6. Debit (native numeric float for formula support)
-            c6 = ws.cell(row=row_idx, column=6)
-            if tx.debit is not None:
-                c6.value = float(tx.debit)
-                c6.number_format = currency_format
-            else:
-                c6.value = None
-
-            # 7. Credit
-            c7 = ws.cell(row=row_idx, column=7)
-            if tx.credit is not None:
-                c7.value = float(tx.credit)
-                c7.number_format = currency_format
-            else:
-                c7.value = None
-
-            # 8. Running Balance
-            c8 = ws.cell(row=row_idx, column=8)
-            if tx.running_balance is not None:
-                c8.value = float(tx.running_balance)
-                c8.number_format = currency_format
-            else:
-                c8.value = None
-
-            # 9. Currency
-            ws.cell(row=row_idx, column=9, value=tx.currency or "INR").data_type = "s"
-
-            # 10. Bank
-            ws.cell(row=row_idx, column=10, value=tx.bank_name).data_type = "s"
-
-            # 11. Masked Account
-            ws.cell(row=row_idx, column=11, value=masked_acc).data_type = "s"
-
-            # 12. Account Fingerprint
-            ws.cell(row=row_idx, column=12, value=fingerprint).data_type = "s"
-
-            # 13. Account Holder
-            ws.cell(row=row_idx, column=13, value=holder).data_type = "s"
-
-            # 14. Status
-            c14 = ws.cell(row=row_idx, column=14, value=tx.status.value.upper())
-            c14.data_type = "s"
-            c14.alignment = Alignment(horizontal="center")
-
-            # 15. Transaction ID
-            ws.cell(row=row_idx, column=15, value=tx.transaction_id or "").data_type = "s"
-
-            # 16. Statement ID
-            ws.cell(row=row_idx, column=16, value=tx.statement_id or "").data_type = "s"
-
-            # 17. Value Date (native Excel date object)
-            c17 = ws.cell(row=row_idx, column=17)
-            if tx.value_date is not None:
-                c17.value = tx.value_date
-                c17.number_format = "YYYY-MM-DD"
-                c17.alignment = Alignment(horizontal="center")
-            else:
-                c17.value = None
-
-            # 18. Posting Date (native Excel date object)
-            c18 = ws.cell(row=row_idx, column=18)
-            if tx.posting_date is not None:
-                c18.value = tx.posting_date
-                c18.number_format = "YYYY-MM-DD"
-                c18.alignment = Alignment(horizontal="center")
-            else:
-                c18.value = None
-
-            # 19. Source File
-            ws.cell(row=row_idx, column=19, value=str(source_file)).data_type = "s"
-
-            # 20. Page
-            c20 = ws.cell(row=row_idx, column=20, value=page_num if page_num != "" else None)
-            if page_num != "":
-                c20.number_format = "0"
-
-            # 21. Row
-            c21 = ws.cell(row=row_idx, column=21, value=row_num if row_num != "" else None)
-            if row_num != "":
-                c21.number_format = "0"
-
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
-        _auto_fit_columns(ws)
-
-        # Sheet 2: Statements (Reconciliation Ledger)
-        ws_stmt = wb.create_sheet(title="Statements")
-        stmt_headers = [
-            "Statement ID",
-            "Bank",
-            "Masked Account",
-            "Account Holder",
-            "Currency",
-            "Period Start",
-            "Period End",
-            "Opening Balance",
-            "Total Debits",
-            "Total Credits",
-            "Closing Balance",
-            "Calculated Balance",
-            "Reconciliation Diff",
-            "Transactions",
-            "Status",
-        ]
-        ws_stmt.append(stmt_headers)
-        ws_stmt.row_dimensions[1].height = 24
-        stmt_fill = PatternFill(start_color="1A365D", end_color="1A365D", fill_type="solid")
-
-        for col_idx in range(1, len(stmt_headers) + 1):
-            cell = ws_stmt.cell(row=1, column=col_idx)
-            cell.fill = stmt_fill
-            cell.font = header_font
-            cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx not in (1, 2, 4) else "left")
-
-        for s_idx, stmt in enumerate(consolidation.statements, start=2):
-            s_debit = sum((t.debit for t in stmt.transactions if t.debit is not None), Decimal("0"))
-            s_credit = sum((t.credit for t in stmt.transactions if t.credit is not None), Decimal("0"))
-            calc_bal = (
-                (stmt.opening_balance + s_credit - s_debit)
-                if stmt.opening_balance is not None
-                else None
-            )
-            recon_diff = (
-                (stmt.closing_balance - calc_bal)
-                if (stmt.closing_balance is not None and calc_bal is not None)
-                else None
-            )
-
-            ws_stmt.cell(row=s_idx, column=1, value=stmt.statement_id or "").data_type = "s"
-            ws_stmt.cell(row=s_idx, column=2, value=stmt.bank_name).data_type = "s"
-            ws_stmt.cell(
-                row=s_idx,
-                column=3,
-                value=stmt.account_identity.masked_account_number if stmt.account_identity else "",
-            ).data_type = "s"
-            ws_stmt.cell(
-                row=s_idx,
-                column=4,
-                value=stmt.account_holder
-                or (stmt.account_identity.account_holder if stmt.account_identity else ""),
-            ).data_type = "s"
-            ws_stmt.cell(row=s_idx, column=5, value=stmt.currency or "INR").data_type = "s"
-
-            # Period Start (native Excel date)
-            c_pstart = ws_stmt.cell(row=s_idx, column=6)
-            if stmt.statement_period_start:
-                c_pstart.value = stmt.statement_period_start
-                c_pstart.number_format = "YYYY-MM-DD"
-                c_pstart.alignment = Alignment(horizontal="center")
-            else:
-                c_pstart.value = None
-
-            # Period End (native Excel date)
-            c_pend = ws_stmt.cell(row=s_idx, column=7)
-            if stmt.statement_period_end:
-                c_pend.value = stmt.statement_period_end
-                c_pend.number_format = "YYYY-MM-DD"
-                c_pend.alignment = Alignment(horizontal="center")
-            else:
-                c_pend.value = None
-
-            # Opening Balance
-            c_open = ws_stmt.cell(row=s_idx, column=8)
-            if stmt.opening_balance is not None:
-                c_open.value = float(stmt.opening_balance)
-                c_open.number_format = currency_format
-
-            # Total Debits
-            c_sdeb = ws_stmt.cell(row=s_idx, column=9, value=float(s_debit))
-            c_sdeb.number_format = currency_format
-
-            # Total Credits
-            c_scrd = ws_stmt.cell(row=s_idx, column=10, value=float(s_credit))
-            c_scrd.number_format = currency_format
-
-            # Closing Balance
-            c_close = ws_stmt.cell(row=s_idx, column=11)
-            if stmt.closing_balance is not None:
-                c_close.value = float(stmt.closing_balance)
-                c_close.number_format = currency_format
-
-            # Calculated Balance
-            c_calc = ws_stmt.cell(row=s_idx, column=12)
-            if calc_bal is not None:
-                c_calc.value = float(calc_bal)
-                c_calc.number_format = currency_format
-
-            # Reconciliation Diff
-            c_diff = ws_stmt.cell(row=s_idx, column=13)
-            if recon_diff is not None:
-                c_diff.value = float(recon_diff)
-                c_diff.number_format = currency_format
-
-            # Transactions count
-            c_cnt = ws_stmt.cell(row=s_idx, column=14, value=len(stmt.transactions))
-            c_cnt.number_format = "0"
-            c_cnt.alignment = Alignment(horizontal="center")
-
-            # Status
-            c_stat = ws_stmt.cell(row=s_idx, column=15, value=stmt.status.value.upper())
-            c_stat.data_type = "s"
-            c_stat.alignment = Alignment(horizontal="center")
-
-        ws_stmt.freeze_panes = "A2"
-        ws_stmt.auto_filter.ref = ws_stmt.dimensions
-        _auto_fit_columns(ws_stmt)
-
-        # Sheet 3: Exceptions
-        ws_exc = wb.create_sheet(title="Exceptions")
-        exc_headers = ["Scope", "Entity ID", "Bank", "Severity", "Code", "Message", "Context"]
-        ws_exc.append(exc_headers)
-        ws_exc.row_dimensions[1].height = 24
-        exc_fill = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
-
-        for col_idx in range(1, len(exc_headers) + 1):
-            cell = ws_exc.cell(row=1, column=col_idx)
-            cell.fill = exc_fill
-            cell.font = header_font
-            cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx in (1, 4, 5) else "left")
-
-        exc_rows: list[list[Any]] = []
-        for issue in consolidation.issues:
-            exc_rows.append([
-                "Consolidation",
-                "ALL_STATEMENTS",
-                "-",
-                issue.severity.upper(),
-                issue.code,
-                issue.message,
-                json.dumps(dict(issue.context)) if issue.context else "",
-            ])
-        for stmt in consolidation.statements:
-            for issue in stmt.issues:
-                exc_rows.append([
-                    "Statement",
-                    stmt.statement_id or "UNKNOWN",
-                    stmt.bank_name,
-                    issue.severity.upper(),
-                    issue.code,
-                    issue.message,
-                    json.dumps(dict(issue.context)) if issue.context else "",
-                ])
-        for tx in consolidation.transactions:
-            for issue in tx.issues:
-                exc_rows.append([
-                    "Transaction",
-                    tx.transaction_id or f"tx_{getattr(tx, 'sequence_id', 0)}",
-                    tx.bank_name,
-                    issue.severity.upper(),
-                    issue.code,
-                    issue.message,
-                    json.dumps(dict(issue.context)) if issue.context else "",
-                ])
-
-        if not exc_rows:
-            exc_rows.append([
-                "System",
-                "All Statements",
-                "-",
-                "INFO",
-                "ALL_CLEAR",
-                "Zero reconciliation anomalies or validation exceptions detected across consolidated statements.",
-                "",
-            ])
-
-        for e_idx, e_vals in enumerate(exc_rows, start=2):
-            for c_idx, val in enumerate(e_vals, start=1):
-                cell = ws_exc.cell(row=e_idx, column=c_idx, value=val)
-                cell.data_type = "s"
-
-        ws_exc.freeze_panes = "A2"
-        ws_exc.auto_filter.ref = ws_exc.dimensions
-        _auto_fit_columns(ws_exc)
-
-        # Set active sheet back to Transactions
-        wb.active = ws
-
-        buf = io.BytesIO()
-        wb.save(buf)
-        content_bytes = buf.getvalue()
-    finally:
-        wb.close()
-
-    intent = ArtifactIntent(
-        name="Consolidated_Bank_Statement.xlsx",
-        role="consolidated_report",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     return ArtifactPayload(intent=intent, content=content_bytes)

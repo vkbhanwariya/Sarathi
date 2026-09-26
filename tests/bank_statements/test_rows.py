@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 
 from sarathi.sankalpa import (
@@ -850,3 +851,101 @@ def test_capability_does_not_drop_transaction_with_balance_phrase_in_narration()
     assert stmt.transactions[1].debit == Decimal("200.00")
     assert stmt.opening_balance == Decimal("5000.00")
     assert stmt.closing_balance == Decimal("4300.00")
+
+
+def test_multipage_continuation_table_without_repeated_headers():
+    """Verify that page 2 continuation tables without repeated headers are successfully extracted."""
+    cap = BankStatementCapability()
+    req = Request(
+        request_id="req-multi",
+        requirement="bank_statements",
+        inputs=(InputRef("inp_multi", Path("stmt.pdf"), "stmt.pdf", 100),),
+    )
+    ctx = ExecutionContext("run-multi", "req-multi", "t1", "s1")
+
+    page1_table = TableData(
+        headers=("Date", "Description", "Debit", "Credit", "Balance"),
+        rows=(
+            ("01/01/2025", "Tx Page 1", "100", "", "900"),
+        ),
+    )
+    page2_table = TableData(
+        headers=(),
+        rows=(
+            ("02/01/2025", "Tx Page 2", "", "200", "1100"),
+        ),
+    )
+
+    doc = CanonicalDocument(
+        document_id="doc_multi",
+        source_input_id="inp_multi",
+        text="",
+        pages=(
+            PageData(page_number=1, tables=(page1_table,)),
+            PageData(page_number=2, tables=(page2_table,)),
+        ),
+    )
+
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    consolidation = res.data
+    # Both page 1 and page 2 transactions must be extracted
+    assert len(consolidation.transactions) == 2
+    assert consolidation.transactions[0].description == "Tx Page 1"
+    assert consolidation.transactions[1].description == "Tx Page 2"
+
+
+def test_narration_with_hyphens_not_classified_as_noise():
+    """Verify that a transaction narration like 'UPI---SHOP' is classified as TRANSACTION, not NOISE."""
+    row = ["01/01/2025", "UPI---SHOP", "500.00", "", "1000.00"]
+    r_type = classify_row(row, date_col_idx=0, amount_col_indices=[2, 3, 4])
+    assert r_type == RowType.TRANSACTION
+
+
+def test_continuation_pages_update_remembered_headers() -> None:
+    """Verify that when a subsequent page defines explicit table.headers, the remembered header schema updates."""
+    # Page 1: Debit before Credit
+    t1 = TableData(
+        headers=("Date", "Description", "Debit", "Credit", "Balance"),
+        rows=(
+            ("01/01/2026", "Tx 1", "100.00", "", "4900.00"),
+        ),
+    )
+    # Page 2: Continuation without headers (inherits Page 1: Debit before Credit)
+    t2 = TableData(
+        headers=(),
+        rows=(
+            ("02/01/2026", "Tx 2", "200.00", "", "4700.00"),
+        ),
+    )
+    # Page 3: New table with reversed columns: Credit before Debit!
+    t3 = TableData(
+        headers=("Date", "Description", "Credit", "Debit", "Balance"),
+        rows=(
+            ("03/01/2026", "Tx 3", "300.00", "", "5000.00"),
+        ),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-headers-update",
+        text="Bank Statement\nAccount Number: 123456789012\nIFSC: SBIN0001234",
+        tables=(t1, t2, t3),
+    )
+    req = Request(
+        request_id="req-hdr",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-1", Path("stmt.csv"), "stmt.csv", 100),),
+    )
+    ctx = ExecutionContext("r1", "req-hdr", "t1", "s1")
+    cap = BankStatementCapability()
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+
+    assert len(stmt.transactions) == 3
+    # Tx 1: Debit 100
+    assert stmt.transactions[0].debit == Decimal("100.00")
+    assert stmt.transactions[0].credit is None
+    # Tx 2: Inherited Debit 200
+    assert stmt.transactions[1].debit == Decimal("200.00")
+    assert stmt.transactions[1].credit is None
+    # Tx 3: Explicit Credit 300 (must NOT be inverted to debit!)
+    assert stmt.transactions[2].credit == Decimal("300.00")
+    assert stmt.transactions[2].debit is None
