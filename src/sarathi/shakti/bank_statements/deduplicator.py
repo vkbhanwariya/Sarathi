@@ -11,6 +11,7 @@ from sarathi.shakti.bank_statements.models import (
     DuplicateDecision,
     Transaction,
     ValidationIssue,
+    ValidationStatus,
 )
 
 _PLACEHOLDER_REFS = frozenset({"", "-", "--", "---", "na", "n/a", "n.a.", "none", "nil", "null"})
@@ -204,8 +205,14 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                         message="Identical date, amount, and narration without reference number or running balance.",
                         severity="warning",
                     )
+                    new_status = (
+                        ValidationStatus.WARNING
+                        if tx.status != ValidationStatus.INVALID
+                        else ValidationStatus.INVALID
+                    )
                     tx_with_issue = replace(
                         tx,
+                        status=new_status,
                         issues=tx.issues + (warn_issue,),
                     )
                     duplicates.append(

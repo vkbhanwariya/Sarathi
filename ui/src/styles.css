@@ -3898,6 +3898,9 @@ a { color: inherit; text-decoration: none; }
   .topbar { padding: 0 16px; height: 48px; min-height: 48px; max-height: 48px; }
   .intake-btn-group { flex-wrap: wrap; }
   .intake-panel .data-table { min-width: 0; }
+  .intake-search-filter-row { flex-wrap: wrap; }
+  .table-container.input-table-container { overflow-x: auto; max-width: 100%; }
+  .translation-direction-toolbar { flex-wrap: wrap; }
   .history-kpis-grid { grid-template-columns: 1fr; }
   .history-controls-row { flex-direction: column; align-items: stretch; }
   .history-search-wrap { width: 100%; }

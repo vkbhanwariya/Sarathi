@@ -82,6 +82,7 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
 
     all_issues: list[ValidationIssue] = []
     deduped_valid_txns: list[Transaction] = []
+    cross_dups_by_stmt: dict[str, int] = {}
 
     for key, group_stmts in account_groups.items():
         group_valid_txns: list[Transaction] = [
@@ -105,6 +106,8 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                 if decision == DuplicateDecision.PROVEN_DUPLICATE:
                     msg = f"Duplicate transaction eliminated across statements: {reason}"
                     sev = "info"
+                    if dup.statement_id:
+                        cross_dups_by_stmt[dup.statement_id] = cross_dups_by_stmt.get(dup.statement_id, 0) + 1
                 else:
                     msg = f"Probable duplicate transaction retained across statements: {reason}"
                     sev = "warning"
@@ -207,12 +210,33 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
     reordered_statements: list[BankStatement] = []
     overall_status = ValidationStatus.VALID
 
+    seen_issues: set[tuple[str, str]] = set()
+    deduped_issues: list[ValidationIssue] = []
+
+    for iss in all_issues:
+        key = (iss.code, iss.message)
+        if key not in seen_issues:
+            seen_issues.add(key)
+            deduped_issues.append(iss)
+            if iss.severity in ("error", "fatal"):
+                overall_status = ValidationStatus.INVALID
+            elif iss.severity == "warning" and overall_status == ValidationStatus.VALID:
+                overall_status = ValidationStatus.WARNING
+
     for stmt in sorted_statements:
         if stmt.status == ValidationStatus.INVALID:
             overall_status = ValidationStatus.INVALID
         elif stmt.status == ValidationStatus.WARNING and overall_status == ValidationStatus.VALID:
             overall_status = ValidationStatus.WARNING
-        all_issues.extend(stmt.issues)
+        for iss in stmt.issues:
+            key = (iss.code, iss.message)
+            if key not in seen_issues:
+                seen_issues.add(key)
+                deduped_issues.append(iss)
+                if iss.severity in ("error", "fatal"):
+                    overall_status = ValidationStatus.INVALID
+                elif iss.severity == "warning" and overall_status == ValidationStatus.VALID:
+                    overall_status = ValidationStatus.WARNING
 
         # Update valid transactions with their renumbered counterparts while retaining invalid ones
         stmt_updated_txs = []
@@ -223,7 +247,26 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                 stmt_updated_txs.append(tx)
 
         sorted_stmt_txs = tuple(sorted(stmt_updated_txs, key=_tx_sort_key))
-        reordered_statements.append(replace(stmt, transactions=sorted_stmt_txs))
+        c_dups = cross_dups_by_stmt.get(stmt.statement_id or "", 0)
+        stmt_meta = dict(stmt.metadata)
+        if c_dups > 0:
+            stmt_meta["cross_statement_duplicates"] = c_dups
+        reordered_statements.append(replace(stmt, transactions=sorted_stmt_txs, metadata=stmt_meta))
+
+    for tx in sorted_valid_txns:
+        if tx.status == ValidationStatus.INVALID:
+            overall_status = ValidationStatus.INVALID
+        elif tx.status == ValidationStatus.WARNING and overall_status == ValidationStatus.VALID:
+            overall_status = ValidationStatus.WARNING
+        for iss in tx.issues:
+            key = (iss.code, iss.message)
+            if key not in seen_issues:
+                seen_issues.add(key)
+                deduped_issues.append(iss)
+                if iss.severity in ("error", "fatal"):
+                    overall_status = ValidationStatus.INVALID
+                elif iss.severity == "warning" and overall_status == ValidationStatus.VALID:
+                    overall_status = ValidationStatus.WARNING
 
     # Calculate summary metrics strictly from canonical valid deduplicated transactions
     total_txns = len(sorted_valid_txns)
@@ -245,17 +288,18 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
     if len(totals_by_curr) > 1:
         total_debits: Decimal | None = None
         total_credits: Decimal | None = None
-        all_issues.append(
-            ValidationIssue(
-                code="MIXED_CURRENCIES",
-                message=(
-                    f"Consolidated statements contain mixed currencies ({', '.join(sorted(totals_by_curr.keys()))}). "
-                    "Scalar total_debit and total_credit are omitted; consult totals_by_currency."
-                ),
-                severity="info",
-                context={"currencies": sorted(totals_by_curr.keys())},
-            )
+        mix_issue = ValidationIssue(
+            code="MIXED_CURRENCIES",
+            message=(
+                f"Consolidated statements contain mixed currencies ({', '.join(sorted(totals_by_curr.keys()))}). "
+                "Scalar total_debit and total_credit are omitted; consult totals_by_currency."
+            ),
+            severity="info",
+            context={"currencies": sorted(totals_by_curr.keys())},
         )
+        if (mix_issue.code, mix_issue.message) not in seen_issues:
+            seen_issues.add((mix_issue.code, mix_issue.message))
+            deduped_issues.append(mix_issue)
     elif len(totals_by_curr) == 1:
         _, (total_debits, total_credits) = next(iter(totals_by_curr.items()))
     else:
@@ -268,7 +312,7 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
         total_debit=total_debits,
         total_credit=total_credits,
         status=overall_status,
-        issues=tuple(all_issues),
+        issues=tuple(deduped_issues),
         transactions=sorted_valid_txns,
         totals_by_currency=totals_by_curr,
     )
@@ -482,24 +526,71 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
             cell.font = header_font
             cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx not in (2, 4) else "left")
 
-        for s_idx, stmt in enumerate(consolidation.statements, start=1):
-            row_idx = s_idx + 1
+        # Pre-index transactions by statement_id
+        tx_by_statement: dict[str, list[Transaction]] = {}
+        for tx in consolidation.transactions:
+            if tx.statement_id:
+                tx_by_statement.setdefault(tx.statement_id, []).append(tx)
+
+        # Group statements by unique account identity for Sheet 1 (Master Account Directory: 1 row per unique account)
+        account_groups: dict[str, list[BankStatement]] = {}
+        for stmt in consolidation.statements:
             ident = stmt.account_identity
-            holder = stmt.account_holder or (ident.account_holder if ident else "") or "-"
-            acc_no = ident.masked_account_number if ident else (stmt.account_number or "-")
-            bank = stmt.bank_name
+            acc_k = (
+                ident.account_key
+                if (ident and ident.account_key)
+                else (ident.account_fingerprint if ident else "")
+            )
+            if not acc_k:
+                acc_k = (
+                    ident.masked_account_number.strip().upper()
+                    if (ident and ident.masked_account_number)
+                    else f"stmt_{stmt.statement_id or id(stmt)}"
+                )
+            account_groups.setdefault(acc_k, []).append(stmt)
 
-            stmt_txns = [t for t in consolidation.transactions if (ident and t.account_identity == ident)]
-            if not stmt_txns:
-                stmt_txns = list(stmt.transactions)
+        for a_idx, (acc_k, stmts) in enumerate(account_groups.items(), start=1):
+            row_idx = a_idx + 1
 
-            locs = [t.input_location for t in stmt_txns if getattr(t, "input_location", None)]
+            holder = next(
+                (
+                    s.account_holder or (s.account_identity.account_holder if s.account_identity else "")
+                    for s in stmts
+                    if (s.account_holder or (s.account_identity and s.account_identity.account_holder))
+                ),
+                "-",
+            )
+            acc_no = next(
+                (
+                    s.account_identity.masked_account_number
+                    for s in stmts
+                    if s.account_identity and s.account_identity.masked_account_number
+                ),
+                "-",
+            )
+            bank = next((s.bank_name for s in stmts if s.bank_name), "-")
+
+            stmt_ids_for_account = {s.statement_id for s in stmts if s.statement_id}
+            acc_txns: list[Transaction] = []
+            for t in consolidation.transactions:
+                t_acc_k = (
+                    t.account_identity.account_key
+                    if (t.account_identity and t.account_identity.account_key)
+                    else (t.account_identity.account_fingerprint if t.account_identity else "")
+                )
+                if (t_acc_k and t_acc_k == acc_k) or (t.statement_id and t.statement_id in stmt_ids_for_account):
+                    acc_txns.append(t)
+            if not acc_txns:
+                for s in stmts:
+                    acc_txns.extend(s.transactions)
+
+            locs = [t.input_location for t in acc_txns if getattr(t, "input_location", None)]
             loc_range = f"{sorted(locs)[0]} to {sorted(locs)[-1]}" if locs else "-"
 
-            ids = [t.transaction_id for t in stmt_txns if t.transaction_id]
+            ids = [t.transaction_id for t in acc_txns if t.transaction_id]
             id_range = f"{sorted(ids)[0]} to {sorted(ids)[-1]}" if ids else "-"
 
-            c1 = ws.cell(row=row_idx, column=1, value=s_idx)
+            c1 = ws.cell(row=row_idx, column=1, value=a_idx)
             c1.alignment = Alignment(horizontal="center")
             c2 = ws.cell(row=row_idx, column=2, value=holder)
             c2.data_type = "s"
@@ -550,16 +641,25 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
         for s_idx, stmt in enumerate(consolidation.statements, start=1):
             row_idx = s_idx + 1
             ident = stmt.account_identity
-            acc_no = ident.masked_account_number if ident else (stmt.account_number or "-")
+            acc_no = ident.masked_account_number if (ident and ident.masked_account_number) else "-"
             bank = stmt.bank_name
             profile = stmt.bank_profile or "-"
 
-            stmt_txns = [t for t in consolidation.transactions if (ident and t.account_identity == ident)]
+            stmt_txns = (
+                tx_by_statement.get(stmt.statement_id, [])
+                if stmt.statement_id
+                else []
+            )
             if not stmt_txns:
-                stmt_txns = list(stmt.transactions)
+                if len(consolidation.statements) == 1:
+                    stmt_txns = list(consolidation.transactions)
+                else:
+                    stmt_txns = list(stmt.transactions)
 
             succ_txns = len(stmt_txns)
-            dup_txns = stmt.metadata.get("duplicate_transactions", 0)
+            dup_txns = stmt.metadata.get("duplicate_transactions", 0) + stmt.metadata.get(
+                "cross_statement_duplicates", 0
+            )
             total_scanned = stmt.metadata.get("total_scanned_rows")
             if total_scanned is None:
                 total_scanned = succ_txns + dup_txns
@@ -757,17 +857,22 @@ def build_transactions_xlsx_artifact(consolidation: BankStatementConsolidationRe
 
         total_row = len(consolidation.transactions) + 2
         if len(consolidation.transactions) > 0:
-            c_tot_label = ws.cell(row=total_row, column=4, value="Total")
-            c_tot_label.font = Font(bold=True)
-            c_tot_label.alignment = Alignment(horizontal="right")
+            if len(consolidation.totals_by_currency) > 1:
+                c_tot_label = ws.cell(row=total_row, column=4, value="Totals (Mixed Currencies - See Parquet)")
+                c_tot_label.font = Font(bold=True)
+                c_tot_label.alignment = Alignment(horizontal="right")
+            else:
+                c_tot_label = ws.cell(row=total_row, column=4, value="Total")
+                c_tot_label.font = Font(bold=True)
+                c_tot_label.alignment = Alignment(horizontal="right")
 
-            c_tot_deb = ws.cell(row=total_row, column=7, value=f"=SUBTOTAL(9, G2:G{total_row-1})")
-            c_tot_deb.number_format = INDIAN_CURRENCY_FORMAT
-            c_tot_deb.font = Font(bold=True)
+                c_tot_deb = ws.cell(row=total_row, column=7, value=f"=SUBTOTAL(9, G2:G{total_row-1})")
+                c_tot_deb.number_format = INDIAN_CURRENCY_FORMAT
+                c_tot_deb.font = Font(bold=True)
 
-            c_tot_crd = ws.cell(row=total_row, column=8, value=f"=SUBTOTAL(9, H2:H{total_row-1})")
-            c_tot_crd.number_format = INDIAN_CURRENCY_FORMAT
-            c_tot_crd.font = Font(bold=True)
+                c_tot_crd = ws.cell(row=total_row, column=8, value=f"=SUBTOTAL(9, H2:H{total_row-1})")
+                c_tot_crd.number_format = INDIAN_CURRENCY_FORMAT
+                c_tot_crd.font = Font(bold=True)
 
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = f"A1:I{total_row-1 if len(consolidation.transactions) > 0 else 1}"

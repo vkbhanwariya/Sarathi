@@ -856,3 +856,220 @@ def test_consolidate_multi_account_unique_continuous_txn_ids_and_sheet_order() -
     # Second file Sheet 1 (old to new by date & time: 11:15 -> 16:30)
     assert res.transactions[3].description == "AU S1 Feb 10 11:15"
     assert res.transactions[4].description == "AU S1 Feb 10 16:30"
+
+
+def test_list_of_accounts_single_row_per_account_across_multiple_statements() -> None:
+    """3 monthly statements for the same account must produce exactly 1 row in the Accounts directory."""
+    import io
+
+    import openpyxl
+
+    from sarathi.shakti.bank_statements.consolidator import (
+        build_accounts_xlsx_artifact,
+        consolidate_statements,
+    )
+    from sarathi.shakti.bank_statements.models import (
+        BankStatement,
+        Transaction,
+        create_account_identity,
+    )
+
+    ident = create_account_identity("State Bank of India", "30123456789", account_holder="Mr. Rahul Sharma")
+
+    tx_jan = Transaction(
+        transaction_date=date(2026, 1, 10),
+        description="Jan Txn",
+        bank_name="State Bank of India",
+        account_identity=ident,
+        credit=Decimal("1000.00"),
+        source_input_id="inp_jan",
+        input_location="Jan_S1_R02",
+        statement_id="stmt_jan",
+    )
+    stmt_jan = BankStatement(
+        statement_id="stmt_jan",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        account_holder="Mr. Rahul Sharma",
+        transactions=(tx_jan,),
+        metadata={"source_file_stem": "jan_statement", "total_scanned_rows": 1},
+    )
+
+    tx_feb = Transaction(
+        transaction_date=date(2026, 2, 10),
+        description="Feb Txn",
+        bank_name="State Bank of India",
+        account_identity=ident,
+        credit=Decimal("2000.00"),
+        source_input_id="inp_feb",
+        input_location="Feb_S1_R02",
+        statement_id="stmt_feb",
+    )
+    stmt_feb = BankStatement(
+        statement_id="stmt_feb",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        account_holder="Mr. Rahul Sharma",
+        transactions=(tx_feb,),
+        metadata={"source_file_stem": "feb_statement", "total_scanned_rows": 1},
+    )
+
+    tx_mar = Transaction(
+        transaction_date=date(2026, 3, 10),
+        description="Mar Txn",
+        bank_name="State Bank of India",
+        account_identity=ident,
+        credit=Decimal("3000.00"),
+        source_input_id="inp_mar",
+        input_location="Mar_S1_R02",
+        statement_id="stmt_mar",
+    )
+    stmt_mar = BankStatement(
+        statement_id="stmt_mar",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident,
+        account_holder="Mr. Rahul Sharma",
+        transactions=(tx_mar,),
+        metadata={"source_file_stem": "mar_statement", "total_scanned_rows": 1},
+    )
+
+    res = consolidate_statements([stmt_jan, stmt_feb, stmt_mar])
+    assert len(res.transactions) == 3
+
+    artifact = build_accounts_xlsx_artifact(res)
+    wb = openpyxl.load_workbook(io.BytesIO(artifact.content))
+
+    ws_acc = wb["Accounts"]
+    acc_rows = list(ws_acc.iter_rows(values_only=True))
+    # Must be Header + exactly 1 row for the unique bank account (NOT 3 duplicate account rows!)
+    assert len(acc_rows) == 2, f"Expected 1 account row, got {len(acc_rows) - 1} rows in Accounts directory"
+    assert acc_rows[1][1] == "Mr. Rahul Sharma"
+    assert acc_rows[1][2] == "XXXXXXX6789"
+    assert acc_rows[1][3] == "State Bank of India"
+    assert acc_rows[1][5] == "TXN-0001 to TXN-0003"
+
+    ws_sum = wb["Processing_Summary"]
+    sum_rows = list(ws_sum.iter_rows(values_only=True))
+    # Processing Summary must have 3 statement rows + Header + Total row = 5 rows
+    assert len(sum_rows) == 5
+    # Crucial scope check: Each row must report ONLY its own statement's transaction count (1), NOT account-wide 3!
+    assert sum_rows[1][7] == 1, f"Expected 1 transaction in stmt_jan row, got {sum_rows[1][7]}"
+    assert sum_rows[2][7] == 1, f"Expected 1 transaction in stmt_feb row, got {sum_rows[2][7]}"
+    assert sum_rows[3][7] == 1, f"Expected 1 transaction in stmt_mar row, got {sum_rows[3][7]}"
+
+
+def test_multi_currency_transactions_xlsx_omits_combined_subtotals() -> None:
+    """Multi-currency statements must not combine mixed currencies into a single SUBTOTAL row."""
+    import openpyxl
+
+    from sarathi.shakti.bank_statements.consolidator import (
+        build_transactions_xlsx_artifact,
+        consolidate_statements,
+    )
+
+    ident_inr = create_account_identity("State Bank of India", "30123456789")
+    tx_inr = Transaction(
+        transaction_date=date(2026, 1, 10),
+        description="INR Txn",
+        bank_name="State Bank of India",
+        account_identity=ident_inr,
+        credit=Decimal("5000.00"),
+        currency="INR",
+    )
+    stmt_inr = BankStatement(
+        statement_id="stmt_inr",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident_inr,
+        currency="INR",
+        transactions=(tx_inr,),
+    )
+
+    ident_usd = create_account_identity("Citibank", "98765432100")
+    tx_usd = Transaction(
+        transaction_date=date(2026, 1, 15),
+        description="USD Txn",
+        bank_name="Citibank",
+        account_identity=ident_usd,
+        credit=Decimal("100.00"),
+        currency="USD",
+    )
+    stmt_usd = BankStatement(
+        statement_id="stmt_usd",
+        bank_name="Citibank",
+        bank_profile="citi",
+        account_identity=ident_usd,
+        currency="USD",
+        transactions=(tx_usd,),
+    )
+
+    res = consolidate_statements([stmt_inr, stmt_usd])
+    assert len(res.totals_by_currency) == 2
+    assert res.total_credit is None  # Scalar total omitted for mixed currencies
+
+    artifact = build_transactions_xlsx_artifact(res)
+    wb = openpyxl.load_workbook(io.BytesIO(artifact.content))
+    ws = wb["Transactions"]
+    rows = list(ws.iter_rows(values_only=True))
+
+    # Header (1), tx_inr (2), tx_usd (3), Totals row (4)
+    assert len(rows) == 4
+    tot_row = rows[3]
+    assert "Mixed Currencies" in str(tot_row[3])
+    # Columns G (Debit) and H (Credit) must be None (no single invalid subtotal formula)
+    assert tot_row[6] is None
+    assert tot_row[7] is None
+
+
+def test_probable_duplicate_escalates_status_and_consolidate_deduplicates_issues() -> None:
+    """Probable duplicates must escalate transaction status to WARNING, and issues must deduplicate across scopes."""
+    ident = create_account_identity("SBI", "9988776655")
+
+    tx1 = Transaction(
+        transaction_date=date(2026, 3, 1),
+        description="UPI Payment To Vendor",
+        bank_name="SBI",
+        account_identity=ident,
+        debit=Decimal("500.00"),
+        sequence_id=1,
+    )
+    tx2 = Transaction(
+        transaction_date=date(2026, 3, 1),
+        description="UPI Payment To Vendor",
+        bank_name="SBI",
+        account_identity=ident,
+        debit=Decimal("500.00"),
+        sequence_id=2,
+    )
+
+    # 1. Deduplication level
+    res_dedup = deduplicate_transactions([tx1, tx2])
+    assert len(res_dedup.unique_transactions) == 2
+    assert res_dedup.unique_transactions[0].status == ValidationStatus.VALID
+    assert res_dedup.unique_transactions[1].status == ValidationStatus.WARNING
+    assert any(iss.code == "PROBABLE_DUPLICATE_TRANSACTION" for iss in res_dedup.unique_transactions[1].issues)
+
+    # 2. Consolidation level: overall_status must be WARNING
+    stmt1 = BankStatement(
+        statement_id="stmt1",
+        bank_name="SBI",
+        bank_profile="sbi",
+        account_identity=ident,
+        transactions=(tx1,),
+    )
+    stmt2 = BankStatement(
+        statement_id="stmt2",
+        bank_name="SBI",
+        bank_profile="sbi",
+        account_identity=ident,
+        transactions=(tx2,),
+    )
+    res_cons = consolidate_statements([stmt1, stmt2])
+    assert res_cons.status == ValidationStatus.WARNING
+
+    # 3. Issue deduplication: duplicate issue codes and messages are not repeated
+    issue_keys = [(i.code, i.message) for i in res_cons.issues]
+    assert len(issue_keys) == len(set(issue_keys))
