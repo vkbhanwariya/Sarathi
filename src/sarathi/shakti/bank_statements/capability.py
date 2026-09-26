@@ -579,7 +579,7 @@ class BankStatementCapability:
                 continue
 
             hdr_cells, data_rows = extracted_table
-            if hdr_idx is not None and hdr_idx >= 0:
+            if (hdr_idx is not None and hdr_idx >= 0) or bool(table.headers):
                 last_valid_hdr_cells = hdr_cells
             elif last_valid_hdr_cells is None:
                 last_valid_hdr_cells = hdr_cells

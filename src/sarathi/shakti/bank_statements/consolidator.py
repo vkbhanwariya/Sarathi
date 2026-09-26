@@ -42,18 +42,28 @@ def _account_group_key(stmt: BankStatement) -> tuple:
     if not ident:
         return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
 
-    # If account_key or account_fingerprint exists with STRONG or MEDIUM confidence,
-    # it is already a deterministic cryptographic hash of normalized bank identity + normalized account number.
-    # Grouping directly by ("account_key", key) ensures that statements with or without IFSC variations
+    # Determine whether the bank itself is unverified / generic / unknown
+    is_generic_bank = (
+        stmt.bank_name.strip().lower() in ("generic bank", "generic", "bank", "unknown bank", "unknown")
+        or (stmt.bank_profile and stmt.bank_profile.strip().lower() in ("generic", "common"))
+    )
+
+    ifsc_val = (ident.ifsc or stmt.ifsc or "").strip().upper()
+    ifsc_prefix = ifsc_val[:4] if len(ifsc_val) >= 4 and ifsc_val[:4].isalnum() else None
+
+    # An unknown or generic bank without a verified IFSC prefix cannot verify that matching
+    # account numbers belong to the same institution. They must remain strictly statement-scoped.
+    if is_generic_bank and not ifsc_prefix:
+        return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
+
+    # If account_key or account_fingerprint exists with STRONG or MEDIUM confidence for a verified bank,
+    # group directly by ("account_key", key) so statements with or without IFSC variations
     # (e.g. "HDFC" vs "hdfc bank") for the same verified account always group together.
     key = ident.account_key or ident.account_fingerprint
     strength = getattr(ident, "identity_strength", "STRONG")
     if key and strength in ("STRONG", "MEDIUM"):
         return ("account_key", key)
 
-    # Determine bank identity key for unverified statements:
-    ifsc_val = (ident.ifsc or stmt.ifsc or "").strip().upper()
-    ifsc_prefix = ifsc_val[:4] if len(ifsc_val) >= 4 and ifsc_val[:4].isalnum() else None
     bank_key = ifsc_prefix.lower() if ifsc_prefix else stmt.bank_name.lower().strip()
 
     # Masked tails alone (WEAK) or statements without verified key remain strictly statement-scoped.
@@ -131,8 +141,25 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                 s_curr = chrono_stmts[i]
                 s_next = chrono_stmts[i + 1]
 
-                # Inter-statement balance continuity check: s_curr.closing_balance == s_next.opening_balance
-                if s_curr.closing_balance is not None and s_next.opening_balance is not None:
+                p_end = s_curr.statement_period_end or max(
+                    [t.transaction_date for t in s_curr.transactions if t.transaction_date],
+                    default=None,
+                )
+                p_start = s_next.statement_period_start or min(
+                    [t.transaction_date for t in s_next.transactions if t.transaction_date],
+                    default=None,
+                )
+
+                # Overlapping statements occur when s_next starts before s_curr ends.
+                # In overlapping or duplicate statements, s_curr closing does not correlate with s_next opening.
+                is_overlapping = (
+                    p_end is not None
+                    and p_start is not None
+                    and (p_start < p_end or s_curr.statement_period_start == s_next.statement_period_start)
+                )
+
+                # Inter-statement balance continuity check: only check for sequential non-overlapping statements
+                if not is_overlapping and s_curr.closing_balance is not None and s_next.opening_balance is not None:
                     if s_curr.closing_balance != s_next.opening_balance:
                         bal_diff = s_next.opening_balance - s_curr.closing_balance
                         all_issues.append(
@@ -155,14 +182,6 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                         )
 
                 # Missing statement period check (gap > 35 days)
-                p_end = s_curr.statement_period_end or max(
-                    [t.transaction_date for t in s_curr.transactions if t.transaction_date],
-                    default=None,
-                )
-                p_start = s_next.statement_period_start or min(
-                    [t.transaction_date for t in s_next.transactions if t.transaction_date],
-                    default=None,
-                )
                 if p_end and p_start and (p_start - p_end).days > 35:
                     gap_days = (p_start - p_end).days
                     all_issues.append(
@@ -227,16 +246,28 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
             return f"acc_{tx.account_identity.account_fingerprint}"
         return tx.statement_id or ""
 
+    stmt_rev_map: dict[str, bool] = {
+        s.statement_id: bool(s.metadata.get("is_reverse", False))
+        for s in statements
+        if s.statement_id and s.metadata
+    }
+
     def _tx_sort_key(tx: Transaction) -> tuple:
         f_key = _resolve_tx_file_key(tx)
         f_idx = file_order.get(f_key, 0)
         s_idx = tx.page_number if (tx.page_number is not None and tx.page_number > 0) else 1
+        is_rev = bool(
+            stmt_rev_map.get(tx.statement_id or "", False)
+            or (tx.metadata and tx.metadata.get("is_reverse", False))
+        )
+        r_idx = getattr(tx, "row_index", None) or getattr(tx, "sequence_id", 0) or 0
+        order_idx = -r_idx if is_rev else r_idx
         return (
             f_idx,
             s_idx,
             tx.transaction_date,
             tx.transaction_time or datetime.time.min,
-            getattr(tx, "row_index", None) or getattr(tx, "sequence_id", 0) or 0,
+            order_idx,
         )
 
     # Sort hierarchy:
@@ -440,17 +471,24 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         if s.account_identity and s.account_identity.account_fingerprint
     }
 
-    # Pre-calculate true End-Of-Day balance per (account_key, transaction_date)
-    # The EOD balance is the running balance of the chronologically last transaction of that date
-    eod_by_account_date: dict[tuple[str, datetime.date], Decimal] = {}
+    def _tx_account_isolation_key(tx: Transaction) -> tuple:
+        ident = tx.account_identity
+        b_name = (tx.bank_name or (ident.bank_name if ident else "") or "").lower().strip()
+        if ident and ident.account_key and getattr(ident, "identity_strength", "STRONG") in ("STRONG", "MEDIUM"):
+            return ("acc_key", b_name, ident.account_key)
+        if ident and ident.account_fingerprint and getattr(ident, "identity_strength", "STRONG") in ("STRONG", "MEDIUM"):
+            return ("fingerprint", b_name, ident.account_fingerprint)
+        stmt_id = tx.statement_id or (tx.provenance[0].source_input_id if tx.provenance else "") or str(id(tx))
+        return ("statement", b_name, stmt_id)
+
+    # Pre-calculate true End-Of-Day balance per (account_isolation_key, transaction_date)
+    # The EOD balance is the running balance of the chronologically last transaction of that date.
+    # consolidation.transactions is already in established chronological order (oldest to newest),
+    # so the last transaction visited for each (a_key, date) sets the true EOD balance.
+    eod_by_account_date: dict[tuple[tuple, datetime.date], Decimal] = {}
     for tx in consolidation.transactions:
         if tx.running_balance is not None:
-            acc_ident = tx.account_identity
-            a_key = (
-                acc_ident.account_key
-                if (acc_ident and acc_ident.account_key)
-                else (acc_ident.account_fingerprint if acc_ident else (tx.statement_id or ""))
-            )
+            a_key = _tx_account_isolation_key(tx)
             eod_by_account_date[(a_key, tx.transaction_date)] = tx.running_balance
 
     for tx in consolidation.transactions:
@@ -473,16 +511,12 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         stmt_gen_at = stmt.metadata.get("statement_generated_at") if (stmt and stmt.metadata) else None
         stmt_gen_ats.append(str(stmt_gen_at) if stmt_gen_at else None)
 
-        acc_k = (
-            ident.account_key
-            if (ident and ident.account_key)
-            else (ident.account_fingerprint if ident else (tx.statement_id or ""))
-        )
+        acc_iso_k = _tx_account_isolation_key(tx)
         eod_bal = None
         if stmt and stmt.closing_balance is not None and tx.transaction_date == stmt.statement_period_end:
             eod_bal = stmt.closing_balance
         else:
-            eod_bal = eod_by_account_date.get((acc_k, tx.transaction_date))
+            eod_bal = eod_by_account_date.get((acc_iso_k, tx.transaction_date))
         eod_bals.append(eod_bal)
 
         tx_ids.append(tx.transaction_id)

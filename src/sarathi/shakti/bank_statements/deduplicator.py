@@ -90,12 +90,15 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
             # High-cardinality candidate pruning by strong signals
             pruned_set: set[int] = set()
             if tx_ref:
+                # If transaction has an explicit reference, it can only match candidates with the SAME reference
+                # or unreferenced candidates (potential asymmetric reference enrichment)
                 pruned_set.update(candidates_by_ref.get((core_key, tx_ref), []))
-            if tx.running_balance is not None:
-                pruned_set.update(candidates_by_bal.get((core_key, tx.running_balance), []))
-            if tx_desc:
-                pruned_set.update(candidates_by_desc.get((core_key, tx_desc), []))
-            if not tx_ref:
+                pruned_set.update(candidates_no_ref.get(core_key, []))
+            else:
+                if tx.running_balance is not None:
+                    pruned_set.update(candidates_by_bal.get((core_key, tx.running_balance), []))
+                if tx_desc:
+                    pruned_set.update(candidates_by_desc.get((core_key, tx_desc), []))
                 pruned_set.update(candidates_no_ref.get(core_key, []))
             candidate_indices = sorted(pruned_set)
 
@@ -135,9 +138,17 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
             is_near_desc = False
             if not desc_matches and not (ex_ref and tx_ref and ex_ref == tx_ref):
                 if not ex_ref and not tx_ref:
-                    from rapidfuzz import fuzz
+                    try:
+                        from rapidfuzz import fuzz
 
-                    sim_ratio = int(fuzz.token_sort_ratio(ex_desc, tx_desc))
+                        sim_ratio = int(fuzz.token_sort_ratio(ex_desc, tx_desc))
+                    except ImportError:
+                        import difflib
+
+                        t1 = " ".join(sorted(ex_desc.lower().split()))
+                        t2 = " ".join(sorted(tx_desc.lower().split()))
+                        sim_ratio = int(difflib.SequenceMatcher(None, t1, t2).ratio() * 100)
+
                     if sim_ratio >= 80:
                         is_near_desc = True
                     else:
@@ -183,12 +194,10 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 and existing.running_balance == tx.running_balance
             )
 
-            # Proven duplicate requires:
-            # 1. Matching reference numbers, OR
-            # 2. Asymmetric reference enrichment where one transaction has a reference and running balances match, OR
-            # 3. Established cross-statement overlap across distinct statements with matching running balance.
+            # Proven duplicate requires exact description match or matching reference numbers:
+            # A fuzzy-only near description can NEVER be proven; it is strictly probable.
             is_proven = has_matching_ref or (
-                has_matching_bal and (
+                desc_matches and has_matching_bal and (
                     (bool(ex_ref) != bool(tx_ref))
                     or is_explicit_cross_statement
                 )
@@ -226,6 +235,18 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                     transaction_mode=existing.transaction_mode or tx.transaction_mode,
                 )
                 unique[existing_idx] = surviving
+
+                # Synchronize secondary candidate indices if surviving acquired new reference or balance
+                surv_ref = _clean_ref(surviving.reference_number) or _clean_ref(surviving.cheque_number)
+                ex_clean_ref = _clean_ref(existing.reference_number) or _clean_ref(existing.cheque_number)
+                if surv_ref and surv_ref != ex_clean_ref:
+                    candidates_by_ref.setdefault((core_key, surv_ref), []).append(existing_idx)
+                    no_ref_list = candidates_no_ref.get(core_key, [])
+                    if existing_idx in no_ref_list:
+                        no_ref_list.remove(existing_idx)
+                if surviving.running_balance is not None and surviving.running_balance != existing.running_balance:
+                    candidates_by_bal.setdefault((core_key, surviving.running_balance), []).append(existing_idx)
+
                 duplicates.append(
                     (
                         existing,

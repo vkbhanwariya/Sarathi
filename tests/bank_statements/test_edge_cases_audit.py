@@ -551,3 +551,309 @@ def test_deduplication_candidate_indexing_performance_benchmark():
     assert len(res.unique_transactions) == n_rows
     # Must complete in well under 0.5 seconds on reference hardware
     assert elapsed < 0.5, f"Deduplication took {elapsed:.3f}s, expected < 0.5s"
+
+
+def test_continuation_pages_update_remembered_headers() -> None:
+    """Verify that when a subsequent page defines explicit table.headers, the remembered header schema updates."""
+    # Page 1: Debit before Credit
+    t1 = TableData(
+        headers=("Date", "Description", "Debit", "Credit", "Balance"),
+        rows=(
+            ("01/01/2026", "Tx 1", "100.00", "", "4900.00"),
+        ),
+    )
+    # Page 2: Continuation without headers (inherits Page 1: Debit before Credit)
+    t2 = TableData(
+        headers=(),
+        rows=(
+            ("02/01/2026", "Tx 2", "200.00", "", "4700.00"),
+        ),
+    )
+    # Page 3: New table with reversed columns: Credit before Debit!
+    t3 = TableData(
+        headers=("Date", "Description", "Credit", "Debit", "Balance"),
+        rows=(
+            ("03/01/2026", "Tx 3", "300.00", "", "5000.00"),
+        ),
+    )
+    doc = CanonicalDocument(
+        document_id="doc-headers-update",
+        text="Bank Statement\nAccount Number: 123456789012\nIFSC: SBIN0001234",
+        tables=(t1, t2, t3),
+    )
+    req = Request(
+        request_id="req-hdr",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-1", Path("stmt.csv"), "stmt.csv", 100),),
+    )
+    ctx = ExecutionContext("r1", "req-hdr", "t1", "s1")
+    cap = BankStatementCapability()
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+
+    assert len(stmt.transactions) == 3
+    # Tx 1: Debit 100
+    assert stmt.transactions[0].debit == Decimal("100.00")
+    assert stmt.transactions[0].credit is None
+    # Tx 2: Inherited Debit 200
+    assert stmt.transactions[1].debit == Decimal("200.00")
+    assert stmt.transactions[1].credit is None
+    # Tx 3: Explicit Credit 300 (must NOT be inverted to debit!)
+    assert stmt.transactions[2].credit == Decimal("300.00")
+    assert stmt.transactions[2].debit is None
+
+
+def test_eod_balance_weak_identities_and_reverse_order() -> None:
+    """Verify EOD balances isolate weak/unverified identities and handle reverse-order statements."""
+    # Case 1: Two different banks with weak/no account keys
+    tx_b1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Bank A Tx",
+        bank_name="Bank Alpha",
+        statement_id="stmt_alpha",
+        running_balance=Decimal("100.00"),
+    )
+    tx_b2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Bank B Tx",
+        bank_name="Bank Beta",
+        statement_id="stmt_beta",
+        running_balance=Decimal("200.00"),
+    )
+    s1 = BankStatement(statement_id="stmt_alpha", bank_name="Bank Alpha", bank_profile="generic", transactions=(tx_b1,))
+    s2 = BankStatement(statement_id="stmt_beta", bank_name="Bank Beta", bank_profile="generic", transactions=(tx_b2,))
+    c_res = consolidate_statements((s1, s2))
+
+    payload = build_parquet_artifact(c_res)
+    df = pl.read_parquet(io.BytesIO(payload.content))
+    b1_eod = df.filter(pl.col("bank_name") == "Bank Alpha")["eod_balance"][0]
+    b2_eod = df.filter(pl.col("bank_name") == "Bank Beta")["eod_balance"][0]
+    assert b1_eod == Decimal("100.00")
+    assert b2_eod == Decimal("200.00")
+
+    # Case 2: Reverse-order statement ending at 70 (row 1 is evening 70, row 2 is morning 90)
+    tx_ev = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        transaction_time=datetime.time(18, 0),
+        description="Evening Tx",
+        bank_name="HDFC Bank",
+        statement_id="stmt_rev",
+        running_balance=Decimal("70.00"),
+    )
+    tx_mo = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        transaction_time=datetime.time(9, 0),
+        description="Morning Tx",
+        bank_name="HDFC Bank",
+        statement_id="stmt_rev",
+        running_balance=Decimal("90.00"),
+    )
+    # Statement presented in reverse order (evening first)
+    s_rev = BankStatement(
+        statement_id="stmt_rev",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        transactions=(tx_ev, tx_mo),
+        metadata={"is_reverse": True},
+    )
+    c_rev = consolidate_statements((s_rev,))
+    payload_rev = build_parquet_artifact(c_rev)
+    df_rev = pl.read_parquet(io.BytesIO(payload_rev.content))
+    # EOD balance must be the chronologically last transaction: 70.00!
+    assert df_rev["eod_balance"][0] == Decimal("70.00")
+    assert df_rev["eod_balance"][1] == Decimal("70.00")
+
+
+def test_unknown_bank_statements_not_merged_by_account_number() -> None:
+    """Unverified/Unknown Bank statements must not be merged by matching numeric account numbers."""
+    ident1 = create_account_identity("Unknown Bank", "123456789012")
+    ident2 = create_account_identity("Unknown Bank", "123456789012")
+
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 1),
+        description="Institution A Tx",
+        bank_name="Unknown Bank",
+        statement_id="stmt_unrec_a",
+        debit=Decimal("100.00"),
+        account_identity=ident1,
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 1),
+        description="Institution B Tx",
+        bank_name="Unknown Bank",
+        statement_id="stmt_unrec_b",
+        debit=Decimal("100.00"),
+        account_identity=ident2,
+    )
+
+    s1 = BankStatement(statement_id="stmt_unrec_a", bank_name="Unknown Bank", bank_profile="generic", account_identity=ident1, transactions=(tx1,))
+    s2 = BankStatement(statement_id="stmt_unrec_b", bank_name="Unknown Bank", bank_profile="generic", account_identity=ident2, transactions=(tx2,))
+
+    res = consolidate_statements((s1, s2))
+    # Must NOT merge: both transactions must survive
+    assert len(res.transactions) == 2
+
+
+def test_fuzzy_narration_does_not_authorize_proven_duplicate_removal() -> None:
+    """Fuzzy narration similarity alone must produce a warning and NEVER remove a transaction as PROVEN_DUPLICATE."""
+    ident = create_account_identity("SBI", "123456789012")
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="PAYMENT TO ALPHA STORE",
+        bank_name="SBI",
+        statement_id="s1",
+        debit=Decimal("500.00"),
+        running_balance=Decimal("4500.00"),
+        account_identity=ident,
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="PAYMENT TO BETA STORE",
+        bank_name="SBI",
+        statement_id="s2",
+        debit=Decimal("500.00"),
+        running_balance=Decimal("4500.00"),
+        account_identity=ident,
+    )
+
+    s1 = BankStatement(statement_id="s1", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=(tx1,))
+    s2 = BankStatement(statement_id="s2", bank_name="SBI", bank_profile="sbi", account_identity=ident, transactions=(tx2,))
+
+    res = consolidate_statements((s1, s2))
+    # Both transactions must be retained; fuzzy similarity cannot delete a transaction
+    assert len(res.transactions) == 2
+    # Second transaction receives PROBABLE_DUPLICATE warning
+    assert any(
+        iss.code == "PROBABLE_DUPLICATE_TRANSACTION"
+        for t in res.transactions
+        for iss in t.issues
+    )
+
+
+def test_deduplication_indices_synchronized_on_enrichment() -> None:
+    """Verify that secondary candidate indices are updated when a surviving transaction is enriched with a reference."""
+    ident = create_account_identity("SBI", "123456789012")
+    # Populate 22 distinct dummy transactions to activate candidate pruning (> 20 candidates)
+    dummy_txs = [
+        Transaction(
+            transaction_date=datetime.date(2025, 1, 10),
+            description=f"Payment {i}",
+            bank_name="SBI",
+            statement_id="s1",
+            debit=Decimal("10.00"),
+            reference_number=f"REF{i:04d}",
+            account_identity=ident,
+        )
+        for i in range(22)
+    ]
+    # Target transaction without reference
+    tx_target = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Enrichment Test",
+        bank_name="SBI",
+        statement_id="s1",
+        debit=Decimal("100.00"),
+        running_balance=Decimal("5000.00"),
+        account_identity=ident,
+    )
+    # Matching transaction WITH reference number
+    tx_enricher = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Enrichment Test",
+        bank_name="SBI",
+        statement_id="s2",
+        debit=Decimal("100.00"),
+        reference_number="REF_NEW_123",
+        running_balance=Decimal("5000.00"),
+        account_identity=ident,
+    )
+    # 3rd transaction sharing the enriched reference number
+    tx_follower = Transaction(
+        transaction_date=datetime.date(2025, 1, 10),
+        description="Enrichment Test",
+        bank_name="SBI",
+        statement_id="s3",
+        debit=Decimal("100.00"),
+        reference_number="REF_NEW_123",
+        running_balance=Decimal("5000.00"),
+        account_identity=ident,
+    )
+
+    all_txs = dummy_txs + [tx_target, tx_enricher, tx_follower]
+    res = deduplicate_transactions(all_txs)
+    # The 3 matching transactions should all merge into 1 surviving transaction
+    # Total unique: 22 dummy + 1 surviving = 23 unique transactions
+    assert len(res.unique_transactions) == 23
+
+
+def test_overlapping_statements_do_not_generate_false_continuity_warning() -> None:
+    """Overlapping or duplicate statements must not trigger CROSS_STATEMENT_BALANCE_DISCONTINUITY."""
+    ident = create_account_identity("HDFC Bank", "50100987654321")
+    tx1 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        description="Salary",
+        bank_name="HDFC Bank",
+        credit=Decimal("500.00"),
+        running_balance=Decimal("1000.00"),
+        statement_id="s1",
+        account_identity=ident,
+    )
+    tx2 = Transaction(
+        transaction_date=datetime.date(2025, 1, 15),
+        description="Salary",
+        bank_name="HDFC Bank",
+        credit=Decimal("500.00"),
+        running_balance=Decimal("1000.00"),
+        statement_id="s2",
+        account_identity=ident,
+    )
+
+    s1 = BankStatement(
+        statement_id="s1",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        statement_period_start=datetime.date(2025, 1, 1),
+        statement_period_end=datetime.date(2025, 1, 31),
+        opening_balance=Decimal("500.00"),
+        closing_balance=Decimal("1000.00"),
+        transactions=(tx1,),
+    )
+    s2 = BankStatement(
+        statement_id="s2",
+        bank_name="HDFC Bank",
+        bank_profile="hdfc",
+        account_identity=ident,
+        statement_period_start=datetime.date(2025, 1, 1),
+        statement_period_end=datetime.date(2025, 1, 31),
+        opening_balance=Decimal("500.00"),
+        closing_balance=Decimal("1000.00"),
+        transactions=(tx2,),
+    )
+
+    res = consolidate_statements((s1, s2))
+    assert not any(iss.code == "CROSS_STATEMENT_BALANCE_DISCONTINUITY" for iss in res.issues)
+
+
+def test_deduplication_identical_descriptions_distinct_references_benchmark() -> None:
+    """Benchmark: 2,000 transactions with identical descriptions and distinct references run in < 0.5s."""
+    ident = create_account_identity("SBI", "123456789012")
+    n_rows = 2000
+    txns = [
+        Transaction(
+            transaction_date=datetime.date(2025, 1, 15),
+            description="UPI Payment",  # All identical descriptions!
+            bank_name="SBI",
+            debit=Decimal("100.00"),
+            reference_number=f"REF{i:06d}",
+            account_identity=ident,
+        )
+        for i in range(n_rows)
+    ]
+
+    t_start = time.perf_counter()
+    res = deduplicate_transactions(txns)
+    elapsed = time.perf_counter() - t_start
+
+    assert len(res.unique_transactions) == n_rows
+    assert elapsed < 0.5, f"Deduplication took {elapsed:.3f}s, expected < 0.5s"

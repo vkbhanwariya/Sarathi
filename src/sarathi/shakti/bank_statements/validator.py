@@ -271,6 +271,9 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
     elif any(t.status == ValidationStatus.WARNING for t in final_txns) or statement_issues:
         overall_status = ValidationStatus.WARNING
 
+    stmt_meta = dict(statement.metadata) if statement.metadata else {}
+    stmt_meta["is_reverse"] = is_reverse
+
     return replace(
         statement,
         opening_balance=opening_bal,
@@ -278,4 +281,5 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
         transactions=tuple(final_txns),
         status=overall_status,
         issues=tuple(statement_issues),
+        metadata=stmt_meta,
     )
