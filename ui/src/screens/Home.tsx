@@ -5,6 +5,7 @@ import {
   browseFolder,
   intakePaths,
   previewPlan,
+  rescanIntake,
   startRun,
   warmupTranslation,
 } from "../api";
@@ -326,6 +327,45 @@ export function Home({
     }
   };
 
+  const handleRescan = async () => {
+    setWorking(true);
+    onError(null);
+    try {
+      const result = await rescanIntake();
+      if (result.input_selection && result.preflight) {
+        setSelection(result.input_selection);
+        setPreflight(result.preflight);
+        setRoots(
+          result.input_selection.items.flatMap((item) =>
+            item.source_path ? [item.source_path] : []
+          )
+        );
+        setExcluded(new Set());
+      }
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Unable to rescan input folder.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  useEffect(() => {
+    void rescanIntake()
+      .then((result) => {
+        if (result.input_selection && result.preflight) {
+          setSelection(result.input_selection);
+          setPreflight(result.preflight);
+          setRoots(
+            result.input_selection.items.flatMap((item) =>
+              item.source_path ? [item.source_path] : []
+            )
+          );
+          setExcluded(new Set());
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   const addRoots = async (paths: readonly string[]) => {
     const clean = paths.map((path) => path.trim()).filter(Boolean);
     if (!clean.length) return;
@@ -508,6 +548,7 @@ export function Home({
               manualPath={manualPath}
               onBrowseFiles={() => void handleBrowse(false)}
               onBrowseFolder={() => void handleBrowse(true)}
+              onRescan={() => void handleRescan()}
               onClear={() => {
                 setExcluded(new Set());
                 void refreshIntake([]);

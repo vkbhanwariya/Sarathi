@@ -46,10 +46,16 @@ class AccountIdentity:
     account_type: str | None = None
     bank_profile: str | None = None
     ifsc: str | None = None
+    account_key: str | None = None
+    identity_strength: str = "STRONG"
 
     def __post_init__(self) -> None:
         if not self.bank_name or not self.bank_name.strip():
             raise ValueError("bank_name must be a non-empty string.")
+        if self.account_key is None and self.account_fingerprint is not None:
+            object.__setattr__(self, "account_key", self.account_fingerprint)
+        elif self.account_fingerprint is None and self.account_key is not None:
+            object.__setattr__(self, "account_fingerprint", self.account_key)
 
 
 def create_account_identity(
@@ -59,48 +65,66 @@ def create_account_identity(
     bank_profile: str | None = None,
     account_type: str | None = None,
     ifsc: str | None = None,
+    account_key: str | None = None,
+    identity_strength: str | None = None,
 ) -> AccountIdentity:
-    """Create a safe AccountIdentity with masked account number and deterministic fingerprint."""
+    """Create a safe AccountIdentity with masked account number, immutable account_key, and strength rating."""
     masked: str | None = None
     fingerprint: str | None = None
+    strength: str = "WEAK"
+
+    clean_bank = bank_name.strip().lower()
+    clean_ifsc = ifsc.strip().upper() if ifsc and ifsc.strip() else None
+    ifsc_bank = clean_ifsc[:4] if clean_ifsc and len(clean_ifsc) >= 4 and clean_ifsc[:4].isalnum() else None
+
+    # Canonical institutional bank key: if generic/unknown, IFSC 4-letter prefix provides definitive bank identity
+    is_generic_bank = clean_bank in ("generic bank", "generic", "bank", "unknown bank", "unknown")
+    if is_generic_bank and ifsc_bank:
+        bank_key = ifsc_bank.lower()
+    else:
+        bank_key = clean_bank
 
     if raw_account_number and raw_account_number.strip():
-        clean_acc = raw_account_number.strip()
-        is_already_masked = bool(re.search(r"[xX*]", clean_acc))
-        # Mask leading digits, retain last 4
-        if len(clean_acc) >= 4:
-            masked = "X" * (len(clean_acc) - 4) + clean_acc[-4:]
-        else:
-            masked = "X" * len(clean_acc)
+        raw_val = raw_account_number.strip()
+        is_already_masked = bool(re.search(r"[xX*]", raw_val))
 
-        clean_ifsc = ifsc.strip().upper() if ifsc and ifsc.strip() else None
-        ifsc_bank = clean_ifsc[:4] if clean_ifsc and len(clean_ifsc) >= 4 and clean_ifsc[:4].isalnum() else None
-
-        # A masked account number (e.g. XXXXXX1234) is weak evidence that cannot uniquely identify
-        # an account across different people. It requires account_holder to form a safe identity fingerprint.
         if is_already_masked:
+            clean_acc = raw_val
+            masked = clean_acc
+            # Masked account number requires account_holder for safe medium identity
             if account_holder and account_holder.strip():
-                raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}:{account_holder.strip().lower()}"
-                if ifsc_bank:
-                    raw_key += f":{ifsc_bank}"
+                raw_key = f"{bank_key}:{clean_acc.lower()}:{account_holder.strip().lower()}"
                 fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
+                strength = "MEDIUM"
             else:
                 fingerprint = None
+                strength = "WEAK"
         else:
-            # Deterministic SHA-256 fingerprint for full unmasked account
-            raw_key = f"{bank_name.strip().lower()}:{clean_acc.lower()}"
-            if ifsc_bank:
-                raw_key += f":{ifsc_bank}"
+            # Full unmasked account: normalize delimiters (whitespace, hyphens, underscores, dots)
+            clean_acc = re.sub(r"[\s\-_.]+", "", raw_val)
+            if len(clean_acc) >= 4:
+                masked = "X" * (len(clean_acc) - 4) + clean_acc[-4:]
+            else:
+                masked = "X" * len(clean_acc)
+
+            # Deterministic immutable account_key across all statements regardless of IFSC presence
+            raw_key = f"{bank_key}:{clean_acc.lower()}"
             fingerprint = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:16]
+            strength = "STRONG"
+
+    final_key = account_key if account_key is not None else fingerprint
+    final_strength = identity_strength if identity_strength is not None else strength
 
     return AccountIdentity(
         bank_name=bank_name.strip(),
         masked_account_number=masked,
-        account_fingerprint=fingerprint,
+        account_fingerprint=final_key,
         account_holder=account_holder.strip() if account_holder else None,
         account_type=account_type.strip() if account_type else None,
         bank_profile=bank_profile.strip() if bank_profile else None,
         ifsc=ifsc.strip() if ifsc else None,
+        account_key=final_key,
+        identity_strength=final_strength,
     )
 
 

@@ -87,6 +87,19 @@ export async function intakePaths(
   return { input_selection: payload.input_selection, preflight: payload.preflight };
 }
 
+export async function rescanIntake(): Promise<{
+  input_selection: InputSelectionView | null;
+  preflight: PreflightView | null;
+}> {
+  const payload = await postJson<
+    ApiEnvelope & { input_selection?: InputSelectionView; preflight?: PreflightView }
+  >("/api/intake/rescan");
+  return {
+    input_selection: payload.input_selection ?? null,
+    preflight: payload.preflight ?? null,
+  };
+}
+
 export async function previewPlan(request: RunRequest): Promise<PlanPreview> {
   const payload = await postJson<ApiEnvelope & Partial<PlanPreview>>("/api/plan/preview", request);
   if (!payload.stages || !payload.devices || typeof payload.document_count !== "number") {

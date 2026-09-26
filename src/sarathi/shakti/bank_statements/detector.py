@@ -205,6 +205,8 @@ def detect_bank_statement(
         doc_type = (document.detected_type or "").lower()
         if doc_type in ("xlsx", "xls"):
             doc_type = "excel"
+        elif doc_type in ("csv", "csv_or_text", "tsv", "delimited"):
+            doc_type = "csv"
         if prof_container and doc_type and prof_container != doc_type:
             continue
 

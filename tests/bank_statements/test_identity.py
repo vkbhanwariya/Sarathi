@@ -382,3 +382,91 @@ def test_document_fingerprint_sixth_row_difference() -> None:
     fp1 = compute_document_fingerprint(doc1)
     fp2 = compute_document_fingerprint(doc2)
     assert fp1 != fp2, "Document fingerprint must change when 6th transaction row changes"
+
+
+def test_same_account_different_ifsc_shares_account_key() -> None:
+    """Same account at same bank must have identical account_key whether IFSC is present or absent."""
+    from sarathi.shakti.bank_statements.models import create_account_identity
+
+    ident_with_ifsc = create_account_identity("State Bank of India", "30123456789", ifsc="SBIN0001234")
+    ident_without_ifsc = create_account_identity("State Bank of India", "30123456789", ifsc=None)
+    ident_diff_branch = create_account_identity("State Bank of India", "30123456789", ifsc="SBIN0009999")
+
+    assert ident_with_ifsc.account_key == ident_without_ifsc.account_key, (
+        f"account_key must not diverge when IFSC is omitted: {ident_with_ifsc.account_key} vs {ident_without_ifsc.account_key}"
+    )
+    assert ident_with_ifsc.account_key == ident_diff_branch.account_key, (
+        f"account_key must not diverge across branches: {ident_with_ifsc.account_key} vs {ident_diff_branch.account_key}"
+    )
+    assert ident_with_ifsc.account_fingerprint == ident_without_ifsc.account_fingerprint
+    assert ident_with_ifsc.identity_strength == "STRONG"
+
+
+def test_account_number_delimiter_normalization() -> None:
+    """Hyphens and whitespace in account numbers must normalize to the same account_key."""
+    from sarathi.shakti.bank_statements.models import create_account_identity
+
+    id1 = create_account_identity("HDFC Bank", "1234-5678-9012")
+    id2 = create_account_identity("HDFC Bank", "1234 5678 9012")
+    id3 = create_account_identity("HDFC Bank", "123456789012")
+
+    assert id1.account_key == id2.account_key == id3.account_key, "Delimiters must be normalized in account_key"
+    assert id1.masked_account_number == "XXXXXXXX9012"
+    assert id2.masked_account_number == "XXXXXXXX9012"
+    assert id3.masked_account_number == "XXXXXXXX9012"
+
+
+def test_same_holder_two_accounts_same_bank_never_merged() -> None:
+    """Two statements with same holder at same bank but no account number must NEVER be merged."""
+    from datetime import date
+    from decimal import Decimal
+
+    from sarathi.shakti.bank_statements.consolidator import consolidate_statements
+    from sarathi.shakti.bank_statements.models import BankStatement, Transaction, create_account_identity
+
+    ident1 = create_account_identity("State Bank of India", None, account_holder="Mr. Rahul Sharma")
+    ident2 = create_account_identity("State Bank of India", None, account_holder="Mr. Rahul Sharma")
+
+    tx1 = Transaction(
+        transaction_date=date(2026, 1, 5),
+        description="Cash Deposit",
+        bank_name="State Bank of India",
+        credit=Decimal("5000.00"),
+        account_identity=ident1,
+        statement_id="stmt_1",
+    )
+    tx2 = Transaction(
+        transaction_date=date(2026, 1, 5),
+        description="Cash Deposit",
+        bank_name="State Bank of India",
+        credit=Decimal("5000.00"),
+        account_identity=ident2,
+        statement_id="stmt_2",
+    )
+
+    stmt1 = BankStatement(
+        statement_id="stmt_1",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident1,
+        account_holder="Mr. Rahul Sharma",
+        transactions=(tx1,),
+    )
+    stmt2 = BankStatement(
+        statement_id="stmt_2",
+        bank_name="State Bank of India",
+        bank_profile="sbi",
+        account_identity=ident2,
+        account_holder="Mr. Rahul Sharma",
+        transactions=(tx2,),
+    )
+
+    from sarathi.shakti.bank_statements.consolidator import _account_group_key
+
+    # Statements must not be grouped together solely on account_holder
+    key1 = _account_group_key(stmt1)
+    key2 = _account_group_key(stmt2)
+    assert key1 != key2, f"Statements must not be grouped solely on holder name: got {key1} and {key2}"
+
+    result = consolidate_statements([stmt1, stmt2])
+    assert len(result.transactions) == 2

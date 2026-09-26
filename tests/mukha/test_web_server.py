@@ -127,6 +127,27 @@ class TestMukhaWebServerAPI:
         assert data["input_selection"]["total_files"] == 1
         assert data["preflight"]["eligible_count"] == 1
 
+    def test_intake_rescan_endpoint(
+        self,
+        web_server: MukhaWebServer,
+    ) -> None:
+        """POST /api/intake/rescan discovers newly added files in input_root."""
+        new_file = web_server.input_root / "rescan_test.txt"
+        new_file.write_text("Rescan test content", encoding="utf-8")
+        try:
+            status, data = _http_post(
+                f"http://127.0.0.1:{web_server.resolved_port}/api/intake/rescan",
+                data={},
+            )
+            assert status == 200
+            assert data["ok"] is True
+            assert data["input_selection"] is not None
+            names = [it["display_name"] for it in data["input_selection"]["items"]]
+            assert "rescan_test.txt" in names
+        finally:
+            if new_file.is_file():
+                new_file.unlink()
+
     def test_run_lifecycle_and_single_concurrency_guard(
         self,
         web_server: MukhaWebServer,

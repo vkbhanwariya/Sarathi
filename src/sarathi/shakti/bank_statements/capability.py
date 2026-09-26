@@ -302,11 +302,9 @@ class BankStatementCapability:
 
             final_account_identity = detection.account_identity
             if final_account_identity is not None and final_account_identity.bank_name != final_bank_name:
-                final_account_identity = create_account_identity(
+                final_account_identity = replace(
+                    final_account_identity,
                     bank_name=final_bank_name,
-                    raw_account_number=final_account_identity.masked_account_number,
-                    account_holder=final_account_identity.account_holder,
-                    account_type=final_account_identity.account_type,
                     bank_profile=final_profile,
                     ifsc=final_account_identity.ifsc or ifsc_val,
                 )
@@ -324,13 +322,13 @@ class BankStatementCapability:
                 if final_account_identity is None or not final_account_identity.account_fingerprint:
                     final_account_identity = table_acc
                 else:
-                    final_account_identity = create_account_identity(
+                    final_account_identity = replace(
+                        final_account_identity,
                         bank_name=final_bank_name,
-                        raw_account_number=table_acc.masked_account_number or final_account_identity.masked_account_number,
-                        account_holder=table_acc.account_holder or final_account_identity.account_holder,
-                        account_type=table_acc.account_type or final_account_identity.account_type,
                         bank_profile=final_profile,
                         ifsc=table_acc.ifsc or final_account_identity.ifsc or ifsc_val,
+                        account_holder=table_acc.account_holder or final_account_identity.account_holder,
+                        account_type=table_acc.account_type or final_account_identity.account_type,
                     )
 
             doc_fp = compute_document_fingerprint(doc)
@@ -349,6 +347,7 @@ class BankStatementCapability:
 
             if len(distinct_accounts) > 1:
                 scanned_by_acc = doc_metadata.get("scanned_rows_by_acc", {})
+                boundaries_by_acc = doc_metadata.get("boundaries_by_acc", {})
                 for acc_ident in distinct_accounts:
                     acc_txns = tuple(tx for tx in dedup_res.unique_transactions if tx.account_identity == acc_ident)
                     acc_meta = dict(doc_metadata)
@@ -368,6 +367,9 @@ class BankStatementCapability:
                         doc_id=doc.source_input_id or getattr(doc, "document_id", None),
                         document_fingerprint=doc_fp,
                     )
+                    acc_bounds = boundaries_by_acc.get(acc_fp, {}) if acc_fp else {}
+                    acc_open = acc_bounds.get("opening")
+                    acc_close = acc_bounds.get("closing")
                     statements.append(
                         validate_statement_balances(
                             BankStatement(
@@ -379,8 +381,8 @@ class BankStatementCapability:
                                 ifsc=ifsc_val,
                                 account_holder=acc_ident.account_holder if acc_ident else None,
                                 account_type=acc_ident.account_type if acc_ident else None,
-                                opening_balance=open_bal,
-                                closing_balance=close_bal,
+                                opening_balance=acc_open,
+                                closing_balance=acc_close,
                                 transactions=acc_txns,
                                 issues=tuple(doc_issues),
                                 provenance=doc_prov,
@@ -529,6 +531,7 @@ class BankStatementCapability:
         total_scanned_rows = 0
         best_header_score = 0.0
         scanned_rows_by_acc: dict[str, int] = {}
+        boundaries_by_acc: dict[str, dict[str, Decimal]] = {}
 
         for page_num, table in all_tables:
             if not table.rows and not table.headers:
@@ -641,12 +644,17 @@ class BankStatementCapability:
                 match classify_row(row_cells, date_col_idx=d_col, amount_col_indices=amt_indices):
                     case RowType.OPENING_BALANCE:
                         parsed_open = parse_balance_amount(_get_raw_cell(row, b_col))
-                        if parsed_open is not None and open_bal is None:
-                            open_bal = parsed_open
+                        if parsed_open is not None:
+                            if open_bal is None:
+                                open_bal = parsed_open
+                            if tbl_identity and tbl_identity.account_fingerprint:
+                                boundaries_by_acc.setdefault(tbl_identity.account_fingerprint, {})["opening"] = parsed_open
                     case RowType.CLOSING_BALANCE:
                         parsed_close = parse_balance_amount(_get_raw_cell(row, b_col))
                         if parsed_close is not None:
                             close_bal = parsed_close
+                            if tbl_identity and tbl_identity.account_fingerprint:
+                                boundaries_by_acc.setdefault(tbl_identity.account_fingerprint, {})["closing"] = parsed_close
                     case RowType.EOD_BALANCE:
                         eod_date = parse_date(_get_raw_cell(row, d_col))
                         eod_bal = parse_balance_amount(_get_raw_cell(row, b_col))
@@ -829,7 +837,9 @@ class BankStatementCapability:
                                 chq_val = clean_ref
                                 ref_val = None
 
-                        tx_meta: dict[str, Any] = {}
+                        tx_meta: dict[str, Any] = {
+                            "source_row_id": f"tx_{statement_id}_{current_sequence_id:04d}",
+                        }
                         if date_supplied != "transaction_date":
                             tx_meta["date_supplied"] = date_supplied
 
@@ -875,6 +885,7 @@ class BankStatementCapability:
             metadata["header_match_score"] = best_header_score
             metadata["source_file_stem"] = file_stem
             metadata["scanned_rows_by_acc"] = scanned_rows_by_acc
+            metadata["boundaries_by_acc"] = boundaries_by_acc
             if eod_balances:
                 metadata["eod_balances"] = tuple(eod_balances)
             if summary_rows:

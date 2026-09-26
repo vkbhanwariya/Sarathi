@@ -311,3 +311,66 @@ def test_metadata_pattern_extracts_negative_balance_with_minus_sign() -> None:
     raw_close = m_close.group(1).strip()
     assert raw_close == "-200.00"
     assert parse_balance_amount(raw_close) == Decimal("-200.00")
+
+
+def test_multi_account_boundaries_not_shared() -> None:
+    """In a multi-account document, Account B must not inherit Account A's boundary balances."""
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, PageData, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    # Two tables with two different accounts and different boundary balances
+    table_a = TableData(
+        name="111122223333",
+        headers=("Account No: 111122223333", "", "", "", "", ""),
+        rows=(
+            ("Date", "Description", "Debit", "Credit", "Balance"),
+            ("01/01/2026", "OPENING BALANCE", "", "", "10000.00"),
+            ("05/01/2026", "Deposit", "", "2000.00", "12000.00"),
+            ("31/01/2026", "CLOSING BALANCE", "", "", "12000.00"),
+        ),
+    )
+    table_b = TableData(
+        name="444455556666",
+        headers=("Account No: 444455556666", "", "", "", "", ""),
+        rows=(
+            ("Date", "Description", "Debit", "Credit", "Balance"),
+            ("01/01/2026", "OPENING BALANCE", "", "", "50000.00"),
+            ("10/01/2026", "Withdrawal", "2500.00", "", "47500.00"),
+            ("31/01/2026", "CLOSING BALANCE", "", "", "47500.00"),
+        ),
+    )
+
+    doc = CanonicalDocument(
+        document_id="doc-multi-acc-1",
+        source_input_id="input-multi-1",
+        text="STATE BANK OF INDIA\nAccount Statement\nIFSC: SBIN0001234",
+        pages=(
+            PageData(page_number=1, text="Page 1 Account Statement", tables=(table_a,)),
+            PageData(page_number=2, text="Page 2 Account Statement", tables=(table_b,)),
+        ),
+    )
+
+    cap = BankStatementCapability()
+    from pathlib import Path
+    req = Request(
+        request_id="req-1",
+        requirement="bank_statements",
+        inputs=(InputRef(input_id="input-multi-1", source_path=Path("multi.xlsx"), display_name="multi.xlsx", size_bytes=100),),
+    )
+    res = cap.execute(
+        req,
+        ExecutionContext("run-1", "req-1", "t-1", "s-1"),
+        prior_result=Result(data=(doc,)),
+    )
+
+    statements = res.data.statements
+    assert len(statements) == 2, f"Expected 2 statements for 2 accounts, got {len(statements)}"
+
+    stmt_a = next(s for s in statements if s.account_identity.masked_account_number.endswith("3333"))
+    stmt_b = next(s for s in statements if s.account_identity.masked_account_number.endswith("6666"))
+
+    assert stmt_a.opening_balance == Decimal("10000.00"), f"Expected 10000.00, got {stmt_a.opening_balance}"
+    assert stmt_a.closing_balance == Decimal("12000.00"), f"Expected 12000.00, got {stmt_a.closing_balance}"
+
+    assert stmt_b.opening_balance == Decimal("50000.00"), f"Expected 50000.00, got {stmt_b.opening_balance}"
+    assert stmt_b.closing_balance == Decimal("47500.00"), f"Expected 47500.00, got {stmt_b.closing_balance}"

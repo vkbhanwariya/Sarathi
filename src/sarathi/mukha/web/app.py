@@ -647,6 +647,19 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
                 {"ok": False, "error": _format_public_error(error)},
             )
 
+    async def intake_rescan(_: Request) -> Response:
+        if mukha.runner.is_busy():
+            return _json(409, {"ok": False, "error": "Cannot rescan inputs while a processing run is active."})
+        selection, preflight = await asyncio.to_thread(mukha.rescan_input_root)
+        return _json(
+            200,
+            {
+                "ok": True,
+                "input_selection": _serialize_dataclass(selection) if selection else None,
+                "preflight": _serialize_dataclass(preflight) if preflight else None,
+            },
+        )
+
     async def review_post(request: Request) -> Response:
         body, error_response = await _read_json_object(request)
         if error_response is not None:
@@ -791,6 +804,7 @@ def create_mukha_app(mukha: MukhaWebServer) -> Starlette:
         Route("/api/browse/files", browse_files, methods=["POST"]),
         Route("/api/browse/folder", browse_folder, methods=["POST"]),
         Route("/api/intake", intake, methods=["POST"]),
+        Route("/api/intake/rescan", intake_rescan, methods=["POST"]),
         Route("/api/review", review_post, methods=["POST"]),
         Route("/api/plan/preview", plan_preview, methods=["POST"]),
         Route("/api/runs", start_run, methods=["POST"]),

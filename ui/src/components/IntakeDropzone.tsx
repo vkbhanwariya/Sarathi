@@ -5,6 +5,7 @@ export interface IntakeDropzoneProps {
   manualPath: string;
   onBrowseFiles: () => void;
   onBrowseFolder: () => void;
+  onRescan?: () => void;
   onClear: () => void;
   onToggleRecursive: (recursive: boolean) => void;
   onManualPathChange: (path: string) => void;
@@ -18,6 +19,7 @@ export function IntakeDropzone({
   manualPath,
   onBrowseFiles,
   onBrowseFolder,
+  onRescan,
   onClear,
   onToggleRecursive,
   onManualPathChange,
@@ -46,6 +48,18 @@ export function IntakeDropzone({
           >
             + Add folder
           </button>
+          {onRescan && (
+            <button
+              id="btn-rescan-folder"
+              class="btn-action"
+              disabled={working}
+              onClick={onRescan}
+              type="button"
+              title="Rescan Input folder for new or removed files"
+            >
+              ↻ Rescan
+            </button>
+          )}
           <button
             class="btn-clear"
             disabled={working || !hasItems}

@@ -16,7 +16,9 @@ import uvicorn
 from sarathi.mukha.state import (
     ApplicationViewState,
     ArtifactOutcomeView,
+    InputSelectionView,
     InspectorViewState,
+    PreflightView,
     ReviewIntent,
     RunSummaryView,
 )
@@ -90,6 +92,11 @@ class MukhaWebServer:
     def agni(self) -> Any:
         """Return the current Agni composition root."""
         return self._agni
+
+    @property
+    def input_root(self) -> Path:
+        """Return the configured input root."""
+        return self._agni.input_root
 
     @property
     def output_root(self) -> Path:
@@ -307,6 +314,10 @@ class MukhaWebServer:
             self._host,
             self._resolved_port,
         )
+
+    def rescan_input_root(self) -> tuple[InputSelectionView | None, PreflightView | None]:
+        """Re-scan the input directory and refresh cached intake if idle."""
+        return self._runner.rescan_input_root()
 
     def start_run(
         self,

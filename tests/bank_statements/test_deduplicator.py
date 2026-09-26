@@ -753,3 +753,106 @@ def test_deduplication_preserves_ids_and_provenance_fields() -> None:
     assert surviving.source_input_id == "inp_month1"
     assert surviving.page_number == 2
     assert surviving.row_index == 5
+
+
+def test_consolidate_multi_account_unique_continuous_txn_ids_and_sheet_order() -> None:
+    """Consolidation preserves file and sheet hierarchy (old to new) with unique continuous TXN-XXXX IDs."""
+    ident_bob = create_account_identity("Bank of Baroda", "10260100019671")
+    ident_au = create_account_identity("AU Small Finance Bank", "2401258671603953")
+
+    # File 1 (BOB) - Sheet 1: 2 transactions (Jan 5 then Jan 2 in raw order)
+    # File 1 (BOB) - Sheet 2: 1 transaction (Jan 1)
+    tx_bob_s1_later = Transaction(
+        transaction_date=date(2026, 1, 5),
+        transaction_time=time(14, 0),
+        description="BOB S1 Jan 5",
+        bank_name="Bank of Baroda",
+        account_identity=ident_bob,
+        debit=Decimal("100.00"),
+        source_input_id="inp_bob",
+        input_location="10260100019671_S1_R05",
+        page_number=1,
+        row_index=5,
+    )
+    tx_bob_s1_earlier = Transaction(
+        transaction_date=date(2026, 1, 2),
+        transaction_time=time(10, 0),
+        description="BOB S1 Jan 2",
+        bank_name="Bank of Baroda",
+        account_identity=ident_bob,
+        debit=Decimal("200.00"),
+        source_input_id="inp_bob",
+        input_location="10260100019671_S1_R02",
+        page_number=1,
+        row_index=2,
+    )
+    tx_bob_s2 = Transaction(
+        transaction_date=date(2026, 1, 1),
+        transaction_time=time(9, 0),
+        description="BOB S2 Jan 1",
+        bank_name="Bank of Baroda",
+        account_identity=ident_bob,
+        credit=Decimal("500.00"),
+        source_input_id="inp_bob",
+        input_location="10260100019671_S2_R02",
+        page_number=2,
+        row_index=2,
+    )
+    stmt_bob = BankStatement(
+        bank_name="Bank of Baroda",
+        bank_profile="bob_excel_fmt1",
+        account_identity=ident_bob,
+        statement_id="stmt_bob",
+        transactions=(tx_bob_s1_later, tx_bob_s1_earlier, tx_bob_s2),
+    )
+
+    # File 2 (AU) - Sheet 1: 2 transactions on same day with distinct times (raw order newest to oldest)
+    tx_au_late = Transaction(
+        transaction_date=date(2026, 2, 10),
+        transaction_time=time(16, 30),
+        description="AU S1 Feb 10 16:30",
+        bank_name="AU Small Finance Bank",
+        account_identity=ident_au,
+        debit=Decimal("300.00"),
+        source_input_id="inp_au",
+        input_location="Statements_S1_R04",
+        page_number=1,
+        row_index=4,
+    )
+    tx_au_early = Transaction(
+        transaction_date=date(2026, 2, 10),
+        transaction_time=time(11, 15),
+        description="AU S1 Feb 10 11:15",
+        bank_name="AU Small Finance Bank",
+        account_identity=ident_au,
+        credit=Decimal("1000.00"),
+        source_input_id="inp_au",
+        input_location="Statements_S1_R05",
+        page_number=1,
+        row_index=5,
+    )
+    stmt_au = BankStatement(
+        bank_name="AU Small Finance Bank",
+        bank_profile="au_small_finance",
+        account_identity=ident_au,
+        statement_id="stmt_au",
+        transactions=(tx_au_late, tx_au_early),
+    )
+
+    res = consolidate_statements([stmt_bob, stmt_au])
+    assert len(res.transactions) == 5
+
+    # 1. Continuous, unique transaction IDs
+    ids = [t.transaction_id for t in res.transactions]
+    assert ids == ["TXN-0001", "TXN-0002", "TXN-0003", "TXN-0004", "TXN-0005"]
+    assert len(set(ids)) == 5
+
+    # 2. Strict hierarchy:
+    # First file Sheet 1 (old to new: Jan 2 -> Jan 5)
+    assert res.transactions[0].description == "BOB S1 Jan 2"
+    assert res.transactions[1].description == "BOB S1 Jan 5"
+    # First file Sheet 2
+    assert res.transactions[2].description == "BOB S2 Jan 1"
+    # Second file Sheet 1 (old to new by date & time: 11:15 -> 16:30)
+    assert res.transactions[3].description == "AU S1 Feb 10 11:15"
+    assert res.transactions[4].description == "AU S1 Feb 10 16:30"

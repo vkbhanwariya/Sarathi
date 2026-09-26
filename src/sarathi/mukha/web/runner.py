@@ -114,10 +114,17 @@ class RunCoordinator:
                 output_root=self._agni.output_root,
                 recursive=True,
             )
-            if inputs:
-                self.set_intake_selection(selection, inputs, preflight=preflight)
+            with self._lock:
+                self._input_path_registry.clear()
+            self.set_intake_selection(selection, inputs, preflight=preflight)
         except Exception:
             pass
+
+    def rescan_input_root(self) -> tuple[InputSelectionView | None, PreflightView | None]:
+        """Re-scan agni.input_root if runner is idle and refresh cached intake."""
+        if not self.is_busy():
+            self._auto_discover_input_root()
+        return self.get_intake_selection(), self.get_intake_preflight()
 
     def reset(self) -> None:
         """Reset internal run state and caches for clean lifecycle transitions."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from sarathi.shakti.bank_statements.models import (
@@ -160,28 +160,17 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 merged_provenance = existing.provenance + tuple(
                     p for p in tx.provenance if p not in existing.provenance
                 )
-                surviving = Transaction(
-                    transaction_date=existing.transaction_date,
-                    description=existing.description,
-                    bank_name=existing.bank_name,
+                surviving = replace(
+                    existing,
                     transaction_time=existing.transaction_time or tx.transaction_time,
                     reference_number=existing.reference_number or tx.reference_number,
                     cheque_number=existing.cheque_number or tx.cheque_number,
-                    debit=existing.debit,
-                    credit=existing.credit,
-                    running_balance=existing.running_balance
-                    if existing.running_balance is not None
-                    else tx.running_balance,
-                    account_identity=existing.account_identity,
+                    running_balance=existing.running_balance if existing.running_balance is not None else tx.running_balance,
                     currency=existing.currency or tx.currency,
-                    status=existing.status,
-                    issues=existing.issues,
                     provenance=merged_provenance,
-                    metadata=existing.metadata,
                     posting_date=existing.posting_date or tx.posting_date,
                     value_date=existing.value_date or tx.value_date,
                     transaction_datetime=existing.transaction_datetime or tx.transaction_datetime,
-                    sequence_id=existing.sequence_id,
                     statement_id=existing.statement_id or tx.statement_id,
                     transaction_id=existing.transaction_id or tx.transaction_id,
                     raw_description=existing.raw_description or tx.raw_description,
@@ -215,35 +204,9 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                         message="Identical date, amount, and narration without reference number or running balance.",
                         severity="warning",
                     )
-                    tx_with_issue = Transaction(
-                        transaction_date=tx.transaction_date,
-                        description=tx.description,
-                        bank_name=tx.bank_name,
-                        transaction_time=tx.transaction_time,
-                        reference_number=tx.reference_number,
-                        cheque_number=tx.cheque_number,
-                        debit=tx.debit,
-                        credit=tx.credit,
-                        running_balance=tx.running_balance,
-                        account_identity=tx.account_identity,
-                        currency=tx.currency,
-                        status=tx.status,
+                    tx_with_issue = replace(
+                        tx,
                         issues=tx.issues + (warn_issue,),
-                        provenance=tx.provenance,
-                        metadata=tx.metadata,
-                        posting_date=tx.posting_date,
-                        value_date=tx.value_date,
-                        transaction_datetime=tx.transaction_datetime,
-                        sequence_id=tx.sequence_id,
-                        statement_id=tx.statement_id,
-                        transaction_id=tx.transaction_id,
-                        raw_description=tx.raw_description,
-                        raw_reference=tx.raw_reference,
-                        source_input_id=tx.source_input_id,
-                        page_number=tx.page_number,
-                        row_index=tx.row_index,
-                        input_location=tx.input_location,
-                        transaction_mode=tx.transaction_mode,
                     )
                     duplicates.append(
                         (

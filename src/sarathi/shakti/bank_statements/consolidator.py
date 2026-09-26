@@ -58,19 +58,14 @@ def _account_group_key(stmt: BankStatement) -> tuple:
 
     bank_key = ifsc_prefix if ifsc_prefix else stmt.bank_name.lower().strip()
 
-    # If account_fingerprint exists, it is either:
-    # 1. Derived from a full unmasked account number (+ IFSC bank prefix if available), OR
-    # 2. Derived from a masked account number + account holder (+ IFSC bank prefix).
-    # In both cases, statements sharing this fingerprint safely belong to the same account.
-    if ident.account_fingerprint:
-        return ("fingerprint", bank_key, ident.account_fingerprint)
+    # If account_key or account_fingerprint exists with STRONG or MEDIUM confidence, group safely.
+    key = ident.account_key or ident.account_fingerprint
+    strength = getattr(ident, "identity_strength", "STRONG")
+    if key and strength in ("STRONG", "MEDIUM"):
+        return ("account_key", bank_key, key)
 
-    # If account_fingerprint is None, the statement has an already-masked number without account holder.
-    # We must not conflate distinct people having accounts with the same trailing 4 digits.
-    holder = ident.account_holder.lower().strip() if ident.account_holder else None
-    if holder:
-        return ("holder", bank_key, holder)
-
+    # NEVER group distinct statements across files solely by holder name.
+    # Statements without an authoritative account key remain statement-scoped.
     return ("statement", bank_key, stmt.statement_id or str(id(stmt)))
 
 
@@ -93,7 +88,11 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
             replace(
                 tx,
                 statement_id=stmt.statement_id or tx.statement_id or f"stmt_{s_idx}",
-                metadata={**tx.metadata, "statement_id": stmt.statement_id or tx.statement_id or f"stmt_{s_idx}"},
+                metadata={
+                    **tx.metadata,
+                    "statement_id": stmt.statement_id or tx.statement_id or f"stmt_{s_idx}",
+                    "_orig_tx_id": id(tx),
+                },
             )
             for s_idx, stmt in enumerate(group_stmts)
             for tx in stmt.transactions
@@ -125,25 +124,87 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
         else:
             deduped_valid_txns.extend(group_valid_txns)
 
-    # Veda rule: transaction_date -> transaction_time when available -> original source row order (sequence_id)
-    sorted_valid_txns = tuple(
-        sorted(
-            deduped_valid_txns,
-            key=lambda tx: (
-                tx.transaction_date,
-                tx.transaction_time or datetime.time.min,
-                getattr(tx, "sequence_id", 0) or 0,
-            ),
-        )
-    )
-
     def _earliest_tx_date(stmt: BankStatement) -> datetime.date:
         dates = [tx.transaction_date for tx in stmt.transactions if tx.transaction_date is not None]
         return min(dates) if dates else datetime.date.min
 
     sorted_statements = sorted(statements, key=_earliest_tx_date)
-    reordered_statements: list[BankStatement] = []
 
+    # Resolve source file order across statements to preserve natural input presentation
+    file_order: dict[str, int] = {}
+    for stmt in sorted_statements:
+        fid = None
+        for p in stmt.provenance:
+            if p.source_input_id:
+                fid = p.source_input_id
+                break
+        if not fid and stmt.metadata and stmt.metadata.get("source_input_id"):
+            fid = str(stmt.metadata["source_input_id"])
+        if not fid:
+            for tx in stmt.transactions:
+                if tx.source_input_id:
+                    fid = tx.source_input_id
+                    break
+                if tx.input_location and "_" in tx.input_location:
+                    fid = tx.input_location.rsplit("_", 2)[0]
+                    break
+        if not fid:
+            if stmt.account_identity and stmt.account_identity.account_fingerprint:
+                fid = f"acc_{stmt.account_identity.account_fingerprint}"
+            else:
+                fid = stmt.statement_id or ""
+        if fid and fid not in file_order:
+            file_order[fid] = len(file_order)
+
+    def _resolve_tx_file_key(tx: Transaction) -> str:
+        if tx.source_input_id:
+            return tx.source_input_id
+        if tx.input_location and "_" in tx.input_location:
+            return tx.input_location.rsplit("_", 2)[0]
+        for p in tx.provenance:
+            if p.source_input_id:
+                return p.source_input_id
+        if tx.account_identity and tx.account_identity.account_fingerprint:
+            return f"acc_{tx.account_identity.account_fingerprint}"
+        return tx.statement_id or ""
+
+    def _tx_sort_key(tx: Transaction) -> tuple:
+        f_key = _resolve_tx_file_key(tx)
+        f_idx = file_order.get(f_key, 0)
+        s_idx = tx.page_number if (tx.page_number is not None and tx.page_number > 0) else 1
+        return (
+            f_idx,
+            s_idx,
+            tx.transaction_date,
+            tx.transaction_time or datetime.time.min,
+            getattr(tx, "row_index", None) or getattr(tx, "sequence_id", 0) or 0,
+        )
+
+    # Sort hierarchy:
+    # 1. First file -> 1st worksheet (old to new), 2nd worksheet (old to new)...
+    # 2. Second file -> 1st worksheet (old to new), 2nd worksheet (old to new)...
+    # 3. Third file...
+    sorted_raw_txns = sorted(deduped_valid_txns, key=_tx_sort_key)
+
+    # Continuous, unique transaction IDs: TXN-0001, TXN-0002, ...
+    renumbered_txns: list[Transaction] = []
+    valid_by_orig_id: dict[int, Transaction] = {}
+    for idx, tx in enumerate(sorted_raw_txns, start=1):
+        clean_meta = {k: v for k, v in tx.metadata.items() if k != "_orig_tx_id"}
+        renumbered_tx = replace(
+            tx,
+            transaction_id=f"TXN-{idx:04d}",
+            sequence_id=idx,
+            metadata=clean_meta,
+        )
+        renumbered_txns.append(renumbered_tx)
+        orig_id = tx.metadata.get("_orig_tx_id")
+        if orig_id:
+            valid_by_orig_id[orig_id] = renumbered_tx
+
+    sorted_valid_txns = tuple(renumbered_txns)
+
+    reordered_statements: list[BankStatement] = []
     overall_status = ValidationStatus.VALID
 
     for stmt in sorted_statements:
@@ -153,40 +214,16 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
             overall_status = ValidationStatus.WARNING
         all_issues.extend(stmt.issues)
 
-        # Sort transactions within each statement in canonical chronological order
-        sorted_txs = tuple(
-            sorted(
-                stmt.transactions,
-                key=lambda tx: (
-                    tx.transaction_date,
-                    tx.transaction_time or datetime.time.min,
-                    getattr(tx, "sequence_id", 0) or 0,
-                ),
-            )
-        )
-        reordered_statements.append(
-            BankStatement(
-                bank_name=stmt.bank_name,
-                bank_profile=stmt.bank_profile,
-                account_identity=stmt.account_identity,
-                statement_period_start=stmt.statement_period_start,
-                statement_period_end=stmt.statement_period_end,
-                opening_balance=stmt.opening_balance,
-                closing_balance=stmt.closing_balance,
-                currency=stmt.currency,
-                transactions=sorted_txs,
-                status=stmt.status,
-                issues=stmt.issues,
-                provenance=stmt.provenance,
-                metadata=stmt.metadata,
-                statement_id=stmt.statement_id,
-                account_holder=stmt.account_holder,
-                account_type=stmt.account_type,
-                branch=stmt.branch,
-                ifsc=stmt.ifsc,
-                balance_as_on=stmt.balance_as_on,
-            )
-        )
+        # Update valid transactions with their renumbered counterparts while retaining invalid ones
+        stmt_updated_txs = []
+        for tx in stmt.transactions:
+            if id(tx) in valid_by_orig_id:
+                stmt_updated_txs.append(valid_by_orig_id[id(tx)])
+            else:
+                stmt_updated_txs.append(tx)
+
+        sorted_stmt_txs = tuple(sorted(stmt_updated_txs, key=_tx_sort_key))
+        reordered_statements.append(replace(stmt, transactions=sorted_stmt_txs))
 
     # Calculate summary metrics strictly from canonical valid deduplicated transactions
     total_txns = len(sorted_valid_txns)
