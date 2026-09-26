@@ -1,0 +1,58 @@
+profile_id: "central_bank_csv_fmt1"
+parent_bank: "central_bank"
+bank_name: "Central Bank of India"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".csv"
+  actual_hidden_format: "delimited_text"
+  mime_type: "text/csv"
+
+aliases:
+  - "central bank of india"
+  - "central bank"
+  - "cbi"
+
+identification_keywords:
+  - "central bank of india"
+  - "central bank"
+  - "cbi"
+  - "cbin"
+
+headers:
+  date:
+    - "txn_date"
+  reference_number:
+    - "jrnl_number"
+    - "record_no"
+  cheque_number:
+    - "instrument_no"
+  amount:
+    - "tran_amount"
+  direction:
+    - "type"
+  description:
+    - "naration"
+    - "txn_desc"
+
+date_formats:
+  - "%d%m%Y"
+
+signed_amounts: true
+
+layout_signature:
+  column_count:
+    expected: 15
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - reference_number
+      - cheque_number
+      - amount
+      - direction
+      - balance
+      - description
+    weight: 3.0

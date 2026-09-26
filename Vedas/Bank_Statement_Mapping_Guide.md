@@ -58,13 +58,20 @@ Sarathi does not rely solely on bank logo text or isolated header strings. It us
    - **Anchor Header Fields**: `date` (+3.0), `description` (+2.0), `balance` (+2.5), `debit` (+2.0), `credit` (+2.0), `amount` (+2.0), `reference_number` (+1.0), `cheque_number` (+1.0).
    - **Precision Header Bonuses**: `bank_exact` match (+2.0), `bank_fuzzy` match (+1.0), `generic_exact` (+0.5).
    - **Candidate Prior**: +1.0 tie-breaker bonus if bank keyword detection also identified the bank or parent bank.
-   - **Data Pattern Validation**:
+   - **Data Pattern & Mathematical Verification**:
      - Columns mapped to `date`/`value_date`: valid parsed dates earn +1.5 boost; matching the profile's specific `date_formats` earns an additional +1.0 bonus. Mapped date columns with no valid dates receive a -2.0 penalty.
      - Columns mapped to `debit`/`credit`/`amount`/`balance`: valid parsed decimals earn +1.5 boost. Pure non-numeric text triggers a -2.0 penalty.
      - Columns mapped to `description`: valid text content earns +0.5 boost.
+     - **Mathematical Balance Delta Verification**: Checks consecutive sample rows where balances and debits/credits exist:
+       $$\text{Balance}_{i-1} + \text{Credit}_i - \text{Debit}_i == \text{Balance}_i$$
+       If verified, awards up to +2.5 mathematical confidence boost. If inverted ($\text{Balance}_{i-1} + \text{Debit}_i - \text{Credit}_i == \text{Balance}_i$), penalizes by -3.0 to instantly prevent Debit/Credit column swaps.
    - **Cheque vs Reference Isolation**:
-     - `cheque_number` maps strictly to cheque and instrument identities (`cheque no`, `chq no`, `cheque number`, `chq`).
-     - `reference_number` maps transaction identifiers (`ref no`, `utr`, `ref no./cheque no.`, `txn id`).
+     - `cheque_number` maps strictly to cheque/instrument identities (`cheque no`, `chq no`, `cheque number`, `chq`). Confirmed 6-digit integers earn +1.0 boost; long alphanumeric strings trigger a -1.0 penalty.
+     - `reference_number` maps transaction identifiers (`ref no`, `utr`, `ref no./cheque no.`, `txn id`). Alphanumeric patterns ($\ge 8$ chars) earn +0.5 boost.
+   - **Layout Fingerprint (`layout_signature`)**:
+     - `column_count`: expected columns $\pm$ tolerance earns up to +2.0 boost; mismatch penalized by -1.0.
+     - `sequence`: canonical field sequence similarity computed via LCS (`difflib.SequenceMatcher`) against `expected` canonical fields (weight: 3.0).
+     - `header_row`: expected row index $\pm$ tolerance earns soft bonus (up to +1.0). Never used as a hard gate.
 4. **Two-Stage Resolution Hierarchy (Registered Profiles First)**:
    - **Stage 1 (Registered Profiles)**: The engine evaluates all registered institutional profiles (`profile_id != "common"`). If the highest scoring registered profile achieves `score >= min_threshold` (5.0), it is selected immediately.
    - **Stage 2 (Universal Fallback)**: Only if no registered profile reaches `min_threshold` does the engine evaluate `common.yaml`. If `common.yaml` achieves `min_threshold`, it is assigned.

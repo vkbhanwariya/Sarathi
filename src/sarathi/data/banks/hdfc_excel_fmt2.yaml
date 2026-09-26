@@ -1,0 +1,64 @@
+profile_id: "hdfc_excel_fmt2"
+parent_bank: "hdfc"
+bank_name: "HDFC Bank Limited"
+container_format: "excel"
+layout_variant: "fmt2"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "hdfc bank"
+  - "hdfc bank limited"
+  - "hdfc bank ltd."
+  - "hdfc"
+
+identification_keywords:
+  - "hdfc bank"
+  - "hdfc bank limited"
+  - "hdfc"
+
+headers:
+  reference_number:
+    - "chq./ref.no."
+    - "chq/ref no"
+  value_date:
+    - "value dt"
+  debit:
+    - "withdrawal amt."
+    - "withdrawal amt"
+  credit:
+    - "deposit amt."
+    - "deposit amt"
+  balance:
+    - "closing balance"
+
+date_formats:
+  - "%d/%m/%y"
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+
+metadata_patterns:
+  account_number: '(?:Account\s*No\s*:\s*)([0-9]{14})'
+
+layout_signature:
+  header_row:
+    expected: 22
+    tolerance: 3
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - description
+      - reference_number
+      - value_date
+      - debit
+      - credit
+      - balance
+    weight: 3.0

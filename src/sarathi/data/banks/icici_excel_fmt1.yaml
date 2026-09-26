@@ -1,43 +1,48 @@
-profile_id: "boi_excel_fmt1"
-parent_bank: "boi"
-bank_name: "Bank of India"
+profile_id: "icici_excel_fmt1"
+parent_bank: "icici"
+bank_name: "ICICI Bank Limited"
 container_format: "excel"
 layout_variant: "fmt1"
 
 file_format:
   declared_extension: ".xlsx"
-  actual_hidden_format: "openxml_spreadsheet (True PKZip/OpenXML package)."
+  actual_hidden_format: "openxml_spreadsheet"
   mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  magic_bytes: "504B0304 (PK\\x03\\x04)"
 
 aliases:
-  - "bank of india"
-  - "bank of india statement"
+  - "icici"
+  - "icici bank"
+  - "icici bank limited"
 
 identification_keywords:
-  - "bank of india"
-  - "boi"
-  - "bkid"
+  - "icici bank"
+  - "icici bank limited"
+  - "icici"
+  - "icic"
 
 headers:
   date:
-    - "tran_date"
-  reference_number:
-    - "tran_id"
+    - "date_of_transaction"
   cheque_number:
-    - "instrmnt_num"
+    - "instrument_number"
   description:
-    - "tran_particular"
+    - "narration"
+  debit:
+    - "debit_amount"
+  credit:
+    - "credit_amount"
+  balance:
+    - "line_balance"
 
 date_formats:
+  - "%Y-%m-%d"
   - "%d-%m-%Y"
   - "%d/%m/%Y"
 
 signed_amounts: false
 
 metadata_patterns:
-  account_number: '(?:Account\s*(?:No\.?|Number)?|ACC_NO)\s*[:\-]?\s*([0-9]{10,20})'
-  account_holder: '(?:ACCT_NAME|Account\s*Holder)\s*[:\-]?\s*([A-Za-z\s\.]+)'
+  account_number: '(?:Account_Number|Account\s*No)\s*[:\-]?\s*([0-9]{12,18})'
 
 layout_signature:
   header_row:
@@ -45,12 +50,11 @@ layout_signature:
     tolerance: 0
     bonus: 1.0
   column_count:
-    expected: 14
+    expected: 11
     tolerance: 0
     bonus: 2.0
   sequence:
     expected:
-      - reference_number
       - date
       - cheque_number
       - description

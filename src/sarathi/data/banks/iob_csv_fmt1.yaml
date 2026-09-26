@@ -1,0 +1,58 @@
+profile_id: "iob_csv_fmt1"
+parent_bank: "iob"
+bank_name: "Indian Overseas Bank"
+container_format: "csv"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".csv"
+  actual_hidden_format: "csv"
+  mime_type: "text/csv"
+
+aliases:
+  - "iob"
+  - "indian overseas bank"
+
+identification_keywords:
+  - "indian overseas bank"
+  - "iob"
+  - "ioba"
+
+headers:
+  date:
+    - "tran_date"
+  cheque_number:
+    - "inst_num"
+  debit:
+    - "debt_amt"
+  credit:
+    - "crdt_amt"
+
+date_formats:
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+  - "%Y-%m-%d"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Account\s*No|1450020)\s*[:\-]?\s*([0-9]{15})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 0
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - cheque_number
+      - debit
+      - credit
+      - balance
+      - description
+    weight: 3.0

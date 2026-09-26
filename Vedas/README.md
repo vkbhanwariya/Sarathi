@@ -29,7 +29,7 @@ Sarathi is engineered, tuned, and validated for this authoritative reference har
 | :--- | :--- | :--- |
 | **Host System** | HP Laptop 15-fd1xxx (Windows 11 x64) | Reference production host. |
 | **CPU** | Intel Core Ultra 5 125H (14 Cores: 4P + 8E + 2LPE, 18 Threads) | **Primary Translation & Logic Host**: Multi-core x86 AVX2/AVX-VNNI neural acceleration. Parallel inference across P-cores. |
-| **GPU** | Intel Graphics (Meteor Lake Arc iGPU, 7 Xe Cores) | **Primary RapidOCR Accelerator**: Dedicated OpenVINO FP16/INT8 OCR inference with persistent shader cache (`Runtime/Cache/openvino_model_cache`). Zero CUDA dependence. |
+| **GPU** | Intel Graphics (Meteor Lake Arc iGPU, 7 Xe Cores, Driver 32.0.101.8508) | **Primary RapidOCR Accelerator**: Dedicated OpenVINO FP16/INT8 OCR inference with persistent shader cache (`Runtime/Cache/openvino_model_cache`). Zero CUDA dependence. |
 | **NPU** | Intel AI Boost (Meteor Lake NPU) | Managed via `yantra.devices` for static workloads. |
 | **RAM** | 24 GB Physical Memory | Concurrent in-memory OCR models and CTranslate2 weights without swapping. Guarded by `MemoryLeaseGuard` (18 GB process ceiling, 3 GB OS minimum headroom) preventing out-of-memory crashes. |
 | **Network** | Air-gapped / Local Loopback | All processing runs 100% locally over `127.0.0.1`. |

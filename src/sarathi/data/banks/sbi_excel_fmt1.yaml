@@ -1,0 +1,62 @@
+profile_id: "sbi_excel_fmt1"
+parent_bank: "sbi"
+bank_name: "State Bank of India"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "sbi"
+  - "state bank of india"
+  - "state bank"
+
+identification_keywords:
+  - "state bank of india"
+  - "sbi"
+  - "sbin"
+  - "cif no"
+
+headers:
+  date:
+    - "post date"
+  value_date:
+    - "value date"
+  reference_number:
+    - "chequeno/reference no"
+    - "cheque no/reference no"
+    - "chequeno/ref no"
+
+date_formats:
+  - "%d-%b-%Y"
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+  - "%d %b %Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Account\s*(?:Number|No\.?)?|A\/c\s*No\.?)\s*[:\-]?\s*([0-9]{11,17})'
+
+layout_signature:
+  header_row:
+    expected: 19
+    tolerance: 5
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - value_date
+      - description
+      - reference_number
+      - debit
+      - credit
+      - balance
+    weight: 3.0

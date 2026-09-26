@@ -440,6 +440,12 @@ class NativeExtractionCapability:
                     )
 
                 dur = max(0, time.perf_counter_ns() - t0)
+                meta_updates = dict(doc.metadata) if doc.metadata else {}
+                if getattr(inp, "display_name", None):
+                    meta_updates["source_name"] = str(inp.display_name)
+                if getattr(inp, "source_path", None):
+                    meta_updates["source_path"] = str(inp.source_path)
+                object.__setattr__(doc, "metadata", meta_updates)
                 extracted_docs.append(doc)
                 all_provenance.extend(provs)
                 all_warnings.extend(warns)

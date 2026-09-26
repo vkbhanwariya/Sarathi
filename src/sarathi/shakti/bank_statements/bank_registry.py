@@ -94,6 +94,8 @@ _IFSC_PREFIX_MAP: Final[dict[str, str]] = {
     "UOVB": "United Overseas Bank Limited",
     "UBSW": "UBS AG",
     "HBNI": "KEB Hana Bank",
+    "JCBL": "Jain Co-operative Bank Limited",
+    "HDFC0CJCBL": "Jain Co-operative Bank Limited",
 }
 
 # Standard Indian banking acronyms and colloquial aliases mapped to canonical names
@@ -145,6 +147,8 @@ _CANONICAL_ALIASES: Final[dict[str, str]] = {
     "yes bank": "YES Bank Limited",
     "federal bank": "Federal Bank Limited",
     "bandhan bank": "Bandhan Bank Limited",
+    "bandhan": "Bandhan Bank Limited",
+    "bdbl": "Bandhan Bank Limited",
     "idbi": "IDBI Bank Limited",
     "idbi bank": "IDBI Bank Limited",
     "au": "Au Small Finance Bank Limited",
@@ -170,6 +174,16 @@ _CANONICAL_ALIASES: Final[dict[str, str]] = {
     "jp morgan": "J.P. Morgan Chase Bank N.A.",
     "jpmorgan": "J.P. Morgan Chase Bank N.A.",
     "j.p. morgan": "J.P. Morgan Chase Bank N.A.",
+    "jain co-operative bank": "Jain Co-operative Bank Limited",
+    "jain cooperative bank": "Jain Co-operative Bank Limited",
+    "jain bank": "Jain Co-operative Bank Limited",
+    "jcbl": "Jain Co-operative Bank Limited",
+    "karnataka bank": "Karnataka Bank Limited",
+    "kbl": "Karnataka Bank Limited",
+    "jammu & kashmir bank": "Jammu & Kashmir Bank Limited",
+    "jammu and kashmir bank": "Jammu & Kashmir Bank Limited",
+    "j&k bank": "Jammu & Kashmir Bank Limited",
+    "jk bank": "Jammu & Kashmir Bank Limited",
 }
 
 
@@ -251,11 +265,13 @@ class BankRegistry:
         Returns:
             Official canonical bank name string, or None if unverified.
         """
-        # 1. Authoritative IFSC prefix
+        # 1. Authoritative IFSC prefix (checking specific sub-clearing codes before 4-letter sponsor codes)
         if ifsc and len(ifsc.strip()) >= 4:
-            prefix = ifsc.strip()[:4].upper()
-            if prefix in _IFSC_PREFIX_MAP:
-                return _IFSC_PREFIX_MAP[prefix]
+            clean_ifsc = ifsc.strip().upper()
+            for length in (10, 8, 6, 4):
+                prefix = clean_ifsc[:length]
+                if prefix in _IFSC_PREFIX_MAP:
+                    return _IFSC_PREFIX_MAP[prefix]
 
         # 2. Exact canonical match on candidate name
         if candidate_name:
@@ -292,15 +308,9 @@ class BankRegistry:
             if m_aubl:
                 return _IFSC_PREFIX_MAP.get("AUBL")
 
-            m_ifsc = re.search(r"\b([A-Z]{4})0[A-Z0-9]{6}\b", text.upper())
-            if m_ifsc:
-                prefix = m_ifsc.group(1)
-                if prefix in _IFSC_PREFIX_MAP:
-                    return _IFSC_PREFIX_MAP[prefix]
-
-        # 3. Document text search
+        # 4. Document text search for canonical bank names (header block up to 5000 chars)
         if text:
-            text_lower = text.lower()
+            text_lower = text[:5000].lower()
 
             # Check multi-word canonical bank names (longer names first for specificity)
             matched_candidates: list[tuple[int, str]] = []
@@ -332,6 +342,15 @@ class BankRegistry:
             if alias_matches:
                 alias_matches.sort(key=lambda x: x[0], reverse=True)
                 return alias_matches[0][1]
+
+        # 5. Fallback: bare unlabeled IFSC in the statement header block (first 1200 chars only)
+        if text and not ifsc:
+            header_text = text[:1200]
+            m_ifsc = re.search(r"\b([A-Z]{4})0[A-Z0-9]{6}\b", header_text.upper())
+            if m_ifsc:
+                prefix = m_ifsc.group(1)
+                if prefix in _IFSC_PREFIX_MAP:
+                    return _IFSC_PREFIX_MAP[prefix]
 
         return None
 

@@ -51,6 +51,77 @@ def validate_transaction(transaction: Transaction) -> tuple[ValidationStatus, tu
     return status, tuple(issues)
 
 
+def _reorder_intraday_by_balance(txns: list[Transaction], initial_bal: Decimal | None) -> list[Transaction]:
+    """Reorder same-date transactions if they can form a continuous running balance chain.
+
+    Many bank CBS systems export same-date transactions grouped by transaction type
+    (e.g., cash withdrawals before electronic transfers) or batch sequence rather than
+    chronological timestamp. If a valid permutation exists that restores
+    prev_balance + credit - debit == running_balance, reorder them to match actual execution.
+    """
+    if not txns or len(txns) <= 1:
+        return txns
+
+    reordered: list[Transaction] = []
+    curr_bal = initial_bal
+    idx = 0
+    while idx < len(txns):
+        dt = txns[idx].transaction_date
+        day_txs: list[Transaction] = []
+        while idx < len(txns) and txns[idx].transaction_date == dt:
+            day_txs.append(txns[idx])
+            idx += 1
+
+        if len(day_txs) <= 1 or curr_bal is None:
+            reordered.extend(day_txs)
+            if day_txs[-1].running_balance is not None:
+                curr_bal = day_txs[-1].running_balance
+            continue
+
+        # Check if already chaining in given order
+        c = curr_bal
+        already_chains = True
+        for t in day_txs:
+            cr = t.credit or Decimal("0")
+            dr = t.debit or Decimal("0")
+            if t.running_balance is not None:
+                if abs((c + cr - dr) - t.running_balance) >= Decimal("0.01"):
+                    already_chains = False
+                    break
+                c = t.running_balance
+            else:
+                c = c + cr - dr
+
+        if already_chains:
+            reordered.extend(day_txs)
+            curr_bal = c
+            continue
+
+        # Try to find a valid chaining permutation for same-day transactions
+        def dfs(bal: Decimal, remaining: list[Transaction]) -> list[Transaction] | None:
+            if not remaining:
+                return []
+            for i, cand in enumerate(remaining):
+                cr = cand.credit or Decimal("0")
+                dr = cand.debit or Decimal("0")
+                if cand.running_balance is not None and abs((bal + cr - dr) - cand.running_balance) < Decimal("0.01"):
+                    sub = dfs(cand.running_balance, remaining[:i] + remaining[i + 1 :])
+                    if sub is not None:
+                        return [cand] + sub
+            return None
+
+        perm = dfs(curr_bal, day_txs) if len(day_txs) <= 12 else None
+        if perm is not None:
+            reordered.extend(perm)
+            curr_bal = perm[-1].running_balance
+        else:
+            reordered.extend(day_txs)
+            if day_txs[-1].running_balance is not None:
+                curr_bal = day_txs[-1].running_balance
+
+    return reordered
+
+
 def validate_statement_balances(statement: BankStatement) -> BankStatement:
     """Validate running balance continuity and statement-level reconciliation."""
     transactions = list(statement.transactions)
@@ -125,6 +196,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
 
     # Validate Running Balance continuity (chronologically)
     ordered_txns = list(reversed(transactions)) if is_reverse else transactions
+    ordered_txns = _reorder_intraday_by_balance(ordered_txns, opening_bal)
 
     # Check for Debit / Credit column inversion across chronological transitions
     canon_matches = 0
@@ -204,33 +276,41 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
 
         if tx.running_balance is not None and prev_balance is not None:
             expected_balance = prev_balance + credit_amt - debit_amt
-            if tx.running_balance != expected_balance:
-                diff = tx.running_balance - expected_balance
-                back_exp = backward_expected[idx]
-                is_isolated = back_exp is not None and tx.running_balance == back_exp
-                context: dict[str, str] = {
-                    "expected": str(expected_balance),
-                    "actual": str(tx.running_balance),
-                    "diff": str(diff),
-                }
-                if is_isolated:
-                    context["isolated_upstream_discontinuity"] = "true"
-                    if idx == 0 and statement.opening_balance is not None:
-                        context["suspected_source"] = "header_opening_balance_ocr"
-
-                issues.append(
-                    ValidationIssue(
-                        code="RUNNING_BALANCE_DISCONTINUITY",
-                        message=(
-                            f"Running balance mismatch at row {idx + 1}: expected {expected_balance}, "
-                            f"got {tx.running_balance} (difference {diff})."
-                        ),
-                        severity="warning",
-                        context=context,
-                    )
+            diff = tx.running_balance - expected_balance
+            if abs(diff) >= Decimal("0.01"):
+                is_repeated_daily_balance = (
+                    idx + 1 < len(ordered_txns)
+                    and ordered_txns[idx + 1].transaction_date == tx.transaction_date
+                    and ordered_txns[idx + 1].running_balance is not None
+                    and tx.running_balance is not None
+                    and abs(ordered_txns[idx + 1].running_balance - tx.running_balance) < Decimal("0.01")
                 )
-                if tx_status == ValidationStatus.VALID:
-                    tx_status = ValidationStatus.WARNING
+                if not is_repeated_daily_balance:
+                    back_exp = backward_expected[idx]
+                    is_isolated = back_exp is not None and abs(tx.running_balance - back_exp) < Decimal("0.01")
+                    context: dict[str, str] = {
+                        "expected": str(expected_balance),
+                        "actual": str(tx.running_balance),
+                        "diff": str(diff),
+                    }
+                    if is_isolated:
+                        context["isolated_upstream_discontinuity"] = "true"
+                        if idx == 0 and statement.opening_balance is not None:
+                            context["suspected_source"] = "header_opening_balance_ocr"
+
+                    issues.append(
+                        ValidationIssue(
+                            code="RUNNING_BALANCE_DISCONTINUITY",
+                            message=(
+                                f"Running balance mismatch at row {idx + 1}: expected {expected_balance}, "
+                                f"got {tx.running_balance} (difference {diff})."
+                            ),
+                            severity="warning",
+                            context=context,
+                        )
+                    )
+                    if tx_status == ValidationStatus.VALID:
+                        tx_status = ValidationStatus.WARNING
 
         if tx.running_balance is not None:
             prev_balance = tx.running_balance
@@ -247,7 +327,7 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
     # Validate Statement Reconciliation: Opening + Credits - Debits == Closing
     if opening_bal is not None and closing_bal is not None:
         expected_closing = opening_bal + total_credits - total_debits
-        if closing_bal != expected_closing:
+        if abs(closing_bal - expected_closing) >= Decimal("0.01"):
             reconcile_diff = closing_bal - expected_closing
             statement_issues.append(
                 ValidationIssue(

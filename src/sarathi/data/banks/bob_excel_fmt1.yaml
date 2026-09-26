@@ -15,8 +15,10 @@ aliases:
   - "baroda"
 
 identification_keywords:
-  - "line balance"
-  - "inst no"
+  - "bank of baroda"
+  - "baroda"
+  - "bob"
+  - "barb"
 
 headers:
   cheque_number:
@@ -32,3 +34,22 @@ signed_amounts: false
 metadata_patterns:
   account_number: '(?:Account\s*(?:No\.?|Number)?)\s*[:\-]?\s*([0-9]{10,20})'
   account_holder: '(?:Account\s*Name|Customer\s*Name)\s*[:\-]?\s*([A-Za-z\s\.]+)'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 0
+    bonus: 1.0
+  column_count:
+    expected: 9
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - cheque_number
+      - description
+      - debit
+      - credit
+      - balance
+    weight: 3.0

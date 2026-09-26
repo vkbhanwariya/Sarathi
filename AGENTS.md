@@ -1,124 +1,85 @@
 # Agent Rules for Sarathi (Streamlined & Authoritative)
 
 Sarathi is a local document-processing application. Prefer direct, modular, maintainable code over framework-like internal architecture.
-
 **Authority:** `AGENTS.md`, `README.md`, and active Vedas docs. Nothing else.
 
 ## Priorities
-
 1. **Modularity** — single responsibility per module; zero duplicate or repeated logic.
 2. Correct and accurate user-visible document processing.
 3. Performance — backed by measurement, not assumption.
 4. Clear ownership and a small mental model.
-5. Reliable focused minimal tests around real behavior; no over testing or audit dumping grounds.
+5. Reliable focused minimal tests around real behavior; no over-testing or audit dumping grounds.
 6. Token & tool efficiency — minimal reads, edits, and tool round-trips satisfying priorities 1–5.
 
-## Primary Hardware Specification & Optimization Target
-
-Sarathi's authoritative reference hardware deployment profile is pinned below.
-**Rule (Primary Hardware First):** All system, threading, concurrency, accelerator, and pipeline optimizations MUST be engineered, tuned, and validated for this primary Sarathi Hardware profile first before considering generic fallback hardware.
-
-| Component | Specification | Deployment Role & Optimization Invariants |
-| :--- | :--- | :--- |
-| **System** | HP Laptop 15-fd1xxx (Windows 11 x64) | Reference production host. |
-| **CPU** | Intel(R) Core(TM) Ultra 5 125H (14 Cores: 4P + 8E + 2LPE, 18 Logical Processors) | **Primary Translation & Logic Host**: Tuned for multi-core x86 AVX2/AVX-VNNI neural acceleration. Compute-intensive inference must never artificially choke on single-core serialization when multi-core throughput is available. |
-| **GPU** | Intel(R) Graphics (Meteor Lake iGPU, 7 Xe Cores, Driver 32.0.101.8508) | **Primary RapidOCR Accelerator**: Dedicated to OpenVINO FP16/INT8 OCR inference with persistent shader cache (`Runtime/Cache/openvino_model_cache`). Not for CUDA. |
-| **NPU** | Intel(R) AI Boost (Meteor Lake NPU) | **OpenVINO NPU Engine**: Probed and managed via `yantra.devices` for static workloads. |
-| **Memory** | 24 GB Physical RAM | Ample memory for concurrent in-memory OCR models and CTranslate2 neural weights without swapping. |
-| **CUDA** | None (0 physical devices) | Translation and OCR pipelines must never depend on or expect NVIDIA CUDA on primary hardware. |
-
-### Optimization Priority Invariants:
-1. **Primary Hardware First**: Maximize throughput across the 14-core Core Ultra 5 125H CPU and Intel Arc iGPU (OpenVINO).
-2. **Generic Hardware Second**: Provide clean fallbacks (e.g. CUDA on external GPU, pure CPU without iGPU) without degrading primary hardware execution.
+## Primary Hardware Invariants
+- **Profile**: Intel Core Ultra 5 125H (CTranslate2 host) + Arc iGPU (OpenVINO OCR, `Runtime/Cache/openvino_model_cache`), 24GB RAM, 0 CUDA. Full specs: `Vedas/README.md`.
+- **Invariants**: (1) Maximize CPU & Arc iGPU throughput first. (2) Clean CPU/CUDA fallback on generic hardware. (3) Zero CUDA dependency on primary host.
 
 ## Subsystem Ownership
-
-| Subsystem | Canonical Ownership |
-| --- | --- |
-| `agni` | Composition and process lifecycle |
-| `sankalpa` | Shared request/result/document contracts |
-| `nabhi` | Physical namespace for Kosh (registry), Manthan (planner), Pravaha (executor), artifact/quarantine |
-| `shakti` | Document-processing capabilities and provider adapters (OCR, translation, banking, font conversion, native extraction) |
-| `yantra` | Execution and device/accelerator resource helpers |
-| `kavacha` | Security authorization and path/privacy checks at real boundaries |
-| `smriti` | Optional result cache |
-| `darpana` | Runtime/quality telemetry events and history |
-| `sutra` | Runtime configuration |
-| `mukha` | Presentation, local web transport, and frontend state |
-| `dosh` | Shared error vocabulary |
-
-*Rule:* `nabhi` is a namespace, not a second decision authority. Never create duplicate registries, planners, execution engines, or device policies.
+`agni` (composition/lifecycle), `sankalpa` (contracts), `nabhi` (namespace: Kosh registry, Manthan planner, Pravaha executor, quarantine), `shakti` (capabilities: OCR, translation, banking, fonts, extraction), `yantra` (execution/accelerators), `kavacha` (security/paths), `smriti` (cache), `darpana` (telemetry/history), `sutra` (config), `mukha` (presentation/web), `dosh` (errors).
+*Rule:* `nabhi` is a physical namespace, not a second decision authority. Never duplicate shared infrastructure.
 
 ## Canonical Architecture & Manifest
-
 - `Vedas/architecture.manifest.json` defines production topology. Code topology and manifest change together.
 - Every top-level subsystem under `src/sarathi` must be in the manifest; its immediate modules appear as `components`.
 - Manifest tests (`pytest -q -m architecture`) must fail if code topology and manifest diverge.
 
 ## Core Rules
-
-1. **Plan before editing (STRICT ZERO-TOUCH GATE).**
-   - **Absolute Invariant**: NEVER call file modification tools (`replace_file_content`, `multi_replace_file_content`, `write_to_file`) on code, data, or configuration files without first presenting the structured **Planning Checklist** and receiving explicit affirmative user approval (e.g., "Proceed", "Approved").
-   - **Clarifications & Feedback Are Not Approval**: User clarifications, constraints, domain notes, or review comments are planning inputs, NOT execution passes. When a user clarifies requirements or provides feedback, update or present the plan and await explicit approval.
-   - **No Implicit or Proactive Editing**: No matter how obvious a fix or clarification seems, editing code before explicit plan approval is a critical process failure.
-2. **Pragmatic ROI & Dependency Discipline.** Prefer direct implementations over framework bloat, but do not reinvent the wheel where specialized libraries provide decisive value:
-   - **Allowed / Encouraged**: Battle-tested, high-performance, mature libraries (e.g. C/Rust-backed accelerators like `rapidfuzz`, `openvino`, `ctranslate2`, or complex domain parsers) where hand-rolling in pure Python would be slow, brittle, or bug-prone.
-   - **Disallowed**: Redundant wrappers, speculative frameworks (e.g. LangChain, heavy ORMs), or micro-libraries for tasks the Python standard library (`re`, `unicodedata`, `xml.etree`, `pathlib`) accomplishes cleanly in ~10–20 lines.
-   - **Check**: Proposals introducing a dependency must show:
-     - What it introduces vs. replaces (dependency footprint, packaging impact on Windows, memory).
-     - Concrete ROI: measurable correctness gain, significant speedup, or elimination of severe maintenance burdens.
-3. **One owner, one path.** Single canonical implementation. Delete superseded managers, contracts, stores, and execution paths in the same change — old and new never coexist.
+1. **Task-Scoped Approval Gate.**
+   - Present the structured **Planning Checklist** before starting a task.
+   - Once explicit approval is given for a task (e.g., "Proceed", "Approved"), work continuously to complete the task end-to-end, including any necessary downstream edits, bug fixes, or test alignments within task scope. Do NOT ask for repeated approval on intermediate steps or fixes required to finish the approved task.
+   - Ask for re-approval ONLY if a major scope change occurs (e.g., touching unrelated subsystems, introducing new architectural components or external dependencies outside the original task scope).
+2. **Pragmatic ROI & Dependency Discipline.** Direct implementations over framework bloat.
+   - *Allowed*: Battle-tested, high-performance C/Rust accelerators (`rapidfuzz`, `openvino`, `ctranslate2`) where standard Python is slow/brittle.
+   - *Disallowed*: Redundant wrappers, speculative frameworks (LangChain, heavy ORMs), or micro-libraries for tasks standard library (`re`, `unicodedata`, `xml.etree`, `pathlib`) handles in ~10–20 lines.
+   - *Check*: Any dependency proposal must prove packaging footprint, memory impact, and concrete ROI.
+3. **One owner, one path.** Single canonical implementation. Delete superseded code in the same change — old and new never coexist.
 4. **Propagate completely.** A change is incomplete until contracts, callers, wiring, serializers, and tests agree.
 5. **Preserve state across paths.** Fresh run, cache hit, retry, and serialize/deserialize must yield identical results.
-6. **Respect subsystem ownership.** Plan in Manthan, execute in Pravaha, manage resources in Yantra, authorize in Kavacha, record in Darpana. Capabilities never duplicate shared infrastructure.
-7. **Fail safe, stay honest.** Validate inputs fail-closed. Never leak document content, paths, or secrets. Never invent fake defaults, confidence, or availability.
-8. **Tests follow architecture, not the reverse.** Fix tests contradicting architecture, never weaken production invariants.
+6. **Respect subsystem ownership.** Plan in Manthan, execute in Pravaha, manage resources in Yantra, authorize in Kavacha, record in Darpana.
+7. **Fail safe, stay honest.** Validate inputs fail-closed. Never leak content, paths, or secrets. Never invent fake defaults, confidence, or availability.
+8. **Tests follow architecture, not the reverse.** Fix tests contradicting architecture; never weaken production invariants.
 9. **No fake success.** "Done" requires actual execution and verification.
-10. **Communication & Language Invariant.** Always communicate with the user in Simple English or Hinglish (Latin alphabet). Strictly avoid pure Hindi scripts (Devanagari) to maintain concise, sharp, token-efficient technical clarity.
-
+10. **Communication & Language Invariant.** Communicate in Simple English or Hinglish (Latin alphabet). Strictly avoid Devanagari script in chat/commit messages (applies to agent dialogue only — never restricts code, test fixtures, translation dictionaries, or document content). Be specific, crisp, and concise — avoid conversational verbosity, filler, or boilerplate.
 
 ## Fast Validation & Tool Efficiency
-
 ### 1. Compound Pre-Commit Fast Gate
-Before every commit, execute the compound check to validate compilation, lint, and formatting in a single tool turn:
+Execute in a single tool turn before every commit:
 ```powershell
 uv run python -m compileall -q src tests tools; uv run ruff check .; git diff --check; git diff --cached --check
 ```
 
 ### 2. Test Execution Ladder ("Test Impact, Not Anxiety")
-Run scoped tests during development; full suite only at milestones:
+Run scoped tests with `-qq --tb=line` to prevent context token bloat:
+- **Focused unit / fix**: `uv run --group dev pytest <path> -x -qq --tb=line`
+- **Subsystem**: `uv run --group dev pytest tests/<subsystem>/ -qq --tb=line`
+- **Architecture Gate**: `uv run --group dev pytest -q -m architecture --tb=line`
+- **Milestone / Full Suite**: `uv run --group dev pytest -qq --tb=line`
+- **Heavy Model Pipelines**: `uv run --group dev pytest -m real_model -qq --tb=line`
+- **On failure**: Fix defect → re-run with `-x` → run file → run subsystem. Never create catch-all audit dump files (e.g. `test_*_resilience.py`).
 
-| Scope of Change | Command |
-| :--- | :--- |
-| **Focused fix / unit** | `uv run --group dev pytest <path> -x -q` (fail fast on first error) |
-| **Subsystem / Capability** | `uv run --group dev pytest tests/<subsystem>/ -q` |
-| **Architecture Gate** | `uv run --group dev pytest -q -m architecture` (instant ~1.4s) |
-| **Milestone / Full Suite** | `uv run --group dev pytest` (fast deterministic suite, ~44s; or ~25s excluding architecture) |
-| **Heavy Model Pipelines** | `uv run --group dev pytest -m real_model` (run only when changing neural OCR/models) |
-
-- **On failure:** Fix defect → re-run failing test with `-x` → run file → run subsystem → full suite at milestone.
-- **Anti-overtesting:** Never create catch-all audit dump files (`test_*_resilience.py`, `test_*_integrity.py`). All tests belong to their canonical subsystem owner.
-- **Reporting:** Keep a plain ledger: PASS / NOT RUN / SKIPPED. Never claim "all tests passed" unless verified on the exact tree.
-
-### 3. Context & Token Discipline
-- View target lines (~10–50 lines around error/symbol), never whole large files.
-- Batch search and discovery tool calls.
-- Never poll task status in a loop; resume reactively from notifications.
-- New files/folders require explicit approval first.
+### 3. Context & Tool Output Discipline
+- **Tight File Views**: View only target lines (10–30 lines around error/symbol). Never view whole files.
+- **Localized Edits**: Modify only targeted line chunks. Never rewrite whole files.
+- **Discovery Searches**: Use non-verbose / name-only searches when locating files; target exact identifiers.
+- **Compact Git Checks & Commits**: Use `git status -s` and `git diff --stat`; write concise single-line commits.
+- **Output Suppression & Script Truncation**: Cap noisy commands (e.g. `git log -n 5`, `Select-Object -First 20`); slice diagnostic script output (`[:5]`), never dump full dicts.
+- **Zero Debug Prints & Execution Chatter**: Never add debug `print()` statements in code; report outcomes directly without step narration or conversational filler.
+- **Zero-Artifact Discipline**: Deliver plans and updates directly in chat; never create redundant markdown files.
+- **Batch Operations**: Run parallel discovery calls in a single turn.
+- **Zero Polling**: Await reactive task notifications; never poll status in a loop.
+- **Editor & Session Hygiene**: Keep unused IDE tabs closed to avoid implicit context bloat; use `/compact` on long chats.
+- **New Files**: Require explicit user approval before adding files not in the approved plan.
 
 ## Planning Checklist & Approval Gate
-
 ### Mandatory Checklist
 Every implementation plan presented to the user MUST contain:
-1. **Objective & Canonical Owner**: Exactly what is being solved and which subsystem canonically owns it.
-2. **Mandatory Overengineering & ROI Assessment**: Direct vs. speculative logic check; justification for every touched path.
-3. **Files to Change / Delete / Add**: Explicit list of files (new files require explicit approval).
-4. **Affected Contracts, Callers, and Call Paths**: Upstream/downstream impact analysis.
-5. **Scoped Test Plan**: Commands to be run following the Test Execution Ladder.
-6. **Explicitly Excluded Scope**: Boundaries to prevent scope creep.
+1. **Objective**: Problem statement and intent in short.
+2. **Overengineering & ROI Assessment**: Direct vs. speculative check in crisp, simple language.
+3. **Files to Touch**: Explicit list of files to change, add, or delete in brief.
+4. **Scoped Test Plan**: Concrete test command(s) to verify the change.
 
-### Strict Approval Rule
-After presenting the checklist, the agent MUST STOP and yield the turn:
-- **DO NOT** edit files in the same turn as presenting the plan.
-- **DO NOT** assume approval from clarifications, questions, or review comments.
-- **WAIT** for the user's explicit affirmative approval (e.g., "Proceed", "Approved") before calling any editing tool.
+### Approval & Execution Flow
+- After presenting the checklist, STOP and wait for initial task approval (e.g., "Proceed", "Approved").
+- Once approved, proceed with full end-to-end execution, bug fixes, and verification until the task is complete. No repeated approvals needed for changes within task scope.
+- Ask for re-approval only if a change is major and goes outside the approved task scope.

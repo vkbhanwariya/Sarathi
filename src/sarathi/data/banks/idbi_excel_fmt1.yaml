@@ -1,43 +1,57 @@
-profile_id: "boi_excel_fmt1"
-parent_bank: "boi"
-bank_name: "Bank of India"
+profile_id: "idbi_excel_fmt1"
+parent_bank: "idbi"
+bank_name: "IDBI Bank Limited"
 container_format: "excel"
 layout_variant: "fmt1"
 
 file_format:
   declared_extension: ".xlsx"
-  actual_hidden_format: "openxml_spreadsheet (True PKZip/OpenXML package)."
+  actual_hidden_format: "openxml_spreadsheet"
   mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  magic_bytes: "504B0304 (PK\\x03\\x04)"
 
 aliases:
-  - "bank of india"
-  - "bank of india statement"
+  - "idbi"
+  - "idbi bank"
+  - "idbi bank limited"
 
 identification_keywords:
-  - "bank of india"
-  - "boi"
-  - "bkid"
+  - "idbi bank"
+  - "idbi bank limited"
+  - "idbi"
+  - "ibkl"
+  - "sol_id"
+  - "schm_type"
+  - "pan_gir_num"
 
 headers:
   date:
-    - "tran_date"
+    - "transaction_date"
   reference_number:
     - "tran_id"
+  posting_date:
+    - "pstd_date"
   cheque_number:
     - "instrmnt_num"
   description:
-    - "tran_particular"
+    - "narration"
+    - "tran_particular_2"
+    - "tran_rmks"
+  debit:
+    - "debit"
+  credit:
+    - "credit"
+  balance:
+    - "line_balance"
 
 date_formats:
+  - "%Y-%m-%d"
   - "%d-%m-%Y"
   - "%d/%m/%Y"
 
 signed_amounts: false
 
 metadata_patterns:
-  account_number: '(?:Account\s*(?:No\.?|Number)?|ACC_NO)\s*[:\-]?\s*([0-9]{10,20})'
-  account_holder: '(?:ACCT_NAME|Account\s*Holder)\s*[:\-]?\s*([A-Za-z\s\.]+)'
+  account_number: '(?:ACCOUNT_NO|Account\s*No)\s*[:\-]?\s*([0-9]{10,20})'
 
 layout_signature:
   header_row:
@@ -45,13 +59,14 @@ layout_signature:
     tolerance: 0
     bonus: 1.0
   column_count:
-    expected: 14
+    expected: 23
     tolerance: 0
     bonus: 2.0
   sequence:
     expected:
-      - reference_number
       - date
+      - reference_number
+      - posting_date
       - cheque_number
       - description
       - debit

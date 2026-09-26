@@ -20,9 +20,9 @@ aliases:
 identification_keywords:
   - "axis"
   - "axis bank"
+  - "axis bank limited"
   - "axisbank"
   - "utib"
-  - "statement of account no"
 
 headers:
   date:
@@ -53,3 +53,22 @@ metadata_patterns:
   account_holder: 'Name\s*[:\-]+\s*([A-Za-z\s\.]+?)(?:\r?\n|Joint|\s{2,})'
   period_start: 'From\s*:\s*(\d{2}-\d{2}-\d{4})'
   period_end: 'To\s*:\s*(\d{2}-\d{2}-\d{4})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 0
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - cheque_number
+      - description
+      - debit
+      - credit
+      - balance
+    weight: 3.0

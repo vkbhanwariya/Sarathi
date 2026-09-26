@@ -311,7 +311,10 @@ class BankStatementCapability:
                 dedup_res = deduplicate_transactions(raw_txns)
 
             final_account_identity = detection.account_identity
-            if final_account_identity is not None and final_account_identity.bank_name != final_bank_name:
+            if final_account_identity is not None and (
+                final_account_identity.bank_name != final_bank_name
+                or final_account_identity.bank_profile != final_profile
+            ):
                 final_account_identity = replace(
                     final_account_identity,
                     bank_name=final_bank_name,
@@ -401,6 +404,9 @@ class BankStatementCapability:
                         )
                     )
             else:
+                effective_close_bal = close_bal
+                if not dedup_res.unique_transactions and open_bal is not None and effective_close_bal is None:
+                    effective_close_bal = open_bal
                 statement = validate_statement_balances(
                     BankStatement(
                         statement_id=doc_stmt_id,
@@ -412,7 +418,7 @@ class BankStatementCapability:
                         account_holder=final_account_identity.account_holder if final_account_identity else None,
                         account_type=final_account_identity.account_type if final_account_identity else None,
                         opening_balance=open_bal,
-                        closing_balance=close_bal,
+                        closing_balance=effective_close_bal,
                         transactions=dedup_res.unique_transactions,
                         issues=tuple(doc_issues),
                         provenance=doc_prov,
@@ -626,9 +632,12 @@ class BankStatementCapability:
                 for c_i, h in enumerate(hdr_cells):
                     h_clean = str(h).strip().lower()
                     if not tbl_account_number and re.search(r"\b(?:account|ac|acc)[_\s]*(?:no|num|number)?\b", h_clean):
-                        cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
-                        if re.match(r"^[A-Za-z0-9]{8,24}$", cell_val):
-                            tbl_account_number = cell_val
+                        for r_item in data_rows[:5]:
+                            if c_i < len(r_item) and r_item[c_i] is not None:
+                                cell_val = str(r_item[c_i]).strip().strip('"\'')
+                                if re.match(r"^[A-Za-z0-9]{8,24}$", cell_val) and not cell_val.lower().startswith("elapsed"):
+                                    tbl_account_number = cell_val
+                                    break
                     elif not tbl_account_holder and re.search(r"\b(?:acct[_\s]*name|account[_\s]*name|holder[_\s]*name|customer[_\s]*name)\b", h_clean):
                         cell_val = str(data_rows[0][c_i]).strip().strip('"\'')
                         if cell_val and len(cell_val) >= 3 and not cell_val.isdigit():
@@ -656,17 +665,34 @@ class BankStatementCapability:
                 )
 
             resolved_prof, best_mappings, map_score = self._mapper.resolve_best_profile(
-                hdr_cells, candidate_profile=profile_id, sample_rows=sample_rows
+                hdr_cells,
+                candidate_profile=profile_id,
+                candidate_bank=bank_name if bank_name and bank_name != "Unknown Bank" else None,
+                sample_rows=sample_rows,
+                header_row_index=hdr_idx,
             )
             if map_score > best_header_score:
                 best_header_score = map_score
             if resolved_prof and resolved_prof != profile_id:
                 active_profile = self._profiles.get(resolved_prof, {})
                 has_signed_semantics = bool(active_profile.get("signed_amounts", False))
+                prof_bank_name = active_profile.get("bank_name")
+                if prof_bank_name and (not bank_name or bank_name == "Unknown Bank"):
+                    bank_name = prof_bank_name
                 if metadata is not None:
                     metadata["resolved_profile"] = resolved_prof
+                if tbl_identity is not None:
+                    tbl_identity = create_account_identity(
+                        bank_name=bank_name or tbl_identity.bank_name,
+                        raw_account_number=tbl_account_number or tbl_identity.masked_account_number,
+                        account_holder=tbl_account_holder or tbl_identity.account_holder,
+                        bank_profile=resolved_prof,
+                        account_type=tbl_account_type or tbl_identity.account_type,
+                        ifsc=tbl_identity.ifsc,
+                    )
 
             prof_date_formats = tuple(active_profile.get("date_formats") or ())
+            has_negative_debits = bool(active_profile.get("negative_debits", False))
 
             mappings = {m.canonical_field: m.column_index for m in best_mappings}
             d_col, desc_col = mappings.get("date"), mappings.get("description")
@@ -675,6 +701,7 @@ class BankStatementCapability:
             dr_col, cr_col = mappings.get("debit"), mappings.get("credit")
             amt_col, dir_col = mappings.get("amount"), mappings.get("direction")
             b_col = mappings.get("balance")
+            b_before_col = mappings.get("balance_before")
             ref_col, chq_col = mappings.get("reference_number"), mappings.get("cheque_number")
             ref_source_header = next(
                 (m.source_header for m in best_mappings if m.canonical_field == "reference_number"), ""
@@ -695,9 +722,16 @@ class BankStatementCapability:
 
             amt_indices = [c for c in (dr_col, cr_col, amt_col, b_col) if c is not None]
             table_txns: list[Transaction] = []
+            table_has_ended = False
 
             for row_idx, row in enumerate(data_rows, start=1):
                 row_cells = [str(c) if c is not None else "" for c in row]
+                row_text = " ".join(row_cells).lower()
+                if any(k in row_text for k in ("end of statement", "end of the statement", "statement summary")):
+                    table_has_ended = True
+                    continue
+                if table_has_ended:
+                    continue
                 match classify_row(
                     row_cells,
                     date_col_idx=d_col,
@@ -717,6 +751,7 @@ class BankStatementCapability:
                             close_bal = parsed_close
                             if tbl_identity and tbl_identity.account_fingerprint:
                                 boundaries_by_acc.setdefault(tbl_identity.account_fingerprint, {})["closing"] = parsed_close
+                        table_has_ended = True
                     case RowType.EOD_BALANCE:
                         eod_date = parse_date(_get_raw_cell(row, d_col), formats=prof_date_formats)
                         eod_bal = parse_balance_amount(_get_raw_cell(row, b_col))
@@ -764,6 +799,10 @@ class BankStatementCapability:
                             isinstance(raw_date_val, str)
                             and (not raw_date_val.strip() or raw_date_val.strip().lower() in _BLANK_DATE_MARKERS)
                         )
+                        desc_text = _get_cell(row_cells, desc_col) or ""
+                        if is_blank_date and not desc_text.strip():
+                            continue
+
                         # Inherit date from previous transaction ONLY if date cell is blank/continuation and within the same table
                         if tx_date is None and is_blank_date and table_txns:
                             tx_date = table_txns[-1].transaction_date
@@ -802,19 +841,36 @@ class BankStatementCapability:
                             else (tx_date if date_supplied == "posting_date" else None)
                         )
 
-                        tx_debit = parse_decimal_amount(_get_raw_cell(row, dr_col))
-                        if tx_debit is not None and tx_debit == Decimal("0"):
-                            tx_debit = None
-                        elif tx_debit is not None:
-                            tx_debit = abs(tx_debit)
+                        parsed_dr = parse_decimal_amount(_get_raw_cell(row, dr_col))
+                        parsed_cr = parse_decimal_amount(_get_raw_cell(row, cr_col))
+                        tx_debit: Decimal | None = None
+                        tx_credit: Decimal | None = None
 
-                        tx_credit = parse_decimal_amount(_get_raw_cell(row, cr_col))
-                        if tx_credit is not None and tx_credit == Decimal("0"):
-                            tx_credit = None
-                        elif tx_credit is not None:
-                            tx_credit = abs(tx_credit)
+                        if dr_col is not None and cr_col is not None and dr_col == cr_col:
+                            if parsed_dr is not None and parsed_dr != Decimal("0"):
+                                if parsed_dr < Decimal("0"):
+                                    tx_debit = abs(parsed_dr)
+                                else:
+                                    tx_credit = abs(parsed_dr)
+                        else:
+                            if parsed_dr is not None and parsed_dr != Decimal("0"):
+                                if parsed_dr < Decimal("0") and not has_negative_debits:
+                                    tx_credit = abs(parsed_dr)
+                                else:
+                                    tx_debit = abs(parsed_dr)
+                            if parsed_cr is not None and parsed_cr != Decimal("0"):
+                                if parsed_cr < Decimal("0"):
+                                    tx_debit = abs(parsed_cr)
+                                else:
+                                    tx_credit = abs(parsed_cr)
 
                         tx_bal = parse_balance_amount(_get_raw_cell(row, b_col))
+                        if b_before_col is not None:
+                            parsed_before = parse_balance_amount(_get_raw_cell(row, b_before_col))
+                            if open_bal is None and parsed_before is not None and not table_txns:
+                                open_bal = parsed_before
+                            if parsed_before is not None:
+                                tx_bal = parsed_before + (tx_credit or Decimal("0")) - (tx_debit or Decimal("0"))
 
                         # Handle single amount column with strict explicit direction or signed semantics
                         if tx_debit is None and tx_credit is None and amt_col is not None:
@@ -843,6 +899,15 @@ class BankStatementCapability:
                         tx_status = ValidationStatus.VALID
                         tx_issues: list[ValidationIssue] = []
                         if tx_debit is None and tx_credit is None:
+                            desc_raw = _get_cell(row_cells, desc_col) or ""
+                            desc_clean = desc_raw.strip().lower()
+                            if any(
+                                desc_clean.startswith(prefix)
+                                for prefix in ("b/f", "brought forward", "brought forword", "opening balance", "open bal")
+                            ) or desc_clean in ("b/f ...", "b/f", "opening balance"):
+                                if tx_bal is not None and not table_txns:
+                                    open_bal = tx_bal
+                                continue
                             tx_status = ValidationStatus.INVALID
                             is_both_blank = dr_col is not None or cr_col is not None
                             err_code = "BOTH_AMOUNTS_BLANK" if is_both_blank else "MISSING_AMOUNT"
@@ -953,7 +1018,10 @@ class BankStatementCapability:
             if summary_rows:
                 metadata["summary_rows"] = tuple(summary_rows)
 
-        patterns = active_profile.get("metadata_patterns", {}) or self._common_config.get("metadata_patterns", {})
+        patterns = {
+            **self._common_config.get("metadata_patterns", {}),
+            **active_profile.get("metadata_patterns", {}),
+        }
         if patterns:
             search_target = doc.text + " " + " ".join(p.text for p in doc.pages if p.text)
             if open_bal is None and "opening_balance" in patterns:
@@ -981,7 +1049,7 @@ def _get_raw_cell(row: Sequence[Any], idx: int | None) -> Any:
     if val is None:
         return None
     if isinstance(val, str):
-        s = val.strip()
+        s = val.replace("\x00", "").strip()
         return s if s else None
     return val
 
@@ -990,5 +1058,5 @@ def _get_cell(cells: Sequence[str], idx: int | None) -> str | None:
     """Safely get a cell value by index, returning None if out of range or empty."""
     if idx is None or idx < 0 or idx >= len(cells):
         return None
-    val = cells[idx].strip()
+    val = str(cells[idx]).replace("\x00", "").strip()
     return val if val else None

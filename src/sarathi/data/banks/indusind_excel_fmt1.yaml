@@ -1,0 +1,67 @@
+profile_id: "indusind_excel_fmt1"
+parent_bank: "indusind"
+bank_name: "IndusInd Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet"
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+aliases:
+  - "indusind"
+  - "indusind bank"
+  - "indusind bank limited"
+
+identification_keywords:
+  - "indusind"
+  - "indusind bank"
+  - "indusind bank limited"
+  - "indb"
+
+headers:
+  date:
+    - "tran date"
+  value_date:
+    - "value date"
+  description:
+    - "tran particular"
+  cheque_number:
+    - "instrument no"
+  debit:
+    - "debit amount"
+  credit:
+    - "credit amount"
+  balance:
+    - "balance amount"
+
+date_formats:
+  - "%Y-%m-%d"
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:ACCOUNT\s*NO\.?|Account\s*No)\s*[:\-]?\s*([0-9]{12,18})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 0
+    bonus: 1.0
+  column_count:
+    expected: 9
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - value_date
+      - description
+      - cheque_number
+      - debit
+      - credit
+      - balance
+    weight: 3.0

@@ -1,0 +1,74 @@
+profile_id: "kotak_excel_fmt1"
+parent_bank: "kotak"
+bank_name: "Kotak Mahindra Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet"
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+aliases:
+  - "kotak"
+  - "kotak bank"
+  - "kotak mahindra bank"
+  - "kotak mahindra bank limited"
+
+identification_keywords:
+  - "kotak mahindra bank"
+  - "kotak mahindra bank limited"
+  - "kotak bank"
+  - "kotak"
+  - "kmbl"
+  - "kkbk"
+  - "crn cif"
+
+headers:
+  date:
+    - "txn date"
+  direction:
+    - "dr cr"
+  amount:
+    - "amount"
+  balance:
+    - "available balance"
+    - "eod balance"
+  description:
+    - "txn particulars"
+    - "txn remarks"
+  reference_number:
+    - "ref number"
+  cheque_number:
+    - "chq no"
+    - "chq no "
+
+date_formats:
+  - "%Y-%m-%d"
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: true
+
+metadata_patterns:
+  account_number: '(?:Account\s*No|2046)\s*[:\-]?\s*([0-9]{10})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 10
+    bonus: 1.0
+  column_count:
+    expected: 16
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - direction
+      - amount
+      - balance
+      - description
+      - reference_number
+      - cheque_number
+    weight: 3.0

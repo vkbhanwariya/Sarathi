@@ -16,8 +16,8 @@ def registry() -> BankRegistry:
 
 def test_registry_loads_all_158_canonical_banks(registry: BankRegistry) -> None:
     """Registry must load all 158 RBI-recognized Indian banks from banks_catalog.json."""
-    assert registry.total_banks == 158
-    assert len(registry.canonical_names) == 158
+    assert registry.total_banks == 159
+    assert len(registry.canonical_names) == 159
     assert "State Bank of India" in registry.canonical_names
     assert "HDFC Bank Limited" in registry.canonical_names
     assert "ICICI Bank Limited" in registry.canonical_names

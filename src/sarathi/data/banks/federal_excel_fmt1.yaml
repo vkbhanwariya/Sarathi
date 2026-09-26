@@ -1,0 +1,62 @@
+profile_id: "federal_excel_fmt1"
+parent_bank: "federal"
+bank_name: "Federal Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet"
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+aliases:
+  - "federal bank"
+  - "federal bank limited"
+  - "federal"
+  - "fbl"
+
+identification_keywords:
+  - "federal bank"
+  - "federal bank limited"
+  - "federal"
+  - "fdrl"
+
+headers:
+  date:
+    - "tran date"
+  value_date:
+    - "value date"
+  reference_number:
+    - "tran id"
+    - "tran rmks"
+  description:
+    - "tran particular"
+    - "tran particular 2"
+
+date_formats:
+  - "%Y-%m-%d"
+  - "%d-%m-%Y"
+
+metadata_patterns:
+  account_number: '(?:ACCOUNT\s*[:\-]?\s*)?([0-9]{14})'
+  account_holder: '(?:ACCT\s*NAME\s*[:\-]?\s*)([A-Za-z\s]+)'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 1
+    bonus: 1.0
+  column_count:
+    expected: 14
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - reference_number
+      - date
+      - value_date
+      - debit
+      - credit
+      - balance
+      - description
+    weight: 3.0

@@ -128,7 +128,16 @@ def detect_bank_statement(
         if p.text:
             table_texts.append(p.text)
 
+    src_hint = (
+        str(document.metadata.get("source_name", ""))
+        + " "
+        + str(document.metadata.get("source_path", ""))
+        + " "
+        + str(document.document_id or "")
+    ).strip()
     composite_raw = document.text + " " + " ".join(table_texts)
+    if src_hint:
+        composite_raw = composite_raw + " " + src_hint
     full_text = composite_raw.lower()
 
     # 1. Check for negative non-bank indicators
@@ -195,7 +204,26 @@ def detect_bank_statement(
     raw_acc_holder: str | None = None
     raw_ifsc: str | None = None
 
-    top_candidates: list[tuple[float, str, str, str | None, str | None, str | None, list[str]]] = []
+    # Collect all table header and cell strings from first 20 rows of all tables
+    table_cell_tokens: set[str] = set()
+    table_col_counts: set[int] = set()
+    for t in all_tables:
+        if t.headers:
+            table_col_counts.add(len(t.headers))
+            for h in t.headers:
+                if h is not None:
+                    h_str = str(h).strip().lower()
+                    if h_str:
+                        table_cell_tokens.add(h_str)
+        for r in t.rows[:20]:
+            table_col_counts.add(len(r))
+            for c in r:
+                if c is not None:
+                    c_str = str(c).strip().lower()
+                    if c_str:
+                        table_cell_tokens.add(c_str)
+
+    all_candidates: list[dict[str, Any]] = []
 
     for prof in profiles:
         prof_id = prof.get("profile_id", "")
@@ -203,7 +231,7 @@ def detect_bank_statement(
         parent_bank = prof.get("parent_bank", prof_id)
         prof_container = prof.get("container_format", "").lower()
         doc_type = (document.detected_type or "").lower()
-        if doc_type in ("xlsx", "xls"):
+        if doc_type in ("xlsx", "xls", "xls_legacy", "html_table", "xml"):
             doc_type = "excel"
         elif doc_type in ("csv", "csv_or_text", "tsv", "delimited"):
             doc_type = "csv"
@@ -225,15 +253,38 @@ def detect_bank_statement(
             else:
                 if kw_clean in full_text:
                     matches.append(kw)
+
+        # Check table header role matches
+        prof_headers = prof.get("headers", {})
+        matched_header_roles = 0
+        for _role, synonyms in prof_headers.items():
+            if any(str(syn).strip().lower() in table_cell_tokens for syn in synonyms):
+                matched_header_roles += 1
+
+        # Check column count
+        col_count_matched = False
+        sig = prof.get("layout_signature", {})
+        exp_cols = sig.get("column_count", {}).get("expected")
+        if exp_cols and exp_cols in table_col_counts:
+            col_count_matched = True
+
         if not matches:
             continue
 
-        cand_score = min(0.4, 0.15 * len(matches))
+        cand_score = 0.1 * len(matches)
         cand_reasons = [f"Matched bank profile '{prof_id}' ({bank_name}) on keywords {matches[:4]}."]
 
         if prof_container and doc_type and prof_container == doc_type:
-            cand_score += 0.25
+            cand_score += 0.2
             cand_reasons.append(f"Matched container format '{doc_type}'.")
+
+        if matched_header_roles > 0:
+            cand_score += 0.12 * matched_header_roles
+            cand_reasons.append(f"Matched {matched_header_roles} table header column definitions.")
+
+        if col_count_matched:
+            cand_score += 0.1
+            cand_reasons.append(f"Matched expected column count {exp_cols}.")
 
         patterns = prof.get("metadata_patterns", {})
         search_target = composite_raw if composite_raw.strip() else document.text
@@ -243,7 +294,7 @@ def detect_bank_statement(
             m_acc = re.search(patterns["account_number"], search_target, re.IGNORECASE)
             if m_acc:
                 m_acc_val = m_acc.group(1).strip()
-                cand_score += 0.2
+                cand_score += 0.25
                 cand_reasons.append("Extracted account number pattern.")
 
         m_holder_val: str | None = None
@@ -262,59 +313,78 @@ def detect_bank_statement(
                 cand_score += 0.1
                 cand_reasons.append(f"Extracted IFSC pattern: {m_ifsc_val}")
 
-        cand_tuple = (cand_score, prof_id, bank_name, m_acc_val, m_holder_val, m_ifsc_val, cand_reasons, parent_bank)
-        if not top_candidates or cand_score > top_candidates[0][0]:
-            top_candidates = [cand_tuple]
-        elif cand_score == top_candidates[0][0]:
-            top_candidates.append(cand_tuple)
+        all_candidates.append({
+            "score": round(cand_score, 3),
+            "profile_id": prof_id,
+            "bank_name": bank_name,
+            "parent_bank": parent_bank,
+            "acc_num": m_acc_val,
+            "acc_holder": m_holder_val,
+            "ifsc": m_ifsc_val,
+            "reasons": cand_reasons,
+            "matched_header_roles": matched_header_roles,
+            "matches_count": len(matches),
+        })
 
-    if top_candidates:
-        if len(top_candidates) == 1:
-            cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons, _ = (
-                top_candidates[0]
-            )
-            score += cand_score
-            reasons.extend(cand_reasons)
+    if all_candidates:
+        all_candidates.sort(
+            key=lambda c: (
+                c["score"],
+                c["matched_header_roles"],
+                1 if c["acc_num"] else 0,
+                c["matches_count"],
+            ),
+            reverse=True,
+        )
+        best = all_candidates[0]
+        # Check if there is an exact tie with a competing candidate of a different parent bank
+        competing_ties = [
+            c
+            for c in all_candidates[1:]
+            if c["score"] == best["score"]
+            and c["matched_header_roles"] == best["matched_header_roles"]
+            and (bool(c["acc_num"]) == bool(best["acc_num"]))
+            and c["parent_bank"] != best["parent_bank"]
+        ]
+        if not competing_ties:
+            score += best["score"]
+            matched_profile_id = best["profile_id"]
+            matched_bank_name = best["bank_name"]
+            raw_acc_num = best["acc_num"]
+            raw_acc_holder = best["acc_holder"]
+            raw_ifsc = best["ifsc"]
+            reasons.extend(best["reasons"])
         else:
-            parent_banks = {c[7] for c in top_candidates}
-            if len(parent_banks) == 1:
-                cand_score, matched_profile_id, matched_bank_name, raw_acc_num, raw_acc_holder, raw_ifsc, cand_reasons, _ = (
-                    top_candidates[0]
-                )
-                score += cand_score
-                reasons.extend(cand_reasons)
-            else:
-                # Exact tie between competing profiles of different banks: mark ambiguous, default to generic
-                tied_names = [c[1] for c in top_candidates]
-                cand_score = top_candidates[0][0]
-                matched_profile_id = "generic"
-                matched_bank_name = None
-                score += cand_score
-                reasons.append(
-                    f"Ambiguous bank profiles with identical evidence score ({cand_score:.2f}): {tied_names}. Defaulted to generic profile."
-                )
+            # Exact tie between competing profiles of different banks
+            tied_names = [best["profile_id"]] + [c["profile_id"] for c in competing_ties]
+            cand_score = best["score"]
+            matched_profile_id = "generic"
+            matched_bank_name = None
+            score += cand_score
+            reasons.append(
+                f"Ambiguous bank profiles with identical evidence score ({cand_score:.2f}): {tied_names}. Defaulted to generic profile."
+            )
 
     if score >= 0.5 and matched_profile_id is None:
         matched_profile_id = "generic"
         matched_bank_name = None
 
     target_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
-    if matched_profile_id == "generic" and raw_acc_num is None:
-        common_cfg = load_bank_profile_yaml(target_dir / "common.yaml")
-        gen_patterns = common_cfg.get("metadata_patterns", {})
-        search_target = composite_raw if composite_raw.strip() else document.text
-        if "account_number" in gen_patterns:
-            m_acc = re.search(gen_patterns["account_number"], search_target, re.IGNORECASE)
-            if m_acc:
-                raw_acc_num = m_acc.group(1).strip()
-        if "account_holder" in gen_patterns:
-            m_holder = re.search(gen_patterns["account_holder"], search_target, re.IGNORECASE)
-            if m_holder:
-                raw_acc_holder = m_holder.group(1).strip()
-        if "ifsc" in gen_patterns:
-            m_ifsc = re.search(gen_patterns["ifsc"], search_target, re.IGNORECASE)
-            if m_ifsc:
-                raw_ifsc = m_ifsc.group(1).strip()
+    common_cfg = load_bank_profile_yaml(target_dir / "common.yaml")
+    gen_patterns = common_cfg.get("metadata_patterns", {})
+    search_target = composite_raw if composite_raw.strip() else document.text
+    if raw_acc_num is None and "account_number" in gen_patterns:
+        m_acc = re.search(gen_patterns["account_number"], search_target, re.IGNORECASE)
+        if m_acc:
+            raw_acc_num = m_acc.group(1).strip()
+    if raw_acc_holder is None and "account_holder" in gen_patterns:
+        m_holder = re.search(gen_patterns["account_holder"], search_target, re.IGNORECASE)
+        if m_holder:
+            raw_acc_holder = m_holder.group(1).strip()
+    if raw_ifsc is None and "ifsc" in gen_patterns:
+        m_ifsc = re.search(gen_patterns["ifsc"], search_target, re.IGNORECASE)
+        if m_ifsc:
+            raw_ifsc = m_ifsc.group(1).strip()
 
     # Resolve bank name strictly against the official Indian bank registry
     catalog_path = target_dir / "banks_catalog.json"

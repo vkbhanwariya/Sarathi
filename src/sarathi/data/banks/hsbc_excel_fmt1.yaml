@@ -1,0 +1,67 @@
+profile_id: "hsbc_excel_fmt1"
+parent_bank: "hsbc"
+bank_name: "Hong Kong and Shanghai Banking Corporation Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet"
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+aliases:
+  - "hsbc"
+  - "hsbc bank"
+  - "the hongkong and shanghai banking corporation limited"
+  - "hongkong and shanghai banking corporation"
+
+identification_keywords:
+  - "hsbc"
+  - "hsbc bank"
+  - "the hongkong and shanghai banking corporation limited"
+  - "hongkong and shanghai banking corporation"
+
+headers:
+  date:
+    - "capture date"
+  time:
+    - "capture time"
+  debit:
+    - "debit amount"
+  credit:
+    - "credit amount"
+  balance_before:
+    - "ledger balance before the transaction"
+  cheque_number:
+    - "cheque_no"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%Y-%m-%d"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+negative_debits: true
+
+metadata_patterns:
+  account_number: '(?:ACC_NO|Account\s*No)\s*[:\-]?\s*([0-9\-]{10,20})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 0
+    bonus: 1.0
+  column_count:
+    expected: 16
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - time
+      - debit
+      - credit
+      - balance
+      - description
+      - cheque_number
+    weight: 3.0

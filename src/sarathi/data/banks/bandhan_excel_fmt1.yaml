@@ -1,0 +1,68 @@
+profile_id: "bandhan_excel_fmt1"
+parent_bank: "bandhan"
+bank_name: "Bandhan Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "bandhan"
+  - "bandhan bank"
+  - "bandhan bank limited"
+
+identification_keywords:
+  - "bandhan bank"
+  - "bandhan"
+  - "bdbl"
+
+headers:
+  date:
+    - "transactiondatetime"
+  value_date:
+    - "valuedate"
+  description:
+    - "description"
+  direction:
+    - "creditdebitflag"
+  amount:
+    - "amountinaccountcurrency"
+  balance:
+    - "runningtotal"
+  cheque_number:
+    - "chequenumber"
+
+date_formats:
+  - "%m/%d/%Y %H:%M:%S"
+  - "%m/%d/%Y"
+  - "%d/%m/%Y %H:%M:%S"
+  - "%d/%m/%Y"
+  - "%Y-%m-%d"
+
+signed_amounts: true
+
+metadata_patterns:
+  account_number: '(?:Account\s*(?:No\.?|Number)?|201000)\s*[:\-]?\s*([0-9]{14})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 1
+    bonus: 1.0
+  column_count:
+    expected: 10
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - value_date
+      - description
+      - direction
+      - amount
+      - balance
+      - cheque_number
+    weight: 3.0

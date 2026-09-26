@@ -406,3 +406,97 @@ def test_mixed_currency_totals_none(tmp_path: Path) -> None:
     assert consolidation.totals_by_currency["USD"][0] == Decimal("100.00")
     assert consolidation.totals_by_currency["INR"][0] == Decimal("200.00")
     assert any(i.code == "MIXED_CURRENCIES" for i in consolidation.issues)
+
+
+def test_layout_signature_scoring() -> None:
+    from sarathi.shakti.bank_statements.mapper import ColumnMapping, _score_layout_signature
+
+    mappings = [
+        ColumnMapping(0, "Date", "date", "bank_exact", 1.0),
+        ColumnMapping(1, "Narration", "description", "bank_exact", 1.0),
+        ColumnMapping(2, "Ref", "reference_number", "bank_exact", 1.0),
+        ColumnMapping(3, "Debit", "debit", "bank_exact", 1.0),
+        ColumnMapping(4, "Credit", "credit", "bank_exact", 1.0),
+        ColumnMapping(5, "Balance", "balance", "bank_exact", 1.0),
+    ]
+
+    profile_data = {
+        "layout_signature": {
+            "column_count": {"expected": 6, "tolerance": 0, "bonus": 2.0},
+            "sequence": {
+                "expected": ["date", "description", "reference_number", "debit", "credit", "balance"],
+                "weight": 3.0,
+            },
+            "header_row": {"expected": 7, "tolerance": 2, "bonus": 1.0},
+        }
+    }
+
+    # 1. Perfect match on count, sequence, and header row
+    score_perfect = _score_layout_signature(
+        mappings, total_columns=6, header_row_index=7, profile_data=profile_data
+    )
+    assert score_perfect >= 5.9  # 2.0 (count) + 3.0 (seq) + 1.0 (row)
+
+    # 2. Header row shifted by 1 (within tolerance)
+    score_shifted_row = _score_layout_signature(
+        mappings, total_columns=6, header_row_index=8, profile_data=profile_data
+    )
+    assert 5.0 <= score_shifted_row < score_perfect
+
+    # 3. Column count mismatch penalized
+    score_wrong_count = _score_layout_signature(
+        mappings, total_columns=9, header_row_index=7, profile_data=profile_data
+    )
+    assert score_wrong_count < score_perfect
+
+
+def test_mathematical_balance_delta_verification() -> None:
+    from sarathi.shakti.bank_statements.mapper import ColumnMapping, _score_sample_data
+
+    # Valid order: col 0 = Date, col 1 = Debit, col 2 = Credit, col 3 = Balance
+    correct_mappings = [
+        ColumnMapping(0, "Date", "date", "bank_exact", 1.0),
+        ColumnMapping(1, "Debit", "debit", "bank_exact", 1.0),
+        ColumnMapping(2, "Credit", "credit", "bank_exact", 1.0),
+        ColumnMapping(3, "Balance", "balance", "bank_exact", 1.0),
+    ]
+
+    # Sample rows:
+    # Row 1: Bal = 1000.00
+    # Row 2: Debit = 200.00, Credit = 0, Bal = 800.00  (1000 - 200 = 800)
+    # Row 3: Debit = 0, Credit = 500.00, Bal = 1300.00 (800 + 500 = 1300)
+    sample_rows = [
+        ["01/01/2026", None, None, "1000.00"],
+        ["02/01/2026", "200.00", None, "800.00"],
+        ["03/01/2026", None, "500.00", "1300.00"],
+    ]
+
+    score_correct = _score_sample_data(correct_mappings, sample_rows)
+    # Should get valid data boosts + positive balance delta math bonus
+    assert score_correct > 0.0
+
+    # Inverted mappings: col 1 mapped to Credit, col 2 mapped to Debit (swapped!)
+    inverted_mappings = [
+        ColumnMapping(0, "Date", "date", "bank_exact", 1.0),
+        ColumnMapping(1, "Debit", "credit", "bank_exact", 1.0),
+        ColumnMapping(2, "Credit", "debit", "bank_exact", 1.0),
+        ColumnMapping(3, "Balance", "balance", "bank_exact", 1.0),
+    ]
+    score_inverted = _score_sample_data(inverted_mappings, sample_rows)
+    # Swapped Debit/Credit must be penalized by balance math
+    assert score_inverted < score_correct
+
+
+def test_cheque_vs_reference_discrimination() -> None:
+    from sarathi.shakti.bank_statements.mapper import ColumnMapping, _score_sample_data
+
+    # 6-digit cheque samples
+    chq_mapping = [ColumnMapping(0, "Chq", "cheque_number", "bank_exact", 1.0)]
+    chq_rows = [["123456"], ["654321"], ["999001"]]
+    score_chq = _score_sample_data(chq_mapping, chq_rows)
+    assert score_chq > 0.0
+
+    # Alphanumeric reference samples on cheque_number column (penalty)
+    ref_rows = [["UTIB000123456789"], ["CMS987654321012"]]
+    score_chq_penalized = _score_sample_data(chq_mapping, ref_rows)
+    assert score_chq_penalized < 0.0

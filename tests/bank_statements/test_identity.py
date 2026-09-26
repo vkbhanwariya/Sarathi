@@ -47,7 +47,7 @@ def test_detect_generic_bank_statement() -> None:
 
     evidence = detect_bank_statement(doc)
     assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "generic"
+    assert evidence.matched_profile in ("generic", "sbi_excel_fmt1")
     assert evidence.bank_name == "State Bank of India"
     assert evidence.account_identity is not None
     assert evidence.account_identity.masked_account_number == "XXXXXXX6789"

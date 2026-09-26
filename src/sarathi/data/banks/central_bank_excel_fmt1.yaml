@@ -1,0 +1,60 @@
+profile_id: "central_bank_excel_fmt1"
+parent_bank: "central_bank"
+bank_name: "Central Bank of India"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "central bank of india"
+  - "central bank"
+  - "cbi"
+
+identification_keywords:
+  - "central bank of india"
+  - "central bank"
+  - "cbi"
+  - "cbin"
+
+headers:
+  value_date:
+    - "value date"
+  date:
+    - "post date"
+  description:
+    - "details"
+  cheque_number:
+    - "chq. no."
+    - "chq no."
+    - "chq no"
+
+date_formats:
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+
+metadata_patterns:
+  account_number: '(?:Account\s*(?:No\.?|Number)?)\s*[:\-]?\s*([0-9]{10,20})'
+
+layout_signature:
+  header_row:
+    expected: 29
+    tolerance: 3
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 3
+    bonus: 2.0
+  sequence:
+    expected:
+      - value_date
+      - date
+      - description
+      - cheque_number
+      - debit
+      - credit
+      - balance
+    weight: 3.0

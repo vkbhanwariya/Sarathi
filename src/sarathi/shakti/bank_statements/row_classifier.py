@@ -27,11 +27,14 @@ _OPENING_PHRASES = frozenset(
     {
         "opening balance",
         "brought forward",
+        "brought forword",
         "balance b/f",
         "opening bal",
         "balance b/d",
         "bal b/f",
         "bal b/d",
+        "b/f",
+        "b/d",
     }
 )
 _CLOSING_PHRASES = frozenset(
@@ -43,6 +46,8 @@ _CLOSING_PHRASES = frozenset(
         "balance c/d",
         "bal c/f",
         "bal c/d",
+        "c/f",
+        "c/d",
     }
 )
 _SHORT_OPENING_RE = re.compile(
@@ -114,7 +119,7 @@ def classify_row(
 
     row_str = " ".join(cleaned).lower()
 
-    if any(k in row_str for k in ("elapsed:", "legend :", "end of statement")):
+    if any(k in row_str for k in ("elapsed:", "legend :", "end of statement", "end of the statement", "statement summary", "dr count", "cr count", "page no .:")):
         return RowType.NOISE
 
     if all(re.match(r"^[\*\-_=\.]+$", c) for c in cleaned if c):
@@ -154,10 +159,10 @@ def classify_row(
         is_opening = any(k in row_str for k in _OPENING_PHRASES) or _has_short_opening(cleaned)
 
         if is_closing:
-            if not has_tx_amount or any(k in row_str for k in _CLOSING_PHRASES):
+            if not has_tx_amount or any(k in row_str for k in _CLOSING_PHRASES) or _has_short_closing(cleaned):
                 return RowType.CLOSING_BALANCE
         if is_opening:
-            if not has_tx_amount or any(k in row_str for k in _OPENING_PHRASES):
+            if not has_tx_amount or any(k in row_str for k in _OPENING_PHRASES) or _has_short_opening(cleaned):
                 return RowType.OPENING_BALANCE
 
     if any(k in row_str for k in _EOD_KEYWORDS):

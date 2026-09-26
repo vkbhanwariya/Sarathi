@@ -1,0 +1,66 @@
+profile_id: "idfc_excel_fmt1"
+parent_bank: "idfc"
+bank_name: "IDFC FIRST Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "idfc"
+  - "idfc bank"
+  - "idfc first"
+  - "idfc first bank"
+  - "idfc first bank limited"
+
+identification_keywords:
+  - "idfc first bank"
+  - "idfc first bank limited"
+  - "idfc bank"
+  - "idfc"
+  - "idfb"
+
+headers:
+  date:
+    - "trans date and time"
+  value_date:
+    - "value date"
+  description:
+    - "transaction details"
+  reference_number:
+    - "ref/cheque no"
+    - "ref/cheque no."
+
+date_formats:
+  - "%d-%b-%Y %H:%M:%S"
+  - "%d-%b-%Y"
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Account\s*Number\s*|A\/c\s*No\s*[:\-]?\s*)([0-9]{11})'
+
+layout_signature:
+  header_row:
+    expected: 18
+    tolerance: 5
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - value_date
+      - description
+      - reference_number
+      - debit
+      - credit
+      - balance
+    weight: 3.0

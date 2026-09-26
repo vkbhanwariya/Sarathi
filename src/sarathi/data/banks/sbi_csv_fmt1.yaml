@@ -1,0 +1,62 @@
+profile_id: "sbi_csv_fmt1"
+parent_bank: "sbi"
+bank_name: "State Bank of India"
+container_format: "csv"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".csv"
+  actual_hidden_format: "csv"
+  mime_type: "text/csv"
+
+aliases:
+  - "sbi"
+  - "state bank of india"
+  - "state bank"
+
+identification_keywords:
+  - "state bank of india"
+  - "sbi"
+  - "sbin"
+  - "cif_no"
+
+headers:
+  date:
+    - "postdate"
+  cheque_number:
+    - "chequenumber"
+  reference_number:
+    - "jrnlno"
+  time:
+    - "posttime"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+  - "%Y-%m-%d"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:AccountNumber|Account\s*(?:Number|No\.?)?|A\/c\s*No\.?)\s*[:\-]?\s*([0-9]{11,17})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 0
+    bonus: 1.0
+  column_count:
+    expected: 8
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - balance
+      - cheque_number
+      - credit
+      - debit
+      - description
+      - reference_number
+      - time
+    weight: 3.0

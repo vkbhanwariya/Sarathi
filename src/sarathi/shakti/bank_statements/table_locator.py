@@ -26,27 +26,63 @@ class TableType(StrEnum):
     UNRELATED_TABLE = "unrelated_table"
 
 
-_DATE_TOKENS = ("date", "txn", "tran", "dt", "post", "entry", "दिनांक", "तारीख")
-_AMOUNT_TOKENS = (
-    "debit",
-    "credit",
-    "withdrawal",
-    "withdraw",
-    "deposit",
-    "dep",
-    "amount",
-    "dr",
-    "cr",
-    "balance",
-    "bal",
-    "शेष",
-    "राशि",
+_HEADER_EXCLUDE_PATTERNS = (
+    r"\b(?:postal\s*addr|scheme\s*desc|bank\s*branch|stmt\s*period|statement\s*summary|gstin|email\s*:|customer\s*id)\b",
+)
+
+_DATE_HEADER_RE = re.compile(
+    r"\b(?:date|txn|tran|post|value|entry|दिनांक|तारीख)\b",
+    re.IGNORECASE,
+)
+_AMOUNT_HEADER_RE = re.compile(
+    r"\b(?:debit|credit|withdrawal|deposit|balance|bal|amount|amt|dr|cr|running\s*total|total|line\s*balance|शेष|राशि)\b",
+    re.IGNORECASE,
+)
+_PARTICULARS_HEADER_RE = re.compile(
+    r"\b(?:particulars|description|narration|details|part|remarks)\b",
+    re.IGNORECASE,
 )
 
 
+def _norm_header_cell(c: Any) -> str:
+    s = str(c).strip()
+    s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
+    s = re.sub(r"[_\.\-/]+", " ", s)
+    return s.lower()
+
+
 def _is_transaction_header_text(text: str) -> bool:
-    """Return True if row text contains both date and financial amount indicators."""
-    return any(d in text for d in _DATE_TOKENS) and any(a in text for a in _AMOUNT_TOKENS)
+    """Return True if row text contains both date and financial amount indicators without metadata exclusions."""
+    norm_text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    norm_text = re.sub(r"[_\.\-/]+", " ", norm_text).lower()
+    if any(re.search(pat, norm_text, re.IGNORECASE) for pat in _HEADER_EXCLUDE_PATTERNS):
+        return False
+    return bool(_DATE_HEADER_RE.search(norm_text) and _AMOUNT_HEADER_RE.search(norm_text))
+
+
+def _score_header_row(cells: Sequence[Any]) -> int:
+    """Score a candidate header row based on presence of distinct canonical header roles."""
+    cleaned = [_norm_header_cell(c) for c in cells if c is not None and str(c).strip()]
+    if len(cleaned) < 3:
+        return 0
+    row_text = " ".join(cleaned)
+    if any(re.search(pat, row_text, re.IGNORECASE) for pat in _HEADER_EXCLUDE_PATTERNS):
+        return 0
+    if not (_DATE_HEADER_RE.search(row_text) and _AMOUNT_HEADER_RE.search(row_text)):
+        return 0
+
+    score = 4
+    if _PARTICULARS_HEADER_RE.search(row_text):
+        score += 3
+    if re.search(r"\b(?:debit|withdrawal|dr)\b", row_text, re.IGNORECASE):
+        score += 2
+    if re.search(r"\b(?:credit|deposit|cr)\b", row_text, re.IGNORECASE):
+        score += 2
+    if re.search(r"\b(?:balance|bal|running\s*total|line\s*balance)\b", row_text, re.IGNORECASE):
+        score += 2
+    if re.search(r"\b(?:chq|cheque|ref|inst|instrument)\b", row_text, re.IGNORECASE):
+        score += 1
+    return score
 
 
 def _has_minimum_header_cells(cells: Sequence[Any], min_cells: int = 3) -> bool:
@@ -59,23 +95,29 @@ def find_header_row_index(table: TableData) -> int | None:
     """Find the index of the transaction header row in an extracted table, or None.
 
     If table.headers is populated with transaction headers, returns -1 (headers outside rows).
-    Otherwise searches table.rows for embedded header row.
+    Otherwise searches table.rows for embedded header row with the highest score.
     """
+    best_idx: int | None = None
+    best_score = 0
+
     if table.headers and _has_minimum_header_cells(table.headers):
-        h_str = " ".join(str(c).lower().strip() for c in table.headers)
-        if _is_transaction_header_text(h_str):
-            return -1
+        h_score = _score_header_row(table.headers)
+        if h_score >= 4:
+            best_score = h_score
+            best_idx = -1
 
-    if not table.rows:
-        return None
+    if table.rows:
+        for r_i, r in enumerate(table.rows[:35]):
+            if not _has_minimum_header_cells(r):
+                continue
+            r_score = _score_header_row(r)
+            if r_score > best_score:
+                best_score = r_score
+                best_idx = r_i
+                if r_score >= 12:
+                    break
 
-    for r_i, r in enumerate(table.rows):
-        if not _has_minimum_header_cells(r):
-            continue
-        r_str = " ".join(str(c).lower().strip() for c in r)
-        if _is_transaction_header_text(r_str):
-            return r_i
-    return None
+    return best_idx if best_score >= 4 else None
 
 
 def get_table_header_and_data_rows(

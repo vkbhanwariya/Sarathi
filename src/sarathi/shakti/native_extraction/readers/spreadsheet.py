@@ -202,8 +202,14 @@ def read_xls_legacy(
             sheet = wb.get_sheet_by_name(sheet_name)
             raw_rows = sheet.to_python()
             if raw_rows and len(raw_rows) > 0:
-                headers = tuple(str(col or "") for col in raw_rows[0])
-                data_rows = tuple(tuple(cell for cell in row) for row in raw_rows[1:])
+                headers = tuple(
+                    str(col.replace("\x00", "") if isinstance(col, str) else (col or ""))
+                    for col in raw_rows[0]
+                )
+                data_rows = tuple(
+                    tuple(cell.replace("\x00", "") if isinstance(cell, str) else cell for cell in row)
+                    for row in raw_rows[1:]
+                )
             else:
                 headers = ()
                 data_rows = ()
@@ -248,8 +254,14 @@ def read_xls_legacy(
             sheet = rb.sheet_by_index(sheet_idx)
             rows_list: list[tuple[Any, ...]] = [tuple(sheet.row_values(r)) for r in range(sheet.nrows)]
             if rows_list and len(rows_list) > 0:
-                headers = tuple(str(c or "") for c in rows_list[0])
-                data_rows = tuple(rows_list[1:])
+                headers = tuple(
+                    str(c.replace("\x00", "") if isinstance(c, str) else (c or ""))
+                    for c in rows_list[0]
+                )
+                data_rows = tuple(
+                    tuple(c.replace("\x00", "") if isinstance(c, str) else c for c in r)
+                    for r in rows_list[1:]
+                )
             else:
                 headers = ()
                 data_rows = ()

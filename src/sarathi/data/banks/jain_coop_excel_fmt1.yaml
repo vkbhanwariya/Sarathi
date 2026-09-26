@@ -1,0 +1,67 @@
+profile_id: "jain_coop_excel_fmt1"
+parent_bank: "jain_coop"
+bank_name: "Jain Co-operative Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "jain co-operative bank"
+  - "jain cooperative bank"
+  - "jain co-operative bank ltd"
+  - "jain cooperative bank limited"
+
+identification_keywords:
+  - "jain co-operative bank"
+  - "jain cooperative bank"
+  - "jain co-operative"
+  - "jain cooperative"
+  - "jainbank"
+  - "jcbl"
+
+headers:
+  date:
+    - "date"
+  description:
+    - "particulars"
+  cheque_number:
+    - "cheque no."
+    - "cheque no"
+  debit:
+    - "debits"
+  credit:
+    - "credits"
+  balance:
+    - "balance"
+
+date_formats:
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:A\/c\s*No\.?|A\/C\s*NO\.?)\s*[:\-]?\s*([0-9]{10,20})'
+
+layout_signature:
+  header_row:
+    expected: 15
+    tolerance: 5
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 1
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - description
+      - cheque_number
+      - debit
+      - credit
+      - balance
+    weight: 3.0

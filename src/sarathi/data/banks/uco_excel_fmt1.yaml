@@ -1,0 +1,71 @@
+profile_id: "uco_excel_fmt1"
+parent_bank: "uco"
+bank_name: "UCO Bank"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "uco"
+  - "uco bank"
+
+identification_keywords:
+  - "uco bank"
+  - "uco"
+  - "ucba"
+
+headers:
+  date:
+    - "transaction date"
+  reference_number:
+    - "transaction id"
+    - "reference number"
+  cheque_number:
+    - "instrument number"
+  value_date:
+    - "value date"
+  description:
+    - "transaction particular"
+    - "transaction particular "
+    - "transaction remarks"
+  debit:
+    - "debit"
+  credit:
+    - "credit"
+  balance:
+    - "balance"
+
+date_formats:
+  - "%Y-%m-%d"
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Account\s*Number)\s*[:\-]?\s*([0-9]{14})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 1
+    bonus: 1.0
+  column_count:
+    expected: 28
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - reference_number
+      - cheque_number
+      - value_date
+      - description
+      - debit
+      - credit
+      - balance
+    weight: 3.0

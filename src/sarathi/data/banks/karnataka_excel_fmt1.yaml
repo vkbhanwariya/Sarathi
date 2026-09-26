@@ -1,0 +1,66 @@
+profile_id: "karnataka_excel_fmt1"
+parent_bank: "karnataka"
+bank_name: "Karnataka Bank Limited"
+container_format: "excel"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".xls"
+  actual_hidden_format: "legacy_biff_spreadsheet"
+  mime_type: "application/vnd.ms-excel"
+
+aliases:
+  - "karnataka bank"
+  - "karnataka bank limited"
+  - "the karnataka bank limited"
+  - "kbl"
+  - "karnataka"
+
+identification_keywords:
+  - "karnataka bank"
+  - "karnataka bank limited"
+  - "the karnataka bank limited"
+  - "kbl"
+  - "karb"
+
+headers:
+  date:
+    - "tran date"
+  cheque_number:
+    - "instrument number"
+  description:
+    - "tran particulars"
+  debit:
+    - "withdrawals"
+  credit:
+    - "deposits"
+  balance:
+    - "balance"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:Account\s*no\s*[:\-]?\s*)([0-9]{16})'
+
+layout_signature:
+  header_row:
+    expected: 11
+    tolerance: 5
+    bonus: 1.0
+  column_count:
+    expected: 6
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - cheque_number
+      - description
+      - debit
+      - credit
+      - balance
+    weight: 3.0

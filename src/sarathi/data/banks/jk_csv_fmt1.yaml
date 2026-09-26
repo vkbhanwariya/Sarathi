@@ -1,0 +1,65 @@
+profile_id: "jk_csv_fmt1"
+parent_bank: "jk"
+bank_name: "Jammu & Kashmir Bank Limited"
+container_format: "csv"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".csv"
+  actual_hidden_format: "csv"
+  mime_type: "text/csv"
+
+aliases:
+  - "j&k"
+  - "j & k"
+  - "jammu and kashmir bank"
+  - "jammu & kashmir bank"
+  - "the jammu & kashmir bank limited"
+  - "jk bank"
+
+identification_keywords:
+  - "jammu & kashmir bank"
+  - "jammu and kashmir bank"
+  - "the jammu & kashmir bank limited"
+  - "jk bank"
+  - "jakb"
+  - "jaka"
+
+headers:
+  date:
+    - "tran date"
+  reference_number:
+    - "tran id"
+  debit:
+    - "withdrawl"
+  credit:
+    - "deposits"
+
+date_formats:
+  - "%d-%b-%Y"
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:ACCOUNTNO|Account\s*No)\s*[:\-]?\s*([0-9]{16})'
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 0
+    bonus: 1.0
+  column_count:
+    expected: 8
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - reference_number
+      - description
+      - debit
+      - credit
+      - balance
+    weight: 3.0

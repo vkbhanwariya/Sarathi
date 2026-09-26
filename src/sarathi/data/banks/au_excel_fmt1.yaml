@@ -17,12 +17,10 @@ aliases:
   - "aubl"
 
 identification_keywords:
-  - "aubl"
   - "au small finance bank"
-  - "details for sum of \"transaction amount\""
-  - "transaction mnemonic"
-  - "transaction literal"
-  - "flag debit credit"
+  - "au small finance bank limited"
+  - "au bank"
+  - "aubl"
 
 headers:
   date:
@@ -54,3 +52,24 @@ signed_amounts: true
 
 metadata_patterns:
   account_number: '(?:Account\s*(?:No\.?|Number)?|A\/c\s*No\.?)\s*[:\-]?\s*([0-9A-Za-z]{9,18})'
+
+layout_signature:
+  header_row:
+    expected: 1
+    tolerance: 1
+    bonus: 1.0
+  column_count:
+    expected: 16
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - posting_date
+      - value_date
+      - cheque_number
+      - direction
+      - amount
+      - description
+      - reference_number
+    weight: 3.0

@@ -1,0 +1,65 @@
+profile_id: "bandhan_excel_fmt2"
+parent_bank: "bandhan"
+bank_name: "Bandhan Bank Limited"
+container_format: "excel"
+layout_variant: "fmt2"
+
+file_format:
+  declared_extension: ".xlsx"
+  actual_hidden_format: "openxml_spreadsheet"
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+aliases:
+  - "bandhan"
+  - "bandhan bank"
+  - "bandhan bank limited"
+
+identification_keywords:
+  - "bandhan bank"
+  - "bandhan"
+  - "bdbl"
+
+headers:
+  date:
+    - "trans date"
+    - "trans\ndate"
+  value_date:
+    - "value date"
+    - "value\ndate"
+  cheque_number:
+    - "cheque / instrument"
+    - "cheque /\ninstrument"
+  debit:
+    - "debits"
+  credit:
+    - "credits"
+
+date_formats:
+  - "%Y-%m-%d"
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+
+signed_amounts: false
+
+metadata_patterns:
+  account_number: '(?:GST\s*-\s*|Account\s*(?:No\.?|Number)?\s*[:\-]?\s*)([0-9]{14})'
+
+layout_signature:
+  header_row:
+    expected: 5
+    tolerance: 5
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - value_date
+      - cheque_number
+      - description
+      - debit
+      - credit
+      - balance
+    weight: 3.0
