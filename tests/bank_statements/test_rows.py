@@ -780,3 +780,73 @@ def test_stable_statement_id_across_different_input_labels(tmp_path: Path) -> No
     assert stmt_id_1 == stmt_id_2
     assert "inp-001" not in stmt_id_1
     assert "inp-999" not in stmt_id_2
+
+
+def test_classify_row_preserves_transactions_with_balance_phrases_or_short_codes() -> None:
+    """Transactions with valid date and debit/credit must never be dropped as opening/closing balance."""
+    # 1. Closed account narration
+    row1 = ["01/01/2026", "TRANSFER TO CLOSED A/C 1234", "500.00", "", "4500.00"]
+    assert classify_row(row1, date_col_idx=0, amount_col_indices=[2, 3], balance_col_idx=4) == RowType.TRANSACTION
+    assert classify_row(row1, date_col_idx=0) == RowType.TRANSACTION
+
+    # 2. C/D abbreviation in merchant name
+    row2 = ["01/01/2026", "POS STORE C/D 999", "150.00", "", "4350.00"]
+    assert classify_row(row2, date_col_idx=0, amount_col_indices=[2, 3], balance_col_idx=4) == RowType.TRANSACTION
+    assert classify_row(row2, date_col_idx=0) == RowType.TRANSACTION
+
+    # 3. Fee for closing balance advice / certificate
+    row3 = ["01/01/2026", "FEE FOR CLOSING BALANCE CERTIFICATE", "100.00", "", "4250.00"]
+    assert classify_row(row3, date_col_idx=0, amount_col_indices=[2, 3], balance_col_idx=4) == RowType.TRANSACTION
+    assert classify_row(row3, date_col_idx=0) == RowType.TRANSACTION
+
+    # 4. B/F short code in refund narration
+    row4 = ["01/01/2026", "REFUND B/F TRAVEL PORTAL", "", "350.00", "4600.00"]
+    assert classify_row(row4, date_col_idx=0, amount_col_indices=[2, 3], balance_col_idx=4) == RowType.TRANSACTION
+    assert classify_row(row4, date_col_idx=0) == RowType.TRANSACTION
+
+    # 5. Genuine opening and closing balance rows without transaction amounts remain balance rows
+    row_open = ["01/01/2026", "OPENING BALANCE", "", "", "5000.00"]
+    assert classify_row(row_open, date_col_idx=0, amount_col_indices=[2, 3], balance_col_idx=4) == RowType.OPENING_BALANCE
+
+    row_close = ["31/01/2026", "CLOSING BALANCE", "", "", "10000.00"]
+    assert classify_row(row_close, date_col_idx=0, amount_col_indices=[2, 3], balance_col_idx=4) == RowType.CLOSING_BALANCE
+
+
+def test_capability_does_not_drop_transaction_with_balance_phrase_in_narration() -> None:
+    """BankStatementCapability must retain transactions whose descriptions mention balance terms."""
+    from decimal import Decimal
+    from pathlib import Path
+
+    from sarathi.sankalpa import CanonicalDocument, ExecutionContext, InputRef, Request, Result, TableData
+    from sarathi.shakti.bank_statements.capability import BankStatementCapability
+
+    headers = ("Date", "Description", "Debit", "Credit", "Balance")
+    row_open = ("01/01/2026", "OPENING BALANCE", "", "", "5000.00")
+    row_tx1 = ("02/01/2026", "TRANSFER TO CLOSED A/C 9999", "500.00", "", "4500.00")
+    row_tx2 = ("03/01/2026", "POS STORE C/D", "200.00", "", "4300.00")
+    row_close = ("31/01/2026", "CLOSING BALANCE", "", "", "4300.00")
+
+    table = TableData(headers=headers, rows=(row_open, row_tx1, row_tx2, row_close))
+    doc = CanonicalDocument(
+        document_id="doc-closed-ac",
+        text="Bank Statement\nAccount Number: 987654321012\nIFSC: HDFC0000123",
+        tables=(table,),
+    )
+    req = Request(
+        request_id="req-closed-ac",
+        requirement="bank_statements",
+        inputs=(InputRef("inp-1", Path("stmt.csv"), "stmt.csv", 100),),
+    )
+    ctx = ExecutionContext("run-1", "req-closed-ac", "t1", "s1")
+    cap = BankStatementCapability()
+    res = cap.execute(req, ctx, prior_result=Result(data=doc))
+    stmt = res.data.statements[0]
+
+    # Both transactions must be extracted and preserved in the ledger
+    assert len(stmt.transactions) == 2
+    assert stmt.transactions[0].description == "TRANSFER TO CLOSED A/C 9999"
+    assert stmt.transactions[0].debit == Decimal("500.00")
+    assert stmt.transactions[1].description == "POS STORE C/D"
+    assert stmt.transactions[1].debit == Decimal("200.00")
+    assert stmt.opening_balance == Decimal("5000.00")
+    assert stmt.closing_balance == Decimal("4300.00")

@@ -31,8 +31,6 @@ __all__ = [
     "repair_ifsc",
     "is_valid_ifsc",
     "repair_utr",
-    "verify_mathematical_double_entry_balance",
-    "BalanceDiscrepancy",
 ]
 
 
@@ -44,8 +42,6 @@ lazy_exports(
         "repair_ifsc": ".utr_repair:repair_ifsc",
         "is_valid_ifsc": ".utr_repair:is_valid_ifsc",
         "repair_utr": ".utr_repair:repair_utr",
-        "verify_mathematical_double_entry_balance": ".utr_repair:verify_mathematical_double_entry_balance",
-        "BalanceDiscrepancy": ".utr_repair:BalanceDiscrepancy",
         "BankStatementCapability": ".capability:BankStatementCapability",
     },
 )

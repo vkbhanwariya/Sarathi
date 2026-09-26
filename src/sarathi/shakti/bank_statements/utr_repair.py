@@ -8,9 +8,6 @@ and performs mathematical double-entry balance verification with exact row refer
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
-from dataclasses import dataclass
-from decimal import Decimal
 
 from sarathi.shakti.statutory.checksums import IFSC_PATTERN
 
@@ -45,19 +42,6 @@ _LETTER_TO_DIGIT = {
     "Z": "2",
     "z": "2",
 }
-
-
-@dataclass(frozen=True, slots=True)
-class BalanceDiscrepancy:
-    """Detailed mathematical variance report for a single statement row."""
-
-    row_index: int
-    previous_balance: Decimal
-    credit: Decimal
-    debit: Decimal
-    actual_balance: Decimal
-    expected_balance: Decimal
-    variance: Decimal
 
 
 def is_valid_ifsc(code: str) -> bool:
@@ -149,6 +133,10 @@ def repair_utr(raw_utr: str, tx_type: str | None = None) -> tuple[str, str | Non
             if chars[i].isdigit() and chars[i] in _DIGIT_TO_LETTER:
                 chars[i] = _DIGIT_TO_LETTER[chars[i]]
                 repaired = True
+        # Note: Index 4 (5th character) in RBI RTGS format (^[A-Z]{4}[R0-9][0-9]{17}$)
+        # legitimately permits either the literal character 'R' or numeric digits '0'-'9'.
+        # Because this position is inherently dual-type, OCR character confusion is intentionally
+        # not auto-swapped here to prevent corrupting valid alphanumeric reference codes.
         for i in range(5, 22):
             if chars[i] in _LETTER_TO_DIGIT:
                 chars[i] = _LETTER_TO_DIGIT[chars[i]]
@@ -158,38 +146,3 @@ def repair_utr(raw_utr: str, tx_type: str | None = None) -> tuple[str, str | Non
             return res, "RTGS", repaired
 
     return clean, tx_type, False
-
-
-def verify_mathematical_double_entry_balance(
-    rows: Sequence[tuple[Decimal | None, Decimal | None, Decimal | None]],
-    tolerance: Decimal = Decimal("0.01"),
-) -> list[BalanceDiscrepancy]:
-    """Verify B_i = B_{i-1} + C_i - D_i across sequential statement rows."""
-    discrepancies: list[BalanceDiscrepancy] = []
-
-    for i in range(1, len(rows)):
-        prev_bal = rows[i - 1][2]
-        crd = rows[i][0] or Decimal("0")
-        deb = rows[i][1] or Decimal("0")
-        actual_bal = rows[i][2]
-
-        if prev_bal is None or actual_bal is None:
-            continue
-
-        expected_bal = prev_bal + crd - deb
-        variance = actual_bal - expected_bal
-
-        if abs(variance) > tolerance:
-            discrepancies.append(
-                BalanceDiscrepancy(
-                    row_index=i,
-                    previous_balance=prev_bal,
-                    credit=crd,
-                    debit=deb,
-                    actual_balance=actual_bal,
-                    expected_balance=expected_bal,
-                    variance=variance,
-                )
-            )
-
-    return discrepancies

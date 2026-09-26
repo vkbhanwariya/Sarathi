@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from sarathi.shakti.bank_statements.utr_repair import (
-    BalanceDiscrepancy,
     is_valid_ifsc,
     repair_ifsc,
     repair_utr,
-    verify_mathematical_double_entry_balance,
 )
 
 
@@ -76,39 +72,6 @@ def test_utr_syntax_and_ocr_repair() -> None:
     assert tx_type_u == "UPI"
     assert rep_upi == "123456789012"
     assert was_rep_u is True
-
-
-def test_mathematical_double_entry_balance_verification() -> None:
-    """Verify B_i = B_{i-1} + C_i - D_i double-entry calculation and variance reporting."""
-    # Clean sequence:
-    # Row 0: Opening 1000.00
-    # Row 1: Credit 250.00, Debit 0 -> Balance 1250.00
-    # Row 2: Credit 0, Debit 500.00 -> Balance 750.00
-    clean_rows = [
-        (None, None, Decimal("1000.00")),
-        (Decimal("250.00"), Decimal("0.00"), Decimal("1250.00")),
-        (Decimal("0.00"), Decimal("500.00"), Decimal("750.00")),
-    ]
-    discrepancies_clean = verify_mathematical_double_entry_balance(clean_rows)
-    assert len(discrepancies_clean) == 0
-
-    # Corrupted sequence:
-    # Row 1 expected balance 1250.00, but actual is 1200.00 (variance: -50.00)
-    corrupted_rows = [
-        (None, None, Decimal("1000.00")),
-        (Decimal("250.00"), Decimal("0.00"), Decimal("1200.00")),
-        (Decimal("0.00"), Decimal("500.00"), Decimal("700.00")),
-    ]
-    discrepancies = verify_mathematical_double_entry_balance(corrupted_rows)
-    assert len(discrepancies) == 1
-    d = discrepancies[0]
-    assert isinstance(d, BalanceDiscrepancy)
-    assert d.row_index == 1
-    assert d.previous_balance == Decimal("1000.00")
-    assert d.credit == Decimal("250.00")
-    assert d.expected_balance == Decimal("1250.00")
-    assert d.actual_balance == Decimal("1200.00")
-    assert d.variance == Decimal("-50.00")
 
 
 def test_bank_statement_extraction_auto_repairs_utr() -> None:

@@ -698,7 +698,12 @@ class BankStatementCapability:
 
             for row_idx, row in enumerate(data_rows, start=1):
                 row_cells = [str(c) if c is not None else "" for c in row]
-                match classify_row(row_cells, date_col_idx=d_col, amount_col_indices=amt_indices):
+                match classify_row(
+                    row_cells,
+                    date_col_idx=d_col,
+                    amount_col_indices=amt_indices,
+                    balance_col_idx=b_col,
+                ):
                     case RowType.OPENING_BALANCE:
                         parsed_open = parse_balance_amount(_get_raw_cell(row, b_col))
                         if parsed_open is not None:
