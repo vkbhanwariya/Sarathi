@@ -9,6 +9,7 @@ Wrapped into canonical ArtifactPayloads for atomic commitment via Nabhi.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import io
 import json
@@ -41,31 +42,21 @@ def _account_group_key(stmt: BankStatement) -> tuple:
     if not ident:
         return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
 
-    # Determine bank identity key:
-    # If IFSC is available, its 4-letter prefix provides definitive institutional identity.
-    ifsc_val = (ident.ifsc or stmt.ifsc or "").strip().upper()
-    ifsc_prefix = ifsc_val[:4] if len(ifsc_val) >= 4 and ifsc_val[:4].isalnum() else None
-
-    is_generic_bank = (
-        stmt.bank_name.strip().lower() in ("generic bank", "generic", "bank", "unknown bank", "unknown")
-        or (stmt.bank_profile and stmt.bank_profile.strip().lower() in ("generic", "common"))
-    )
-
-    # When bank name is generic and no authoritative IFSC prefix exists, bank identity is unverified.
-    # We must NEVER group distinct statements together across files for deduplication.
-    if is_generic_bank and not ifsc_prefix:
-        return ("statement", stmt.bank_name.lower().strip(), stmt.statement_id or str(id(stmt)))
-
-    bank_key = ifsc_prefix if ifsc_prefix else stmt.bank_name.lower().strip()
-
-    # If account_key or account_fingerprint exists with STRONG or MEDIUM confidence, group safely.
+    # If account_key or account_fingerprint exists with STRONG or MEDIUM confidence,
+    # it is already a deterministic cryptographic hash of normalized bank identity + normalized account number.
+    # Grouping directly by ("account_key", key) ensures that statements with or without IFSC variations
+    # (e.g. "HDFC" vs "hdfc bank") for the same verified account always group together.
     key = ident.account_key or ident.account_fingerprint
     strength = getattr(ident, "identity_strength", "STRONG")
     if key and strength in ("STRONG", "MEDIUM"):
-        return ("account_key", bank_key, key)
+        return ("account_key", key)
 
-    # NEVER group distinct statements across files solely by holder name.
-    # Statements without an authoritative account key remain statement-scoped.
+    # Determine bank identity key for unverified statements:
+    ifsc_val = (ident.ifsc or stmt.ifsc or "").strip().upper()
+    ifsc_prefix = ifsc_val[:4] if len(ifsc_val) >= 4 and ifsc_val[:4].isalnum() else None
+    bank_key = ifsc_prefix.lower() if ifsc_prefix else stmt.bank_name.lower().strip()
+
+    # Masked tails alone (WEAK) or statements without verified key remain strictly statement-scoped.
     return ("statement", bank_key, stmt.statement_id or str(id(stmt)))
 
 
@@ -126,6 +117,71 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
                 )
         else:
             deduped_valid_txns.extend(group_valid_txns)
+
+        # Check cross-statement balance continuity and missing periods within verified account groups
+        if len(group_stmts) > 1:
+            def _stmt_start_date(s: BankStatement) -> datetime.date:
+                if s.statement_period_start:
+                    return s.statement_period_start
+                dates = [t.transaction_date for t in s.transactions if t.transaction_date]
+                return min(dates) if dates else datetime.date.min
+
+            chrono_stmts = sorted(group_stmts, key=_stmt_start_date)
+            for i in range(len(chrono_stmts) - 1):
+                s_curr = chrono_stmts[i]
+                s_next = chrono_stmts[i + 1]
+
+                # Inter-statement balance continuity check: s_curr.closing_balance == s_next.opening_balance
+                if s_curr.closing_balance is not None and s_next.opening_balance is not None:
+                    if s_curr.closing_balance != s_next.opening_balance:
+                        bal_diff = s_next.opening_balance - s_curr.closing_balance
+                        all_issues.append(
+                            ValidationIssue(
+                                code="CROSS_STATEMENT_BALANCE_DISCONTINUITY",
+                                message=(
+                                    f"Account balance gap across statements: closing balance of statement {s_curr.statement_id} "
+                                    f"({s_curr.closing_balance}) does not match opening balance of statement {s_next.statement_id} "
+                                    f"({s_next.opening_balance}) (difference {bal_diff})."
+                                ),
+                                severity="warning",
+                                context={
+                                    "statement_id_1": s_curr.statement_id,
+                                    "statement_id_2": s_next.statement_id,
+                                    "closing_balance": str(s_curr.closing_balance),
+                                    "opening_balance": str(s_next.opening_balance),
+                                    "diff": str(bal_diff),
+                                },
+                            )
+                        )
+
+                # Missing statement period check (gap > 35 days)
+                p_end = s_curr.statement_period_end or max(
+                    [t.transaction_date for t in s_curr.transactions if t.transaction_date],
+                    default=None,
+                )
+                p_start = s_next.statement_period_start or min(
+                    [t.transaction_date for t in s_next.transactions if t.transaction_date],
+                    default=None,
+                )
+                if p_end and p_start and (p_start - p_end).days > 35:
+                    gap_days = (p_start - p_end).days
+                    all_issues.append(
+                        ValidationIssue(
+                            code="MISSING_STATEMENT_PERIOD",
+                            message=(
+                                f"Potential missing statement period for account: gap of {gap_days} days detected "
+                                f"between period end {p_end.isoformat()} and subsequent period start {p_start.isoformat()}."
+                            ),
+                            severity="warning",
+                            context={
+                                "statement_id_1": s_curr.statement_id,
+                                "statement_id_2": s_next.statement_id,
+                                "period_end": p_end.isoformat(),
+                                "period_start": p_start.isoformat(),
+                                "gap_days": gap_days,
+                            },
+                        )
+                    )
 
     def _earliest_tx_date(stmt: BankStatement) -> datetime.date:
         dates = [tx.transaction_date for tx in stmt.transactions if tx.transaction_date is not None]
@@ -210,11 +266,23 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
     reordered_statements: list[BankStatement] = []
     overall_status = ValidationStatus.VALID
 
-    seen_issues: set[tuple[str, str]] = set()
+    def _issue_key(iss: ValidationIssue) -> tuple:
+        if iss.code in (
+            "CROSS_STATEMENT_DUPLICATE",
+            "PROBABLE_DUPLICATE_TRANSACTION",
+            "RECONCILIATION_MISMATCH",
+            "CROSS_STATEMENT_BALANCE_DISCONTINUITY",
+            "MISSING_STATEMENT_PERIOD",
+        ):
+            ctx_items = tuple(sorted((k, str(v)) for k, v in (iss.context or {}).items()))
+            return (iss.code, iss.message, ctx_items)
+        return (iss.code, iss.message)
+
+    seen_issues: set[tuple] = set()
     deduped_issues: list[ValidationIssue] = []
 
     for iss in all_issues:
-        key = (iss.code, iss.message)
+        key = _issue_key(iss)
         if key not in seen_issues:
             seen_issues.add(key)
             deduped_issues.append(iss)
@@ -229,7 +297,7 @@ def consolidate_statements(statements: Sequence[BankStatement]) -> BankStatement
         elif stmt.status == ValidationStatus.WARNING and overall_status == ValidationStatus.VALID:
             overall_status = ValidationStatus.WARNING
         for iss in stmt.issues:
-            key = (iss.code, iss.message)
+            key = _issue_key(iss)
             if key not in seen_issues:
                 seen_issues.add(key)
                 deduped_issues.append(iss)
@@ -372,6 +440,19 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         if s.account_identity and s.account_identity.account_fingerprint
     }
 
+    # Pre-calculate true End-Of-Day balance per (account_key, transaction_date)
+    # The EOD balance is the running balance of the chronologically last transaction of that date
+    eod_by_account_date: dict[tuple[str, datetime.date], Decimal] = {}
+    for tx in consolidation.transactions:
+        if tx.running_balance is not None:
+            acc_ident = tx.account_identity
+            a_key = (
+                acc_ident.account_key
+                if (acc_ident and acc_ident.account_key)
+                else (acc_ident.account_fingerprint if acc_ident else (tx.statement_id or ""))
+            )
+            eod_by_account_date[(a_key, tx.transaction_date)] = tx.running_balance
+
     for tx in consolidation.transactions:
         ident = tx.account_identity
         stmt = stmt_map.get(tx.statement_id) or (
@@ -392,11 +473,16 @@ def build_parquet_artifact(consolidation: BankStatementConsolidationResult) -> A
         stmt_gen_at = stmt.metadata.get("statement_generated_at") if (stmt and stmt.metadata) else None
         stmt_gen_ats.append(str(stmt_gen_at) if stmt_gen_at else None)
 
+        acc_k = (
+            ident.account_key
+            if (ident and ident.account_key)
+            else (ident.account_fingerprint if ident else (tx.statement_id or ""))
+        )
         eod_bal = None
         if stmt and stmt.closing_balance is not None and tx.transaction_date == stmt.statement_period_end:
             eod_bal = stmt.closing_balance
-        elif tx.running_balance is not None:
-            eod_bal = tx.running_balance
+        else:
+            eod_bal = eod_by_account_date.get((acc_k, tx.transaction_date))
         eod_bals.append(eod_bal)
 
         tx_ids.append(tx.transaction_id)
@@ -520,36 +606,38 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
         header_font = Font(color="FFFFFF", bold=True)
         ws.row_dimensions[1].height = 24
 
+        align_center = Alignment(horizontal="center")
+        align_center_v = Alignment(vertical="center", horizontal="center")
+        align_left_v = Alignment(vertical="center", horizontal="left")
+
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=1, column=col_idx)
             cell.fill = header_fill
             cell.font = header_font
-            cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx not in (2, 4) else "left")
+            cell.alignment = align_center_v if col_idx not in (2, 4) else align_left_v
 
-        # Pre-index transactions by statement_id
+        # Pre-index transactions by statement_id and account_key once
         tx_by_statement: dict[str, list[Transaction]] = {}
+        tx_by_account_key: dict[str, list[Transaction]] = {}
         for tx in consolidation.transactions:
             if tx.statement_id:
                 tx_by_statement.setdefault(tx.statement_id, []).append(tx)
-
-        # Group statements by unique account identity for Sheet 1 (Master Account Directory: 1 row per unique account)
-        account_groups: dict[str, list[BankStatement]] = {}
-        for stmt in consolidation.statements:
-            ident = stmt.account_identity
-            acc_k = (
-                ident.account_key
-                if (ident and ident.account_key)
-                else (ident.account_fingerprint if ident else "")
+            t_ident = tx.account_identity
+            t_acc_k = (
+                t_ident.account_key
+                if (t_ident and t_ident.account_key)
+                else (t_ident.account_fingerprint if t_ident else "")
             )
-            if not acc_k:
-                acc_k = (
-                    ident.masked_account_number.strip().upper()
-                    if (ident and ident.masked_account_number)
-                    else f"stmt_{stmt.statement_id or id(stmt)}"
-                )
-            account_groups.setdefault(acc_k, []).append(stmt)
+            if t_acc_k:
+                tx_by_account_key.setdefault(t_acc_k, []).append(tx)
 
-        for a_idx, (acc_k, stmts) in enumerate(account_groups.items(), start=1):
+        # Group statements by canonical account group key for Sheet 1 (Master Account Directory: 1 row per unique account)
+        account_groups: dict[tuple, list[BankStatement]] = {}
+        for stmt in consolidation.statements:
+            acc_grp_k = _account_group_key(stmt)
+            account_groups.setdefault(acc_grp_k, []).append(stmt)
+
+        for a_idx, (acc_grp_k, stmts) in enumerate(account_groups.items(), start=1):
             row_idx = a_idx + 1
 
             holder = next(
@@ -570,16 +658,13 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
             )
             bank = next((s.bank_name for s in stmts if s.bank_name), "-")
 
-            stmt_ids_for_account = {s.statement_id for s in stmts if s.statement_id}
             acc_txns: list[Transaction] = []
-            for t in consolidation.transactions:
-                t_acc_k = (
-                    t.account_identity.account_key
-                    if (t.account_identity and t.account_identity.account_key)
-                    else (t.account_identity.account_fingerprint if t.account_identity else "")
-                )
-                if (t_acc_k and t_acc_k == acc_k) or (t.statement_id and t.statement_id in stmt_ids_for_account):
-                    acc_txns.append(t)
+            if acc_grp_k[0] == "account_key":
+                acc_txns = tx_by_account_key.get(acc_grp_k[1], [])
+            if not acc_txns:
+                for s in stmts:
+                    if s.statement_id and s.statement_id in tx_by_statement:
+                        acc_txns.extend(tx_by_statement[s.statement_id])
             if not acc_txns:
                 for s in stmts:
                     acc_txns.extend(s.transactions)
@@ -591,7 +676,7 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
             id_range = f"{sorted(ids)[0]} to {sorted(ids)[-1]}" if ids else "-"
 
             c1 = ws.cell(row=row_idx, column=1, value=a_idx)
-            c1.alignment = Alignment(horizontal="center")
+            c1.alignment = align_center
             c2 = ws.cell(row=row_idx, column=2, value=holder)
             c2.data_type = "s"
             c3 = ws.cell(row=row_idx, column=3, value=acc_no)
@@ -600,10 +685,10 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
             c4.data_type = "s"
             c5 = ws.cell(row=row_idx, column=5, value=loc_range)
             c5.data_type = "s"
-            c5.alignment = Alignment(horizontal="center")
+            c5.alignment = align_center
             c6 = ws.cell(row=row_idx, column=6, value=id_range)
             c6.data_type = "s"
-            c6.alignment = Alignment(horizontal="center")
+            c6.alignment = align_center
 
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
@@ -633,10 +718,7 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
             cell = ws_sum.cell(row=1, column=col_idx)
             cell.fill = header_fill
             cell.font = header_font
-            cell.alignment = Alignment(
-                vertical="center",
-                horizontal="center" if col_idx not in (2, 4, 13) else "left",
-            )
+            cell.alignment = align_center_v if col_idx not in (2, 4, 13) else align_left_v
 
         for s_idx, stmt in enumerate(consolidation.statements, start=1):
             row_idx = s_idx + 1
@@ -645,16 +727,12 @@ def build_accounts_xlsx_artifact(consolidation: BankStatementConsolidationResult
             bank = stmt.bank_name
             profile = stmt.bank_profile or "-"
 
-            stmt_txns = (
-                tx_by_statement.get(stmt.statement_id, [])
-                if stmt.statement_id
-                else []
-            )
-            if not stmt_txns:
-                if len(consolidation.statements) == 1:
-                    stmt_txns = list(consolidation.transactions)
-                else:
-                    stmt_txns = list(stmt.transactions)
+            if stmt.statement_id and stmt.statement_id in tx_by_statement:
+                stmt_txns = tx_by_statement[stmt.statement_id]
+            elif not stmt.statement_id and len(consolidation.statements) == 1:
+                stmt_txns = list(consolidation.transactions)
+            else:
+                stmt_txns = []
 
             succ_txns = len(stmt_txns)
             dup_txns = stmt.metadata.get("duplicate_transactions", 0) + stmt.metadata.get(
@@ -794,11 +872,15 @@ def build_transactions_xlsx_artifact(consolidation: BankStatementConsolidationRe
         header_font = Font(color="FFFFFF", bold=True)
         ws.row_dimensions[1].height = 24
 
+        align_center = Alignment(horizontal="center")
+        align_center_v = Alignment(vertical="center", horizontal="center")
+        align_left_v = Alignment(vertical="center", horizontal="left")
+
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=1, column=col_idx)
             cell.fill = header_fill
             cell.font = header_font
-            cell.alignment = Alignment(vertical="center", horizontal="center" if col_idx not in (4, 5) else "left")
+            cell.alignment = align_center_v if col_idx not in (4, 5) else align_left_v
 
         for row_idx, tx in enumerate(consolidation.transactions, start=2):
             tx_id = tx.transaction_id or f"TXN-{row_idx-1:04d}"
@@ -807,17 +889,17 @@ def build_transactions_xlsx_artifact(consolidation: BankStatementConsolidationRe
             # 1. Transaction ID
             c1 = ws.cell(row=row_idx, column=1, value=tx_id)
             c1.data_type = "s"
-            c1.alignment = Alignment(horizontal="center")
+            c1.alignment = align_center
 
             # 2. Input Location
             c2 = ws.cell(row=row_idx, column=2, value=input_loc)
             c2.data_type = "s"
-            c2.alignment = Alignment(horizontal="center")
+            c2.alignment = align_center
 
             # 3. Date (native Excel date object)
             c3 = ws.cell(row=row_idx, column=3, value=tx.transaction_date)
             c3.number_format = "DD-MM-YYYY"
-            c3.alignment = Alignment(horizontal="center")
+            c3.alignment = align_center
 
             # 4. Description
             c4 = ws.cell(row=row_idx, column=4, value=tx.description)

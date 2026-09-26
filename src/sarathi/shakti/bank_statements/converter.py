@@ -7,6 +7,7 @@ Canonical module for value conversion in Shakti bank statements.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -109,7 +110,7 @@ def parse_decimal_amount(raw_val: Any) -> Decimal | None:
             return parse_decimal_amount(str(raw_val))
 
 
-def parse_date(raw_val: Any) -> date | None:
+def parse_date(raw_val: Any, formats: Sequence[str] | None = None) -> date | None:
     """Parse a date string or object into a datetime.date instance."""
     match raw_val:
         case None:
@@ -133,8 +134,9 @@ def parse_date(raw_val: Any) -> date | None:
                 # String contains time component (e.g. '15/01/2025 14:30:00')
                 first_part = date_str.split()[0]
                 candidates.extend([first_part, first_part.replace(".", "/").replace("-", "/")])
+            all_formats = tuple(formats or ()) + _DATE_FORMATS
             for candidate in candidates:
-                for fmt in _DATE_FORMATS:
+                for fmt in all_formats:
                     try:
                         return datetime.strptime(candidate, fmt).date()
                     except ValueError:

@@ -80,10 +80,13 @@ def find_header_row_index(table: TableData) -> int | None:
 
 def get_table_header_and_data_rows(
     table: TableData,
+    fallback_headers: Sequence[str] | None = None,
 ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]] | None:
     """Extract factual transaction column headers and data rows from TableData."""
     hdr_idx = find_header_row_index(table)
     if hdr_idx is None:
+        if fallback_headers is not None and table.rows:
+            return tuple(fallback_headers), table.rows
         return None
 
     if hdr_idx == -1 and table.headers:
@@ -132,6 +135,14 @@ def classify_table(table: TableData) -> TableType:
 
     if any(s in header_str for s in ("total", "opening balance", "closing balance", "summary")):
         return TableType.SUMMARY_TABLE
+
+    if table.rows:
+        from sarathi.shakti.bank_statements.row_classifier import RowType, classify_row
+
+        sample_rows = table.rows[:10]
+        tx_count = sum(1 for r in sample_rows if classify_row(r) == RowType.TRANSACTION)
+        if tx_count > 0 and (tx_count / len(sample_rows)) >= 0.3:
+            return TableType.TRANSACTION_TABLE
 
     return TableType.UNRELATED_TABLE
 

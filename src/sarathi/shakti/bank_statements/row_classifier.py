@@ -80,10 +80,13 @@ def classify_row(
 
     row_str = " ".join(cleaned).lower()
 
-    if any(k in row_str for k in ("elapsed:", "---", "legend :", "end of statement")):
+    if any(k in row_str for k in ("elapsed:", "legend :", "end of statement")):
         return RowType.NOISE
 
     if all(re.match(r"^[\*\-_=\.]+$", c) for c in cleaned if c):
+        return RowType.NOISE
+
+    if any(re.match(r"^[\*\-_=\.]{3,}$", c) for c in cleaned if c) and not any(_DATE_RE.search(c) for c in cleaned):
         return RowType.NOISE
 
     if any(k in row_str for k in _CLOSING_PHRASES) or bool(_SHORT_CLOSING_RE.search(row_str)):

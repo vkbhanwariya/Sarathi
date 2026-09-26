@@ -44,7 +44,24 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
     duplicates: list[tuple[Transaction, Transaction, DuplicateDecision, str]] = []
 
     candidates_by_core: dict[tuple[str, object, Decimal | None, Decimal | None], list[int]] = {}
+    candidates_by_ref: dict[tuple[tuple, str], list[int]] = {}
+    candidates_by_bal: dict[tuple[tuple, Decimal], list[int]] = {}
+    candidates_by_desc: dict[tuple[tuple, str], list[int]] = {}
+    candidates_no_ref: dict[tuple, list[int]] = {}
     doc_surrogates: dict[str, str] = {}
+
+    def _register_candidate(idx: int, t: Transaction, c_key: tuple) -> None:
+        candidates_by_core.setdefault(c_key, []).append(idx)
+        ref = _clean_ref(t.reference_number) or _clean_ref(t.cheque_number)
+        if ref:
+            candidates_by_ref.setdefault((c_key, ref), []).append(idx)
+        else:
+            candidates_no_ref.setdefault(c_key, []).append(idx)
+        if t.running_balance is not None:
+            candidates_by_bal.setdefault((c_key, t.running_balance), []).append(idx)
+        desc = t.description.strip()
+        if desc:
+            candidates_by_desc.setdefault((c_key, desc), []).append(idx)
 
     for tx in transactions:
         # Determine account identifier without global fallback
@@ -62,17 +79,33 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                 acc_str = f"surrogate_orphan_{tx_hash}"
 
         core_key = (acc_str, tx.transaction_date, tx.debit, tx.credit)
-        candidate_indices = candidates_by_core.get(core_key, [])
+        all_core_indices = candidates_by_core.get(core_key, [])
 
         tx_desc = tx.description.strip()
         tx_ref = _clean_ref(tx.reference_number) or _clean_ref(tx.cheque_number)
 
+        if len(all_core_indices) <= 20:
+            candidate_indices = all_core_indices
+        else:
+            # High-cardinality candidate pruning by strong signals
+            pruned_set: set[int] = set()
+            if tx_ref:
+                pruned_set.update(candidates_by_ref.get((core_key, tx_ref), []))
+            if tx.running_balance is not None:
+                pruned_set.update(candidates_by_bal.get((core_key, tx.running_balance), []))
+            if tx_desc:
+                pruned_set.update(candidates_by_desc.get((core_key, tx_desc), []))
+            if not tx_ref:
+                pruned_set.update(candidates_no_ref.get(core_key, []))
+            candidate_indices = sorted(pruned_set)
+
         matched = False
 
-        def _check_candidate(existing: Transaction) -> tuple[bool, bool, bool]:
+        def _check_candidate(existing: Transaction) -> tuple[bool, bool, bool, int]:
             ex_desc = existing.description.strip()
             ex_ref = _clean_ref(existing.reference_number) or _clean_ref(existing.cheque_number)
             desc_matches = ex_desc == tx_desc
+            sim_ratio = 100 if desc_matches else 0
             contradiction = False
 
             if (
@@ -99,8 +132,18 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
             ):
                 contradiction = True
 
+            is_near_desc = False
             if not desc_matches and not (ex_ref and tx_ref and ex_ref == tx_ref):
-                contradiction = True
+                if not ex_ref and not tx_ref:
+                    from rapidfuzz import fuzz
+
+                    sim_ratio = int(fuzz.token_sort_ratio(ex_desc, tx_desc))
+                    if sim_ratio >= 80:
+                        is_near_desc = True
+                    else:
+                        contradiction = True
+                else:
+                    contradiction = True
 
             ex_doc_id = (
                 existing.provenance[0].source_input_id
@@ -131,7 +174,7 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                     contradiction = True
 
             if contradiction:
-                return False, False, True
+                return False, False, True, sim_ratio
 
             has_matching_ref = bool(ex_ref and tx_ref and ex_ref == tx_ref)
             has_matching_bal = bool(
@@ -150,13 +193,13 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                     or is_explicit_cross_statement
                 )
             )
-            is_probable = desc_matches and not is_proven
-            return is_proven, is_probable, False
+            is_probable = (desc_matches or is_near_desc) and not is_proven
+            return is_proven, is_probable, False, sim_ratio
 
         # Pass 1: scan all candidates for proven duplicates first
         for existing_idx in candidate_indices:
             existing = unique[existing_idx]
-            is_proven, _, contradiction = _check_candidate(existing)
+            is_proven, _, contradiction, _ = _check_candidate(existing)
             if not contradiction and is_proven:
                 merged_provenance = existing.provenance + tuple(
                     p for p in tx.provenance if p not in existing.provenance
@@ -198,12 +241,23 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
         if not matched:
             for existing_idx in candidate_indices:
                 existing = unique[existing_idx]
-                _, is_probable, contradiction = _check_candidate(existing)
+                _, is_probable, contradiction, sim_ratio = _check_candidate(existing)
                 if not contradiction and is_probable:
+                    is_near_only = sim_ratio < 100
+                    warn_msg = (
+                        f"Near-duplicate narration ({sim_ratio}% similarity) without reference number or running balance."
+                        if is_near_only
+                        else "Identical date, amount, and narration without reference number or running balance."
+                    )
                     warn_issue = ValidationIssue(
                         code="PROBABLE_DUPLICATE_TRANSACTION",
-                        message="Identical date, amount, and narration without reference number or running balance.",
+                        message=warn_msg,
                         severity="warning",
+                        context={
+                            "similarity_ratio": sim_ratio,
+                            "existing_description": existing.description,
+                            "new_description": tx.description,
+                        },
                     )
                     new_status = (
                         ValidationStatus.WARNING
@@ -220,19 +274,19 @@ def deduplicate_transactions(transactions: Sequence[Transaction]) -> Deduplicati
                             existing,
                             tx,
                             DuplicateDecision.PROBABLE_DUPLICATE,
-                            "Match on date, amount, and description without reference number or running balance.",
+                            warn_msg,
                         )
                     )
                     new_idx = len(unique)
                     unique.append(tx_with_issue)
-                    candidates_by_core.setdefault(core_key, []).append(new_idx)
+                    _register_candidate(new_idx, tx_with_issue, core_key)
                     matched = True
                     break
 
         if not matched:
             new_idx = len(unique)
             unique.append(tx)
-            candidates_by_core.setdefault(core_key, []).append(new_idx)
+            _register_candidate(new_idx, tx, core_key)
 
     return DeduplicationResult(
         unique_transactions=tuple(unique),

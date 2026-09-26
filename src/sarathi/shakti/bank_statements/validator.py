@@ -72,18 +72,45 @@ def validate_statement_balances(statement: BankStatement) -> BankStatement:
             issues=tuple(statement_issues),
         )
 
-    # Check if transactions appear in reverse chronological order (strictly descending dates required)
+    import datetime
+
+    # Check if transactions appear in reverse chronological order
+    # Multi-factor reverse-order detection:
+    # 1. Date and timestamp progression
+    dt_keys = [
+        (tx.transaction_date, tx.transaction_time or datetime.time.min)
+        for tx in transactions
+    ]
     has_strictly_descending = any(
-        transactions[i].transaction_date > transactions[i + 1].transaction_date for i in range(len(transactions) - 1)
+        dt_keys[i] > dt_keys[i + 1] for i in range(len(dt_keys) - 1)
     )
-    is_reverse = (
-        len(transactions) >= 2
-        and has_strictly_descending
-        and all(
-            transactions[i].transaction_date >= transactions[i + 1].transaction_date
-            for i in range(len(transactions) - 1)
-        )
+    all_non_ascending = all(
+        dt_keys[i] >= dt_keys[i + 1] for i in range(len(dt_keys) - 1)
     )
+
+    # 2. Running balance mathematical progression evidence
+    fwd_bal_matches = 0
+    rev_bal_matches = 0
+    for i in range(len(transactions) - 1):
+        t1, t2 = transactions[i], transactions[i + 1]
+        if t1.running_balance is not None and t2.running_balance is not None:
+            # Forward hypothesis (t1 precedes t2): t2.bal - t1.bal == t2.crd - t2.deb
+            expected_fwd_delta = (t2.credit or Decimal("0")) - (t2.debit or Decimal("0"))
+            if t2.running_balance - t1.running_balance == expected_fwd_delta:
+                fwd_bal_matches += 1
+            # Reverse hypothesis (t2 precedes t1): t1.bal - t2.bal == t1.crd - t1.deb
+            expected_rev_delta = (t1.credit or Decimal("0")) - (t1.debit or Decimal("0"))
+            if t1.running_balance - t2.running_balance == expected_rev_delta:
+                rev_bal_matches += 1
+
+    is_reverse = False
+    if len(transactions) >= 2:
+        if rev_bal_matches > fwd_bal_matches:
+            is_reverse = True
+        elif fwd_bal_matches > rev_bal_matches:
+            is_reverse = False
+        elif has_strictly_descending and all_non_ascending:
+            is_reverse = True
 
     total_debits = sum((tx.debit or Decimal("0") for tx in transactions), Decimal("0"))
     total_credits = sum((tx.credit or Decimal("0") for tx in transactions), Decimal("0"))

@@ -269,6 +269,16 @@ class BankStatementCapability:
                 tuple(p for p in prior_result.provenance if p.source_input_id == doc.source_input_id)
                 or prior_result.provenance
             )
+            if not doc_prov and doc.source_input_id:
+                doc_prov = (
+                    ProvenanceRecord(
+                        source_input_id=doc.source_input_id,
+                        stage="bank_extraction",
+                        capability_id="bank_statements",
+                    ),
+                )
+            if doc.source_input_id:
+                doc_metadata["source_input_id"] = doc.source_input_id
 
             resolved_prof = doc_metadata.get("resolved_profile")
             final_profile = resolved_prof or detection.matched_profile or "generic"
@@ -424,17 +434,38 @@ class BankStatementCapability:
         )
 
         input_outcomes: dict[str, str] = {}
-        for s, doc in zip(statements, docs, strict=False):
-            all_warnings.extend(WarningRecord(code=i.code, message=i.message, stage="validation") for i in s.issues)
-            outcome = "SUCCESS" if (len(s.transactions) > 0 and s.status != ValidationStatus.INVALID) else "FAILED"
+        stmts_by_doc_id: dict[str, list[BankStatement]] = {}
+        for s in statements:
+            all_warnings.extend(
+                WarningRecord(code=i.code, message=i.message, stage="validation") for i in s.issues
+            )
+            mapped_ids: set[str] = set()
             for p in s.provenance:
                 if p.source_input_id:
-                    input_outcomes[p.source_input_id] = outcome
-            if doc.source_input_id:
-                input_outcomes[doc.source_input_id] = outcome
+                    stmts_by_doc_id.setdefault(p.source_input_id, []).append(s)
+                    mapped_ids.add(p.source_input_id)
+            if not mapped_ids and s.metadata:
+                s_meta_id = s.metadata.get("source_input_id")
+                if s_meta_id:
+                    stmts_by_doc_id.setdefault(s_meta_id, []).append(s)
+
         for doc in docs:
-            if doc.source_input_id and doc.source_input_id not in input_outcomes:
-                input_outcomes[doc.source_input_id] = "FAILED"
+            doc_id = doc.source_input_id
+            if not doc_id:
+                continue
+            doc_stmts = stmts_by_doc_id.get(doc_id, [])
+            if not doc_stmts:
+                input_outcomes[doc_id] = "FAILED"
+            else:
+                has_invalid = any(s.status == ValidationStatus.INVALID for s in doc_stmts)
+                has_fatal_err = any(
+                    i.severity in ("error", "fatal") for s in doc_stmts for i in s.issues
+                )
+                total_extracted = sum(len(s.transactions) for s in doc_stmts)
+                if has_invalid or has_fatal_err or total_extracted == 0:
+                    input_outcomes[doc_id] = "FAILED"
+                else:
+                    input_outcomes[doc_id] = "SUCCESS"
 
         res_metadata = {
             "input_outcomes": input_outcomes,
@@ -469,7 +500,8 @@ class BankStatementCapability:
             (t_idx + 1, t) for t_idx, t in enumerate(doc.tables) if not any(t == e[1] for e in all_tables)
         )
 
-        if not all_tables:
+        has_tx_table = any(classify_table(t) == TableType.TRANSACTION_TABLE for _, t in all_tables)
+        if not has_tx_table:
             # 1. Attempt geometric table reconstruction from bounding box spans (scanned OCR)
             for p_idx, p in enumerate(doc.pages):
                 if p.spans:
@@ -478,7 +510,7 @@ class BankStatementCapability:
                         all_tables.append((p_idx + 1, recon_t))
 
             # 2. Attempt delimiter / tabular column reconstruction from document text
-            if not all_tables and doc.text:
+            if doc.text and not any(classify_table(t) == TableType.TRANSACTION_TABLE for _, t in all_tables):
                 recon_t = reconstruct_table_from_text(doc.text)
                 if recon_t is not None and recon_t.rows:
                     all_tables.append((1, recon_t))
@@ -532,6 +564,7 @@ class BankStatementCapability:
         best_header_score = 0.0
         scanned_rows_by_acc: dict[str, int] = {}
         boundaries_by_acc: dict[str, dict[str, Decimal]] = {}
+        last_valid_hdr_cells: tuple[str, ...] | None = None
 
         for page_num, table in all_tables:
             if not table.rows and not table.headers:
@@ -541,18 +574,40 @@ class BankStatementCapability:
                 continue
 
             hdr_idx = find_header_row_index(table)
-            extracted_table = get_table_header_and_data_rows(table)
+            extracted_table = get_table_header_and_data_rows(table, fallback_headers=last_valid_hdr_cells)
             if extracted_table is None:
                 continue
 
             hdr_cells, data_rows = extracted_table
+            if hdr_idx is not None and hdr_idx >= 0:
+                last_valid_hdr_cells = hdr_cells
+            elif last_valid_hdr_cells is None:
+                last_valid_hdr_cells = hdr_cells
+
             sample_rows = extract_sample_data_rows(data_rows)
             hdr_offset = (hdr_idx + 2) if (hdr_idx is not None and hdr_idx >= 0) else 1
             total_scanned_rows += len(data_rows)
 
             tbl_account_number = None
-            if table.name and re.match(r"^[A-Za-z0-9]{8,24}$", table.name.strip()):
-                tbl_account_number = table.name.strip()
+            if table.name:
+                t_name_clean = table.name.strip()
+                t_name_lower = t_name_clean.lower()
+                GENERIC_SHEET_NAMES = {
+                    "transactions", "transaction", "statement", "statements",
+                    "sheet", "sheet1", "sheet2", "sheet3", "passbook", "ledger",
+                    "account", "account statement", "summary", "data", "report",
+                    "bank statement", "bank_statement", "details",
+                }
+                if t_name_lower not in GENERIC_SHEET_NAMES:
+                    m_sheet_acc = re.search(
+                        r"(?:ac|acc|account)[-_#:\s]*([A-Za-z0-9]{8,24})",
+                        t_name_clean,
+                        re.IGNORECASE,
+                    )
+                    if m_sheet_acc and sum(c.isdigit() for c in m_sheet_acc.group(1)) >= 4:
+                        tbl_account_number = m_sheet_acc.group(1).strip()
+                    elif re.match(r"^\d{8,24}$", t_name_clean):
+                        tbl_account_number = t_name_clean
 
             if not tbl_account_number and table.headers:
                 h_text = " ".join(str(c) for c in table.headers)
@@ -611,6 +666,8 @@ class BankStatementCapability:
                 if metadata is not None:
                     metadata["resolved_profile"] = resolved_prof
 
+            prof_date_formats = tuple(active_profile.get("date_formats") or ())
+
             mappings = {m.canonical_field: m.column_index for m in best_mappings}
             d_col, desc_col = mappings.get("date"), mappings.get("description")
             val_date_col, time_col = mappings.get("value_date"), mappings.get("time")
@@ -656,7 +713,7 @@ class BankStatementCapability:
                             if tbl_identity and tbl_identity.account_fingerprint:
                                 boundaries_by_acc.setdefault(tbl_identity.account_fingerprint, {})["closing"] = parsed_close
                     case RowType.EOD_BALANCE:
-                        eod_date = parse_date(_get_raw_cell(row, d_col))
+                        eod_date = parse_date(_get_raw_cell(row, d_col), formats=prof_date_formats)
                         eod_bal = parse_balance_amount(_get_raw_cell(row, b_col))
                         if eod_bal is None:
                             eod_bal = parse_balance_amount(_get_raw_cell(row, amt_col))
@@ -697,7 +754,7 @@ class BankStatementCapability:
                             issues.append(iss)
                     case RowType.TRANSACTION:
                         raw_date_val = _get_raw_cell(row, d_col)
-                        tx_date = parse_date(raw_date_val)
+                        tx_date = parse_date(raw_date_val, formats=prof_date_formats)
                         is_blank_date = raw_date_val is None or (
                             isinstance(raw_date_val, str)
                             and (not raw_date_val.strip() or raw_date_val.strip().lower() in _BLANK_DATE_MARKERS)
@@ -730,12 +787,12 @@ class BankStatementCapability:
                             tx_time = parse_time(raw_date_val)
 
                         tx_val_date = (
-                            parse_date(_get_raw_cell(row, val_date_col))
+                            parse_date(_get_raw_cell(row, val_date_col), formats=prof_date_formats)
                             if val_date_col is not None
                             else (tx_date if date_supplied == "value_date" else None)
                         )
                         tx_posting_date = (
-                            parse_date(_get_raw_cell(row, posting_date_col))
+                            parse_date(_get_raw_cell(row, posting_date_col), formats=prof_date_formats)
                             if posting_date_col is not None
                             else (tx_date if date_supplied == "posting_date" else None)
                         )
