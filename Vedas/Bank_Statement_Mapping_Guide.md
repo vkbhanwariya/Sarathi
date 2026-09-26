@@ -249,11 +249,10 @@ Output/bank_statements/Run-<timestamp>-<short_id>/
 Example:
 - `Output/bank_statements/Run-20260925-204052-0F9ED886/`
 
-Check that deliverable artifacts and manifest are produced in the run directory:
 - `List_of_Accounts.xlsx`:
-  - **Sheet 1 (`Accounts`)**: 6-column Master Account Directory (`S.No.`, `Name of the Account Holder`, `Account No.`, `Bank Name`, `Input Location Range`, `Transaction ID Range`).
-  - **Sheet 2 (`Processing_Summary`)**: 13-column Extraction & Schema Audit Ledger (`S.No.`, `Source File`, `Account No.`, `Bank Name`, `Profile Used`, `Header Match Score`, `Total Rows Scanned`, `Successful Transactions`, `Duplicates Removed`, `Failed / Skipped Rows`, `Status`, `Warnings Count`, `Warning / Audit Details`) with bottom `=SUM(...)` totals.
-- `Consolidated_Transactions.xlsx`: 9-column Passbook with Indian number formatting `0,00,000.00` and dynamic `=SUBTOTAL(9, ...)`.
+  - **Sheet 1 (`Accounts`)**: 6-column Master Account Directory (`S.No.`, `Name of the Account Holder`, `Account No.`, `Bank Name`, `Input Location Range`, `Transaction ID Range`). Aggregates multiple monthly statements into **exactly 1 row per unique bank account**, displaying overarching input location and transaction ID ranges (`TXN-0001 to TXN-NNNN`).
+  - **Sheet 2 (`Processing_Summary`)**: 13-column Extraction & Schema Audit Ledger (`S.No.`, `Source File`, `Account No.`, `Bank Name`, `Profile Used`, `Header Match Score`, `Total Rows Scanned`, `Successful Transactions`, `Duplicates Removed`, `Failed / Skipped Rows`, `Status`, `Warnings Count`, `Warning / Audit Details`) with bottom `=SUM(...)` totals. Metrics (`Successful Transactions`, `Duplicates Removed`, `Failed / Skipped Rows`) are strictly statement/file-scoped.
+- `Consolidated_Transactions.xlsx`: 9-column Passbook with Indian number formatting `0,00,000.00`, continuous transaction IDs (`TXN-0001`..`TXN-NNNN`), and dynamic `=SUBTOTAL(9, ...)` (safely guarded and omitted when mixed currencies are present to avoid invalid combined financial totals).
 - `Consolidated_Bank_Statement.parquet`: 32-column forensic dataset with `transaction_hash`, `transaction_mode`, `eod_balance`, `balance_as_on`.
 - `run-manifest.json`: Run execution ledger with cryptographic SHA-256 hashes, input outcomes, provenance lineage, and runtime telemetry for UI monitoring.
 
