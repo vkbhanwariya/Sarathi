@@ -380,9 +380,18 @@ def detect_bank_statement(
                 f"Ambiguous bank profiles with identical evidence score ({cand_score:.2f}): {tied_names}. Defaulted to generic profile."
             )
 
-    if score >= 0.5 and matched_profile_id is None:
-        matched_profile_id = "generic"
-        matched_bank_name = None
+    has_signed = (
+        any(t in table_cell_tokens for t in ("cr/dr", "dr/cr", "cr / dr", "dr / cr", "type", "txn type", "cr dr", "dr cr"))
+        and any(t in table_cell_tokens for t in ("amount", "txn amount", "transaction amount"))
+        and not (
+            any(t in table_cell_tokens for t in ("debit", "withdrawal", "withdrawals"))
+            and any(t in table_cell_tokens for t in ("credit", "deposit", "deposits"))
+        )
+    )
+    universal_profile = "universal_signed_amount" if has_signed else "universal_dual_amount"
+
+    if score >= 0.4 and (matched_profile_id is None or matched_profile_id == "generic"):
+        matched_profile_id = universal_profile
 
     target_dir = banks_dir.resolve() if banks_dir is not None else _CANONICAL_BANKS_DIR
     common_cfg = load_bank_profile_yaml(target_dir / "common.yaml")

@@ -286,10 +286,12 @@ class BankStatementCapability:
 
             resolved_prof = doc_metadata.get("resolved_profile")
             final_profile = resolved_prof or detection.matched_profile or "generic"
+            prof_data = self._profiles.get(final_profile, {}) if final_profile else {}
+            is_universal = prof_data.get("parent_bank") == "universal" or (final_profile and final_profile.startswith("universal_"))
             raw_bank_name = (
-                self._profiles.get(final_profile, {}).get("bank_name")
-                if (final_profile and final_profile in self._profiles)
-                else init_bank_name
+                init_bank_name
+                if is_universal
+                else (prof_data.get("bank_name") or init_bank_name)
             )
 
             ifsc_val = detection.ifsc or (detection.account_identity.ifsc if detection.account_identity else None)
@@ -704,7 +706,8 @@ class BankStatementCapability:
                 active_profile = self._profiles.get(resolved_prof, {})
                 has_signed_semantics = bool(active_profile.get("signed_amounts", False))
                 prof_bank_name = active_profile.get("bank_name")
-                if prof_bank_name and (not bank_name or bank_name == "Unknown Bank"):
+                is_universal = active_profile.get("parent_bank") == "universal" or (resolved_prof and resolved_prof.startswith("universal_"))
+                if not is_universal and prof_bank_name and (not bank_name or bank_name == "Unknown Bank"):
                     bank_name = prof_bank_name
                 if metadata is not None:
                     metadata["resolved_profile"] = resolved_prof
@@ -911,7 +914,7 @@ class BankStatementCapability:
                             elif norm_dir in _EXPLICIT_CR_INDICATORS:
                                 tx_credit = abs(parsed_amt) if parsed_amt is not None else None
                                 tx_debit = None
-                            elif has_signed_semantics and parsed_amt is not None:
+                            elif dir_col is None and has_signed_semantics and parsed_amt is not None:
                                 if parsed_amt < Decimal("0"):
                                     tx_debit = abs(parsed_amt)
                                     tx_credit = None

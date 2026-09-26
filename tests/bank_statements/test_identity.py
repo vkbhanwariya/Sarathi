@@ -77,7 +77,7 @@ def test_detect_unknown_bank_statement_without_bank_signals() -> None:
 
     evidence = detect_bank_statement(doc)
     assert evidence.is_bank_statement is True
-    assert evidence.matched_profile == "generic"
+    assert evidence.matched_profile in ("generic", "universal_dual_amount")
     assert evidence.bank_name == "Unknown Bank"
     assert any("Unknown Bank" in r for r in evidence.reasons)
 

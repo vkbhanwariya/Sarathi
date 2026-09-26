@@ -1,0 +1,73 @@
+profile_id: "universal_dual_amount"
+parent_bank: "universal"
+bank_name: "Universal Dual Amount"
+container_format: "excel"
+layout_variant: "dual_amount"
+signed_amounts: false
+
+headers:
+  date:
+    - "txn date"
+    - "transaction date"
+    - "tran date"
+    - "date"
+    - "post date"
+  value_date:
+    - "value date"
+    - "val date"
+  description:
+    - "narration"
+    - "description"
+    - "particulars"
+    - "transaction details"
+    - "remarks"
+  reference_number:
+    - "ref no"
+    - "ref no."
+    - "reference no"
+    - "utr"
+    - "txn id"
+    - "transaction id"
+  cheque_number:
+    - "chq"
+    - "chq no"
+    - "cheque no"
+    - "instrument no"
+    - "inst no"
+  debit:
+    - "debit"
+    - "debit amount"
+    - "withdrawal"
+    - "withdrawals"
+    - "dr"
+    - "debits"
+  credit:
+    - "credit"
+    - "credit amount"
+    - "deposit"
+    - "deposits"
+    - "cr"
+    - "credits"
+  balance:
+    - "balance"
+    - "running balance"
+    - "closing balance"
+    - "line balance"
+    - "bal"
+
+date_formats:
+  - "%d/%m/%Y"
+  - "%d-%m-%Y"
+  - "%d %b %Y"
+  - "%d %B %Y"
+  - "%Y-%m-%d"
+  - "%d/%m/%y"
+  - "%d-%m-%y"
+  - "%d/%m/%Y %H:%M:%S"
+  - "%Y-%m-%d %H:%M:%S"
+  - "%m/%d/%Y %H:%M:%S"
+
+metadata_patterns:
+  account_number: '(?:\bAccount\s*(?:No\.?|Number)?\s*[:\-]?\s*|\bA\/c\s*[:\-]?\s*)([0-9A-Za-z]{9,20})'
+  account_holder: '(?:Customer(?:\s*Name)?|Account\s*Holder(?:\s*Name)?|Name)\s*[:\-]\s*([^\n\r|]+)'
+  ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})'

@@ -499,8 +499,10 @@ class HeaderMapper:
                 continue
             if cand_container and prof_data.get("container_format") and prof_data.get("container_format") != cand_container:
                 continue
+            is_universal = prof_data.get("parent_bank") == "universal" or prof_id.startswith("universal_")
             is_cand = bool(
-                (candidate_bank and (prof_data.get("bank_name") == candidate_bank or prof_data.get("parent_bank") == candidate_bank or prof_id.startswith(f"{candidate_bank}_")))
+                is_universal
+                or (candidate_bank and (prof_data.get("bank_name") == candidate_bank or prof_data.get("parent_bank") == candidate_bank or prof_id.startswith(f"{candidate_bank}_")))
                 or (candidate_profile and candidate_profile != "generic" and (prof_data.get("parent_bank") == candidate_profile or prof_id.startswith(f"{candidate_profile}_")))
             )
             if (candidate_bank or (candidate_profile and candidate_profile != "generic")) and not is_cand:
