@@ -1,0 +1,71 @@
+profile_id: "bandhan_pdf_fmt1"
+parent_bank: "bandhan"
+bank_name: "Bandhan Bank Limited"
+container_format: "pdf"
+layout_variant: "fmt1"
+
+file_format:
+  declared_extension: ".pdf"
+  actual_hidden_format: "pdf"
+  mime_type: "application/pdf"
+
+aliases:
+  - "bandhan"
+  - "bandhan bank"
+  - "bandhan bank limited"
+
+identification_keywords:
+  - "bandhan bank"
+  - "bandhan"
+  - "bdbl"
+
+headers:
+  date:
+    - "trans\ndate"
+    - "trans date"
+  value_date:
+    - "value\ndate"
+    - "value date"
+  cheque_number:
+    - "cheque /\ninstrument"
+    - "cheque / instrument"
+  description:
+    - "description"
+  debit:
+    - "debits"
+  credit:
+    - "credits"
+  balance:
+    - "balance"
+
+date_formats:
+  - "%d-%b-%Y"
+  - "%d-%b-\n%Y"
+  - "%d-%b- %Y"
+
+layout_signature:
+  header_row:
+    expected: 0
+    tolerance: 5
+    bonus: 1.0
+  column_count:
+    expected: 7
+    tolerance: 0
+    bonus: 2.0
+  sequence:
+    expected:
+      - date
+      - value_date
+      - cheque_number
+      - description
+      - debit
+      - credit
+      - balance
+    weight: 3.0
+
+metadata_patterns:
+  account_number: "(?:Account\\s*No\\s*:\\s*|Account\\s*Number\\s*:\\s*)(20[12]\\d{11})"
+  account_holder: "Account\\s*Title\\s*:\\s*([A-Z0-9\\s/.,&-]+?)(?:\\n\\s*\\n|\\n\\s*MICR|\\n\\s*Joint)"
+  ifsc: "IFSC\\s*:\\s*([A-Z]{4}0[A-Z0-9]{6})"
+  opening_balance: "(?:Opening\\s*Balance[\\s:|]*)([0-9,]+\\.[0-9]{2})"
+  closing_balance: "(?:Closing\\s*Balance[\\s:|]*)([0-9,]+\\.[0-9]{2})"

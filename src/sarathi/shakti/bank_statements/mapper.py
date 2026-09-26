@@ -487,9 +487,17 @@ class HeaderMapper:
             best_mappings = cand_mappings
             best_score = cand_score
 
+        cand_container = (
+            self._profiles[candidate_profile].get("container_format")
+            if candidate_profile and candidate_profile in self._profiles
+            else None
+        )
+
         # 2. Score all other registered bank profiles
         for prof_id, prof_data in self._profiles.items():
             if prof_id == candidate_profile:
+                continue
+            if cand_container and prof_data.get("container_format") and prof_data.get("container_format") != cand_container:
                 continue
             is_cand = bool(
                 (candidate_bank and (prof_data.get("bank_name") == candidate_bank or prof_data.get("parent_bank") == candidate_bank or prof_id.startswith(f"{candidate_bank}_")))

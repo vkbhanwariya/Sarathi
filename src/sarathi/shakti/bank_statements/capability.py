@@ -49,8 +49,10 @@ from sarathi.shakti.bank_statements.table_locator import (
     classify_table,
     find_header_row_index,
     get_table_header_and_data_rows,
+    reconstruct_borderless_table_from_pages,
     reconstruct_table_from_spans,
     reconstruct_table_from_text,
+    stitch_split_table_rows,
 )
 from sarathi.shakti.bank_statements.utr_repair import repair_utr
 from sarathi.shakti.bank_statements.validator import validate_statement_balances
@@ -116,9 +118,11 @@ def detect_statement_currency(doc: CanonicalDocument, profile_cfg: Mapping[str, 
     if doc.pages and doc.pages[0].text:
         header_block += " " + doc.pages[0].text[:1000]
 
-    m_curr = re.search(r"\b(?:currency|curr|denominated\s+in)\s*[:\-]?\s*([A-Z]{3})\b", header_block, re.IGNORECASE)
+    m_curr = re.search(r"\b(?:currency|curr)\b\s*[:\-]?\s*([A-Z]{3})\b|\b(?:denominated\s+in)\s*[:\-]?\s*([A-Z]{3})\b", header_block, re.IGNORECASE)
     if m_curr:
-        return m_curr.group(1).upper()
+        curr_val = m_curr.group(1) or m_curr.group(2)
+        if curr_val:
+            return curr_val.upper()
 
     # 3. Explicit table column header currency indicators
     table_headers_text = " ".join(
@@ -505,17 +509,26 @@ class BankStatementCapability:
         all_tables.extend(
             (t_idx + 1, t) for t_idx, t in enumerate(doc.tables) if not any(t == e[1] for e in all_tables)
         )
+        all_tables = stitch_split_table_rows(all_tables)
 
         has_tx_table = any(classify_table(t) == TableType.TRANSACTION_TABLE for _, t in all_tables)
         if not has_tx_table:
-            # 1. Attempt geometric table reconstruction from bounding box spans (scanned OCR)
-            for p_idx, p in enumerate(doc.pages):
-                if p.spans:
-                    recon_t = reconstruct_table_from_spans(p.spans)
-                    if recon_t is not None and recon_t.rows:
-                        all_tables.append((p_idx + 1, recon_t))
+            # 1. Attempt multi-page borderless / fixed-column table reconstruction across all page spans
+            borderless_tx_t, borderless_sum_t = reconstruct_borderless_table_from_pages(doc.pages)
+            if borderless_tx_t is not None and borderless_tx_t.rows:
+                all_tables.append((1, borderless_tx_t))
+            if borderless_sum_t is not None and borderless_sum_t.rows:
+                all_tables.append((1, borderless_sum_t))
 
-            # 2. Attempt delimiter / tabular column reconstruction from document text
+            if not any(classify_table(t) == TableType.TRANSACTION_TABLE for _, t in all_tables):
+                # 2. Attempt geometric table reconstruction from bounding box spans (scanned OCR)
+                for p_idx, p in enumerate(doc.pages):
+                    if p.spans:
+                        recon_t = reconstruct_table_from_spans(p.spans)
+                        if recon_t is not None and recon_t.rows:
+                            all_tables.append((p_idx + 1, recon_t))
+
+            # 3. Attempt delimiter / tabular column reconstruction from document text
             if doc.text and not any(classify_table(t) == TableType.TRANSACTION_TABLE for _, t in all_tables):
                 recon_t = reconstruct_table_from_text(doc.text)
                 if recon_t is not None and recon_t.rows:
@@ -577,6 +590,20 @@ class BankStatementCapability:
                 continue
 
             if classify_table(table) != TableType.TRANSACTION_TABLE:
+                if table.headers and any("balance" in str(h).lower() for h in table.headers):
+                    headers_lower = [str(h).strip().lower() for h in table.headers]
+                    open_idx = next((i for i, h in enumerate(headers_lower) if "opening" in h and "balance" in h), None)
+                    close_idx = next((i for i, h in enumerate(headers_lower) if "closing" in h and "balance" in h), None)
+                    if (open_idx is not None or close_idx is not None) and table.rows:
+                        first_row = table.rows[0]
+                        if open_idx is not None and open_bal is None:
+                            val = parse_balance_amount(first_row[open_idx])
+                            if val is not None:
+                                open_bal = val
+                        if close_idx is not None:
+                            val = parse_balance_amount(first_row[close_idx])
+                            if val is not None:
+                                close_bal = val
                 continue
 
             hdr_idx = find_header_row_index(table)

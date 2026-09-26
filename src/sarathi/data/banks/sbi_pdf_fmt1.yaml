@@ -1,0 +1,73 @@
+bank_name: "State Bank of India"
+parent_bank: "sbi"
+profile_id: "sbi_pdf_fmt1"
+container_format: "pdf"
+file_format: "pdf"
+aliases:
+  - "state bank of india"
+  - "sbi"
+  - "sbin"
+  - "sb jan dhan"
+  - "sbi.co.in"
+
+date_formats:
+  - "%d-%m-%Y"
+  - "%d/%m/%Y"
+  - "%d-%m-%y"
+  - "%d/%m/%y"
+
+identification_keywords:
+  - "state bank of india"
+  - "sbi"
+  - "sbin"
+  - "sb jan dhan"
+  - "sbi.co.in"
+
+headers:
+  date:
+    - "post date"
+    - "postdate"
+    - "txn date"
+    - "date"
+  description:
+    - "description"
+    - "particulars"
+    - "narration"
+  reference_number:
+    - "cheque number"
+    - "cheque no"
+    - "chq no"
+    - "ref no"
+    - "jrnl no"
+  time:
+    - "post time"
+    - "time"
+  debit:
+    - "debit"
+    - "dr"
+    - "withdrawals"
+  credit:
+    - "credit"
+    - "cr"
+    - "deposits"
+  balance:
+    - "balance"
+    - "line balance"
+
+layout_signature:
+  header_patterns:
+    - "post date"
+    - "balance"
+    - "cheque number"
+    - "credit"
+    - "debit"
+    - "description"
+  required_columns:
+    - "date"
+    - "description"
+    - "balance"
+
+metadata_patterns:
+  account_number: "(?:Account\\s*Number\\s*)([0-9]{11,17})"
+  account_holder: "(?:Account\\s*Holder\\s*Name\\s*)([A-Z\\s]{3,35}?)(?=\\r?\\n|Statement|CIF|Account|$)"
+  ifsc: "\\b(SBIN[0-9A-Z]{7})\\b"

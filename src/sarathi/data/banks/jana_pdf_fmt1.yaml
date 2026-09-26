@@ -1,0 +1,71 @@
+bank_name: "Jana Small finance Bank Limited"
+parent_bank: "jana"
+profile_id: "jana_pdf_fmt1"
+container_format: "pdf"
+file_format: "pdf"
+aliases:
+  - "jana small finance bank"
+  - "jana sfb"
+  - "jana bank"
+  - "jsfb"
+
+date_formats:
+  - "%d/%m/%y"
+  - "%d/%m/%Y"
+  - "%d-%m-%y"
+  - "%d-%m-%Y"
+
+identification_keywords:
+  - "jana small finance bank"
+  - "jana sfb"
+  - "jsfb"
+  - "ch217 - regular savings"
+
+headers:
+  date:
+    - "txn date"
+    - "txndate"
+    - "date"
+  description:
+    - "transaction description"
+    - "particulars"
+    - "narration"
+    - "description"
+  reference_number:
+    - "cheque no"
+    - "chq no"
+    - "cheque"
+    - "ref no"
+  value_date:
+    - "value date"
+    - "val date"
+  debit:
+    - "debit amount"
+    - "debit"
+    - "withdrawals"
+  credit:
+    - "credit amount"
+    - "credit"
+    - "deposits"
+  balance:
+    - "running balance"
+    - "balance"
+
+layout_signature:
+  header_patterns:
+    - "txn date"
+    - "transaction description"
+    - "cheque no"
+    - "value date"
+    - "debit amount"
+    - "credit amount"
+    - "running balance"
+  required_columns:
+    - "date"
+    - "description"
+    - "balance"
+
+metadata_patterns:
+  account_number: "(?:Account\\s*No\\s*:\\s*)([0-9]{10,18})"
+  account_holder: "(?:Mr|Mrs|Ms|M/s)\\.?\\s+([A-Z\\s]{3,35})(?=\\s+Opp|\\s+AG-|\\n|$)"
+  ifsc: "\\b(JSFB[0-9A-Z]{7})\\b"
