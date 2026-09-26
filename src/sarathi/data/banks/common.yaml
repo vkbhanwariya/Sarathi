@@ -176,7 +176,7 @@ currency_symbols:
 
 metadata_patterns:
   account_number: '(?:Account\s*(?:No\.?|Number)?|A\/c\s*No\.?)\s*[:\-]?\s*([0-9Xx\*]{9,18})'
-  account_holder: '(?:Customer|Account\s*Holder|Name)\s*[:\-]?\s*([^\n\r]+)'
+  account_holder: '(?:Customer(?:\s*Name)?|Account\s*Holder(?:\s*Name)?|Name)\s*[:\-]\s*([^\n\r|]+)'
   ifsc: 'IFSC(?:\s*Code)?\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})'
   cif: 'CIF(?:\s*No\.?)?\s*[:\-]?\s*([0-9]{9,12})'
   opening_balance: '(?:Opening\s*(?:Balance|Bal)?|Bal\s*b\/f|Brought\s*Forward)\s*(?::|=)?\s*(?:[₹$€£]|Rs\.?|USD|INR|EUR|GBP)?\s*([-(]?\s*(?:[₹$€£]|Rs\.?|USD|INR|EUR|GBP)?\s*[0-9,]+\.\d{2}\s*(?:\(?(?:dr|cr|od)\)?)?\)?)'

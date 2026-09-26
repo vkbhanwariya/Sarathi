@@ -29,7 +29,7 @@ _BOB_FILE = Path("Input/BOB/10260100019671.xlsx")
 @pytest.mark.skipif(not _BOB_FILE.exists(), reason="Input/BOB statement not present")
 def test_bob_statement_detection_and_extraction() -> None:
     data = _BOB_FILE.read_bytes()
-    doc, _, _ = read_xlsx(data, _BOB_FILE.name)
+    doc, _, _ = read_xlsx(data, str(_BOB_FILE))
 
     det = detect_bank_statement(doc)
     assert det.is_bank_statement is True
@@ -72,7 +72,7 @@ def test_bob_statement_detection_and_extraction() -> None:
 @pytest.mark.skipif(not _BOB_FILE.exists(), reason="Input/BOB statement not present")
 def test_bob_deliverables_and_formatting() -> None:
     data = _BOB_FILE.read_bytes()
-    doc, _, _ = read_xlsx(data, _BOB_FILE.name)
+    doc, _, _ = read_xlsx(data, str(_BOB_FILE))
 
     cap = BankStatementCapability()
     in_ref = InputRef(

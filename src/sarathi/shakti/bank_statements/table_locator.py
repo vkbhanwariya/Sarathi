@@ -574,6 +574,12 @@ def stitch_split_table_rows(tables: list[tuple[int, TableData]]) -> list[tuple[i
         if re.search(r"\d{1,2}-$|\d{1,2}-\d{1,2}-$", d_last) and re.match(r"^\d{2,4}$|^\d{1,2}-\d{2,4}$", d_first):
             is_split = True
             new_d = d_last + d_first
+        elif not d_first:
+            non_empty_indices = [idx for idx, c in enumerate(r_first) if str(c).strip()]
+            has_amount = any(re.match(r"^[0-9,]+\.\d{2}$", str(r_first[idx]).strip()) for idx in non_empty_indices)
+            if 0 < len(non_empty_indices) <= 2 and not has_amount:
+                if bool(re.search(r"\d{1,2}[/\-\.]\w{3,}[/\-\.]\d{2,4}|\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}", d_last)):
+                    is_split = True
 
         if is_split:
             new_last = list(r_last)

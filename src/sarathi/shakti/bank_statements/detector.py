@@ -204,6 +204,21 @@ def detect_bank_statement(
     raw_acc_holder: str | None = None
     raw_ifsc: str | None = None
 
+    meta_headers: list[str] = []
+    for t in all_tables:
+        if t.name:
+            meta_headers.append(t.name)
+        if t.headers:
+            meta_headers.append(" ".join(str(h) for h in t.headers))
+        for r in t.rows[:3]:
+            meta_headers.append(" ".join(str(c) for c in r))
+    if document.pages:
+        for p in document.pages[:2]:
+            if p.text:
+                meta_headers.append(p.text[:1500])
+
+    bank_ident_text = (document.text[:3000] + " " + " ".join(meta_headers) + " " + src_hint).lower()
+
     # Collect all table header and cell strings from first 20 rows of all tables
     table_cell_tokens: set[str] = set()
     table_col_counts: set[int] = set()
@@ -212,14 +227,14 @@ def detect_bank_statement(
             table_col_counts.add(len(t.headers))
             for h in t.headers:
                 if h is not None:
-                    h_str = str(h).strip().lower()
+                    h_str = str(h).strip().strip('"').strip("'").lower()
                     if h_str:
                         table_cell_tokens.add(h_str)
         for r in t.rows[:20]:
             table_col_counts.add(len(r))
             for c in r:
                 if c is not None:
-                    c_str = str(c).strip().lower()
+                    c_str = str(c).strip().strip('"').strip("'").lower()
                     if c_str:
                         table_cell_tokens.add(c_str)
 
@@ -245,13 +260,13 @@ def detect_bank_statement(
             if not kw_clean:
                 continue
             if kw_clean == "bank of india":
-                if re.search(r"\b(?<!state\s)(?<!union\s)(?<!central\s)(?<!reserve\s)bank\s+of\s+india\b", full_text):
+                if re.search(r"\b(?<!state\s)(?<!union\s)(?<!central\s)(?<!reserve\s)bank\s+of\s+india\b", bank_ident_text):
                     matches.append(kw)
             elif len(kw_clean) <= 4:
-                if re.search(rf"\b{re.escape(kw_clean)}\b", full_text):
+                if re.search(rf"\b{re.escape(kw_clean)}\b", bank_ident_text):
                     matches.append(kw)
             else:
-                if kw_clean in full_text:
+                if kw_clean in bank_ident_text:
                     matches.append(kw)
 
         # Check table header role matches

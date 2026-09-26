@@ -45,7 +45,7 @@ date_formats:
 signed_amounts: true
 
 metadata_patterns:
-  account_number: '(?:Account\s*(?:No\.?|Number)?|201000)\s*[:\-]?\s*([0-9]{14})'
+  account_number: '(?:\bAccount\s*(?:No\.?|Number)?\s*[:\-]?\s*|\b(?:FOR|A\/C)\s+)?(20\d{12})\b'
 
 layout_signature:
   header_row:

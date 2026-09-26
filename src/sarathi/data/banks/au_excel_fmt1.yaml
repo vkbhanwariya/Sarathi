@@ -11,12 +11,14 @@ file_format:
   magic_bytes: "504B0304 (PK\\x03\\x04)"
 
 aliases:
+  - "au"
   - "au small finance bank"
   - "au small finance bank limited"
   - "au bank"
   - "aubl"
 
 identification_keywords:
+  - "au"
   - "au small finance bank"
   - "au small finance bank limited"
   - "au bank"

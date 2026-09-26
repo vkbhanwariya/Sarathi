@@ -33,7 +33,7 @@ signed_amounts: false
 
 metadata_patterns:
   account_number: '(?:Account\s*(?:No\.?|Number)?)\s*[:\-]?\s*([0-9]{10,20})'
-  account_holder: '(?:Account\s*Name|Customer\s*Name)\s*[:\-]?\s*([A-Za-z\s\.]+)'
+  account_holder: '(?:Account\s*Name|Customer\s*Name)\s*[:\-]\s*([^\|\r\n]+)'
 
 layout_signature:
   header_row:

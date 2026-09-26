@@ -1,7 +1,7 @@
 profile_id: "central_bank_csv_fmt1"
 parent_bank: "central_bank"
 bank_name: "Central Bank of India"
-container_format: "excel"
+container_format: "csv"
 layout_variant: "fmt1"
 
 file_format:
